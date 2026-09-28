@@ -2,23 +2,18 @@ import { useEffect, useMemo, useState, useRef } from "react";
 import { pushHrmsSettings, pullHrmsSettings } from "../../../services/hrmsSync";
 import { pullAuditTrail } from "../../../services/auditTrail";
 import {
-  Users,
   UserCheck,
-  CheckCircle2,
   Plane,
   Briefcase,
-  ShieldCheck,
   UserPlus,
   ClipboardCheck,
   CalendarDays,
   Calendar as CalendarIcon,
-  Download,
   X,
   Zap,
   ChevronRight,
   ChevronDown,
   Plus,
-  FileText,
   Check,
   Bell,
   CheckCheck,
@@ -44,124 +39,6 @@ import { useAssetStore } from "../../../stores/assetStore";
 import AnalyticsVolumeChart from "./AnalyticsVolumeChart";
 import { PageInfoButton } from "../../../components/common/PageInfoButton";
 import { hrmsGuides } from "../../../data/hrms/hrmsGuides";
-
-const TOP_STATS = [
-  {
-    label: "Total Employees",
-    value: "1,248",
-    badge: "+4.2%",
-    badgeTone: "green",
-    sub: "32 joined this quarter",
-    Icon: Users,
-  },
-  {
-    label: "Present Today",
-    value: "1,102",
-    badge: "94.2%",
-    badgeTone: "green",
-    sub: "Active on-site & remote",
-    Icon: CheckCircle2,
-  },
-  {
-    label: "On Leave",
-    value: "34",
-    badge: "4 pending",
-    badgeTone: "amber",
-    sub: "Across teams",
-    Icon: Plane,
-  },
-  {
-    label: "Open Positions",
-    value: "24",
-    badge: "4 closing soon",
-    badgeTone: "blue",
-    sub: "142 active candidates",
-    Icon: Briefcase,
-  },
-];
-
-const BOTTOM_STATS = [
-  { label: "Active Employees", value: "1,102", sub: "94% active", Icon: ShieldCheck },
-  { label: "New Joiners", value: "32", sub: "This month", Icon: UserPlus },
-  { label: "Pending Approvals", value: "12", sub: "Awaiting action", Icon: ClipboardCheck },
-  { label: "Upcoming Events", value: "6", sub: "This week", Icon: CalendarDays },
-];
-
-const INITIAL_SCHEDULE = [
-  {
-    time: "09:30 AM",
-    name: "Marcus Chen",
-    dept: "Core Infrastructure",
-    event: "Technical Interview",
-    category: "Interviews",
-    status: "Confirmed",
-    img: "https://randomuser.me/api/portraits/men/32.jpg",
-  },
-  {
-    time: "11:00 AM",
-    name: "Elena Rostova",
-    dept: "Global Marketing",
-    event: "First Day Onboarding",
-    category: "Onboarding",
-    status: "In Progress",
-    img: "https://randomuser.me/api/portraits/women/44.jpg",
-  },
-  {
-    time: "01:15 PM",
-    name: "Devansh Sharma",
-    dept: "Engineering",
-    event: "System Architecture Review",
-    category: "Reviews",
-    status: "Confirmed",
-    img: "https://randomuser.me/api/portraits/men/46.jpg",
-  },
-  {
-    time: "02:15 PM",
-    name: "Tariq Al-Mansoor",
-    dept: "People Ops",
-    event: "Quarterly Performance",
-    category: "Reviews",
-    status: "Scheduled",
-    img: "https://randomuser.me/api/portraits/men/54.jpg",
-  },
-  {
-    time: "03:30 PM",
-    name: "Aisha Patel",
-    dept: "People Ops",
-    event: "HR Policy Orientation",
-    category: "Onboarding",
-    status: "In Progress",
-    img: "https://randomuser.me/api/portraits/women/65.jpg",
-  },
-  {
-    time: "04:00 PM",
-    name: "Sophia Lindqvist",
-    dept: "Design System",
-    event: "Role Realignment",
-    category: "Reviews",
-    status: "Confirmed",
-    img: "https://randomuser.me/api/portraits/women/68.jpg",
-  },
-  {
-    time: "04:45 PM",
-    name: "Michael Chang",
-    dept: "Core Infrastructure",
-    event: "Senior DevOps Interview",
-    category: "Interviews",
-    status: "Scheduled",
-    img: "https://randomuser.me/api/portraits/men/72.jpg",
-  },
-  {
-    time: "05:30 PM",
-    name: "Priya Nair",
-    dept: "Global Marketing",
-    event: "Design & Copy Final Round",
-    category: "Interviews",
-    status: "Confirmed",
-    img: "https://randomuser.me/api/portraits/women/29.jpg",
-  },
-];
-
 
 const MODULE_META = {
   "Leave Management": { Icon: Plane, bg: "#fef3c7", fg: "#b45309" },
@@ -245,63 +122,16 @@ function loadActivities() {
 
 const ACTIVITY = [];
 
-const badgeStyles = {
-  green: { background: "#dcfce7", color: "#15803d" },
-  amber: { background: "#fef3c7", color: "#b45309" },
-  blue: { background: "#dbeafe", color: "#1d4ed8" },
-};
-
-const statusStyles = {
-  Confirmed: { background: "#e6f4ea", color: "#15803d", border: "#a7f3d0" },
-  "In Progress": { background: "#eff6ff", color: "#2563eb", border: "#bfdbfe" },
-  Scheduled: { background: "#fef3c7", color: "#b45309", border: "#fde68a" },
-};
-
-function StatCard({ label, value, badge, badgeTone, sub, Icon }) {
-  return (
-    <div className="hrms-stat-card">
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-        <span style={{ fontSize: 12.5, color: "#6b7a90", fontWeight: 500 }}>{label}</span>
-        {Icon && <Icon size={17} style={{ color: "#5b6b82" }} strokeWidth={1.8} />}
-      </div>
-      <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 8 }}>
-        <strong style={{ fontSize: 26, fontWeight: 800, color: "#111f36", letterSpacing: "-0.02em", lineHeight: 1 }}>
-          {value}
-        </strong>
-        {badge && (
-          <span className="hrms-pill" style={{ ...badgeStyles[badgeTone] }}>
-            {badge}
-          </span>
-        )}
-      </div>
-      <p style={{ margin: "7px 0 0", fontSize: 12, color: "#6b7a90" }}>{sub}</p>
-    </div>
-  );
-}
-
 export default function HRMSDashboard() {
   const setToast = useAppStore((s) => s.setToast);
 
-  const [filter, setFilter] = useState("All");
   const [showNotice, setShowNotice] = useState(true);
-  const [scheduleItems, setScheduleItems] = useState(INITIAL_SCHEDULE);
 
   // Date range filter state
   const [dateRangeLabel, setDateRangeLabel] = useState("Oct 1 – Oct 31, 2024");
   const [showDateModal, setShowDateModal] = useState(false);
   const [customStart, setCustomStart] = useState("2024-10-01");
   const [customEnd, setCustomEnd] = useState("2024-10-31");
-
-  // Add record state
-  const [showAddModal, setShowAddModal] = useState(false);
-  const [newRecord, setNewRecord] = useState({
-    name: "",
-    dept: "Core Infrastructure",
-    event: "",
-    category: "Interviews",
-    time: "05:00 PM",
-    status: "Confirmed",
-  });
 
   // Handover notes state
   const [showHandoverModal, setShowHandoverModal] = useState(false);
@@ -530,51 +360,6 @@ export default function HRMSDashboard() {
     }, 5000);
   };
 
-  const TABS = ["All", "Interviews", "Onboarding", "Reviews"];
-  const filtered = filter === "All" ? scheduleItems : scheduleItems.filter((r) => r.category === filter);
-
-  const handleExport = () => {
-    const header = "Time,Name,Department,Event,Status";
-    const rows = filtered.map((r) =>
-      [r.time, r.name, r.dept, r.event, r.status].map((v) => `"${v}"`).join(",")
-    );
-    const blob = new Blob([[header, ...rows].join("\n")], { type: "text/csv" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = "schedule.csv";
-    a.click();
-    URL.revokeObjectURL(url);
-    setToast("Schedule exported as CSV.");
-  };
-
-  const handleAddRecordSubmit = () => {
-    if (!newRecord.name || !newRecord.event) {
-      return setToast("Please fill in candidate/employee name and event type.", "error");
-    }
-    const created = {
-      time: newRecord.time || "05:00 PM",
-      name: newRecord.name,
-      dept: newRecord.dept,
-      event: newRecord.event,
-      category: newRecord.category,
-      status: newRecord.status,
-      img: `https://randomuser.me/api/portraits/${scheduleItems.length % 2 === 0 ? "women" : "men"}/${(scheduleItems.length * 9) % 80}.jpg`,
-    };
-    setScheduleItems((prev) => [created, ...prev]);
-    pushActivity("You", `scheduled "${created.event}" with ${created.name}.`, "Schedule");
-    setToast(`Record for ${newRecord.name} added to schedule!`);
-    setShowAddModal(false);
-    setNewRecord({
-      name: "",
-      dept: "Core Infrastructure",
-      event: "",
-      category: "Interviews",
-      time: "05:00 PM",
-      status: "Confirmed",
-    });
-  };
-
   const handleApplyDateRange = (label) => {
     setDateRangeLabel(label);
     setShowDateModal(false);
@@ -606,13 +391,6 @@ export default function HRMSDashboard() {
             <CalendarIcon size={15} style={{ color: "#475569" }} />
             {dateRangeLabel}
           </button>
-          <button
-            type="button"
-            onClick={() => setShowAddModal(true)}
-            className="hrms-add-btn"
-          >
-            + Add Record
-          </button>
         </div>
       </div>
 
@@ -642,97 +420,12 @@ export default function HRMSDashboard() {
         </div>
       )}
 
-      {/* Stat grids */}
-      <div className="hrms-stat-grid">
-        {TOP_STATS.map((s) => (
-          <StatCard key={s.label} {...s} />
-        ))}
-      </div>
-      <div className="hrms-stat-grid" style={{ marginBottom: 18 }}>
-        {BOTTOM_STATS.map((s) => (
-          <StatCard key={s.label} {...s} />
-        ))}
-      </div>
-
       {/* Analytics Volume Chart (Workforce, Attendance, Leave, Payroll, etc.) */}
       <AnalyticsVolumeChart />
 
-      {/* Main grid */}
-      <div className="hrms-main-grid">
-        {/* Schedule */}
-        <div className="hrms-card" style={{ overflow: "hidden", display: "flex", flexDirection: "column", justifyContent: "space-between" }}>
-          <div className="hrms-card-head">
-            <div>
-              <h3 className="hrms-h3">Today&apos;s Schedule &amp; Meetings</h3>
-              <p className="hrms-sub">8 sessions scheduled for Wednesday, Oct 11</p>
-            </div>
-            <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-              <div className="hrms-tabs">
-                {TABS.map((t) => (
-                  <button
-                    key={t}
-                    type="button"
-                    onClick={() => setFilter(t)}
-                    className={filter === t ? "hrms-tab active" : "hrms-tab"}
-                  >
-                    {t}
-                  </button>
-                ))}
-              </div>
-              <button type="button" onClick={handleExport} className="hrms-export">
-                <Download size={14} /> Export
-              </button>
-            </div>
-          </div>
+      {/* Main grid - Recent Activity + Quick Request */}
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16, alignItems: "start" }}>
 
-          <div style={{ overflowX: "auto" }}>
-            <table className="hrms-table">
-              <thead>
-                <tr>
-                  {["TIME", "CANDIDATE / EMPLOYEE", "DEPARTMENT", "EVENT TYPE", "STATUS"].map((h) => (
-                    <th key={h}>{h}</th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {filtered.map((row) => (
-                  <tr key={row.name}>
-                    <td className="hrms-time">{row.time}</td>
-                    <td>
-                      <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                        <img
-                          src={row.img}
-                          alt={row.name}
-                          width={30}
-                          height={30}
-                          className="hrms-avatar"
-                          loading="lazy"
-                        />
-                        <span style={{ fontWeight: 500, color: "#1e293b", whiteSpace: "nowrap" }}>{row.name}</span>
-                      </div>
-                    </td>
-                    <td className="hrms-dept">{row.dept}</td>
-                    <td>
-                      <span className="hrms-event">{row.event}</span>
-                    </td>
-                    <td>
-                      <span className="hrms-status" style={{ ...statusStyles[row.status] }}>
-                        {row.status}
-                      </span>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-          <div className="flex flex-wrap lg:flex-nowrap items-center justify-between gap-x-3 lg:gap-x-0 gap-y-1 lg:gap-y-0 px-5 py-3 border-t border-border bg-soft/30 text-[12px] text-muted font-medium mt-auto">
-            <span>Showing {filtered.length} of {scheduleItems.length} scheduled sessions</span>
-            <span className="text-[11.5px] text-text-secondary">Updated live · Wednesday, Oct 11</span>
-          </div>
-        </div>
-
-        {/* Right column */}
-        <div style={{ display: "grid", gap: 16, alignContent: "start" }}>
           {/* Recent Activity — live, minimal */}
           <div className="hrms-card" style={{ padding: "18px 20px" }}>
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
@@ -991,7 +684,6 @@ export default function HRMSDashboard() {
               </div>
             )}
           </div>
-        </div>
       </div>
 
       {/* Date Range Modal */}
@@ -1072,105 +764,6 @@ export default function HRMSDashboard() {
                 value={customEnd}
                 onChange={(e) => setCustomEnd(e.target.value)}
               />
-            </div>
-          </div>
-        </div>
-      </Modal>
-
-      {/* Add Record Modal */}
-      <Modal
-        isOpen={showAddModal}
-        onClose={() => setShowAddModal(false)}
-        title="Add Schedule / Meeting Record"
-        footer={
-          <>
-            <button type="button" className="btn-outline" onClick={() => setShowAddModal(false)}>
-              Cancel
-            </button>
-            <button type="button" className="btn-primary" onClick={handleAddRecordSubmit}>
-              + Add Record
-            </button>
-          </>
-        }
-      >
-        <div style={{ display: "grid", gap: 16 }}>
-          <div className="form-row">
-            <div className="form-group">
-              <label className="form-label">
-                Candidate / Employee Name <span className="required">*</span>
-              </label>
-              <input
-                className="form-input"
-                placeholder="e.g. Marcus Chen"
-                value={newRecord.name}
-                onChange={(e) => setNewRecord({ ...newRecord, name: e.target.value })}
-              />
-            </div>
-            <div className="form-group">
-              <label className="form-label">Department</label>
-              <select
-                className="form-select"
-                value={newRecord.dept}
-                onChange={(e) => setNewRecord({ ...newRecord, dept: e.target.value })}
-              >
-                <option>Core Infrastructure</option>
-                <option>Global Marketing</option>
-                <option>People Ops</option>
-                <option>Design System</option>
-                <option>Engineering</option>
-                <option>Finance</option>
-                <option>HR</option>
-              </select>
-            </div>
-          </div>
-
-          <div className="form-row">
-            <div className="form-group">
-              <label className="form-label">
-                Event Type <span className="required">*</span>
-              </label>
-              <input
-                className="form-input"
-                placeholder="e.g. Technical Interview"
-                value={newRecord.event}
-                onChange={(e) => setNewRecord({ ...newRecord, event: e.target.value })}
-              />
-            </div>
-            <div className="form-group">
-              <label className="form-label">Category Filter</label>
-              <select
-                className="form-select"
-                value={newRecord.category}
-                onChange={(e) => setNewRecord({ ...newRecord, category: e.target.value })}
-              >
-                <option>Interviews</option>
-                <option>Onboarding</option>
-                <option>Reviews</option>
-              </select>
-            </div>
-          </div>
-
-          <div className="form-row">
-            <div className="form-group">
-              <label className="form-label">Time</label>
-              <input
-                className="form-input"
-                placeholder="e.g. 05:00 PM"
-                value={newRecord.time}
-                onChange={(e) => setNewRecord({ ...newRecord, time: e.target.value })}
-              />
-            </div>
-            <div className="form-group">
-              <label className="form-label">Status</label>
-              <select
-                className="form-select"
-                value={newRecord.status}
-                onChange={(e) => setNewRecord({ ...newRecord, status: e.target.value })}
-              >
-                <option>Confirmed</option>
-                <option>In Progress</option>
-                <option>Scheduled</option>
-              </select>
             </div>
           </div>
         </div>

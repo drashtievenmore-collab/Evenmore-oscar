@@ -6,60 +6,12 @@ import Modal from "../../../components/ui/Modal";
 import { PageInfoButton } from "../../../components/common/PageInfoButton";
 import { hrmsGuides } from "../../../data/hrms/hrmsGuides";
 
-const DEFAULT_EMPLOYEES = [
-  {
-    id: "EMP1024",
-    name: "Priya Patel",
-    designation: "Senior Engineer",
-    dept: "Engineering",
-    manager: "David Park",
-    status: "Active",
-    avatar: "https://randomuser.me/api/portraits/women/44.jpg",
-  },
-  {
-    id: "EMP1025",
-    name: "Marcus Chen",
-    designation: "Lead Designer",
-    dept: "Design",
-    manager: "David Park",
-    status: "Active",
-    avatar: "https://randomuser.me/api/portraits/men/32.jpg",
-  },
-  {
-    id: "EMP1026",
-    name: "Liam Cooper",
-    designation: "DevOps Engineer",
-    dept: "Engineering",
-    manager: "David Park",
-    status: "On Leave",
-    avatar: "https://randomuser.me/api/portraits/men/75.jpg",
-  },
-  {
-    id: "EMP1027",
-    name: "Sarah Wilson",
-    designation: "Brand Strategist",
-    dept: "Marketing",
-    manager: "David Park",
-    status: "Active",
-    avatar: "https://randomuser.me/api/portraits/women/68.jpg",
-  },
-];
+const DEFAULT_EMPLOYEES = [];
 
 const MONTHS = ["October", "September", "August", "July", "June", "May"];
 const YEARS = ["2024", "2023"];
 
-const SAMPLE_RECORDS = [
-  { date: "01 Oct 2024", day: "Tue", checkIn: "09:02", checkOut: "18:04", workHours: "08:32", shift: "Flexible", status: "Present", remarks: "—" },
-  { date: "02 Oct 2024", day: "Wed", checkIn: "09:02", checkOut: "18:04", workHours: "08:32", shift: "General", status: "Present", remarks: "—" },
-  { date: "03 Oct 2024", day: "Thu", checkIn: "09:18", checkOut: "18:04", workHours: "08:32", shift: "General", status: "Late", remarks: "Grace 10 min" },
-  { date: "04 Oct 2024", day: "Fri", checkIn: "09:02", checkOut: "18:04", workHours: "08:32", shift: "Flexible", status: "Present", remarks: "—" },
-  { date: "05 Oct 2024", day: "Sat", checkIn: "09:02", checkOut: "18:04", workHours: "08:32", shift: "General", status: "WFH", remarks: "—" },
-  { date: "06 Oct 2024", day: "Sun", checkIn: "—", checkOut: "—", workHours: "—", shift: "General", status: "Absent", remarks: "—" },
-  { date: "07 Oct 2024", day: "Mon", checkIn: "09:02", checkOut: "18:04", workHours: "08:32", shift: "Flexible", status: "Present", remarks: "—" },
-  { date: "08 Oct 2024", day: "Tue", checkIn: "09:00", checkOut: "18:00", workHours: "08:30", shift: "General", status: "Present", remarks: "—" },
-  { date: "09 Oct 2024", day: "Wed", checkIn: "09:05", checkOut: "18:10", workHours: "08:35", shift: "General", status: "Present", remarks: "—" },
-  { date: "10 Oct 2024", day: "Thu", checkIn: "—", checkOut: "—", workHours: "—", shift: "General", status: "On Leave", remarks: "Planned Annual" },
-];
+const SAMPLE_RECORDS = [];
 
 const statusStyles = {
   Present: { background: "#e6f4ea", color: "#15803d", border: "#a7f3d0" },
@@ -91,7 +43,7 @@ export default function IndividualAttendance() {
     return DEFAULT_EMPLOYEES;
   }, [storeEmployees]);
 
-  const [selectedEmpId, setSelectedEmpId] = useState(() => employeesList[0]?.id || "EMP1024");
+  const [selectedEmpId, setSelectedEmpId] = useState(() => employeesList[0]?.id || "");
   const [selectedMonth, setSelectedMonth] = useState("October");
   const [selectedYear, setSelectedYear] = useState("2024");
   const [viewMode, setViewMode] = useState("Table");
@@ -101,7 +53,7 @@ export default function IndividualAttendance() {
   const [showProfileModal, setShowProfileModal] = useState(false);
 
   const currentEmp = useMemo(
-    () => employeesList.find((e) => e.id === selectedEmpId) || employeesList[0] || DEFAULT_EMPLOYEES[0],
+    () => employeesList.find((e) => e.id === selectedEmpId) || employeesList[0] || null,
     [employeesList, selectedEmpId]
   );
 
@@ -112,7 +64,7 @@ export default function IndividualAttendance() {
       late: records.filter((r) => r.status === "Late").length,
       leave: records.filter((r) => r.status === "On Leave").length,
       wfh: records.filter((r) => r.status === "WFH").length,
-      overtime: "6h",
+      overtime: "0h",
     };
   }, [records]);
 
@@ -161,6 +113,7 @@ export default function IndividualAttendance() {
             onChange={(e) => setSelectedEmpId(e.target.value)}
             className="ind-select ind-select-emp"
           >
+            <option value="">Select employee…</option>
             {employeesList.map((e) => (
               <option key={e.id} value={e.id}>
                 {e.name} — {e.id}
@@ -213,6 +166,7 @@ export default function IndividualAttendance() {
       </div>
 
       {/* Hero Employee Card */}
+      {currentEmp ? (
       <div className="ind-card ind-hero-card">
         <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
           <img src={currentEmp.avatar} alt={currentEmp.name} className="ind-hero-avatar" />
@@ -238,6 +192,11 @@ export default function IndividualAttendance() {
           View Employee
         </button>
       </div>
+      ) : (
+      <div className="ind-card" style={{ padding: "28px", textAlign: "center", color: "#6b7280", marginBottom: 16 }}>
+        No employees found. Add employees to view individual attendance.
+      </div>
+      )}
 
       {/* Stats Cards Row (6 Cards) */}
       <div className="ind-stats-grid">
@@ -311,6 +270,13 @@ export default function IndividualAttendance() {
                     </td>
                   </tr>
                 ))}
+                {records.length === 0 && (
+                  <tr>
+                    <td colSpan={9} style={{ textAlign: "center", color: "#6b7280", padding: "32px" }}>
+                      No attendance records found for this employee.
+                    </td>
+                  </tr>
+                )}
               </tbody>
             </table>
           </div>
@@ -405,15 +371,17 @@ export default function IndividualAttendance() {
 
       {/* View Employee Profile Modal */}
       <Modal
-        isOpen={showProfileModal}
+        isOpen={showProfileModal && Boolean(currentEmp)}
         onClose={() => setShowProfileModal(false)}
-        title={`Employee Profile — ${currentEmp.name}`}
+        title={`Employee Profile — ${currentEmp?.name || ""}`}
         footer={
           <button type="button" className="btn-primary" onClick={() => setShowProfileModal(false)}>
             Close
           </button>
         }
       >
+        {currentEmp && (
+        <>
         <div style={{ display: "flex", gap: 16, alignItems: "center", marginBottom: 16 }}>
           <img src={currentEmp.avatar} alt={currentEmp.name} style={{ width: 60, height: 60, borderRadius: 999 }} />
           <div>
@@ -425,8 +393,10 @@ export default function IndividualAttendance() {
           <div><strong>Department:</strong> {currentEmp.dept}</div>
           <div><strong>Reporting Manager:</strong> {currentEmp.manager}</div>
           <div><strong>Employment Status:</strong> {currentEmp.status}</div>
-          <div><strong>Work Location:</strong> Bangalore HQ</div>
+          <div><strong>Work Location:</strong> —</div>
         </div>
+        </>
+        )}
       </Modal>
 
       <style>{`

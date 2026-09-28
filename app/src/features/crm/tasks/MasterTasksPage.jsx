@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   Search,
@@ -107,9 +107,16 @@ export default function MasterTasksPage() {
   const [bulkDelete, setBulkDelete] = useState(false);
   const [menuId, setMenuId] = useState(null);
   const [isGuideOpen, setIsGuideOpen] = useState(false);
+  // Each distinct list is synced at most once — a sync that never sticks
+  // (offline write the server rejects) must not re-trigger this effect
+  // via the store subscription forever ("Maximum update depth exceeded").
+  const lastSyncedRef = useRef('');
 
   useEffect(() => {
     if (tasks.length > 0 || storeTasks.length > 0) {
+      const key = JSON.stringify(tasks);
+      if (key === lastSyncedRef.current) return;
+      lastSyncedRef.current = key;
       syncCollection('masterTasks', tasks, storeTasks);
     }
   }, [tasks, storeTasks]);

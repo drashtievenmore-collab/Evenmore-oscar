@@ -11,8 +11,10 @@ import {
   Type,
   UserRound,
 } from "lucide-react";
-import { useNavigate } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router-dom";
 import { defaultLeadFormSections } from "../../../data/crm/leadFormSchema";
+import { useCrmStore } from "../../../stores/crmStore";
+import { findForm, getActiveFormId, loadForms } from "../../../services/crmForms";
 
 function getFieldIcon(field) {
   if (field.type === "Email") return Mail;
@@ -119,29 +121,42 @@ export default function DynamicLeadFormPage({
   onEditLayout,
 }) {
   const navigate = useNavigate();
+  const location = useLocation();
   const handleBack = onBackToLeads || (() => navigate("/crm/leads"));
   const handleEdit = onEditLayout || (() => navigate("/crm/leads/form-builder"));
 
-  const safeSections = useMemo(() => {
+  // Re-render once the store finishes hydrating after this page mounts.
+  useCrmStore((s) => s.forms);
+
+  // Which form to show: an explicitly passed preview, else the form toggled
+  // on in Manage Lead Create Forms. Toggling a form off only untoggles it —
+  // the page still renders the first available form (never a blank page),
+  // so creating a lead is never blocked by the toggle.
+  const previewFormId = location.state?.formId || null;
+  const resolvedForm = useMemo(() => {
     if (Array.isArray(sections) && sections.length > 0 && sections !== defaultLeadFormSections) {
-      return sections;
+      return { sections };
     }
-
-    try {
-      const raw =
-        localStorage.getItem("leadFormSections_v2") ||
-        localStorage.getItem("leadFormSections");
-      if (raw) {
-        const parsed = JSON.parse(raw);
-        if (Array.isArray(parsed) && parsed.length > 0) {
-          return parsed;
-        }
+    const wantedId = previewFormId || getActiveFormId();
+    if (wantedId) {
+      const form = findForm(wantedId);
+      if (form && Array.isArray(form.sections) && form.sections.length > 0) {
+        return form;
       }
-    } catch {
     }
+    const fallback = loadForms()[0];
+    if (fallback && Array.isArray(fallback.sections) && fallback.sections.length > 0) {
+      return fallback;
+    }
+    return { sections: defaultLeadFormSections };
+  }, [sections, previewFormId]);
 
-    return Array.isArray(sections) && sections.length > 0 ? sections : defaultLeadFormSections;
-  }, [sections]);
+  const safeSections = useMemo(() => {
+    if (resolvedForm) {
+      return resolvedForm.sections;
+    }
+    return defaultLeadFormSections;
+  }, [resolvedForm]);
 
   return (
     <section className="w-full">
@@ -173,7 +188,22 @@ export default function DynamicLeadFormPage({
         </div>
       </div>
 
-      {/* Sections */}
+      {/* Sections — only the toggled-on form is shown */}
+      {safeSections.length === 0 ? (
+        <div className="bg-white rounded-2xl border border-slate-200 p-10 shadow-xs text-center">
+          <p className="text-sm font-bold text-slate-900">No lead form is switched on</p>
+          <p className="mt-1 text-xs text-slate-500">
+            Toggle a form on in Manage Lead Create Forms to show it here.
+          </p>
+          <button
+            type="button"
+            onClick={() => navigate("/crm/leads/forms")}
+            className="mt-4 inline-flex items-center gap-1.5 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold rounded-lg shadow-xs transition cursor-pointer"
+          >
+            Go to Manage Lead Create Forms
+          </button>
+        </div>
+      ) : (
       <div className="space-y-6">
         {safeSections.map((section) => (
           <section
@@ -209,6 +239,7 @@ export default function DynamicLeadFormPage({
           </section>
         ))}
       </div>
+      )}
     </section>
   );
 }

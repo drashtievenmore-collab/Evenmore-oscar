@@ -49,12 +49,14 @@ import {
   Moon,
   Sparkles,
   TreePine,
+  Waves,
   BookOpen,
   Check,
   LogOut,
   Lock,
 } from 'lucide-react';
 import { useAppStore } from '../../stores/appStore';
+import { useCrmStore } from '../../stores/crmStore';
 import { usePmsStore, computeNavBadges } from '../../stores/pmsStore';
 import { useERP } from '../../context/ERPContext';
 import { useModuleWhenIdle } from '../../hooks/useIdleReady';
@@ -62,6 +64,7 @@ import { UserGuideModal } from '../common/UserGuideModal';
 import { clearStoredAuth } from '../../utils/authUtils';
 
 const SIDEBAR_THEMES = [
+  { id: 'oscar', name: 'Oscar', icon: Waves, color: '#14b8a6' },
   { id: 'light', name: 'Light', icon: Sun, color: '#1f6bff' },
   { id: 'dark', name: 'Dark', icon: Moon, color: '#3b82f6' },
   { id: 'midnight', name: 'Midnight', icon: Sparkles, color: '#818cf8' },
@@ -81,8 +84,6 @@ const NAV = [
     icon: LayoutGrid,
     defaultOpen: false,
     children: [
-      { label: 'CRM Dashboard', icon: Home, to: '/crm/dashboard' },
-      { label: 'CRM Reports', icon: PieChart, to: '/crm/reports' },
       {
         label: 'Leads',
         icon: Target,
@@ -104,7 +105,6 @@ const NAV = [
           { label: 'Task Allocation', to: '/crm/tasks/allocation' },
         ],
       },
-      { label: 'User Tracking', icon: Users, to: '/crm/user-allocation' },
       { label: 'Deals', icon: TrendingUp, to: '/crm/deals' },
       { label: 'Projects', icon: Briefcase, to: '/crm/projects' },
       { label: 'Contracts', icon: FileText, to: '/crm/contracts' },
@@ -415,6 +415,43 @@ function SubItem({ item, depth = 1, badges = {} }) {
   const isActive = isFormBuilderAlias || isExact || (isPrefix && !hasBetterMatch);
   const count = item.badgeKey ? (badges?.[item.badgeKey] ?? 0) : 0;
   const Icon = item.icon;
+  const trainingEnabled = useAppStore((s) => s.trainingEnabled ?? true);
+  const setTrainingEnabled = useAppStore((s) => s.setTrainingEnabled);
+  const recruitmentEnabled = useAppStore((s) => s.recruitmentEnabled ?? true);
+  const setRecruitmentEnabled = useAppStore((s) => s.setRecruitmentEnabled);
+  const isTrainingRow = item.label === 'Training';
+  const isRecruitmentLeaf = item.label === 'Recruitment';
+  const leafEnabled = isTrainingRow ? trainingEnabled : recruitmentEnabled;
+  const setLeafEnabled = isTrainingRow ? setTrainingEnabled : setRecruitmentEnabled;
+  const createLeadMode = useCrmStore((s) => s.createLeadMode);
+
+  // "Lead Create Form" follows the Leads page "Create Lead" switch:
+  // toggle OFF hides it, toggle ON shows it.
+  if (item.label === 'Lead Create Form' && !createLeadMode) return null;
+
+  // Training (and any module leaf) gets an inline toggle where the chevron sits.
+  if ((isTrainingRow || isRecruitmentLeaf) && Icon && item.to) {
+    return (
+      <div
+        className={`sub-group-row${isActive ? ' active section-active' : ''}${leafEnabled ? '' : ' opacity-60'}`}
+        title={item.label}
+      >
+        <NavLink
+          to={leafEnabled ? item.to : '#'}
+          end
+          onClick={(e) => {
+            if (!leafEnabled) e.preventDefault();
+          }}
+          className={`flex items-center gap-2 flex-1 min-w-0${leafEnabled ? '' : ' pointer-events-none'}`}
+        >
+          <Icon size={16} strokeWidth={2} className="nav-ico" />
+          <span className="nav-txt">{item.label}</span>
+          <NavBadge count={count} color={item.badgeColor} />
+        </NavLink>
+        <ModuleToggle enabled={leafEnabled} onToggle={setLeafEnabled} label={item.label} />
+      </div>
+    );
+  }
 
   // Icon leaves (e.g. CRM > Dashboard, Sales > Proforma Invoices, etc.) render like nav row with icon
   if (Icon && item.to) {
@@ -467,11 +504,95 @@ function SubList({ items, depth = 1, badges }) {
   );
 }
 
+// ── Oscar fabric footer (sidebar bottom, Tailwind) ──
+// Photo comes from `public/fabric.png` (`public/febric.png` also tried).
+// If neither file exists yet, the teal gradient alone still shows.
+function FabricFooter() {
+  const [src, setSrc] = useState('/guide/febric.png');
+  const fallbacks = ['/guide/febric.png', '/fabric.png', '/febric.png'];
+  return (
+    <div className="relative -ml-[14px] -mr-3 mt-auto h-64 shrink-0 select-none overflow-hidden" aria-hidden="true">
+      {src ? (
+        <img
+          src={src}
+          alt=""
+          className="absolute inset-0 h-full w-full object-cover"
+          style={{
+            WebkitMaskImage: 'linear-gradient(to bottom, transparent 0, black 28%)',
+            maskImage: 'linear-gradient(to bottom, transparent 0, black 28%)',
+          }}
+          onError={() => {
+            const next = fallbacks[fallbacks.indexOf(src) + 1] || null;
+            setSrc(next);
+          }}
+        />
+      ) : (
+        <svg viewBox="0 0 200 160" className="absolute inset-0 h-full w-full text-teal-300/40" fill="none" preserveAspectRatio="none">
+          <path d="M0 70 C 30 50, 55 90, 85 70 S 145 40, 200 62" stroke="currentColor" strokeWidth="1.4" opacity="0.9" />
+          <path d="M0 90 C 35 70, 60 110, 95 90 S 150 60, 200 82" stroke="currentColor" strokeWidth="1.2" opacity="0.55" />
+          <path d="M0 110 C 40 90, 70 125, 105 108 S 160 80, 200 100" stroke="currentColor" strokeWidth="1" opacity="0.3" />
+          <path d="M0 130 C 40 112, 70 140, 105 128 S 160 102, 200 118" stroke="currentColor" strokeWidth="1" opacity="0.18" />
+        </svg>
+      )}
+      <div className="absolute inset-0 bg-gradient-to-b from-transparent via-[#071f2b]/20 to-[#071f2b]/85" />
+      <div className="absolute left-4 bottom-24 border-l-2 border-teal-300/80 pl-2.5">
+        <p className="text-[11px] font-bold tracking-[0.24em] text-white/95 leading-[1.75]">
+          WEAVE<br />PROCESS<br />GROW
+        </p>
+      </div>
+    </div>
+  );
+}
+
+// ── Inline module toggle (sidebar ">" position) ──
+// Uses a hidden checkbox + label so clicks are fully isolated from any parent
+// button. The label's onChange fires the store setter directly.
+function ModuleToggle({ enabled, onToggle, label }) {
+  const id = `mod-toggle-${label.toLowerCase().replace(/\s+/g, '-')}`;
+  return (
+    <label
+      htmlFor={id}
+      title={`${label} ${enabled ? 'ON — click to hide module' : 'OFF — click to show module'}`}
+      onClick={(e) => e.stopPropagation()}
+      onMouseDown={(e) => e.stopPropagation()}
+      className={`relative inline-flex shrink-0 w-9 h-5 rounded-full cursor-pointer ring-1 transition-colors ${
+        enabled ? 'bg-emerald-500 ring-emerald-300/60' : 'bg-slate-500/70 ring-white/25'
+      }`}
+    >
+      <input
+        id={id}
+        type="checkbox"
+        checked={enabled}
+        onChange={(e) => {
+          e.stopPropagation();
+          onToggle(e.target.checked);
+        }}
+        onClick={(e) => e.stopPropagation()}
+        aria-label={`Toggle ${label} module`}
+        className="sr-only"
+      />
+      <span
+        className={`absolute top-[2px] w-4 h-4 rounded-full bg-white shadow transition-all ${
+          enabled ? 'left-[18px]' : 'left-[2px]'
+        }`}
+      />
+    </label>
+  );
+}
+
 // ── Expandable group row ────────────────────────────────────
 function ExpandableRow({ item, depth = 0, badges = {} }) {
   const location = useLocation();
   const [open, setOpen] = useState(Boolean(item.defaultOpen));
   const Icon = item.icon;
+  const recruitmentEnabled = useAppStore((s) => s.recruitmentEnabled ?? true);
+  const setRecruitmentEnabled = useAppStore((s) => s.setRecruitmentEnabled);
+  const trainingEnabled = useAppStore((s) => s.trainingEnabled ?? true);
+  const setTrainingEnabled = useAppStore((s) => s.setTrainingEnabled);
+
+  const isModuleRow = item.label === 'Recruitment' || item.label === 'Training';
+  const moduleEnabled = item.label === 'Recruitment' ? recruitmentEnabled : trainingEnabled;
+  const setModuleEnabled = item.label === 'Recruitment' ? setRecruitmentEnabled : setTrainingEnabled;
 
   // Auto-open if a child route is active
   const isChildActive = item.children?.some(
@@ -488,6 +609,25 @@ function ExpandableRow({ item, depth = 0, badges = {} }) {
   const isActive = item.to && (location.pathname === item.to || location.pathname.startsWith(item.to + '/'));
 
   if (item.to && !item.children) {
+    // Training is a direct link — render link + inline toggle in chevron spot.
+    if (item.label === 'Training') {
+      return (
+        <div className={`nav-row group ${moduleEnabled ? '' : 'opacity-60'}`} title={item.label}>
+          <NavLink
+            to={moduleEnabled ? item.to : '#'}
+            end
+            onClick={(e) => {
+              if (!moduleEnabled) e.preventDefault();
+            }}
+            className={`flex items-center gap-2 flex-1 min-w-0 ${moduleEnabled ? '' : 'pointer-events-none'}`}
+          >
+            {Icon && <Icon size={18} strokeWidth={1.9} className="nav-ico" />}
+            <span className="nav-txt">{item.label}</span>
+          </NavLink>
+          <ModuleToggle enabled={moduleEnabled} onToggle={setModuleEnabled} label={item.label} />
+        </div>
+      );
+    }
     // Simple root nav row (direct link like Parties, Reports)
     return (
       <NavLink
@@ -506,6 +646,40 @@ function ExpandableRow({ item, depth = 0, badges = {} }) {
 
   const isRoot = depth === 0;
   const groupCount = item.badgeKey ? (badges?.[item.badgeKey] ?? 0) : 0;
+  // Recruitment OFF → keep the row (so the toggle stays reachable) but hide children.
+  const showChildren = isModuleRow ? (moduleEnabled && open) : open;
+
+  if (isModuleRow) {
+    return (
+      <div className="nav-group">
+        <div
+          title={item.label}
+          className={
+            isRoot
+              ? `nav-row${isChildActive ? ' parent-active' : isActive ? ' section-active' : ''}${!moduleEnabled ? ' opacity-60' : ''}`
+              : `sub-group-row${isChildActive ? ' parent-active' : ''}`
+          }
+        >
+          <button
+            type="button"
+            onClick={() => {
+              if (!moduleEnabled) return;
+              setOpen((v) => !v);
+            }}
+            className="flex items-center gap-2 flex-1 min-w-0 bg-transparent border-0 p-0 text-left cursor-pointer"
+          >
+            {Icon && <Icon size={isRoot ? 18 : 16} strokeWidth={1.9} className="nav-ico" />}
+            <span className="nav-txt">{item.label}</span>
+            <NavBadge count={groupCount} color={item.badgeColor} />
+          </button>
+          <ModuleToggle enabled={moduleEnabled} onToggle={setModuleEnabled} label={item.label} />
+        </div>
+        {showChildren && item.children && (
+          <SubList items={item.children} depth={depth + 1} badges={badges} />
+        )}
+      </div>
+    );
+  }
 
   return (
     <div className="nav-group">
@@ -528,7 +702,7 @@ function ExpandableRow({ item, depth = 0, badges = {} }) {
           </span>
         )}
       </button>
-      {open && item.children && (
+      {showChildren && item.children && (
         <SubList items={item.children} depth={depth + 1} badges={badges} />
       )}
     </div>
@@ -551,6 +725,10 @@ export default function Sidebar() {
   const dragRef = useRef({ dragging: false, startX: 0, startWidth: sidebarWidth });
 
   const filteredNav = useMemo(() => filterNavTree(NAV, searchQuery), [searchQuery]);
+
+  // Module rows stay visible so their inline toggle is always reachable.
+  // OFF only hides children + blocks routes (see routes/index.jsx guard).
+  const visibleNav = filteredNav;
 
   // PMS live nav counters. Subscribe to stable slices and derive, so the
   // selector never hands useSyncExternalStore a fresh object each render.
@@ -696,8 +874,8 @@ export default function Sidebar() {
 
         {/* Navigation */}
         <nav className="side-nav" aria-label="Primary navigation">
-          {filteredNav.length > 0 ? (
-            filteredNav.map((item) => (
+          {visibleNav.length > 0 ? (
+            visibleNav.map((item) => (
               <ExpandableRow key={item.label} item={item} depth={0} badges={badges} />
             ))
           ) : (
@@ -715,8 +893,20 @@ export default function Sidebar() {
         </nav>
       </div>
 
-      {/* Sticky Bottom User Profile Widget */}
-      <div className="pt-2 px-1 pb-1 mt-auto border-t border-white/10 relative" ref={profileRef}>
+      {/* Oscar fabric footer — photo from public/fabric.png with tagline */}
+      {theme === 'oscar' && (
+        <FabricFooter />
+      )}
+
+      {/* Sticky Bottom User Profile Widget (overlaid on fabric in Oscar theme) */}
+      <div
+        className={
+          theme === 'oscar'
+            ? 'relative z-10 -mt-24 -mb-[14px] border-0 bg-transparent px-4 pb-5'
+            : 'pt-2 px-1 pb-1 mt-auto border-t border-white/10 relative'
+        }
+        ref={profileRef}
+      >
         <button
           type="button"
           onClick={() => setIsProfileOpen(!isProfileOpen)}
@@ -772,7 +962,7 @@ export default function Sidebar() {
                 <span>Theme Mode</span>
                 <span className="text-[9px] text-blue-400 capitalize">{theme}</span>
               </div>
-              <div className="grid grid-cols-4 gap-1">
+              <div className="grid grid-cols-5 gap-1">
                 {SIDEBAR_THEMES.map((t) => {
                   const Icon = t.icon;
                   const isSelected = theme === t.id;

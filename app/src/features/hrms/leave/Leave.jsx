@@ -78,42 +78,40 @@ export default function Leave() {
   const [encashModalOpen, setEncashModalOpen] = useState(false);
   const [compOffModalOpen, setCompOffModalOpen] = useState(false);
   const [encashForm, setEncashForm] = useState({
-    employeeName: "Ayesha Khan",
-    days: 5,
-    reason: "Surplus annual leave encashment into October payroll",
+    employeeName: "",
+    days: 1,
+    reason: "",
   });
   const [compOffForm, setCompOffForm] = useState({
-    employeeName: "Ayesha Khan",
-    workedDate: "2024-10-19",
+    employeeName: "",
+    workedDate: new Date().toISOString().slice(0, 10),
     hoursWorked: 8,
     creditDays: 1,
-    reason: "Urgent production cloud deployment over the weekend",
+    reason: "",
   });
 
   const [form, setForm] = useState({
-    employeeName: "Ayesha Khan",
+    employeeName: "",
     type: "Annual Leave",
-    from: "2024-10-20",
-    to: "2024-10-24",
+    from: "",
+    to: "",
     reason: "",
     delegateSearch: "",
-    delegate: "Priya Patel",
+    delegate: "",
     handover: "",
   });
   const [delegateSelect, setDelegateSelect] = useState({});
 
   // Dynamic leave balances (5 categories with carry-forward & comp-off)
   const leaveBalances = useMemo(() => {
-    const carriedDays =
-      carriedForwardLeaves?.[form.employeeName] ??
-      (form.employeeName?.toLowerCase().includes("ayesha") ? 6 : 0);
+    const carriedDays = carriedForwardLeaves?.[form.employeeName] ?? 0;
 
     const defaultBalances = {
-      annual: { total: 18 + carriedDays, used: 4, label: "Annual Leave", icon: Plane, carried: carriedDays },
-      sick: { total: 10, used: 2, label: "Sick Leave", icon: HeartPulse },
-      casual: { total: 7, used: 1, label: "Casual Leave", icon: Coffee },
+      annual: { total: 18 + carriedDays, used: 0, label: "Annual Leave", icon: Plane, carried: carriedDays },
+      sick: { total: 10, used: 0, label: "Sick Leave", icon: HeartPulse },
+      casual: { total: 7, used: 0, label: "Casual Leave", icon: Coffee },
       floating: { total: 3, used: 0, label: "Floating Holiday", icon: Sparkles },
-      compOff: { total: 2, used: 0, label: "Comp-Off Credit", icon: Clock },
+      compOff: { total: 0, used: 0, label: "Comp-Off Credit", icon: Clock },
     };
 
     // Calculate approved comp-off credits for active employee
@@ -121,8 +119,7 @@ export default function Leave() {
       .filter(
         (c) =>
           c.status === "Approved" &&
-          (c.employee?.toLowerCase() === form.employeeName?.toLowerCase() ||
-            c.employee?.toLowerCase() === "ayesha khan")
+          c.employee?.toLowerCase() === form.employeeName?.toLowerCase()
       )
       .reduce((sum, c) => sum + (Number(c.creditDays) || 1), 0);
 
@@ -132,8 +129,7 @@ export default function Leave() {
 
     const activeEmpLeaves = leaves.filter(
       (l) =>
-        (l.employee?.toLowerCase() === form.employeeName?.toLowerCase() ||
-          l.employee?.toLowerCase() === "ayesha khan") &&
+        l.employee?.toLowerCase() === form.employeeName?.toLowerCase() &&
         l.status !== "Rejected"
     );
 
@@ -218,11 +214,14 @@ export default function Leave() {
   }, [form.from, form.to, holidayOverlap.length, sandwichRuleEnabled]);
 
   function submitLeave() {
+    if (!form.employeeName) return showToast("Please select an employee", "error");
+    if (!form.from || !form.to) return showToast("Please select leave dates", "error");
     if (!form.reason.trim()) return showToast("Reason required for leave application");
     if (new Date(form.to) < new Date(form.from)) return showToast("To Date cannot be before From Date");
 
     const netDeductedDays = calculatedDays;
-    const chosenDelegate = form.delegate || "Priya Patel";
+    const chosenDelegate = form.delegate || "";
+    if (!chosenDelegate) return showToast("Please assign a work delegate", "error");
     const chosenDelegateEmp = employees.find((e) => e.name === chosenDelegate);
 
     addLeave({
@@ -310,10 +309,10 @@ export default function Leave() {
   }, [leaves, approvalSearch, statusFilter, typeFilter]);
 
   const userDelegations = useMemo(() => {
-    const currentUserName = currentUser?.name || "Ayesha Khan";
+    const currentUserName = currentUser?.name || "";
 
     const assigned = leaves
-      .filter((l) => l.delegate?.toLowerCase() === currentUserName.toLowerCase() || l.delegate === "Priya Patel")
+      .filter((l) => currentUserName && l.delegate?.toLowerCase() === currentUserName.toLowerCase())
       .map((l) => ({
         id: l.id,
         emp: l.employee,
@@ -325,7 +324,7 @@ export default function Leave() {
       }));
 
     const mine = leaves
-      .filter((l) => l.employee?.toLowerCase() === currentUserName.toLowerCase())
+      .filter((l) => currentUserName && l.employee?.toLowerCase() === currentUserName.toLowerCase())
       .map((l) => ({
         id: l.id,
         emp: l.delegate || "Assigned Colleague",
@@ -337,37 +336,8 @@ export default function Leave() {
       }));
 
     return {
-      assigned: assigned.length > 0 ? assigned : [
-        {
-          id: "DLG-101",
-          emp: "Liam Cooper",
-          avatar: "https://i.pravatar.cc/100?img=20",
-          dates: "Oct 20 - 24, 2024",
-          note: "Handle client demo + push release v2.3 to staging.",
-          status: "Upcoming",
-          type: "Annual Leave",
-        },
-        {
-          id: "DLG-102",
-          emp: "David Park",
-          avatar: "https://i.pravatar.cc/100?img=11",
-          dates: "Oct 02 - 14, 2024",
-          note: "Payroll verification & DevOps infrastructure signoff.",
-          status: "Active",
-          type: "Annual Leave",
-        },
-      ],
-      mine: mine.length > 0 ? mine : [
-        {
-          id: "DLG-103",
-          emp: "Priya Patel",
-          avatar: "https://i.pravatar.cc/100?img=15",
-          dates: "Oct 12 - 13, 2024",
-          note: "Q3 report draft in shared team drive.",
-          status: "Active",
-          type: "Casual Leave",
-        },
-      ],
+      assigned,
+      mine,
     };
   }, [leaves, currentUser]);
 
@@ -478,6 +448,7 @@ export default function Leave() {
                 onChange={(e) => setForm({ ...form, employeeName: e.target.value })}
                 className="w-full h-10 px-3 bg-off border border-bdr rounded-xl text-[13.5px] font-medium text-slate-900 focus:outline-none focus:border-navy"
               >
+                <option value="">Select employee…</option>
                 {employees.map((emp) => (
                   <option key={emp.id} value={emp.name}>
                     {emp.name} ({emp.department} • {emp.designation})
@@ -694,7 +665,7 @@ export default function Leave() {
           <div className="space-y-3.5 mt-1 max-h-[600px] overflow-y-auto pr-2">
             {filteredLeaves.map((l) => {
               const currentDelegate = delegateSelect[l.id] ?? l.delegate;
-              const isOverburdened = currentDelegate === "Priya Patel";
+              const isOverburdened = false;
 
               return (
                 <div
@@ -1019,7 +990,7 @@ export default function Leave() {
                       <div className="truncate">{c.reason}</div>
                     </td>
                     <td className="py-3.5 px-5 text-[12px] text-muted font-medium">
-                      {c.expiryDate || "2024-12-31"}
+                      {c.expiryDate || "—"}
                     </td>
                     <td className="py-3.5 px-5">
                       <Badge tone={c.status === "Approved" ? "success" : c.status === "Rejected" ? "critical" : "warning"}>
@@ -1109,7 +1080,7 @@ export default function Leave() {
                       <div className="truncate">{e.reason}</div>
                     </td>
                     <td className="py-3.5 px-5 text-[12px] text-slate-700 font-medium">
-                      {e.processedMonth || "October 2024"}
+                      {e.processedMonth || "—"}
                     </td>
                     <td className="py-3.5 px-5">
                       <Badge tone={e.status === "Approved" ? "success" : e.status === "Rejected" ? "critical" : "warning"}>
@@ -1188,6 +1159,7 @@ export default function Leave() {
               value={form.employeeName}
               onChange={(e) => setForm({ ...form, employeeName: e.target.value })}
             >
+              <option value="">Select employee…</option>
               {employees.map((emp) => (
                 <option key={emp.id} value={emp.name}>
                   {emp.name} ({emp.department} • {emp.designation})
@@ -1247,6 +1219,7 @@ export default function Leave() {
               value={form.delegate}
               onChange={(e) => setForm({ ...form, delegate: e.target.value })}
             >
+              <option value="">Select delegate…</option>
               {employees
                 .filter((e) => e.name !== form.employeeName)
                 .map((e) => (
@@ -1392,6 +1365,7 @@ export default function Leave() {
               type="button"
               className="btn-primary"
               onClick={() => {
+                if (!encashForm.employeeName) return showToast("Please select an employee", "error");
                 const daysNum = Number(encashForm.days) || 1;
                 const dailyRate = 2083; // Standard rate on ₹50k CTC / 24 working days
                 const totalAmt = daysNum * dailyRate;
@@ -1402,7 +1376,7 @@ export default function Leave() {
                   ratePerDay: dailyRate,
                   amount: totalAmt,
                   reason: encashForm.reason,
-                  processedMonth: "October 2024",
+                  processedMonth: new Date().toLocaleDateString("en-US", { month: "long", year: "numeric" }),
                 });
                 showToast(`Encashment requested for ${daysNum} days (₹${totalAmt.toLocaleString()}). Will reflect in Payroll upon approval.`);
                 setEncashModalOpen(false);
@@ -1421,6 +1395,7 @@ export default function Leave() {
               value={encashForm.employeeName}
               onChange={(e) => setEncashForm({ ...encashForm, employeeName: e.target.value })}
             >
+              <option value="">Select employee…</option>
               {employees.map((emp) => (
                 <option key={emp.id} value={emp.name}>
                   {emp.name} ({emp.department} • {emp.designation})
@@ -1490,6 +1465,8 @@ export default function Leave() {
               type="button"
               className="btn-primary"
               onClick={() => {
+                if (!compOffForm.employeeName) return showToast("Please select an employee", "error");
+                if (!compOffForm.reason.trim()) return showToast("Please enter work justification", "error");
                 requestCompOff({
                   employee: compOffForm.employeeName,
                   avatar: `https://i.pravatar.cc/100?u=${encodeURIComponent(compOffForm.employeeName)}`,
@@ -1497,7 +1474,7 @@ export default function Leave() {
                   hoursWorked: Number(compOffForm.hoursWorked),
                   creditDays: Number(compOffForm.creditDays),
                   reason: compOffForm.reason,
-                  expiryDate: "2024-12-31",
+                  expiryDate: new Date(Date.now() + 60 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10),
                 });
                 showToast(`Comp-off claimed for ${compOffForm.creditDays} day(s). Awaiting manager/HR approval.`);
                 setCompOffModalOpen(false);
@@ -1516,6 +1493,7 @@ export default function Leave() {
               value={compOffForm.employeeName}
               onChange={(e) => setCompOffForm({ ...compOffForm, employeeName: e.target.value })}
             >
+              <option value="">Select employee…</option>
               {employees.map((emp) => (
                 <option key={emp.id} value={emp.name}>
                   {emp.name} ({emp.department} • {emp.designation})
@@ -1569,7 +1547,7 @@ export default function Leave() {
           <div className="p-3 bg-amber-50/70 border border-amber-200 rounded-xl text-amber-900 text-[12px] flex items-start gap-2">
             <Clock size={16} className="text-amber-600 shrink-0 mt-0.5" />
             <div>
-              <span className="font-bold">Validity:</span> Approved comp-off credits must be availed within 60 days (valid until Dec 31, 2024). Once approved, credits are added directly to your Comp-Off leave balance.
+              <span className="font-bold">Validity:</span> Approved comp-off credits must be availed within 60 days of approval. Once approved, credits are added directly to your Comp-Off leave balance.
             </div>
           </div>
 

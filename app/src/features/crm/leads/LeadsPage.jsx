@@ -15,7 +15,7 @@ import LeadGuideModal from './LeadGuideModal';
 import InfoBanner from '../common/InfoBanner';
 import { useNavigate } from 'react-router-dom';
 import { useAppStore } from '../../../stores/appStore';
-import { Users, UserPlus, Clock, TrendingUp } from 'lucide-react';
+import { Users, UserPlus, Clock, TrendingUp, Plus } from 'lucide-react';
 import { useCrmStore } from '../../../stores/crmStore';
 import { describeError } from '../../../services/crmSync';
 import { exportToCSV } from '../../../services/exportUtils';
@@ -127,12 +127,14 @@ export default function LeadsPage() {
       .filter((stage) => stage.isActive !== false)
       .sort((a, b) => (Number(a.order ?? a.sequence) || 0) - (Number(b.order ?? b.sequence) || 0))[0]?.id
   ));
+  const createLeadMode = useCrmStore((s) => s.createLeadMode);
+  const setCreateLeadMode = useCrmStore((s) => s.setCreateLeadMode);
   const [activeTab, setActiveTab] = useState('All Leads');
   const [selected, setSelected] = useState([]);
   const [isFilterOpen, setIsFilterOpen] = useState(false);
   const [isSortOpen, setIsSortOpen] = useState(false);
-  const [isCreateLeadOpen, setIsCreateLeadOpen] = useState(false);
-  const [showCreateArrow, setShowCreateArrow] = useState(false);
+  const [isModalOpen, setIsModalOpen] = useState(false);
+  const isCreateLeadOpen = isModalOpen; 
   const [showLeadTour, setShowLeadTour] = useState(false);
   const [isPrintOpen, setIsPrintOpen] = useState(false);
   const [isGuideOpen, setIsGuideOpen] = useState(false);
@@ -305,9 +307,7 @@ export default function LeadsPage() {
   }
 
   function openCreateLeadModal() {
-    setShowLeadTour(showCreateArrow);
-    setShowCreateArrow(false);
-    setIsCreateLeadOpen(true);
+    setIsModalOpen(true);
   }
 
   function formatDisplayDate(value) {
@@ -362,7 +362,7 @@ export default function LeadsPage() {
       });
     }
 
-    setIsCreateLeadOpen(false);
+    setIsModalOpen(false);
     setShowLeadTour(false);
     setActiveTab('All Leads');
     setAppliedFilters(INITIAL_FILTERS);
@@ -468,21 +468,39 @@ export default function LeadsPage() {
         subtitle="Manage and track all your CRM leads."
         guide={leadsGuide}
         actions={
-          <div className="relative inline-block">
-            {showCreateArrow && (
-              <div className="absolute right-0 top-[calc(100%+1px)] z-50 flex flex-col items-end">
-                <svg width="72" height="42" viewBox="0 0 72 42" fill="none" className="mb-[-9px] mr-[52px]" aria-hidden="true">
-                  <path d="M58 3 C 58 26, 40 37, 16 33" stroke="#1d6bff" strokeWidth="3.5" strokeLinecap="round" fill="none" />
-                  <path d="M27 27 L15 33 L25 40" stroke="#1d6bff" strokeWidth="3.5" strokeLinecap="round" strokeLinejoin="round" fill="none" />
-                </svg>
-                <div className="inline-flex w-max max-w-[240px] items-start gap-2.5 rounded-[16px] bg-[#1d6bff] px-4 py-3 text-left text-[14px] font-medium leading-snug text-white shadow-[0_4px_14px_rgba(29,107,255,0.35)]">
-                  <span className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-white text-[15px] font-bold text-[#1d6bff]">2</span>
-                  <span>Click the Create Lead</span>
-                </div>
-              </div>
+          <div className="flex flex-wrap items-center gap-3">
+            {createLeadMode && (
+              <button
+                type="button"
+                onClick={openCreateLeadModal}
+                className="inline-flex items-center gap-1.5 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium rounded-lg shadow-xs transition cursor-pointer"
+              >
+                <Plus size={16} />
+                Create Lead
+              </button>
             )}
-            <button type="button" className="btn-primary btn-sm" onClick={openCreateLeadModal}>
-              + Create Lead
+            <span className="text-sm font-medium text-slate-600 select-none">Create Lead</span>
+            <button
+              type="button"
+              role="switch"
+              aria-checked={createLeadMode}
+              onClick={() => {
+                const next = !createLeadMode;
+                setCreateLeadMode(next);
+                if (!next) setIsModalOpen(false);
+              }}
+              className={[
+                'relative inline-flex h-7 w-14 shrink-0 cursor-pointer items-center rounded-full border-2 border-transparent transition-colors duration-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2',
+                createLeadMode ? 'bg-[#17c964]' : 'bg-slate-200',
+              ].join(' ')}
+            >
+              <span className="sr-only">Create Lead</span>
+              <span
+                className={[
+                  'pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow-md ring-0 transition-transform duration-200',
+                  createLeadMode ? 'translate-x-7' : 'translate-x-0.5',
+                ].join(' ')}
+              />
             </button>
           </div>
         }
@@ -688,9 +706,9 @@ export default function LeadsPage() {
       <CreateLeadModal
         isOpen={isCreateLeadOpen}
         showTour={showLeadTour}
-        onClose={() => { setIsCreateLeadOpen(false); setShowLeadTour(false); }}
+        onClose={() => { setIsModalOpen(false); setShowLeadTour(false); }}
         onCreate={handleCreateLead}
-        onEditLayout={() => { setIsCreateLeadOpen(false); setShowLeadTour(false); navigate('/crm/leads/form-builder'); }}
+        onEditLayout={() => { setIsModalOpen(false); setShowLeadTour(false); navigate('/crm/leads/form-builder'); }}
       />
       <LeadGuideModal isOpen={isGuideOpen} onClose={() => setIsGuideOpen(false)} />
     </>

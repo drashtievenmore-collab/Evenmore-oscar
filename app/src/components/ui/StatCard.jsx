@@ -101,38 +101,31 @@ export function MetricChip({ icon: Icon, label, value, colorScheme = 'blue', onC
   return (
     <div
       onClick={onClick}
+      className="kpi-std flex items-start"
       style={{
         background: s.bg,
         border: `1px solid ${s.border}`,
-        borderRadius: 10,
-        padding: '8px 14px',
-        display: 'inline-flex',
-        alignItems: 'center',
-        gap: 10,
         cursor: onClick ? 'pointer' : 'default',
         transition: 'all 0.15s ease',
+        minWidth: 0,
+        overflow: 'hidden',
       }}
     >
       {Icon && (
         <div
+          className="kpi-badge-std flex items-center justify-center"
           style={{
-            width: 32,
-            height: 32,
-            borderRadius: 8,
             background: s.iconBg,
             color: s.iconFg,
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
             flexShrink: 0,
           }}
         >
-          <Icon size={16} />
+          <Icon size={20} />
         </div>
       )}
       <div style={{ minWidth: 0 }}>
-        <p style={{ margin: 0, fontSize: 10, fontWeight: 700, color: '#7184a3', textTransform: 'uppercase', letterSpacing: '0.04em' }}>{label}</p>
-        <p style={{ margin: 0, fontSize: 16, fontWeight: 800, color: s.text, lineHeight: 1.2 }}>{value}</p>
+        <p style={{ margin: 0, fontSize: 11, fontWeight: 600, color: '#7184a3', textTransform: 'uppercase', letterSpacing: '0.04em' }}>{label}</p>
+        <p style={{ margin: '4px 0 0', fontSize: 20, fontWeight: 800, color: s.text, lineHeight: 1.2 }}>{value}</p>
       </div>
     </div>
   );

@@ -1,7 +1,7 @@
 import CrmKpiCard from '../common/CrmKpiCard';
 import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
-import { Users, UserPlus, Clock, TrendingUp, TrendingDown, DollarSign, Search, Phone, Mail, CalendarDays, FileText, ClipboardList, Video, Send } from "lucide-react";
+import { Users, UserPlus, Clock, TrendingUp, DollarSign, Search, Phone, Mail, CalendarDays, FileText, ClipboardList, Video, Send } from "lucide-react";
 import { useCrmStore } from "../../../stores/crmStore";
 import { initials, describeError } from "../../../services/crmSync";
 import { useERP } from "../../../context/ERPContext";
@@ -145,11 +145,11 @@ export default function DashboardView() {
   }, 0);
   const revenueExpected = dealsTotal + invoicesTotal + quotationsTotal;
   const kpis = [
-    { label: "Total Active Leads", value: String(activeLeads), icon: Users, bg: "#eef4ff", fg: "#2f6fed", trend: "12%", up: true, note: "vs last week" },
-    { label: "New Leads", value: String(newLeads), icon: UserPlus, bg: "#ecfdf5", fg: "#10b981", trend: "2%", up: true, note: "vs last week" },
-    { label: "Pending Tasks", value: String(pendingTasks), icon: Clock, bg: "#fff7e8", fg: "#f59e0b", trend: "4%", up: false, note: "vs last week" },
-    { label: "Deals in Pipeline", value: String(pipelineDeals), icon: TrendingUp, bg: "#f5efff", fg: "#8b5cf6", trend: "15%", up: true, note: formatShortINR(dealsTotal) },
-    { label: "Total Revenue Expected", value: formatCurrency(revenueExpected), icon: DollarSign, bg: "#ffeef4", fg: "#f43f5e", trend: "22%", up: true, note: formatCurrency(outstandingTotal) + " due" }
+    { label: "Total Active Leads", value: String(activeLeads), icon: Users },
+    { label: "New Leads", value: String(newLeads), icon: UserPlus },
+    { label: "Pending Tasks", value: String(pendingTasks), icon: Clock },
+    { label: "Deals in Pipeline", value: String(pipelineDeals), icon: TrendingUp, note: formatShortINR(dealsTotal) },
+    { label: "Total Revenue Expected", value: formatCurrency(revenueExpected), icon: DollarSign, note: formatCurrency(outstandingTotal) + " due" }
   ];
   const pipeline = DEAL_STAGES.map((stage, i) => ({
     label: stage,
@@ -232,12 +232,13 @@ export default function DashboardView() {
       </div>
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(180px,1fr))", gap: 12 }}>
         {kpis.map((k, index) => {
-          const Trend = k.up ? TrendingUp : TrendingDown;
           return (
             <CrmKpiCard key={k.label} label={k.label} value={k.value} icon={k.icon} tone={['blue', 'emerald', 'amber', 'purple', 'rose'][index]}>
-              <span className="flex flex-wrap items-center gap-1 text-[11px] font-semibold" style={{ color: k.up ? '#10b981' : '#ef4444' }}>
-                <Trend size={13} /> {k.trend} <em className="font-normal not-italic text-slate-400">{k.note}</em>
-              </span>
+              {k.note && (
+                <span className="flex flex-wrap items-center gap-1 text-[11px] font-semibold text-slate-400">
+                  <em className="font-normal not-italic">{k.note}</em>
+                </span>
+              )}
             </CrmKpiCard>
           );
         })}

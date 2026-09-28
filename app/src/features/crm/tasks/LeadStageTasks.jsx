@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   ChevronDown,
   ChevronRight,
@@ -135,6 +135,11 @@ export default function LeadStageTasks({ leadForms = [] }) {
   const storeStages = useCrmStore((s) => s.stages);
   const storeStageTasks = useCrmStore((s) => s.stageTasks);
   const [stages, setStages] = useState([]);
+  // Each distinct tree state is written back at most once. Without this,
+  // a sync that never sticks (offline create/update that the server
+  // rejects) re-triggers this effect via the store subscription forever —
+  // "Maximum update depth exceeded".
+  const lastSyncedRef = useRef('');
 
   useEffect(() => {
     setStages(stagesWithTasks(storeStages, storeStageTasks));
@@ -157,6 +162,9 @@ export default function LeadStageTasks({ leadForms = [] }) {
     const flat = stages.flatMap((stage) =>
       (stage.tasks || []).map((task, index) => ({ ...task, stageId: stage.id, order: index + 1 }))
     );
+    const key = JSON.stringify(flat);
+    if (key === lastSyncedRef.current) return;
+    lastSyncedRef.current = key;
     syncCollection('stageTasks', flat, storeStageTasks);
   }, [stages, storeStageTasks]);
 

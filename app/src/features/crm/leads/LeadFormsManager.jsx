@@ -24,7 +24,7 @@ function getFieldCount(form) {
   return form.sections.reduce((total, section) => total + (section.fields?.length || 0), 0);
 }
 
-export default function LeadFormsManager({ forms, onCreateForm, onEditForm, onDeleteForm, onOpenGuide }) {
+export default function LeadFormsManager({ forms, activeFormId, onToggleForm, onCreateForm, onEditForm, onDeleteForm, onOpenGuide }) {
   const [statusFilter, setStatusFilter] = useState("All Status");
   const [sortOrder, setSortOrder] = useState("Newest First");
   const [viewMode, setViewMode] = useState("grid");
@@ -33,7 +33,7 @@ export default function LeadFormsManager({ forms, onCreateForm, onEditForm, onDe
     const nextForms = forms.filter((form) => {
       const matchesStatus =
         statusFilter === "All Status" ||
-        (statusFilter === "Active" && true);
+        (statusFilter === "Active" && form.id === activeFormId);
 
       return matchesStatus;
     });
@@ -45,7 +45,32 @@ export default function LeadFormsManager({ forms, onCreateForm, onEditForm, onDe
     });
 
     return nextForms;
-  }, [forms, sortOrder, statusFilter]);
+  }, [forms, sortOrder, statusFilter, activeFormId]);
+
+  function StatusToggle({ form }) {
+    const isOn = form.id === activeFormId;
+    return (
+      <span className="inline-flex items-center gap-2">
+        <button
+          type="button"
+          role="switch"
+          aria-checked={isOn}
+          aria-label={`${isOn ? 'Deactivate' : 'Activate'} ${form.name}`}
+          title={isOn ? 'On — this form opens from Create Lead' : 'Off — toggle on to use this form'}
+          onClick={() => onToggleForm?.(form.id)}
+          className={`relative inline-flex h-5.5 w-10 shrink-0 cursor-pointer items-center rounded-full p-0.5 transition-colors ${
+            isOn ? 'bg-emerald-500 justify-end' : 'bg-slate-300 justify-start'
+          }`}
+          style={{ height: 22 }}
+        >
+          <span className="inline-block h-4 w-4 rounded-full bg-white shadow-xs" />
+        </button>
+        <span className={`text-[11px] font-bold ${isOn ? 'text-emerald-700' : 'text-slate-400'}`}>
+          {isOn ? 'ACTIVE' : 'OFF'}
+        </span>
+      </span>
+    );
+  }
 
   return (
     <section className="w-full">
@@ -191,9 +216,7 @@ export default function LeadFormsManager({ forms, onCreateForm, onEditForm, onDe
                       </td>
                       <td className="px-5 py-4 text-slate-700 whitespace-nowrap">{form.createdOn}</td>
                       <td className="px-5 py-4 whitespace-nowrap">
-                        <span className="inline-flex rounded-full bg-emerald-50 px-3 py-1 text-[11px] font-bold text-emerald-700">
-                          ACTIVE
-                        </span>
+                        <StatusToggle form={form} />
                       </td>
                       <td className="px-5 py-4">
                         <div className="flex items-center justify-end gap-2 whitespace-nowrap">
@@ -260,8 +283,8 @@ export default function LeadFormsManager({ forms, onCreateForm, onEditForm, onDe
                   </div>
                   <div>
                     <div className="text-[11px] font-semibold uppercase tracking-[0.08em] text-slate-400">Status</div>
-                    <div className="mt-0.5 inline-flex rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-bold text-emerald-700">
-                      ACTIVE
+                    <div className="mt-1">
+                      <StatusToggle form={form} />
                     </div>
                   </div>
                   <div className="col-span-2">
