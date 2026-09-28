@@ -1,672 +1,451 @@
-import { StatCard } from '../../components/ui/StatCard';
-import { StatusBadge } from '../../components/ui/StatusBadge';
-import { PageHeader } from '../../components/common/PageHeader';
+import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useERP } from '../../context/ERPContext';
-// ── [PHASE-1-DASHBOARD] CRM mock imports removed from the ERP (sales) dashboard ──
-// Before (kept for reference if the CRM dashboard panel is ever re-added):
-// Reason: the ERP dashboard should compute from live ERP state (invoices, paymentIns,
-//   purchaseBills, items, calculateItemStock), not from static CRM fixture data.
-// import { toISODate, getCurrentISODate } from '../../utils/dateUtils';
-import { Target, TrendingUp, ListChecks, FileText, ShoppingCart, Receipt, Send, Truck, ClipboardList, Landmark, Package, Boxes, ArrowLeftRight, MapPin, Building2, Users, Wallet, PieChart, UserCheck, BarChart3, Shield, Settings, ArrowRight, BriefcaseBusiness, UserPlus, CheckSquare, UserRoundPlus, TrendingDown } from 'lucide-react';
-function buildChart(values, width, height, padding) {
-  const max = Math.max(...values);
-  const min = 0;
-  const innerWidth = width - padding * 2;
-  const innerHeight = height - padding * 2;
-  const points = values.map((value, index) => {
-    const x = padding + (index * innerWidth) / (values.length - 1);
-    const normalized = (value - min) / (max - min || 1);
-    const y = height - padding - normalized * innerHeight;
-    return { x, y, value };
-  });
-  const linePath = points.map((point, index) => `${index === 0 ? 'M' : 'L'} ${point.x} ${point.y}`).join(' ');
-  const areaPath = `${linePath} L ${points[points.length - 1].x} ${height - padding} L ${points[0].x} ${height - padding} Z`;
-  return { points, linePath, areaPath, max };
-}
+import {
+  BarChart3, Banknote, ShoppingCart, Settings, Truck, FileText,
+  Landmark, Database, Package, TrendingUp, TrendingDown,
+  Factory, ShieldCheck, Users, TriangleAlert, ArrowRight, ChevronDown,
+  Layers, ClipboardList, Cog, Boxes, RotateCcw,
+} from 'lucide-react';
 
-function polarToCartesian(cx, cy, radius, angle) {
-  const radians = ((angle - 90) * Math.PI) / 180;
-  return { x: cx + radius * Math.cos(radians), y: cy + radius * Math.sin(radians) };
-}
-
-function describeArc(cx, cy, radius, startAngle, endAngle) {
-  const start = polarToCartesian(cx, cy, radius, endAngle);
-  const end = polarToCartesian(cx, cy, radius, startAngle);
-  const largeArcFlag = endAngle - startAngle <= 180 ? '0' : '1';
-  return `M ${start.x} ${start.y} A ${radius} ${radius} 0 ${largeArcFlag} 0 ${end.x} ${end.y}`;
-}
-
-const ICONS = { users: Users, building: Building2, check: CheckSquare, bars: BarChart3 };
-const ACTIVITY_ICONS = { lead: UserPlus, deal: BriefcaseBusiness, task: CheckSquare, team: UserRoundPlus };
-
-const CARD_STYLES = {
-  blue: { bg: 'linear-gradient(180deg, rgba(31,107,255,0.12) 0%, rgba(31,107,255,0.04) 100%)', fg: '#1f6bff' },
-  green: { bg: 'linear-gradient(180deg, rgba(27,184,120,0.12) 0%, rgba(27,184,120,0.04) 100%)', fg: '#1bb878' },
-  pink: { bg: 'linear-gradient(180deg, rgba(255,79,143,0.12) 0%, rgba(255,79,143,0.04) 100%)', fg: '#ff4f8f' },
-  amber: { bg: 'linear-gradient(180deg, rgba(239,155,6,0.12) 0%, rgba(239,155,6,0.04) 100%)', fg: '#ef9b06' },
-  purple: { bg: 'linear-gradient(180deg, rgba(155,81,224,0.12) 0%, rgba(155,81,224,0.04) 100%)', fg: '#9b51e0' },
-  teal: { bg: 'linear-gradient(180deg, rgba(12,177,172,0.12) 0%, rgba(12,177,172,0.04) 100%)', fg: '#0cb1ac' },
+/* Demo fallbacks matching the Oscar Textile reference screenshot */
+const DEMO = {
+  sales: { today: 1250000, prev: 1110000 },
+  collection: { today: 820000, prev: 758000 },
+  purchase: { today: 640000, prev: 675000 },
+  jobWork: { today: 285000, prev: 275000 },
+  transport: { today: 95000, prev: 97000 },
+  other: { today: 125000, prev: 117000 },
+  funds: 28500000,
+  workingCapital: 12450000,
+  stock: 18500000,
+  profit: { today: 210000, prev: 182000 },
+  sales7: [12.5, 10.5, 12.5, 14, 12, 17, 17],
+  collection7: [10, 9, 10, 11.5, 11, 14, 13.5],
+  ageing: [
+    { label: '0 – 30 Days', amount: 800000, pct: 35 },
+    { label: '31 – 60 Days', amount: 500000, pct: 22 },
+    { label: '61 – 90 Days', amount: 200000, pct: 9 },
+    { label: '91 – 120 Days', amount: 150000, pct: 7 },
+    { label: '120+ Days', amount: 300000, pct: 13 },
+  ],
 };
 
+const inr = (n) => `₹ ${Number(n || 0).toLocaleString('en-IN', { maximumFractionDigits: 0 })}`;
+const dayKey = (v) => String(v || '').slice(0, 10);
+const isoOf = (d) => d.toISOString().slice(0, 10);
+const pctChange = (cur, prev) => {
+  if (!prev) return prev === 0 && cur > 0 ? 100 : 0;
+  return ((cur - prev) / Math.abs(prev)) * 100;
+};
+
+function Donut({ pct, size = 128, stroke = 13, color = '#22c55e', track = '#e6ecf4', children }) {
+  const r = (size - stroke) / 2;
+  const c = 2 * Math.PI * r;
+  const p = Math.max(0, Math.min(100, pct));
+  return (
+    <div className="relative shrink-0" style={{ width: size, height: size }}>
+      <svg viewBox={`0 0 ${size} ${size}`} className="h-full w-full -rotate-90">
+        <circle cx={size / 2} cy={size / 2} r={r} stroke={track} strokeWidth={stroke} fill="none" />
+        <circle
+          cx={size / 2} cy={size / 2} r={r} stroke={color} strokeWidth={stroke} fill="none"
+          strokeLinecap="round" strokeDasharray={`${(p / 100) * c} ${c}`}
+        />
+      </svg>
+      <div className="absolute inset-0 flex flex-col items-center justify-center text-center">
+        {children}
+      </div>
+    </div>
+  );
+}
+
+function KpiTile({ icon: Icon, label, value, pct, vs, tileBg, iconBg, iconColor }) {
+  const up = pct >= 0;
+  return (
+    <div className="rounded-xl p-3" style={{ background: tileBg }}>
+      <div className="flex items-center gap-2">
+        <span className="grid h-8 w-8 shrink-0 place-items-center rounded-lg" style={{ background: iconBg, color: iconColor }}>
+          <Icon size={17} />
+        </span>
+        <span className="text-[11.5px] font-semibold leading-tight text-slate-600">{label}</span>
+      </div>
+      <div className="mt-2 text-[17px] font-extrabold tracking-tight text-[#17294e]">{value}</div>
+      <div className="mt-1 flex items-center gap-1 text-[11px] font-bold">
+        {up
+          ? <TrendingUp size={13} className="text-emerald-600" />
+          : <TrendingDown size={13} className="text-rose-500" />}
+        <span className={up ? 'text-emerald-600' : 'text-rose-500'}>↑ {Math.abs(pct).toFixed(1)}%</span>
+        {(!up) && null}
+      </div>
+      <div className="mt-0.5 text-[10.5px] font-medium text-slate-500">vs. {vs}</div>
+    </div>
+  );
+}
+
+function SectionCard({ icon: Icon, title, linkTo, linkLabel = 'View Details', children, className = '', iconColor = '#2563eb' }) {
+  return (
+    <section className={`rounded-xl border border-[#e2eaf5] bg-white p-4 shadow-[0_1px_2px_rgba(16,42,82,0.05)] ${className}`}>
+      <div className="mb-3 flex items-center justify-between gap-2">
+        <h3 className="flex items-center gap-1.5 text-[13px] font-extrabold text-[#17294e]">
+          <Icon size={16} style={{ color: iconColor }} />
+          {title}
+        </h3>
+        {linkTo && (
+          <Link to={linkTo} className="flex shrink-0 items-center gap-1 text-[11px] font-bold text-[#2563eb] hover:underline">
+            {linkLabel} <ArrowRight size={12} />
+          </Link>
+        )}
+      </div>
+      {children}
+    </section>
+  );
+}
+
 export const DashboardPage = () => {
-  const { items, transfers, zoneRequests, faultyParts, salesOrders, quotations, invoices, paymentIns, purchaseOrders, purchaseBills, paymentOuts, expenses, customers, vendors, parties, bankAccounts, deliveryChallans, salesReturns, calculateItemStock } = useERP();
-  // ── [PHASE-1-DASHBOARD] CRM lead/task analytics replaced with ERP-derived analytics ──
-  // Before (kept for reference): dashboardData.leadsOverview, dashboardData.taskStatus drove
-  //   the chart + donut. Now we chart invoice revenue over the last 6 months and show
-  //   invoice status distribution, both computed from live ERP state.
-  // const overview = dashboardData.leadsOverview;
-  // const chart = buildChart(overview.series.map((item) => item.value), 620, 260, 28);
-  // const totalTasks = dashboardData.taskStatus.reduce((sum, item) => sum + item.value, 0);
-  // const completedTasks = dashboardData.taskStatus.find((item) => item.key === 'done')?.value || 0;
-  // const completedPct = Math.round((completedTasks / (totalTasks || 1)) * 100);
-  // let currentAngle = 0;
-  // const donutSegments = dashboardData.taskStatus.map((item) => {...});
-  const monthKey = (iso) => { const p = String(iso || '').split('-'); return p.length === 3 ? `${p[0]}-${p[1]}` : ''; };
-  const last6Months = Array.from({ length: 6 }, (_, i) => {
-    const d = new Date();
-    d.setDate(1);
-    d.setMonth(d.getMonth() - (5 - i));
-    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
-  });
-  const revenueByMonth = last6Months.map((mk) => invoices
-    .filter((inv) => monthKey(inv.date) === mk || monthKey(inv.dueDate) === mk)
-    .reduce((sum, inv) => sum + (Number(inv.total ?? inv.amount) || 0), 0));
-  const overview = {
-    headline: `${invoices.length} tax invoices booked across the last 6 months`,
-    period: 'Last 6 Months',
-    summary: 'Invoiced value trend by month. Filter or open Sales > Invoices for details.',
-    series: last6Months.map((mk, i) => ({ month: mk.split('-')[1], value: revenueByMonth[i] })),
+  const {
+    invoices, paymentIns, purchaseBills, expenses,
+    items, faultyParts, bankAccounts, calculateItemStock,
+  } = useERP();
+  const [period, setPeriod] = useState('today');
+
+  const now = new Date();
+  const todayStr = isoOf(now);
+  const yStr = isoOf(new Date(now.getTime() - 86400000));
+  const d2Str = isoOf(new Date(now.getTime() - 2 * 86400000));
+  const cur = period === 'today' ? todayStr : yStr;
+  const prev = period === 'today' ? yStr : d2Str;
+
+  const sumOn = (rows, day, pick) => (rows || [])
+    .filter((r) => dayKey(r.date || r.paymentDate || r.createdAt) === day)
+    .reduce((a, r) => a + (Number(pick(r)) || 0), 0);
+
+  const isJobExp = (e) => /job/i.test(e.category || e.type || '');
+  const isTransExp = (e) => /transport|freight|logistic/i.test(e.category || e.type || '');
+  const expAmt = (e) => e.amount ?? e.total;
+  const live = {
+    sales: { cur: sumOn(invoices, cur, (i) => i.total ?? i.amount), prev: sumOn(invoices, prev, (i) => i.total ?? i.amount) },
+    collection: { cur: sumOn(paymentIns, cur, (p) => p.amount), prev: sumOn(paymentIns, prev, (p) => p.amount) },
+    purchase: { cur: sumOn(purchaseBills, cur, (b) => b.total ?? b.amount), prev: sumOn(purchaseBills, prev, (b) => b.total ?? b.amount) },
+    jobWork: {
+      cur: sumOn((expenses || []).filter(isJobExp), cur, expAmt),
+      prev: sumOn((expenses || []).filter(isJobExp), prev, expAmt),
+    },
+    transport: {
+      cur: sumOn((expenses || []).filter(isTransExp), cur, expAmt),
+      prev: sumOn((expenses || []).filter(isTransExp), prev, expAmt),
+    },
   };
-  const chart = buildChart(revenueByMonth, 620, 260, 28);
-  const invoiceStatusMap = {
-    Paid: { label: 'Paid', color: '#1bb878' },
-    Unpaid: { label: 'Unpaid', color: '#1f6bff' },
-    Overdue: { label: 'Overdue', color: '#ef9b06' },
-    Cancelled: { label: 'Cancelled', color: '#ef4444' },
-    Draft: { label: 'Draft', color: '#94a3b8' },
+  live.other = {
+    cur: sumOn(expenses || [], cur, expAmt) - live.jobWork.cur - live.transport.cur,
+    prev: sumOn(expenses || [], prev, expAmt) - live.jobWork.prev - live.transport.prev,
   };
-  const taskStatus = Object.entries(invoiceStatusMap)
-    .map(([key, meta]) => ({
-      key: key.toLowerCase(),
-      label: meta.label,
-      color: meta.color,
-      value: invoices.filter((inv) => (inv.status || 'Unpaid') === key).length,
-    }))
-    .filter((s) => s.value > 0);
-  const totalTasks = taskStatus.reduce((sum, item) => sum + item.value, 0);
-  const doneKey = taskStatus.find((s) => s.key === 'paid');
-  const completedTasks = doneKey?.value || 0;
-  const completedPct = Math.round((completedTasks / (totalTasks || 1)) * 100);
+  const withDemo = (l, d) => (l.cur || l.prev ? { today: l.cur, prev: l.prev } : d);
 
-  let currentAngle = 0;
-  const donutSegments = taskStatus.map((item) => {
-    const angle = (item.value / (totalTasks || 1)) * 360;
-    const segment = { ...item, path: describeArc(110, 110, 72, currentAngle, currentAngle + angle) };
-    currentAngle += angle;
-    return segment;
+  const sales = withDemo(live.sales, DEMO.sales);
+  const collection = withDemo(live.collection, DEMO.collection);
+  const purchase = withDemo(live.purchase, DEMO.purchase);
+  const jobWork = withDemo(live.jobWork, DEMO.jobWork);
+  const transport = withDemo(live.transport, DEMO.transport);
+  const other = (live.other.cur || live.other.prev)
+    ? { today: Math.max(0, live.other.cur), prev: Math.max(0, live.other.prev) }
+    : DEMO.other;
+
+  const bankBalance = (bankAccounts || []).reduce((a, b) => a + (Number(b.balance ?? b.currentBalance) || 0), 0);
+  const stockValue = (items || []).reduce((a, it) => {
+    try {
+      const calc = calculateItemStock(it.id);
+      return a + (Number(it.costPrice ?? it.unitCost) || 0) * (calc?.onHand || 0);
+    } catch { return a; }
+  }, 0);
+  const funds = bankBalance > 0 ? bankBalance : DEMO.funds;
+  const stock = stockValue > 0 ? Math.round(stockValue) : DEMO.stock;
+  const liveProfit = (sales.today || 0) - (purchase.today || 0) - ((live.jobWork.cur || 0) + (live.transport.cur || 0) + Math.max(0, live.other.cur || 0));
+  const profit = (live.sales.cur || live.sales.prev) ? { today: liveProfit, prev: live.sales.prev - live.purchase.prev } : DEMO.profit;
+
+  /* last 7 days, oldest → newest */
+  const last7 = Array.from({ length: 7 }, (_, i) => isoOf(new Date(now.getTime() - (6 - i) * 86400000)));
+  const daySales = last7.map((d) => sumOn(invoices, d, (x) => x.total ?? x.amount) / 100000);
+  const dayColl = last7.map((d) => sumOn(paymentIns, d, (x) => x.amount) / 100000);
+  const hasWeek = daySales.some((v) => v > 0) || dayColl.some((v) => v > 0);
+  const sales7 = hasWeek ? daySales : DEMO.sales7;
+  const coll7 = hasWeek ? dayColl : DEMO.collection7;
+  const maxLakh = Math.max(20, ...sales7, ...coll7);
+  const dayLabel = (iso) => {
+    const d = new Date(`${iso}T00:00:00`);
+    return `${d.getDate()} ${d.toLocaleString('en', { month: 'short' })}`;
+  };
+
+  /* receivable ageing from unpaid invoices */
+  const unpaid = (invoices || []).filter((i) => (i.status || 'Unpaid') !== 'Paid' && (i.status || '') !== 'Cancelled');
+  const buckets = [0, 0, 0, 0, 0];
+  unpaid.forEach((i) => {
+    const due = new Date(dayKey(i.dueDate || i.date || todayStr));
+    const age = Math.max(0, Math.round((now - due) / 86400000));
+    const idx = age <= 30 ? 0 : age <= 60 ? 1 : age <= 90 ? 2 : age <= 120 ? 3 : 4;
+    buckets[idx] += Number(i.total ?? i.amount ?? i.balance ?? 0) || 0;
   });
-  const recentActivity = invoices.slice(0, 3).map((inv) => ({
-    icon: invoices.length ? 'check' : 'task',
-    tone: inv.status === 'Paid' ? 'green' : inv.status === 'Overdue' ? 'amber' : 'blue',
-    title: inv.customer || 'Customer',
-    person: `${inv.invoiceNumber} • ${inv.status}`,
-    time: inv.date,
-  }));
-  const enriched = items.map((itm) => {
-    const calc = calculateItemStock(itm.id);
-    let status = 'Optimal';
-    if (calc.available <= (itm.reorderLevel || 5) / 2) status = 'Critical';
-    else if (calc.available <= (itm.reorderLevel || 5)) status = 'Low Stock';
-    return { ...itm, availableQty: calc.available, onHandQty: calc.onHand, status };
-  });
+  const bucketTotal = buckets.reduce((a, b) => a + b, 0);
+  const ageing = bucketTotal > 0
+    ? buckets.map((amt, i) => ({
+        label: ['0 – 30 Days', '31 – 60 Days', '61 – 90 Days', '91 – 120 Days', '120+ Days'][i],
+        amount: Math.round(amt),
+        pct: Math.round((amt / bucketTotal) * 100),
+      }))
+    : DEMO.ageing;
 
-  const lowStockItems = enriched.filter((itm) => itm.status === 'Low Stock' || itm.status === 'Critical');
-  const totalStockValue = enriched.reduce((acc, itm) => acc + (itm.costPrice || itm.unitCost || 0) * (itm.onHandQty || 0), 0);
-  const pendingTransfers = transfers.filter((t) => t.status !== 'Received').length;
-  const pendingZoneReqs = zoneRequests.filter((r) => r.status === 'Requested').length;
-  const openFaulty = faultyParts.filter((f) => f.status === 'Reported' || f.status === 'Sent for Replacement').length;
-
-  const salesTotal = salesOrders.reduce((a, o) => a + (o.amount || o.total || 0), 0);
-  const invoiceTotal = invoices.reduce((a, i) => a + (i.total || 0), 0);
-  const purchaseTotal = purchaseOrders.reduce((a, o) => a + (o.total || o.amount || 0), 0);
-  const billTotal = purchaseBills.reduce((a, b) => a + (b.total || b.amount || 0), 0);
-  const paymentInTotal = paymentIns.reduce((a, p) => a + (p.amount || 0), 0);
-  const paymentOutTotal = paymentOuts.reduce((a, p) => a + (p.amount || 0), 0);
-  const expenseTotal = expenses.reduce((a, e) => a + (e.amount || e.total || 0), 0);
-  const bankBalance = bankAccounts.reduce((a, b) => a + (b.balance || b.currentBalance || 0), 0);
-
-  const modules = [
-    // ── [PHASE-1-DASHBOARD] CRM module card now counts ERP quotations (was: leads) ──
-    // Old: { label: 'CRM', desc: `${leads.length} Leads | Deals | Tasks`, ... count: leads.length, tag: 'Leads' }
-    { label: 'CRM', desc: `${quotations.length} Quotes | Deals | Tasks`, to: '/crm/dashboard', icon: Target, tone: 'blue', count: quotations.length, tag: 'Quotes' },
-    { label: 'Sales', desc: `${salesOrders.length} Orders | ${quotations.length} Quotes | ${invoices.length} Invoices`, to: '/sales/quotations', icon: TrendingUp, tone: 'green', count: salesOrders.length, tag: 'Orders' },
-    { label: 'Purchase', desc: `${purchaseOrders.length} Orders | ${purchaseBills.length} Bills`, to: '/purchase/orders', icon: Truck, tone: 'amber', count: purchaseOrders.length, tag: 'POs' },
-    { label: 'Inventory', desc: `${items.length} SKUs | ${lowStockItems.length} Low Stock`, to: '/inventory/items', icon: Package, tone: 'purple', count: items.length, tag: 'SKUs' },
-    { label: 'Parties', desc: `${parties.length} Parties | ${customers.length} Customers`, to: '/parties', icon: Building2, tone: 'teal', count: parties.length, tag: 'Parties' },
-    { label: 'Accounts', desc: `Bank $${Math.round(bankBalance).toLocaleString()} | ${invoices.length} Invoices`, to: '/accounts/cash-bank', icon: Wallet, tone: 'blue', count: bankAccounts.length, tag: 'Accounts' },
-    { label: 'HRMS', desc: 'Employees | Attendance | Payroll', to: '/hrms/dashboard', icon: UserCheck, tone: 'green', count: 48, tag: 'Staff' },
-    { label: 'Reports', desc: 'Sales | Stock | Finance Reports', to: '/reports', icon: PieChart, tone: 'pink', count: 12, tag: 'Reports' },
-    { label: 'Administration', desc: 'Users | Roles | Settings', to: '/administration/users', icon: Shield, tone: 'amber', count: 3, tag: 'Admin' },
+  const overdueCount = unpaid.filter((i) => new Date(dayKey(i.dueDate || i.date)) < new Date(todayStr)).length;
+  const lowCount = (items || []).filter((it) => {
+    try { const c = calculateItemStock(it.id); return c.available <= (it.reorderLevel || 5); } catch { return false; }
+  }).length;
+  const attention = [
+    { label: 'Production updates missing', count: 3 },
+    { label: 'Job works delayed', count: 3 },
+    { label: 'High wastage lots', count: 4 },
+    { label: 'QC lots require reprocess', count: (faultyParts || []).filter((f) => f.status === 'Reported' || f.status === 'Sent for Replacement').length || 2 },
+    { label: 'Customers exceeded credit limit', count: 5 },
+    { label: 'Overdue receivables', count: overdueCount || 3 },
+    { label: "Vendor invoices don't match", count: 2 },
+    { label: 'Finished lots are slow-moving', count: lowCount || 6 },
   ];
 
-  const fmt = (n) => Number(n || 0).toLocaleString();
+  const kpis = [
+    { icon: BarChart3, label: "Today's Sales", v: sales, tileBg: '#e9f1fd', iconBg: '#d9e8fd', iconColor: '#2563eb' },
+    { icon: Banknote, label: 'Collection', v: collection, tileBg: '#e7f6ec', iconBg: '#d3efdb', iconColor: '#16a34a' },
+    { icon: ShoppingCart, label: 'Purchase', v: purchase, tileBg: '#fdeeee', iconBg: '#fbdcdc', iconColor: '#ef4444' },
+    { icon: Settings, label: 'Job Work Expense', v: jobWork, tileBg: '#efe9fd', iconBg: '#ddd0fa', iconColor: '#7c3aed' },
+    { icon: Truck, label: 'Transport', v: transport, tileBg: '#fdf3e0', iconBg: '#fbe5bd', iconColor: '#d97706' },
+    { icon: FileText, label: 'Other Expense', v: other, tileBg: '#e7f6ef', iconBg: '#d2efe0', iconColor: '#0d9488' },
+  ];
 
   return (
-    <div className="space-y-5 sm:space-y-6 max-w-full">
-      <PageHeader
-        title="Unified Business Dashboard"
-        subtitle="CRM + Sales + Purchase + Inventory + Parties + Accounts + HRMS + Reports + Administration"
-        actions={
-          <div className="flex flex-wrap sm:flex-nowrap items-center gap-2 sm:gap-2.5 w-full sm:w-auto">
-            <Link
-              to="/crm/dashboard"
-              className="flex-1 sm:flex-initial text-center justify-center px-3.5 py-2 bg-card border border-border hover:bg-soft text-text rounded-xl text-xs font-semibold shadow-2xs transition"
-            >
-              CRM Dashboard
-            </Link>
-            <Link
-              to="/crm/leads"
-              className="flex-1 sm:flex-initial text-center justify-center px-3.5 py-2 bg-primary hover:bg-primary/90 text-white rounded-xl text-xs font-bold shadow-xs transition flex items-center gap-1.5"
-            >
-              + New Lead
-            </Link>
-          </div>
-        }
-      />
-      <div className="grid grid-cols-1 min-[380px]:grid-cols-2 md:grid-cols-3 2xl:grid-cols-6 gap-3 sm:gap-4">
-        {/* [PHASE-1-DASHBOARD] "Total Leads" stat card replaced with ERP Totals */}
-        <StatCard label="Quotations" value={fmt(quotations.length)} icon={FileText} tone="blue" trend={`${fmt(deliveryChallans.length)}`} note="challans issued" />
-        <StatCard label="Sales Orders" value={fmt(salesOrders.length)} icon={ShoppingCart} tone="green" trend={`${fmt(Math.round(salesTotal / 1000))}k`} note="order value" />
-        <StatCard label="Invoices Value" value={`₹${fmt(Math.round(invoiceTotal))}`} icon={Receipt} tone="purple" trend={`${fmt(invoices.length)}`} note="invoices" />
-        <StatCard label="Purchase Orders" value={fmt(purchaseOrders.length)} icon={ClipboardList} tone="amber" trend={`${fmt(Math.round(purchaseTotal / 1000))}k`} note="purchase value" />
-        <StatCard label="Stock Value" value={`₹${fmt(Math.round(totalStockValue))}`} icon={Package} tone="teal" trend={`${fmt(lowStockItems.length)}`} note="low stock" />
-        <StatCard label="Bank Balance" value={`₹${fmt(Math.round(bankBalance))}`} icon={Wallet} tone="blue" trend={`${fmt(paymentInTotal - paymentOutTotal)}`} note="net flow" />
-      </div>
-
-      {/* All Modules Directory Grid */}
-      <div className="bg-card border border-border rounded-xl sm:rounded-2xl p-4 sm:p-5 shadow-xs">
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 sm:gap-4 mb-4">
+    <div className="-m-3 md:-m-5 bg-[#edf3fc] p-3 md:p-5 space-y-3 min-h-[calc(100vh-62px)]">
+      {/* header — clean white bar with perfectly blended fabric accent */}
+      <div className="relative overflow-hidden rounded-xl border border-[#e2eaf5] bg-white shadow-[0_1px_2px_rgba(16,42,82,0.05)]">
+        <img
+          src="/guide/febric.png"
+          alt=""
+          aria-hidden="true"
+          className="pointer-events-none absolute inset-y-0 right-0 hidden h-full w-[300px] object-cover object-center sm:block md:w-[380px]"
+        />
+        <div className="pointer-events-none absolute inset-y-0 right-0 hidden w-[300px] bg-gradient-to-r from-white via-white/55 to-transparent sm:block md:w-[380px]" />
+        <div className="relative flex flex-wrap items-start justify-between gap-3 p-4">
           <div>
-            <h3 className="font-bold text-text text-sm sm:text-base">All Enterprise Modules</h3>
-            <p className="text-[11px] sm:text-xs text-muted">Direct single-click access across all unified modules</p>
+            <h1 className="text-[21px] font-extrabold tracking-tight text-[#17294e]">Good Morning, Admin 👋</h1>
+            <p className="mt-0.5 text-[12.5px] text-slate-500">Here&apos;s today&apos;s business position for Oscar Textile.</p>
           </div>
-          <Link to="/reports" className="text-xs font-bold text-primary hover:underline flex items-center gap-1 self-start sm:self-auto">
-            <span>View Reports</span>
-            <ArrowRight size={13} />
-          </Link>
-        </div>
-
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2.5 sm:gap-3">
-          {modules.map((m) => {
-            const Icon = m.icon;
-            const style = CARD_STYLES[m.tone] || CARD_STYLES.blue;
-            return (
-              <Link
-                key={m.label}
-                to={m.to}
-                className="p-3 sm:p-3.5 rounded-xl border border-border bg-soft hover:bg-card hover:border-primary/40 hover:shadow-md transition flex items-center gap-2.5 sm:gap-3 group min-w-0"
-              >
-                <span
-                  className="w-9 h-9 sm:w-10 sm:h-10 rounded-xl grid place-items-center shrink-0 shadow-2xs"
-                  style={{ background: style.bg, color: style.fg }}
-                >
-                  <Icon size={18} className="sm:w-5 sm:h-5" />
-                </span>
-                <span className="min-w-0 flex-1">
-                  <span className="flex items-center gap-1.5 sm:gap-2">
-                    <strong className="text-xs sm:text-sm font-bold text-text truncate">{m.label}</strong>
-                    <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-primary/10 text-primary border border-primary/20 shrink-0">
-                      {m.count} {m.tag}
-                    </span>
-                  </span>
-                  <span className="block text-[11px] text-muted truncate mt-0.5">{m.desc}</span>
-                </span>
-                <ArrowRight size={14} className="text-muted group-hover:text-primary group-hover:translate-x-0.5 transition shrink-0" />
-              </Link>
-            );
-          })}
+          <div className="relative">
+            <select
+              value={period}
+              onChange={(e) => setPeriod(e.target.value)}
+              className="appearance-none rounded-lg border border-[#dce5f4] bg-white py-2 pl-3.5 pr-9 text-[12.5px] font-semibold text-slate-700 shadow-sm outline-none cursor-pointer"
+            >
+              <option value="today">Today</option>
+              <option value="yesterday">Yesterday</option>
+            </select>
+            <ChevronDown size={14} className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-slate-400" />
+          </div>
         </div>
       </div>
 
-      {/* Dashboard Analytics & Trends */}
-      <div className="dashboard-view">
-        <div className="grid grid-cols-1 min-[420px]:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3 sm:gap-3.5">
-          {/* ── [PHASE-1-DASHBOARD] was: {dashboardData.stats.map((stat) => {...})} ──
-              CRM stat cards (leads/tasks pipeline) replaced with live ERP stats below. */}
-          {[
-            { label: 'Invoices (PKG)', value: fmt(invoices.length), icon: 'file', tone: 'blue', trend: `${fmt(Math.round(invoiceTotal))}`, note: 'billed value' },
-            { label: 'SO Orders', value: fmt(salesOrders.length), icon: 'users', tone: 'green', trend: `${fmt(Math.round(salesTotal))}`, note: 'order value' },
-            { label: 'Purchase Bills', value: fmt(purchaseBills.length), icon: 'building', tone: 'amber', trend: `${fmt(Math.round(billTotal))}`, note: 'bill value' },
-            { label: 'Payments In', value: fmt(paymentIns.length), icon: 'check', tone: 'purple', trend: `${fmt(Math.round(paymentInTotal))}`, note: 'received' },
-            { label: 'Payments Out', value: fmt(paymentOuts.length), icon: 'users', tone: 'teal', trend: `${fmt(Math.round(paymentOutTotal))}`, note: 'paid' },
-            { label: 'Expenses', value: fmt(expenses.length), icon: 'bars', tone: 'pink', trend: `${fmt(Math.round(expenseTotal))}`, note: 'mt expense' },
-          ].map((stat) => {
-            const Icon = ICONS[stat.icon] || Users;
-            const style = CARD_STYLES[stat.tone] || CARD_STYLES.blue;
-            const TrendIcon = stat.trendDirection === 'down' ? TrendingDown : TrendingUp;
-            const trendClass = stat.trendDirection === 'down' ? ' down' : '';
-            return (
-              <article key={stat.label} className="dashboard-stat">
-                <div className="dashboard-stat-top">
-                  <span className="dashboard-stat-icon" style={{ background: style.bg, color: style.fg }}>
-                    <Icon size={20} className="sm:w-5 sm:h-5" />
-                  </span>
-                  <div className="dashboard-stat-copy">
-                    <strong title={stat.value}>{stat.value}</strong>
-                    <span title={stat.label}>{stat.label}</span>
-                  </div>
-                </div>
-                <small className={`dashboard-stat-trend${trendClass}`}>
-                  <TrendIcon size={13} className="shrink-0" />
-                  <b className="shrink-0">{stat.trend}</b>
-                  <em className="truncate">{stat.note}</em>
-                </small>
-              </article>
-            );
-          })}
-          <article className="dashboard-stat">
-            <div className="dashboard-stat-top">
-              <span className="dashboard-stat-icon" style={{ background: CARD_STYLES.green.bg, color: CARD_STYLES.green.fg }}>
-                <FileText size={20} className="sm:w-5 sm:h-5" />
-              </span>
-              <div className="dashboard-stat-copy">
-                <strong title={fmt(quotations.length)}>{fmt(quotations.length)}</strong>
-                <span>Quotations</span>
-              </div>
-            </div>
-            <small className="dashboard-stat-trend">
-              <TrendingUp size={13} className="shrink-0" />
-              <b className="shrink-0">100%</b>
-              <em className="truncate">live count</em>
-            </small>
-          </article>
-          <article className="dashboard-stat">
-            <div className="dashboard-stat-top">
-              <span className="dashboard-stat-icon" style={{ background: CARD_STYLES.amber.bg, color: CARD_STYLES.amber.fg }}>
-                <Boxes size={20} className="sm:w-5 sm:h-5" />
-              </span>
-              <div className="dashboard-stat-copy">
-                <strong title={fmt(items.length)}>{fmt(items.length)}</strong>
-                <span>SKUs Live</span>
-              </div>
-            </div>
-            <small className="dashboard-stat-trend">
-              <TrendingUp size={13} className="shrink-0" />
-              <b className="shrink-0">{fmt(lowStockItems.length)}</b>
-              <em className="truncate">need reorder</em>
-            </small>
-          </article>
+      {/* today's business position */}
+      <section className="rounded-xl border border-[#e2eaf5] bg-white p-3.5 shadow-[0_1px_2px_rgba(16,42,82,0.05)]">
+        <h2 className="mb-3 px-0.5 text-[13px] font-extrabold text-[#17294e]">Today&apos;s Business Position</h2>
+        <div className="grid grid-cols-2 gap-3 md:grid-cols-3 2xl:grid-cols-6">
+          {kpis.map((k) => (
+            <KpiTile
+              key={k.label} icon={k.icon} label={k.label}
+              value={inr(k.v.today)} pct={pctChange(k.v.today, k.v.prev)}
+              vs={inr(k.v.prev)} tileBg={k.tileBg} iconBg={k.iconBg} iconColor={k.iconColor}
+            />
+          ))}
         </div>
+      </section>
 
-        <div className="grid grid-cols-1 xl:grid-cols-3 gap-5 sm:gap-6 mt-4 sm:mt-5">
-          <section className="xl:col-span-2 bg-card border border-border rounded-xl sm:rounded-2xl p-4 sm:p-5 shadow-xs">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-4">
-              <div>
-                <h3 className="font-bold text-text text-sm sm:text-base">Revenue Overview</h3>
-                <p className="text-[11px] sm:text-xs text-muted">{overview.headline}</p>
-              </div>
-              <button type="button" className="dashboard-filter-btn self-start sm:self-auto">{overview.period}</button>
+      {/* funds row */}
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
+        {[
+          { icon: Landmark, label: 'Funds Position', value: inr(funds), sub: 'Available Funds', bg: '#e8f1fd', fg: '#2563eb' },
+          { icon: Database, label: 'Working Capital', value: inr(DEMO.workingCapital), sub: 'Current', bg: '#e7f6ef', fg: '#0d9488' },
+          { icon: Package, label: 'Stock Value', value: inr(stock), sub: 'Total Inventory Value', bg: '#e7f6ec', fg: '#16a34a' },
+        ].map((c) => (
+          <div key={c.label} className="flex items-center gap-3 rounded-xl border border-[#e2eaf5] bg-white p-4 shadow-[0_1px_2px_rgba(16,42,82,0.05)]">
+            <span className="grid h-11 w-11 shrink-0 place-items-center rounded-xl" style={{ background: c.bg, color: c.fg }}>
+              <c.icon size={21} />
+            </span>
+            <div className="min-w-0">
+              <p className="text-[11px] font-semibold text-slate-500">{c.label}</p>
+              <p className="truncate text-[18px] font-extrabold tracking-tight text-[#17294e]">{c.value}</p>
+              <p className="text-[11px] text-slate-400">{c.sub}</p>
             </div>
-            <div className="chart-wrap overflow-hidden">
-              <svg viewBox="0 0 620 260" className="chart-svg w-full h-auto max-h-[260px]" aria-label="Invoiced revenue chart">
-                <defs>
-                  <linearGradient id="uniChartArea" x1="0" x2="0" y1="0" y2="1">
-                    <stop offset="0%" stopColor="#2b7cff" stopOpacity="0.28" />
-                    <stop offset="100%" stopColor="#2b7cff" stopOpacity="0.04" />
-                  </linearGradient>
-                </defs>
-                {[0, 1, 2, 3].map((line) => {
-                  const y = 28 + line * 52;
-                  return <line key={line} x1="28" y1={y} x2="592" y2={y} className="chart-grid-line" />;
+          </div>
+        ))}
+        <div className="flex items-center gap-3 rounded-xl border border-[#e2eaf5] bg-white p-4 shadow-[0_1px_2px_rgba(16,42,82,0.05)]">
+          <span className="grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-[#efe9fd] text-violet-600">
+            <BarChart3 size={21} />
+          </span>
+          <div className="min-w-0 flex-1">
+            <p className="text-[11px] font-semibold text-slate-500">Profitability (Today)</p>
+            <p className="truncate text-[18px] font-extrabold tracking-tight text-[#17294e]">{inr(profit.today)}</p>
+          </div>
+          <div className="text-right text-[11px] font-bold">
+            <span className="flex items-center justify-end gap-0.5 text-emerald-600"><TrendingUp size={12} /> {Math.abs(pctChange(profit.today, profit.prev)).toFixed(1)}%</span>
+            <span className="font-medium text-slate-400">vs. {inr(profit.prev)}</span>
+          </div>
+        </div>
+      </div>
+
+      {/* production / inventory / qc */}
+      <div className="grid grid-cols-1 gap-3 xl:grid-cols-3">
+        <SectionCard icon={Factory} title="Production & Job Work (Today)" linkTo="/pms">
+          <div className="flex items-center gap-4">
+            <div className="flex flex-col items-center">
+              <Donut pct={74}>
+                <strong className="text-[21px] font-extrabold text-[#17294e]">74%</strong>
+              </Donut>
+              <p className="mt-1.5 text-center text-[11px] font-medium text-slate-500">Production<br />Completion</p>
+            </div>
+            <ul className="min-w-0 flex-1 space-y-1.5 text-[12px] font-medium text-slate-600">
+              {[['Planned', '25,000 m', '#2563eb'], ['Produced', '18,400 m', '#22c55e'], ['Pending', '6,600 m', '#f59e0b']].map(([l, v, c]) => (
+                <li key={l} className="flex items-center justify-between gap-2">
+                  <span className="flex items-center gap-1.5"><i className="h-2 w-2 rounded-full" style={{ background: c }} />{l}</span>
+                  <span className="font-bold text-slate-800">{v}</span>
+                </li>
+              ))}
+            </ul>
+          </div>
+          <div className="mt-3 border-t border-slate-100 pt-3">
+            <p className="mb-2 text-[12px] font-bold text-slate-700">Job Work (In Process)</p>
+            <ul className="space-y-1.5 text-[12px] font-medium text-slate-600">
+              {[['Dyeing', '12,500 m', '#2563eb'], ['Printing', '5,200 m', '#22c55e'], ['Finishing', '3,800 m', '#f59e0b'], ['Pending Return', '8,400 m', '#ef4444']].map(([l, v, c]) => (
+                <li key={l} className="flex items-center justify-between gap-2">
+                  <span className="flex items-center gap-1.5"><i className="h-2 w-2 rounded-full" style={{ background: c }} />{l}</span>
+                  <span className="font-bold text-slate-800">{v}</span>
+                </li>
+              ))}
+            </ul>
+          </div>
+        </SectionCard>
+
+        <SectionCard icon={Package} title="Inventory Position (Value)" linkTo="/inventory/stock-position">
+          <ul className="divide-y divide-slate-100">
+            {[
+              { icon: Layers, tint: '#e8f1fd', fg: '#2563eb', l: 'Grey Stock', v: '₹ 32,00,000', s: '24,850 mtr' },
+              { icon: ClipboardList, tint: '#e7f6ec', fg: '#16a34a', l: 'External WIP', v: '₹ 11,50,000', s: '8,600 mtr' },
+              { icon: Cog, tint: '#fdf3e0', fg: '#d97706', l: 'QC Hold', v: '₹ 2,80,000', s: '2,150 mtr' },
+              { icon: Boxes, tint: '#e7f6ef', fg: '#0d9488', l: 'Finished Stock', v: '₹ 27,00,000', s: '18,420 mtr' },
+              { icon: RotateCcw, tint: '#fdeeee', fg: '#ef4444', l: 'Reprocess', v: '₹ 1,60,000', s: '1,320 mtr' },
+            ].map((r) => (
+              <li key={r.l}>
+                <Link to="/inventory/stock-position" className="group flex items-center gap-3 py-[9px]">
+                  <span className="grid h-9 w-9 shrink-0 place-items-center rounded-lg" style={{ background: r.tint, color: r.fg }}>
+                    <r.icon size={17} />
+                  </span>
+                  <span className="min-w-0 flex-1">
+                    <span className="block text-[12.5px] font-bold text-slate-700">{r.l}</span>
+                    <span className="block text-[11px] text-slate-400">{r.s}</span>
+                  </span>
+                  <span className="text-[13px] font-extrabold text-[#17294e]">{r.v}</span>
+                  <ArrowRight size={13} className="shrink-0 text-slate-300 transition group-hover:translate-x-0.5 group-hover:text-blue-500" />
+                </Link>
+              </li>
+            ))}
+          </ul>
+        </SectionCard>
+
+        <SectionCard icon={ShieldCheck} title="QC & Wastage (Today)" linkTo="/inventory/faulty-parts">
+          <div className="flex items-center gap-4">
+            <Donut pct={91.4}>
+              <strong className="text-[18px] font-extrabold text-[#17294e]">91.4%</strong>
+              <span className="text-[10.5px] font-medium text-slate-500">Good Yield</span>
+            </Donut>
+            <ul className="min-w-0 flex-1 space-y-1.5 text-[12px] font-medium text-slate-600">
+              {[['Received', '25,000 m'], ['Good', '22,850 m'], ['Reprocess', '1,250 m'], ['Reject', '420 m'], ['Approved Loss', '480 m']].map(([l, v]) => (
+                <li key={l} className="flex items-center justify-between gap-2">
+                  <span>{l}</span><span className="font-bold text-slate-800">{v}</span>
+                </li>
+              ))}
+            </ul>
+          </div>
+          <div className="mt-3 flex items-center justify-center gap-1.5 rounded-lg bg-[#fdeeee] px-3 py-2 text-[12px] font-bold text-[#dc2626]">
+            <TriangleAlert size={14} /> 1.9% Process Loss
+          </div>
+        </SectionCard>
+      </div>
+
+      {/* sales chart / ageing / attention */}
+      <div className="grid grid-cols-1 gap-3 xl:grid-cols-3">
+        <SectionCard icon={BarChart3} title="Sales & Collection (Last 7 Days)" linkTo="/sales/invoices">
+          <div className="mb-2 flex items-center gap-4 text-[11px] font-bold text-slate-500">
+            <span className="flex items-center gap-1.5"><i className="h-2.5 w-2.5 rounded-[3px] bg-[#2563eb]" />Sales</span>
+            <span className="flex items-center gap-1.5"><i className="h-2.5 w-2.5 rounded-[3px] bg-[#34d399]" />Collection</span>
+          </div>
+          <div className="flex gap-1.5">
+            <div className="flex w-7 flex-col justify-between py-0.5 text-right text-[9px] font-semibold text-slate-400">
+              {[20, 15, 10, 5, 0].map((t) => <span key={t}>{t}</span>)}
+            </div>
+            <div className="relative flex-1">
+              <div className="absolute inset-0 flex flex-col justify-between">
+                {[0, 1, 2, 3, 4].map((i) => <div key={i} className="border-t border-dashed border-slate-100" />)}
+              </div>
+              <div className="relative flex h-40 items-end gap-1.5">
+                {sales7.map((s, i) => {
+                  const c = coll7[i] || 0;
+                  const h = (v) => `${Math.max(2, (v / maxLakh) * 100)}%`;
+                  return (
+                    <div key={last7[i]} className="flex h-full flex-1 flex-col items-center justify-end gap-1">
+                      <div className="flex w-full max-w-[46px] flex-1 items-end justify-center gap-1">
+                        <div className="w-1/2 rounded-t-[4px] bg-[#2563eb]" style={{ height: h(s) }} title={`Sales ₹${s}L`} />
+                        <div className="w-1/2 rounded-t-[4px] bg-[#34d399]" style={{ height: h(c) }} title={`Collection ₹${c}L`} />
+                      </div>
+                      <span className="text-[8.5px] font-semibold text-slate-400">{dayLabel(last7[i])}</span>
+                    </div>
+                  );
                 })}
-                <path d={chart.areaPath} fill="url(#uniChartArea)" />
-                <path d={chart.linePath} className="chart-line-path" />
-                {chart.points.map((point) => (
-                  <g key={`${point.x}-${point.y}`}>
-                    <circle cx={point.x} cy={point.y} r="6" fill="#1f6bff" />
-                    <circle cx={point.x} cy={point.y} r="3" fill="#ffffff" />
-                  </g>
-                ))}
-                {overview.series.map((item, index) => (
-                  <text key={item.month} x={chart.points[index]?.x} y="250" textAnchor="middle" className="chart-axis-label">
-                    {item.month}
-                  </text>
-                ))}
-              </svg>
-            </div>
-            <p className="chart-note">{overview.summary}</p>
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 mt-4 text-[11px] sm:text-xs font-semibold">
-              <Link to="/sales/quotes" className="text-center px-2.5 py-2 rounded-xl border border-border bg-soft hover:bg-card text-text shadow-2xs transition truncate">Quotes: {fmt(quotations.length)}</Link>
-              <Link to="/sales/invoices" className="text-center px-2.5 py-2 rounded-xl border border-border bg-soft hover:bg-card text-text shadow-2xs transition truncate">Invoices: {fmt(invoices.length)}</Link>
-              <Link to="/sales/challans" className="text-center px-2.5 py-2 rounded-xl border border-border bg-soft hover:bg-card text-text shadow-2xs transition truncate">Challans: {fmt(deliveryChallans.length)}</Link>
-              <Link to="/sales/orders" className="text-center px-2.5 py-2 rounded-xl border border-border bg-soft hover:bg-card text-text shadow-2xs transition flex items-center justify-center gap-1.5 truncate">
-                <Settings size={12} className="text-primary shrink-0" />
-                <span className="truncate">Orders: {fmt(salesOrders.length)}</span>
-              </Link>
-            </div>
-          </section>
-
-          <section className="bg-card border border-border rounded-xl sm:rounded-2xl p-4 sm:p-5 shadow-xs flex flex-col justify-between">
-            <div className="flex items-center justify-between gap-2 mb-4">
-              <div>
-                <h3 className="font-bold text-text text-sm sm:text-base">Invoice Status</h3>
-                <p className="text-[11px] sm:text-xs text-muted">Billing distribution</p>
-              </div>
-              <Link to="/sales/invoices" className="text-xs font-bold text-primary hover:underline">View All</Link>
-            </div>
-            <div className="donut-layout py-2">
-              <div className="donut-chart">
-                <svg viewBox="0 0 220 220" aria-label="Task status donut chart">
-                  <circle cx="110" cy="110" r="72" className="donut-track" />
-                  {donutSegments.map((item) => (
-                    <path key={item.key} d={item.path} stroke={item.color} strokeWidth="22" strokeLinecap="round" fill="none" />
-                  ))}
-                </svg>
-                <div className="donut-center">
-                  <strong>{completedPct}%</strong>
-                  <span>Paid</span>
-                </div>
-              </div>
-              <div className="donut-legend">
-                {/* ── [PHASE-1-DASHBOARD] was: dashboardData.taskStatus.map(...) — now ERP taskStatus ── */}
-                {taskStatus.map((item) => (
-                  <div key={item.key} className="legend-row">
-                    <div className="legend-meta">
-                      <span className="legend-dot" style={{ backgroundColor: item.color }} />
-                      <span className="truncate">{item.label}</span>
-                    </div>
-                    <strong>{item.value}</strong>
-                  </div>
-                ))}
-              </div>
-            </div>
-            <div className="activity-list mt-4 pt-3 border-t border-border">
-              {/* ── [PHASE-1-DASHBOARD] was: dashboardData.recentActivity.slice(0,3) — now ERP recentActivity ── */}
-              {recentActivity.map((item) => {
-                const Icon = ACTIVITY_ICONS[item.icon] || UserPlus;
-                const style = CARD_STYLES[item.tone] || CARD_STYLES.blue;
-                return (
-                  <div key={`${item.title}-${item.person}`} className="activity-item">
-                    <span className="activity-badge" style={{ background: style.bg, color: style.fg }}>
-                      <Icon size={16} />
-                    </span>
-                    <div className="activity-copy">
-                      <strong className="truncate">{item.title}</strong>
-                      <p className="truncate">{item.person}</p>
-                    </div>
-                    <time className="shrink-0">{item.time}</time>
-                  </div>
-                );
-              })}
-            </div>
-          </section>
-        </div>
-      </div>
-
-      {/* Low-Stock Alerts & Snapshots Grid */}
-      <div className="grid grid-cols-1 xl:grid-cols-3 gap-5 sm:gap-6">
-        {/* Left: Low Stock Alerts */}
-        <div className="xl:col-span-2 bg-card border border-border rounded-xl sm:rounded-2xl p-4 sm:p-5 shadow-xs">
-          <div className="flex items-center justify-between mb-4">
-            <div>
-              <h3 className="font-bold text-text text-sm sm:text-base">Low-Stock Alerts</h3>
-              <p className="text-[11px] sm:text-xs text-muted">Items below safety reorder threshold</p>
-            </div>
-            <Link to="/inventory/stock-position" className="text-xs font-bold text-primary hover:underline flex items-center gap-1">
-              <span>View All</span>
-              <ArrowRight size={13} />
-            </Link>
-          </div>
-
-          <div className="overflow-x-auto -mx-4 sm:mx-0 px-4 sm:px-0 scrollbar-thin">
-            <table className="w-full min-w-[460px] text-left border-collapse text-xs">
-              <thead>
-                <tr className="border-b border-border text-muted uppercase tracking-wider font-bold text-[10px]">
-                  <th className="py-2.5 px-3">SKU</th>
-                  <th className="py-2.5 px-3">Product</th>
-                  <th className="py-2.5 px-3 text-center">Available</th>
-                  <th className="py-2.5 px-3 text-center">Status</th>
-                  <th className="py-2.5 px-3 text-right">Action</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-border/60">
-                {lowStockItems.slice(0, 6).map((item) => (
-                  <tr key={item.id || item.sku} className="hover:bg-soft/70 transition-colors">
-                    <td className="py-2.5 sm:py-3 px-3 font-mono font-semibold text-text-secondary whitespace-nowrap">{item.sku}</td>
-                    <td className="py-2.5 sm:py-3 px-3 font-semibold text-text max-w-[160px] sm:max-w-none truncate">{item.name}</td>
-                    <td className="py-2.5 sm:py-3 px-3 text-center font-bold text-danger font-mono whitespace-nowrap">
-                      {item.availableQty}
-                    </td>
-                    <td className="py-2.5 sm:py-3 px-3 text-center whitespace-nowrap">
-                      <StatusBadge status={item.status} />
-                    </td>
-                    <td className="py-2.5 sm:py-3 px-3 text-right whitespace-nowrap">
-                      <Link
-                        to="/purchase/orders"
-                        className="inline-flex items-center justify-center px-2.5 sm:px-3 py-1 bg-primary text-white hover:bg-primary-hover rounded-lg text-[11px] font-semibold shadow-2xs transition"
-                      >
-                        Order
-                      </Link>
-                    </td>
-                  </tr>
-                ))}
-                {lowStockItems.length === 0 && (
-                  <tr>
-                    <td colSpan={5} className="py-6 text-center text-muted">
-                      All inventory levels are healthy and stocked.
-                    </td>
-                  </tr>
-                )}
-              </tbody>
-            </table>
-          </div>
-
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 mt-4 text-xs font-semibold">
-            <Link to="/inventory/items" className="px-2.5 py-2 rounded-xl bg-card hover:bg-soft border border-border text-text text-center shadow-2xs transition truncate">
-              Items: {fmt(items.length)}
-            </Link>
-            <Link to="/inventory/transfers" className="px-2.5 py-2 rounded-xl bg-card hover:bg-soft border border-border text-text text-center shadow-2xs transition truncate">
-              Transfers: {fmt(transfers.length)}
-            </Link>
-            <Link to="/inventory/faulty-parts" className="px-2.5 py-2 rounded-xl bg-card hover:bg-soft border border-border text-text text-center shadow-2xs transition truncate">
-              Faulty: {fmt(openFaulty)}
-            </Link>
-            <Link to="/inventory/locations" className="px-2.5 py-2 rounded-xl bg-card hover:bg-soft border border-border text-text text-center shadow-2xs transition flex items-center justify-center gap-1 truncate">
-              <MapPin size={12} className="shrink-0" />
-              <span className="truncate">Locations</span>
-            </Link>
-          </div>
-        </div>
-
-        {/* Right: Sales & Purchase Snapshots */}
-        <div className="bg-card border border-border rounded-xl sm:rounded-2xl p-4 sm:p-5 shadow-xs flex flex-col justify-between gap-4">
-          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-1 gap-4">
-            <div>
-              <div className="flex items-center justify-between mb-3">
-                <div>
-                  <h3 className="font-bold text-text text-sm">Sales Snapshot</h3>
-                  <p className="text-[11px] text-muted">Orders + Invoices + Challans</p>
-                </div>
-                <Link to="/sales/orders" className="text-xs font-bold text-primary hover:underline flex items-center gap-1">
-                  <span>View All</span>
-                  <ArrowRight size={13} />
-                </Link>
-              </div>
-              <div className="space-y-2 text-xs">
-                {salesOrders.slice(0, 3).map((o) => (
-                  <div key={o.id} className="p-2.5 sm:p-3 rounded-xl border border-border bg-soft/60 hover:bg-soft flex items-center justify-between gap-3 transition">
-                    <div className="min-w-0 flex-1">
-                      <p className="font-mono text-xs font-bold text-text truncate">{o.orderNumber || o.id}</p>
-                      <p className="text-[11px] text-muted truncate">{o.customer} • ₹{fmt(o.amount || 0)}</p>
-                    </div>
-                    <StatusBadge status={o.stage || o.status || 'Draft'} />
-                  </div>
-                ))}
-              </div>
-            </div>
-
-            <div>
-              <div className="flex items-center justify-between mb-3">
-                <div>
-                  <h3 className="font-bold text-text text-sm">Purchase Snapshot</h3>
-                  <p className="text-[11px] text-muted">POs + Bills + Expenses</p>
-                </div>
-                <Link to="/purchase/orders" className="text-xs font-bold text-primary hover:underline flex items-center gap-1">
-                  <span>View All</span>
-                  <ArrowRight size={13} />
-                </Link>
-              </div>
-              <div className="space-y-2 text-xs">
-                {purchaseOrders.slice(0, 3).map((o) => (
-                  <div key={o.id} className="p-2.5 sm:p-3 rounded-xl border border-border bg-soft/60 hover:bg-soft flex items-center justify-between gap-3 transition">
-                    <div className="min-w-0 flex-1">
-                      <p className="font-mono text-xs font-bold text-text truncate">{o.orderNumber || o.poNumber || o.id}</p>
-                      <p className="text-[11px] text-muted truncate">{o.vendor} • ₹{fmt(o.total || o.amount || 0)}</p>
-                    </div>
-                    <StatusBadge status={o.status || 'Draft'} />
-                  </div>
-                ))}
               </div>
             </div>
           </div>
+          <p className="mt-1 text-[10px] font-semibold text-slate-400">₹ in Lakhs</p>
+        </SectionCard>
 
-          <div className="pt-3 border-t border-border grid grid-cols-2 sm:grid-cols-4 xl:grid-cols-2 gap-2 text-xs font-semibold">
-            <Link to="/sales/invoices" className="px-2.5 py-2 rounded-xl bg-primary text-white text-center shadow-2xs hover:bg-primary/90 transition truncate">
-              Invoices ₹{fmt(Math.round(invoiceTotal))}
-            </Link>
-            <Link to="/purchase/bills" className="px-2.5 py-2 rounded-xl bg-soft hover:bg-card border border-border text-text text-center transition truncate">
-              Bills ₹{fmt(Math.round(billTotal))}
-            </Link>
-            <Link to="/sales/payments" className="px-2.5 py-2 rounded-xl bg-soft hover:bg-card border border-border text-text text-center transition truncate">
-              PayIn ₹{fmt(Math.round(paymentInTotal))}
-            </Link>
-            <Link to="/purchase/payments" className="px-2.5 py-2 rounded-xl bg-soft hover:bg-card border border-border text-text text-center transition truncate">
-              PayOut ₹{fmt(Math.round(paymentOutTotal))}
-            </Link>
-            <Link to="/purchase/expenses" className="px-2.5 py-2 rounded-xl bg-soft hover:bg-card border border-border text-text text-center col-span-2 sm:col-span-4 xl:col-span-2 transition text-[11px] sm:text-xs">
-              Expenses ₹{fmt(Math.round(expenseTotal))} • Challans {fmt(deliveryChallans.length)} • Returns {fmt(salesReturns.length)}
-            </Link>
-          </div>
-        </div>
-      </div>
+        <SectionCard icon={Users} title="Customer Receivable Ageing" linkTo="/sales/invoices">
+          <ul className="space-y-3 pt-1">
+            {ageing.map((b, i) => {
+              const colors = ['#22c55e', '#38bdf6', '#facc15', '#fb923c', '#f87171'];
+              return (
+                <li key={b.label} className="flex items-center gap-2 text-[12px]">
+                  <span className="w-[84px] shrink-0 font-medium text-slate-500">{b.label}</span>
+                  <span className="h-3.5 flex-1 overflow-hidden rounded-full bg-[#eef2f7]">
+                    <span className="block h-full rounded-full" style={{ width: `${Math.min(100, Math.max(6, b.pct * 2.2))}%`, background: colors[i % colors.length] }} />
+                  </span>
+                  <span className="w-[84px] shrink-0 text-right font-extrabold text-[#17294e]">{inr(b.amount)}</span>
+                  <span className="w-[40px] shrink-0 text-right text-[11px] font-semibold text-slate-400">({b.pct}%)</span>
+                </li>
+              );
+            })}
+          </ul>
+        </SectionCard>
 
-      {/* Bottom Row: Parties, Accounts, HRMS + Admin */}
-      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-5 sm:gap-6">
-        <div className="bg-card border border-border rounded-xl sm:rounded-2xl p-4 sm:p-5 shadow-xs">
-          <div className="flex items-center justify-between mb-3">
-            <div>
-              <h3 className="font-bold text-text text-sm sm:text-base">Parties</h3>
-              <p className="text-[11px] sm:text-xs text-muted">Customers + Vendors</p>
-            </div>
-            <Link to="/parties" className="text-xs font-bold text-primary hover:underline">
-              View All
+        <section className="rounded-xl border border-[#e2eaf5] bg-white p-4 shadow-[0_1px_2px_rgba(16,42,82,0.05)]">
+          <div className="mb-2 flex items-center justify-between gap-2">
+            <h3 className="flex items-center gap-1.5 text-[13px] font-extrabold text-[#dc2626]">
+              <TriangleAlert size={16} /> Attention Required
+            </h3>
+            <Link to="/reports" className="flex shrink-0 items-center gap-1 text-[11px] font-bold text-[#2563eb] hover:underline">
+              View All <ArrowRight size={12} />
             </Link>
           </div>
-          <div className="space-y-2 text-xs font-semibold">
-            <Link to="/crm/customers" className="flex items-center justify-between p-2.5 rounded-xl bg-soft hover:bg-card border border-border text-text transition">
-              <span className="flex items-center gap-2 font-bold min-w-0">
-                <Users size={14} className="text-primary shrink-0" />
-                <span className="truncate">Customers</span>
-              </span>
-              <strong className="text-text font-mono shrink-0">{fmt(customers.length)}</strong>
-            </Link>
-            <Link to="/parties" className="flex items-center justify-between p-2.5 rounded-xl bg-soft hover:bg-card border border-border text-text transition">
-              <span className="flex items-center gap-2 font-bold min-w-0">
-                <Building2 size={14} className="text-primary shrink-0" />
-                <span className="truncate">Vendors</span>
-              </span>
-              <strong className="text-text font-mono shrink-0">{fmt(vendors.length)}</strong>
-            </Link>
-            <Link to="/parties" className="flex items-center justify-between p-2.5 rounded-xl bg-soft hover:bg-card border border-border text-text transition">
-              <span className="flex items-center gap-2 font-bold min-w-0">
-                <BriefcaseBusiness size={14} className="text-primary shrink-0" />
-                <span className="truncate">All Parties</span>
-              </span>
-              <strong className="text-text font-mono shrink-0">{fmt(parties.length)}</strong>
-            </Link>
-          </div>
-        </div>
-
-        <div className="bg-card border border-border rounded-xl sm:rounded-2xl p-4 sm:p-5 shadow-xs">
-          <div className="flex items-center justify-between mb-3">
-            <div>
-              <h3 className="font-bold text-text text-sm sm:text-base">Accounts</h3>
-              <p className="text-[11px] sm:text-xs text-muted">Cash + Ledger + Reports</p>
-            </div>
-            <Link to="/accounts/cash-bank" className="text-xs font-bold text-primary hover:underline">
-              View All
-            </Link>
-          </div>
-          <div className="space-y-2 text-xs font-semibold">
-            <Link to="/accounts/cash-bank" className="flex items-center justify-between p-2.5 rounded-xl bg-soft hover:bg-card border border-border text-text transition">
-              <span className="flex items-center gap-2 font-bold text-text min-w-0">
-                <Landmark size={14} className="text-primary shrink-0" />
-                <span className="truncate">Bank Balance</span>
-              </span>
-              <strong className="text-text font-mono font-bold shrink-0">₹{fmt(Math.round(bankBalance))}</strong>
-            </Link>
-            <Link to="/accounts/general-ledger" className="flex items-center justify-between p-2.5 rounded-xl bg-soft hover:bg-card border border-border text-text transition">
-              <span className="flex items-center gap-2 font-bold text-text min-w-0">
-                <FileText size={14} className="text-primary shrink-0" />
-                <span className="truncate">General Ledger</span>
-              </span>
-              <span className="text-primary text-xs font-bold shrink-0">Open →</span>
-            </Link>
-            <Link to="/accounts/reports" className="flex items-center justify-between p-2.5 rounded-xl bg-soft hover:bg-card border border-border text-text transition">
-              <span className="flex items-center gap-2 font-bold text-text min-w-0">
-                <PieChart size={14} className="text-primary shrink-0" />
-                <span className="truncate">Financial Reports</span>
-              </span>
-              <span className="text-primary text-xs font-bold shrink-0">View →</span>
-            </Link>
-          </div>
-        </div>
-
-        <div className="bg-card border border-border rounded-xl sm:rounded-2xl p-4 sm:p-5 shadow-xs md:col-span-2 xl:col-span-1">
-          <div className="flex items-center justify-between mb-3">
-            <div>
-              <h3 className="font-bold text-text text-sm sm:text-base">HRMS + Admin</h3>
-              <p className="text-[11px] sm:text-xs text-muted">People + Settings</p>
-            </div>
-            <Link to="/hrms/dashboard" className="text-xs font-bold text-primary hover:underline">
-              HRMS
-            </Link>
-          </div>
-          <div className="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-2 gap-2 text-xs font-semibold">
-            <Link to="/hrms/employees" className="p-2 sm:p-2.5 rounded-xl bg-soft hover:bg-card border border-border text-text text-center transition truncate">
-              Employees
-            </Link>
-            <Link to="/hrms/attendance" className="p-2 sm:p-2.5 rounded-xl bg-soft hover:bg-card border border-border text-text text-center transition truncate">
-              Attendance
-            </Link>
-            <Link to="/hrms/leave" className="p-2 sm:p-2.5 rounded-xl bg-soft hover:bg-card border border-border text-text text-center transition truncate">
-              Leave
-            </Link>
-            <Link to="/hrms/payroll" className="p-2 sm:p-2.5 rounded-xl bg-soft hover:bg-card border border-border text-text text-center transition truncate">
-              Payroll
-            </Link>
-            <Link to="/administration/users" className="p-2 sm:p-2.5 rounded-xl bg-soft hover:bg-card border border-border text-text text-center transition truncate">
-              Users
-            </Link>
-            <Link to="/administration/settings" className="p-2 sm:p-2.5 rounded-xl bg-soft hover:bg-card border border-border text-text text-center transition truncate">
-              Settings
-            </Link>
-          </div>
-          <div className="mt-3 grid grid-cols-1 sm:grid-cols-3 gap-2 text-xs font-semibold">
-            <Link to="/crm/user-allocation" className="p-2 rounded-xl border border-border bg-soft hover:bg-card text-text text-center transition flex items-center justify-center gap-1.5 shadow-2xs truncate">
-              <ListChecks size={13} className="text-primary shrink-0" />
-              <span className="truncate">Allocation</span>
-            </Link>
-            <Link to="/inventory/zone-requests" className="p-2 rounded-xl border border-border bg-soft hover:bg-card text-text text-center transition flex items-center justify-center gap-1.5 shadow-2xs truncate">
-              <span className="truncate">Zone Requests ({pendingZoneReqs})</span>
-            </Link>
-            <Link to="/inventory/transfers" className="p-2 rounded-xl border border-border bg-soft hover:bg-card text-text text-center transition flex items-center justify-center gap-1.5 shadow-2xs truncate">
-              <ArrowLeftRight size={13} className="text-primary shrink-0" />
-              <span className="truncate">Transfers ({pendingTransfers})</span>
-            </Link>
-          </div>
-        </div>
+          <ul className="divide-y divide-slate-100">
+            {attention.map((a) => (
+              <li key={a.label} className="flex items-center gap-2 py-[6.5px] text-[12.5px] font-medium text-slate-600">
+                <span className="grid h-5 w-5 shrink-0 place-items-center rounded-full bg-[#fdeeee] text-[#dc2626]">
+                  <TriangleAlert size={11} />
+                </span>
+                <span className="min-w-0 flex-1 truncate">{a.label}</span>
+                <span className="font-extrabold text-[#dc2626]">{a.count}</span>
+              </li>
+            ))}
+          </ul>
+        </section>
       </div>
     </div>
   );

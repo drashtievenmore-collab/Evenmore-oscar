@@ -5,6 +5,7 @@
  * Tailwind art underneath is fallback only.
  */
 import { useState } from 'react';
+import RibbonAnimation from './RibbonAnimation';
 
 const PHOTO_SOURCES = ['/login-bg.png', '/guide/login-bg.png', '/login-bg.jpg'];
 
@@ -110,13 +111,9 @@ export default function LoginShowroomBackground() {
         </div>
       </div>
 
-      {/* sheer ribbon (frozen) */}
+      {/* sheer ribbon — 3D animated ONLY here */}
       <div className="absolute top-[2%] left-[22%] right-[20%] h-[46%]">
-        <svg viewBox="0 0 800 260" className="h-full w-full drop-shadow-[0_18px_30px_rgba(120,170,255,0.45)]" fill="none">
-          <path d="M10 190 C 160 190, 220 120, 340 130 S 520 210, 640 120 S 760 40, 795 20" stroke="rgba(191,219,254,0.9)" strokeWidth="42" strokeLinecap="round" opacity="0.55" />
-          <path d="M10 190 C 160 190, 220 120, 340 130 S 520 210, 640 120 S 760 40, 795 20" stroke="rgba(255,255,255,0.85)" strokeWidth="14" strokeLinecap="round" opacity="0.7" />
-          <path d="M60 205 C 200 205, 300 90, 430 150 S 600 230, 720 110" stroke="rgba(147,197,253,0.5)" strokeWidth="8" strokeLinecap="round" />
-        </svg>
+        <RibbonAnimation className="h-full w-full drop-shadow-[0_18px_30px_rgba(120,170,255,0.45)]" />
       </div>
 
       {/* floor */}

@@ -8,10 +8,33 @@ function tempId(prefix) {
   return `${prefix}-local-${Date.now()}-${Math.random().toString(16).slice(2, 6)}`;
 }
 const THEME_KEY = "evenmore_theme";
+const HRMS_MODULES_KEY = "evenmore_hrms_modules";
+
+function loadModuleFlags() {
+  try {
+    const saved = JSON.parse(localStorage.getItem(HRMS_MODULES_KEY) || "{}");
+    return {
+      recruitmentEnabled: saved.recruitmentEnabled !== false,
+      trainingEnabled: saved.trainingEnabled !== false,
+    };
+  } catch {}
+  return { recruitmentEnabled: true, trainingEnabled: true };
+}
+
+function saveModuleFlags(recruitmentEnabled, trainingEnabled) {
+  try {
+    localStorage.setItem(
+      HRMS_MODULES_KEY,
+      JSON.stringify({ recruitmentEnabled, trainingEnabled })
+    );
+  } catch {}
+}
+
+const initialModuleFlags = loadModuleFlags();
 
 function applyThemeAttributes(theme) {
   document.documentElement.setAttribute("data-theme", theme);
-  if (theme !== "light") {
+  if (theme !== "light" && theme !== "oscar") {
     document.documentElement.classList.add("dark");
   } else {
     document.documentElement.classList.remove("dark");
@@ -21,13 +44,16 @@ function applyThemeAttributes(theme) {
 function loadTheme() {
   try {
     const saved = localStorage.getItem(THEME_KEY);
-    if (saved && ["light", "dark", "midnight", "emerald"].includes(saved)) {
-      applyThemeAttributes(saved);
-      return saved;
+    if (saved && ["light", "dark", "midnight", "emerald", "oscar"].includes(saved)) {
+      // "light" was the previous default — move those users to the new
+      // Oscar textile sidebar theme; explicit dark/midnight/emerald stay.
+      const next = saved === "light" ? "oscar" : saved;
+      applyThemeAttributes(next);
+      return next;
     }
   } catch {}
-  applyThemeAttributes("light");
-  return "light";
+  applyThemeAttributes("oscar");
+  return "oscar";
 }
 
 const useAppStoreBase = create((set) => ({
@@ -80,6 +106,8 @@ const useAppStoreBase = create((set) => ({
   compOffCredits: [],
   sandwichRuleEnabled: true,
   maxCarryForwardDays: 12,
+  recruitmentEnabled: initialModuleFlags.recruitmentEnabled,
+  trainingEnabled: initialModuleFlags.trainingEnabled,
   carriedForwardLeaves: {},
   hrmsStatus: { loading: false, loaded: false, error: null },
 
@@ -119,8 +147,15 @@ const useAppStoreBase = create((set) => ({
         carriedForwardLeaves: balances?.carriedForward || s.carriedForwardLeaves,
         sandwichRuleEnabled: settings?.sandwichRuleEnabled ?? s.sandwichRuleEnabled,
         maxCarryForwardDays: settings?.maxCarryForwardDays ?? s.maxCarryForwardDays,
+        recruitmentEnabled: settings?.recruitmentEnabled ?? s.recruitmentEnabled,
+        trainingEnabled: settings?.trainingEnabled ?? s.trainingEnabled,
         hrmsStatus: { loading: false, loaded: true, error: null },
       }));
+      // Keep the sidebar toggles in sync for the next reload (offline-safe).
+      try {
+        const st = useAppStore.getState();
+        saveModuleFlags(st.recruitmentEnabled, st.trainingEnabled);
+      } catch {}
       return true;
     } catch (err) {
       set((s) => ({
@@ -341,6 +376,8 @@ const useAppStoreBase = create((set) => ({
     hrmsApi.pushHrmsSettings({
       sandwichRuleEnabled,
       maxCarryForwardDays: useAppStore.getState().maxCarryForwardDays,
+      recruitmentEnabled: useAppStore.getState().recruitmentEnabled,
+      trainingEnabled: useAppStore.getState().trainingEnabled,
     }).catch((err) => {
       set({ sandwichRuleEnabled: previous });
       useAppStore.getState().showToast(`Setting not saved — ${hrmsApi.describeError(err)}`);
@@ -354,8 +391,45 @@ const useAppStoreBase = create((set) => ({
     hrmsApi.pushHrmsSettings({
       sandwichRuleEnabled: useAppStore.getState().sandwichRuleEnabled,
       maxCarryForwardDays,
+      recruitmentEnabled: useAppStore.getState().recruitmentEnabled,
+      trainingEnabled: useAppStore.getState().trainingEnabled,
     }).catch((err) => {
       set({ maxCarryForwardDays: previous });
+      useAppStore.getState().showToast(`Setting not saved — ${hrmsApi.describeError(err)}`);
+    });
+  },
+
+  // ── HRMS module toggles (Recruitment / Training) ──────────────────────
+  // Persisted in localStorage for instant sidebar updates and synced to
+  // `/hrms/settings/` so every device for the tenant sees the same modules.
+  setRecruitmentEnabled: (val) => {
+    const previous = useAppStore.getState().recruitmentEnabled;
+    const recruitmentEnabled = typeof val === "boolean" ? val : !previous;
+    set({ recruitmentEnabled });
+    saveModuleFlags(recruitmentEnabled, useAppStore.getState().trainingEnabled);
+    hrmsApi.pushHrmsSettings({
+      sandwichRuleEnabled: useAppStore.getState().sandwichRuleEnabled,
+      maxCarryForwardDays: useAppStore.getState().maxCarryForwardDays,
+      recruitmentEnabled,
+      trainingEnabled: useAppStore.getState().trainingEnabled,
+    }).catch((err) => {
+      set({ recruitmentEnabled: previous });
+      useAppStore.getState().showToast(`Setting not saved — ${hrmsApi.describeError(err)}`);
+    });
+  },
+
+  setTrainingEnabled: (val) => {
+    const previous = useAppStore.getState().trainingEnabled;
+    const trainingEnabled = typeof val === "boolean" ? val : !previous;
+    set({ trainingEnabled });
+    saveModuleFlags(useAppStore.getState().recruitmentEnabled, trainingEnabled);
+    hrmsApi.pushHrmsSettings({
+      sandwichRuleEnabled: useAppStore.getState().sandwichRuleEnabled,
+      maxCarryForwardDays: useAppStore.getState().maxCarryForwardDays,
+      recruitmentEnabled: useAppStore.getState().recruitmentEnabled,
+      trainingEnabled,
+    }).catch((err) => {
+      set({ trainingEnabled: previous });
       useAppStore.getState().showToast(`Setting not saved — ${hrmsApi.describeError(err)}`);
     });
   },
@@ -382,13 +456,14 @@ const useAppStoreBase = create((set) => ({
 const HRMS_KEYS = [
   "employees", "leaves", "attendance", "candidates", "encashments",
   "compOffCredits", "carriedForwardLeaves", "sandwichRuleEnabled",
-  "maxCarryForwardDays", "hrmsStatus",
+  "maxCarryForwardDays", "recruitmentEnabled", "trainingEnabled", "hrmsStatus",
   "hydrateHrms", "refreshHrms", "addEmployee", "deleteEmployee", "updateEmployee",
   "updateEmployeeStatus", "addLeave", "updateLeaveStatus", "approveLeave",
   "rejectLeave", "addAttendance", "moveCandidate", "requestEncashment",
   "setEncashmentStatus", "approveEncashment", "rejectEncashment",
   "requestCompOff", "setCompOffStatus", "approveCompOff", "rejectCompOff",
-  "toggleSandwichRule", "setMaxCarryForwardDays", "executeCarryForwardRollover",
+  "toggleSandwichRule", "setMaxCarryForwardDays", "setRecruitmentEnabled",
+  "setTrainingEnabled", "executeCarryForwardRollover",
 ];
 
 // Reading any of those is what loads HRMS; reading the theme is not.

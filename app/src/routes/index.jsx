@@ -2,6 +2,7 @@ import React, { lazy, Suspense } from 'react';
 import { createBrowserRouter, RouterProvider, Navigate, useRouteError } from 'react-router-dom';
 import MainLayout from '../components/layout/MainLayout';
 import RequireAuth from './RequireAuth';
+import { useAppStore } from '../stores/appStore';
 import { ErrorBoundary } from '../components/ui/ErrorBoundary';
 import { PageLoadingSkeleton } from '../components/common/PageLoadingSkeleton';
 
@@ -26,7 +27,10 @@ const ProjectDetailPage = lazy(() => import('../features/crm/projects/ProjectDet
 const DealsPage = lazy(() => import('../features/crm/deals/DealsPage'));
 const UserAllocationPage = lazy(() => import('../features/crm/allocation/UserAllocationPage'));
 const CRMSystemSetupPage = lazy(() => import('../features/crm/setup/CRMSystemSetupPage'));
-const CRMReportsPage = lazy(() => import('../features/crm/reports/CRMReportsPage'));
+// [REMOVED] CRM Reports concept removed from the CRM module.
+//   `features/crm/reports/CRMReportsPage.jsx` is kept per the no-delete rule.
+//   Route `crm/reports` and its sidebar entry were dropped; restore both if needed.
+// const CRMReportsPage = lazy(() => import('../features/crm/reports/CRMReportsPage'));
 
 // ── PMS — Project Management (Lazy Loaded) ───────────────────
 const PMSDashboard = lazy(() => import('../features/pms/dashboard/PMSDashboard'));
@@ -152,6 +156,33 @@ function Page({ component: Component, ...rest }) {
   );
 }
 
+// ── HRMS module gate ──
+// When Recruitment / Training is toggled OFF in HR Admin, direct URLs for
+// that module redirect back to the HRMS dashboard instead of rendering.
+function RequireHrmsModule({ module, children }) {
+  const recruitmentEnabled = useAppStore((s) => s.recruitmentEnabled ?? true);
+  const trainingEnabled = useAppStore((s) => s.trainingEnabled ?? true);
+  const enabled = module === 'recruitment' ? recruitmentEnabled : trainingEnabled;
+  if (!enabled) return <Navigate to="/hrms/dashboard" replace />;
+  return children;
+}
+
+function RecruitmentPage({ component: Component, ...rest }) {
+  return (
+    <RequireHrmsModule module="recruitment">
+      <Page component={Component} {...rest} />
+    </RequireHrmsModule>
+  );
+}
+
+function TrainingPage({ component: Component, ...rest }) {
+  return (
+    <RequireHrmsModule module="training">
+      <Page component={Component} {...rest} />
+    </RequireHrmsModule>
+  );
+}
+
 function RootErrorBoundary() {
   const error = useRouteError();
   console.error('RootErrorBoundary caught error:', error);
@@ -243,7 +274,7 @@ const router = createBrowserRouter([
       { path: 'crm/deals', element: <Page component={DealsPage} /> },
       { path: 'crm/user-allocation', element: <Page component={UserAllocationPage} /> },
       { path: 'crm/system-setup', element: <Page component={CRMSystemSetupPage} /> },
-      { path: 'crm/reports', element: <Page component={CRMReportsPage} /> },
+      // [REMOVED] `crm/reports` — CRM Reports concept removed from the CRM module.
       { path: 'crm/quotations', element: <Page component={QuotationsPage} /> },
 
       // ── PMS — Project Management ──────────────────────────
@@ -343,18 +374,18 @@ const router = createBrowserRouter([
       { path: 'hrms/attendance/flexibility', element: <Page component={Flexibility} /> },
       { path: 'hrms/leave', element: <Page component={Leave} /> },
       { path: 'hrms/payroll', element: <Page component={Payroll} /> },
-      { path: 'hrms/recruitment', element: <Page component={RecruitmentDashboard} /> },
-      { path: 'hrms/recruitment/jobs', element: <Page component={Jobs} /> },
-      { path: 'hrms/recruitment/jobs/:id', element: <Page component={JobDetails} /> },
-      { path: 'hrms/recruitment/candidates', element: <Page component={Candidates} /> },
-      { path: 'hrms/recruitment/candidates/:id', element: <Page component={CandidateDetails} /> },
-      { path: 'hrms/recruitment/interviews', element: <Page component={Interviews} /> },
-      { path: 'hrms/recruitment/interviews/:id', element: <Page component={InterviewDetails} /> },
-      { path: 'hrms/recruitment/applications', element: <Page component={Applications} /> },
-      { path: 'hrms/recruitment/offers', element: <Page component={Offers} /> },
-      { path: 'hrms/recruitment/onboarding', element: <Page component={Onboarding} /> },
-      { path: 'hrms/recruitment/career', element: <Page component={Career} /> },
-      { path: 'hrms/recruitment/questions', element: <Page component={CustomQuestions} /> },
+      { path: 'hrms/recruitment', element: <RecruitmentPage component={RecruitmentDashboard} /> },
+      { path: 'hrms/recruitment/jobs', element: <RecruitmentPage component={Jobs} /> },
+      { path: 'hrms/recruitment/jobs/:id', element: <RecruitmentPage component={JobDetails} /> },
+      { path: 'hrms/recruitment/candidates', element: <RecruitmentPage component={Candidates} /> },
+      { path: 'hrms/recruitment/candidates/:id', element: <RecruitmentPage component={CandidateDetails} /> },
+      { path: 'hrms/recruitment/interviews', element: <RecruitmentPage component={Interviews} /> },
+      { path: 'hrms/recruitment/interviews/:id', element: <RecruitmentPage component={InterviewDetails} /> },
+      { path: 'hrms/recruitment/applications', element: <RecruitmentPage component={Applications} /> },
+      { path: 'hrms/recruitment/offers', element: <RecruitmentPage component={Offers} /> },
+      { path: 'hrms/recruitment/onboarding', element: <RecruitmentPage component={Onboarding} /> },
+      { path: 'hrms/recruitment/career', element: <RecruitmentPage component={Career} /> },
+      { path: 'hrms/recruitment/questions', element: <RecruitmentPage component={CustomQuestions} /> },
       // { path: 'hrms/recruitment/funnel', element: <Page component={RecruitmentFunnel} /> }, // Hidden: Recruitment Funnel feature commented out
       { path: 'hrms/performance', element: <Page component={PerformanceDashboard} /> },
       { path: 'hrms/performance/indicators', element: <Page component={Indicators} /> },
@@ -363,11 +394,11 @@ const router = createBrowserRouter([
       { path: 'hrms/performance/appraisal-funnel', element: <Page component={AppraisalFunnel} /> },
       // { path: 'hrms/performance/goal-tracking', element: <Page component={GoalTracking} /> }, // Hidden: Goal Tracking feature commented out
       // { path: 'hrms/performance/goal-funnel', element: <Page component={GoalFunnel} /> }, // Hidden: Goal Funnel feature commented out
-      { path: 'hrms/training', element: <Page component={TrainingDashboard} /> },
-      { path: 'hrms/training/list', element: <Page component={() => <TrainingDashboard initialTab="list" />} /> },
-      { path: 'hrms/training/training-funnel', element: <Page component={() => <TrainingDashboard initialTab="funnel" />} /> },
-      { path: 'hrms/training/trainers', element: <Page component={() => <TrainingDashboard initialTab="trainers" />} /> },
-      { path: 'hrms/training/funnel', element: <Page component={() => <TrainingDashboard initialTab="funnel" />} /> },
+      { path: 'hrms/training', element: <TrainingPage component={TrainingDashboard} /> },
+      { path: 'hrms/training/list', element: <TrainingPage component={() => <TrainingDashboard initialTab="list" />} /> },
+      { path: 'hrms/training/training-funnel', element: <TrainingPage component={() => <TrainingDashboard initialTab="funnel" />} /> },
+      { path: 'hrms/training/trainers', element: <TrainingPage component={() => <TrainingDashboard initialTab="trainers" />} /> },
+      { path: 'hrms/training/funnel', element: <TrainingPage component={() => <TrainingDashboard initialTab="funnel" />} /> },
       { path: 'hrms/org-chart', element: <Page component={OrgChartPage} /> },
       { path: 'hrms/departments', element: <Page component={DepartmentsPage} /> },
       { path: 'hrms/designations', element: <Page component={DesignationsPage} /> },
