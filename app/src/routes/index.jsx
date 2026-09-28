@@ -19,13 +19,15 @@ const MasterTasksPage = lazy(() => import('../features/crm/tasks/MasterTasksPage
 const StageTasksPage = lazy(() => import('../features/crm/tasks/StageTasksPage'));
 const TaskFormPage = lazy(() => import('../features/crm/tasks/TaskFormPage'));
 const TaskFormBuilderPage = lazy(() => import('../features/crm/tasks/TaskFormBuilderPage'));
-const CRMDashboard = lazy(() => import('../features/crm/dashboard/CRMDashboard'));
 const ProjectsPage = lazy(() => import('../features/crm/projects/ProjectsPage'));
 const ContractsPage = lazy(() => import('../features/crm/contracts/ContractsPage'));
 const ContractDetailPage = lazy(() => import('../features/crm/contracts/ContractDetailPage'));
 const ProjectDetailPage = lazy(() => import('../features/crm/projects/ProjectDetailPage'));
 const DealsPage = lazy(() => import('../features/crm/deals/DealsPage'));
-const UserAllocationPage = lazy(() => import('../features/crm/allocation/UserAllocationPage'));
+// [REMOVED] User Tracking concept removed from the CRM module.
+//   `features/crm/allocation/UserAllocationPage.jsx` is kept per the no-delete rule.
+//   Route `crm/user-allocation` and its sidebar entry were dropped; restore both if needed.
+// const UserAllocationPage = lazy(() => import('../features/crm/allocation/UserAllocationPage'));
 const CRMSystemSetupPage = lazy(() => import('../features/crm/setup/CRMSystemSetupPage'));
 // [REMOVED] CRM Reports concept removed from the CRM module.
 //   `features/crm/reports/CRMReportsPage.jsx` is kept per the no-delete rule.
@@ -252,7 +254,6 @@ const router = createBrowserRouter([
 
       // ── CRM ───────────────────────────────────────────────
       { path: 'crm', element: <Navigate to="/crm/leads" replace /> },
-      { path: 'crm/dashboard', element: <Page component={CRMDashboard} /> },
       { path: 'crm/leads', element: <Page component={LeadsPage} /> },
       { path: 'crm/leads/:id', element: <Page component={LeadDetailPage} /> },
       { path: 'crm/leads/forms', element: <Page component={LeadFormsPage} /> },
@@ -272,7 +273,7 @@ const router = createBrowserRouter([
       { path: 'crm/contracts/:id', element: <Page component={ContractDetailPage} /> },
       { path: 'crm/projects/:id', element: <Page component={ProjectDetailPage} /> },
       { path: 'crm/deals', element: <Page component={DealsPage} /> },
-      { path: 'crm/user-allocation', element: <Page component={UserAllocationPage} /> },
+      // [REMOVED] `crm/user-allocation` — User Tracking concept removed from the CRM module.
       { path: 'crm/system-setup', element: <Page component={CRMSystemSetupPage} /> },
       // [REMOVED] `crm/reports` — CRM Reports concept removed from the CRM module.
       { path: 'crm/quotations', element: <Page component={QuotationsPage} /> },

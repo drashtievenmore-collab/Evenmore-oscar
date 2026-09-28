@@ -66,6 +66,10 @@ const useCrmStoreBase = create((set, get) => ({
   teamMembers: [],
   leadStats: null,
 
+  /** Whether the "Create Lead" toggle is ON — controls modal + sidebar item visibility. */
+  createLeadMode: false,
+  setCreateLeadMode: (value) => set({ createLeadMode: value }),
+
   status: { loading: false, loaded: false, error: null, lastSyncAt: null },
 
   /**

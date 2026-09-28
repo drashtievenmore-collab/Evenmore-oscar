@@ -69,6 +69,10 @@ export const defaultLeadFormSections = [
       createField("industry", "Single Line", { label: "Industry", placeholder: "Enter industry" }),
       createField("lead-owner", "User", { label: "Lead Owner", placeholder: "Select User", required: true, showInList: true }),
       createField("created-on", "Date", { label: "Created On", placeholder: "Select created date" }),
+      createField("products", "Multi Select", { label: "Products", placeholder: "Select Products" }),
+      createField("lead-users", "User", { label: "Lead Users", placeholder: "Select Users" }),
+      createField("task-date", "Date", { label: "Task Date (Optional)", placeholder: "dd-mm-yyyy", helpText: "Leave blank to allocate the first form task immediately." }),
+      createField("task-time", "Single Line", { label: "Task Time (Optional)", placeholder: "--:--", helpText: "No need to set time before calling." }),
     ],
   },
 ];

@@ -13,7 +13,31 @@ export default function LeadFormsPage() {
   // capture page renders for everyone.
   const storeForms = useCrmStore((s) => s.forms);
   const [leadForms, setLeadForms] = useState([]);
-  useEffect(() => { setLeadForms(loadForms(LEAD_FORM)); }, [storeForms]);
+  // Which form the Create Lead page renders — flipped by the row toggle.
+  const [activeFormId, setActiveFormIdState] = useState(() => getActiveFormId());
+
+  useEffect(() => {
+    const loaded = loadForms(LEAD_FORM);
+    if (loaded.length === 0) {
+      // Seed the default form so the page is never empty out of the box.
+      const defaultId = 'lead-form-default';
+      const defaultForm = {
+        id: defaultId,
+        name: 'Lead Create Form',
+        description: 'Default lead capture form with all standard fields.',
+        createdOn: new Date().toLocaleDateString('en-GB'),
+        sections: defaultLeadFormSections,
+        kind: LEAD_FORM,
+      };
+      const seeded = [defaultForm];
+      saveForms(seeded, LEAD_FORM);
+      setActiveFormId(defaultId);
+      setActiveFormIdState(defaultId);
+      setLeadForms(seeded);
+    } else {
+      setLeadForms(loaded);
+    }
+  }, [storeForms]);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isGuideOpen, setIsGuideOpen] = useState(false);
   const [formName, setFormName] = useState('');
@@ -27,6 +51,14 @@ export default function LeadFormsPage() {
 
   function closeModal() {
     setIsModalOpen(false);
+  }
+
+  function handleToggleForm(formId) {
+    // Single active form: toggling on shows this form on the Create Lead
+    // page; toggling the active one off leaves no form selected.
+    const next = activeFormId === formId ? null : formId;
+    setActiveFormId(next);
+    setActiveFormIdState(next);
   }
 
   function handleCreateSubmit(e) {
@@ -45,6 +77,7 @@ export default function LeadFormsPage() {
     const updated = [...leadForms, newForm];
     saveForms(updated, LEAD_FORM);
     setActiveFormId(newId);
+    setActiveFormIdState(newId);
     setLeadForms(updated);
     setIsModalOpen(false);
     navigate(`/crm/leads/form-builder?formId=${newId}`);
@@ -52,13 +85,17 @@ export default function LeadFormsPage() {
 
   function handleEditForm(formId) {
     setActiveFormId(formId);
+    setActiveFormIdState(formId);
     navigate(`/crm/leads/form-builder?formId=${formId}`);
   }
 
   function handleDeleteForm(formId) {
     const updated = leadForms.filter((f) => f.id !== formId);
     saveForms(updated, LEAD_FORM);
-    if (getActiveFormId() === formId) setActiveFormId(null);
+    if (getActiveFormId() === formId) {
+      setActiveFormId(null);
+      setActiveFormIdState(null);
+    }
     setLeadForms(updated);
   }
 
@@ -66,6 +103,8 @@ export default function LeadFormsPage() {
     <>
       <LeadFormsManager
         forms={leadForms}
+        activeFormId={activeFormId}
+        onToggleForm={handleToggleForm}
         onCreateForm={openCreateModal}
         onEditForm={handleEditForm}
         onDeleteForm={handleDeleteForm}

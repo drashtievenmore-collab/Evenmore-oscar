@@ -56,6 +56,7 @@ import {
   Lock,
 } from 'lucide-react';
 import { useAppStore } from '../../stores/appStore';
+import { useCrmStore } from '../../stores/crmStore';
 import { usePmsStore, computeNavBadges } from '../../stores/pmsStore';
 import { useERP } from '../../context/ERPContext';
 import { useModuleWhenIdle } from '../../hooks/useIdleReady';
@@ -83,7 +84,6 @@ const NAV = [
     icon: LayoutGrid,
     defaultOpen: false,
     children: [
-      { label: 'CRM Dashboard', icon: Home, to: '/crm/dashboard' },
       {
         label: 'Leads',
         icon: Target,
@@ -105,7 +105,6 @@ const NAV = [
           { label: 'Task Allocation', to: '/crm/tasks/allocation' },
         ],
       },
-      { label: 'User Tracking', icon: Users, to: '/crm/user-allocation' },
       { label: 'Deals', icon: TrendingUp, to: '/crm/deals' },
       { label: 'Projects', icon: Briefcase, to: '/crm/projects' },
       { label: 'Contracts', icon: FileText, to: '/crm/contracts' },
@@ -424,6 +423,11 @@ function SubItem({ item, depth = 1, badges = {} }) {
   const isRecruitmentLeaf = item.label === 'Recruitment';
   const leafEnabled = isTrainingRow ? trainingEnabled : recruitmentEnabled;
   const setLeafEnabled = isTrainingRow ? setTrainingEnabled : setRecruitmentEnabled;
+  const createLeadMode = useCrmStore((s) => s.createLeadMode);
+
+  // "Lead Create Form" follows the Leads page "Create Lead" switch:
+  // toggle OFF hides it, toggle ON shows it.
+  if (item.label === 'Lead Create Form' && !createLeadMode) return null;
 
   // Training (and any module leaf) gets an inline toggle where the chevron sits.
   if ((isTrainingRow || isRecruitmentLeaf) && Icon && item.to) {
@@ -541,31 +545,38 @@ function FabricFooter() {
 }
 
 // ── Inline module toggle (sidebar ">" position) ──
-// Small ON/OFF switch rendered where the chevron sits for Recruitment /
-// Training. Stops propagation so it never expands or navigates.
+// Uses a hidden checkbox + label so clicks are fully isolated from any parent
+// button. The label's onChange fires the store setter directly.
 function ModuleToggle({ enabled, onToggle, label }) {
+  const id = `mod-toggle-${label.toLowerCase().replace(/\s+/g, '-')}`;
   return (
-    <span
-      role="switch"
-      aria-checked={enabled}
-      aria-label={`Toggle ${label} module`}
+    <label
+      htmlFor={id}
       title={`${label} ${enabled ? 'ON — click to hide module' : 'OFF — click to show module'}`}
-      onClick={(e) => {
-        e.preventDefault();
-        e.stopPropagation();
-        onToggle(!enabled);
-      }}
+      onClick={(e) => e.stopPropagation()}
       onMouseDown={(e) => e.stopPropagation()}
-      className={`relative inline-flex w-9 h-5 rounded-full transition-colors cursor-pointer shrink-0 ml-auto ring-1 ${
+      className={`relative inline-flex shrink-0 w-9 h-5 rounded-full cursor-pointer ring-1 transition-colors ${
         enabled ? 'bg-emerald-500 ring-emerald-300/60' : 'bg-slate-500/70 ring-white/25'
       }`}
     >
+      <input
+        id={id}
+        type="checkbox"
+        checked={enabled}
+        onChange={(e) => {
+          e.stopPropagation();
+          onToggle(e.target.checked);
+        }}
+        onClick={(e) => e.stopPropagation()}
+        aria-label={`Toggle ${label} module`}
+        className="sr-only"
+      />
       <span
         className={`absolute top-[2px] w-4 h-4 rounded-full bg-white shadow transition-all ${
           enabled ? 'left-[18px]' : 'left-[2px]'
         }`}
       />
-    </span>
+    </label>
   );
 }
 
@@ -638,32 +649,57 @@ function ExpandableRow({ item, depth = 0, badges = {} }) {
   // Recruitment OFF → keep the row (so the toggle stays reachable) but hide children.
   const showChildren = isModuleRow ? (moduleEnabled && open) : open;
 
+  if (isModuleRow) {
+    return (
+      <div className="nav-group">
+        <div
+          title={item.label}
+          className={
+            isRoot
+              ? `nav-row${isChildActive ? ' parent-active' : isActive ? ' section-active' : ''}${!moduleEnabled ? ' opacity-60' : ''}`
+              : `sub-group-row${isChildActive ? ' parent-active' : ''}`
+          }
+        >
+          <button
+            type="button"
+            onClick={() => {
+              if (!moduleEnabled) return;
+              setOpen((v) => !v);
+            }}
+            className="flex items-center gap-2 flex-1 min-w-0 bg-transparent border-0 p-0 text-left cursor-pointer"
+          >
+            {Icon && <Icon size={isRoot ? 18 : 16} strokeWidth={1.9} className="nav-ico" />}
+            <span className="nav-txt">{item.label}</span>
+            <NavBadge count={groupCount} color={item.badgeColor} />
+          </button>
+          <ModuleToggle enabled={moduleEnabled} onToggle={setModuleEnabled} label={item.label} />
+        </div>
+        {showChildren && item.children && (
+          <SubList items={item.children} depth={depth + 1} badges={badges} />
+        )}
+      </div>
+    );
+  }
+
   return (
     <div className="nav-group">
       <button
         type="button"
-        onClick={() => {
-          if (isModuleRow && !moduleEnabled) return;
-          setOpen((v) => !v);
-        }}
+        onClick={() => setOpen((v) => !v)}
         title={item.label}
         className={
           isRoot
-            ? `nav-row${isChildActive ? ' parent-active' : isActive ? ' section-active' : ''}${isModuleRow && !moduleEnabled ? ' opacity-60' : ''}`
+            ? `nav-row${isChildActive ? ' parent-active' : isActive ? ' section-active' : ''}`
             : `sub-group-row${isChildActive ? ' parent-active' : ''}`
         }
       >
         {Icon && <Icon size={isRoot ? 18 : 16} strokeWidth={1.9} className="nav-ico" />}
         <span className="nav-txt">{item.label}</span>
         <NavBadge count={groupCount} color={item.badgeColor} />
-        {isModuleRow ? (
-          <ModuleToggle enabled={moduleEnabled} onToggle={setModuleEnabled} label={item.label} />
-        ) : (
-          item.children && (
-            <span className="nav-chev">
-              {open ? <ChevronDown size={isRoot ? 14 : 12} /> : <ChevronRight size={isRoot ? 14 : 12} />}
-            </span>
-          )
+        {item.children && (
+          <span className="nav-chev">
+            {open ? <ChevronDown size={isRoot ? 14 : 12} /> : <ChevronRight size={isRoot ? 14 : 12} />}
+          </span>
         )}
       </button>
       {showChildren && item.children && (

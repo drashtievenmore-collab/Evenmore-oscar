@@ -32,8 +32,14 @@ export default function TaskFormPage() {
   const [viewMode, setViewMode] = useState('grid');
 
   // Task forms are the same server collection as lead forms, tagged by kind.
+  // Persist only when the local list actually differs from the store —
+  // saving unconditionally hands this effect a new store reference each
+  // time and it re-saves forever ("Maximum update depth exceeded").
   useEffect(() => {
-    if (forms.length > 0 || storeForms.length > 0) saveForms(forms, TASK_FORM);
+    if (forms.length === 0 && storeForms.length === 0) return;
+    const storeTaskForms = storeForms.filter((f) => (f.kind || TASK_FORM) === TASK_FORM);
+    if (JSON.stringify(forms) === JSON.stringify(storeTaskForms)) return;
+    saveForms(forms, TASK_FORM);
   }, [forms, storeForms]);
 
   function openCreateModal() {
@@ -71,6 +77,7 @@ export default function TaskFormPage() {
       const newId = `task-form-${Date.now()}`;
       const newForm = {
         id: newId,
+        kind: TASK_FORM,
         title,
         description: desc,
         fields: [],

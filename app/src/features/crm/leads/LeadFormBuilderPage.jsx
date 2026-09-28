@@ -3,7 +3,7 @@ import { useNavigate, useSearchParams } from 'react-router-dom';
 import LeadFormBuilder from './LeadFormBuilder';
 import { createFieldFromType, defaultLeadFormSections } from '../../../data/crm/leadFormSchema';
 import { useCrmStore } from '../../../stores/crmStore';
-import { loadForms, saveForms, findForm, getActiveFormId, LEAD_FORM } from '../../../services/crmForms';
+import { loadForms, saveForms, findForm, getActiveFormId, setActiveFormId, LEAD_FORM } from '../../../services/crmForms';
 
 export default function LeadFormBuilderPage() {
   const navigate = useNavigate();
@@ -145,16 +145,26 @@ export default function LeadFormBuilderPage() {
 
   function openLeadCreateForm() {
     // Save first, so the capture page renders what is on screen here.
+    // The in-progress form id travels in router state so preview always
+    // shows this form, even when a different form is toggled on.
     persistSections();
-    navigate('/crm/leads/create-form');
+    navigate('/crm/leads/create-form', { state: { formId: currentForm?.id || formId } });
   }
 
   function persistSections() {
     const forms = loadForms(LEAD_FORM);
-    const targetId = currentForm?.id || formId;
+    // When the builder was opened with no formId and no toggled-on form,
+    // `targetId` used to be `null` — saving `{ id: null }` meant the next
+    // load fell back to `defaultLeadFormSections` (with Email back in it).
+    // Generate a real local id and toggle it on instead.
+    let targetId = currentForm?.id || formId;
+    if (!targetId) {
+      targetId = `lead-form-${Date.now()}`;
+      setActiveFormId(targetId);
+    }
     const updated = forms.some((f) => f.id === targetId)
       ? forms.map((f) => (f.id === targetId ? { ...f, sections: leadFormSections } : f))
-      : [...forms, { id: targetId, name: 'Lead create form', sections: leadFormSections }];
+      : [...forms, { id: targetId, name: currentForm?.name || 'Lead create form', sections: leadFormSections }];
     saveForms(updated, LEAD_FORM);
   }
 

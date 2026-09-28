@@ -1,230 +1,438 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useCrmStore } from '../../../stores/crmStore';
+import { loadForms, findForm, getActiveFormId, LEAD_FORM } from '../../../services/crmForms';
+import { defaultLeadFormSections } from '../../../data/crm/leadFormSchema';
 import { CalendarDays, ChevronDown, Clock3, ImagePlus, Plus, X } from "lucide-react";
 
-const PRODUCT_OPTIONS = [
-  "Endoscopy System",
-  "OT Light",
-  "Patient Monitor",
-  "X-Ray Machine",
-  "Ventilator",
-];
+/** Resolve the active form sections from the store, falling back to defaults. */
+function useFormSections() {
+  const storeForms = useCrmStore((s) => s.forms);
+  const forms = loadForms(LEAD_FORM);
+  // Respect the toggle in Manage Lead Create Forms: the form switched on there
+  // is the form Create Lead renders. `forms[0]` is only a fallback for older
+  // sessions that never toggled anything on.
+  const activeId = getActiveFormId();
+  const active = (activeId ? findForm(activeId) : null) ?? forms[0] ?? null;
+  return active?.sections ?? defaultLeadFormSections;
+}
 
-/** Who a lead can be assigned to, from `/crm/team-roster/`. */
 function useUserOptions() {
   return useCrmStore((s) => s.teamMembers);
 }
 
-function MultiValueSelect({ label, placeholder, options, values, onChange }) {
-  const [isOpen, setIsOpen] = useState(false);
-  const [query, setQuery] = useState("");
-  const rootRef = useRef(null);
+function useSources() {
+  return useCrmStore((s) => s.sources);
+}
 
-  const filteredOptions = useMemo(() => {
-    const search = query.trim().toLowerCase();
-    return options.filter(
-      (option) =>
-        option.toLowerCase().includes(search) &&
-        !values.includes(option),
+// ---------------------------------------------------------------------------
+// Individual field renderers
+// ---------------------------------------------------------------------------
+
+function TextField({ field, value, onChange }) {
+  const type =
+    field.type === "Email" ? "email"
+    : field.type === "Phone" ? "tel"
+    : field.type === "Number" || field.type === "Currency" ? "number"
+    : "text";
+  return (
+    <input
+      type={type}
+      placeholder={field.placeholder || `Enter ${field.label.toLowerCase()}`}
+      value={value}
+      onChange={(e) => onChange(e.target.value)}
+    />
+  );
+}
+
+function TextAreaField({ field, value, onChange }) {
+  return (
+    <textarea
+      rows={3}
+      placeholder={field.placeholder || `Enter ${field.label.toLowerCase()}`}
+      value={value}
+      onChange={(e) => onChange(e.target.value)}
+      style={{ resize: "vertical" }}
+    />
+  );
+}
+
+function DateField({ field, value, onChange }) {
+  const ref = useRef(null);
+  return (
+    <div className="input-icon-wrap">
+      <input
+        ref={ref}
+        type="date"
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+      />
+      <span
+        role="button"
+        tabIndex={0}
+        aria-label="Open calendar"
+        style={{ position: "absolute", top: 0, right: 0, width: 34, height: "100%", display: "grid", placeItems: "center", cursor: "pointer" }}
+        onClick={() => { try { ref.current?.showPicker?.(); } catch { ref.current?.focus(); } }}
+        onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); try { ref.current?.showPicker?.(); } catch { ref.current?.focus(); } } }}
+      >
+        <CalendarDays size={16} />
+      </span>
+    </div>
+  );
+}
+
+function TimeField({ field, value, onChange }) {
+  const ref = useRef(null);
+  return (
+    <div className="input-icon-wrap">
+      <input
+        ref={ref}
+        type="time"
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+      />
+      <span
+        role="button"
+        tabIndex={0}
+        aria-label="Open time picker"
+        style={{ position: "absolute", top: 0, right: 0, width: 34, height: "100%", display: "grid", placeItems: "center", cursor: "pointer" }}
+        onClick={() => { try { ref.current?.showPicker?.(); } catch { ref.current?.focus(); } }}
+        onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); try { ref.current?.showPicker?.(); } catch { ref.current?.focus(); } } }}
+      >
+        <Clock3 size={16} />
+      </span>
+    </div>
+  );
+}
+
+function DropdownField({ field, sources, userOptions, value, onChange }) {
+  // Special handling for known semantic fields
+  const isSource = field.id === "lead-source" || field.label?.toLowerCase().includes("source");
+  const isOwner = field.id === "lead-owner" || field.label?.toLowerCase().includes("owner");
+  const isLeadName = field.id === "lead-name";
+
+  if (isLeadName) {
+    return (
+      <select value={value} onChange={(e) => onChange(e.target.value)}>
+        <option value="" disabled>Enter lead name</option>
+        <option>Christopher Maclead</option>
+        <option>Carissa Kidman</option>
+        <option>James Merced</option>
+      </select>
     );
-  }, [options, query, values]);
-
-  useEffect(() => {
-    function handleOutside(event) {
-      if (!rootRef.current?.contains(event.target)) {
-        setIsOpen(false);
-      }
-    }
-
-    document.addEventListener("mousedown", handleOutside);
-    return () => document.removeEventListener("mousedown", handleOutside);
-  }, []);
-
-  function addValue(value) {
-    onChange([...values, value]);
-    setQuery("");
-    setIsOpen(false);
   }
 
-  function removeValue(value) {
-    onChange(values.filter((item) => item !== value));
+  if (isSource) {
+    return (
+      <select value={value} onChange={(e) => onChange(e.target.value)}>
+        <option value="">Select source</option>
+        {sources.map((opt) => (
+          <option key={opt.id} value={opt.id}>{opt.name}</option>
+        ))}
+      </select>
+    );
+  }
+
+  if (isOwner) {
+    return (
+      <select value={value} onChange={(e) => onChange(e.target.value)}>
+        <option value="">Select User</option>
+        {userOptions.map((m) => (
+          <option key={m.id} value={m.id}>{m.name}</option>
+        ))}
+      </select>
+    );
+  }
+
+  const options = Array.isArray(field.options) && field.options.length > 0
+    ? field.options
+    : ["Option 1", "Option 2", "Option 3"];
+
+  return (
+    <select value={value} onChange={(e) => onChange(e.target.value)}>
+      <option value="">{field.placeholder || "Select option"}</option>
+      {options.map((opt) => (
+        <option key={opt} value={opt}>{opt}</option>
+      ))}
+    </select>
+  );
+}
+
+function UserField({ field, userOptions, value, onChange }) {
+  const isLeadUsers = field.id === "lead-users" || field.label?.toLowerCase().includes("lead users");
+
+  if (isLeadUsers) {
+    // Multi-value user selector
+    const selected = Array.isArray(value) ? value : [];
+    const toggle = (name) =>
+      onChange(selected.includes(name) ? selected.filter((n) => n !== name) : [...selected, name]);
+    return (
+      <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+        {selected.map((name) => (
+          <span
+            key={name}
+            className="token-chip"
+            onClick={() => toggle(name)}
+            role="button"
+            tabIndex={0}
+            onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") toggle(name); }}
+          >
+            {name}<X size={12} />
+          </span>
+        ))}
+        <select
+          value=""
+          onChange={(e) => { if (e.target.value) toggle(e.target.value); }}
+          style={{ flex: 1, minWidth: 120 }}
+        >
+          <option value="">{field.placeholder || "Select Users"}</option>
+          {userOptions.filter((m) => !selected.includes(m.name)).map((m) => (
+            <option key={m.id} value={m.name}>{m.name}</option>
+          ))}
+        </select>
+      </div>
+    );
   }
 
   return (
-    <div className="lead-create-field lead-create-field-wide">
-      <span>{label}</span>
-      <div className="multi-value-select" ref={rootRef}>
-        <div
-          className={`token-field token-field-button${isOpen ? " open" : ""}`}
-          onClick={() => setIsOpen((open) => !open)}
-          role="button"
-          tabIndex={0}
-          onKeyDown={(event) => {
-            if (event.key === "Enter" || event.key === " ") {
-              event.preventDefault();
-              setIsOpen((open) => !open);
-            }
-          }}
-        >
-          <div className="token-field-values">
-            {values.map((value) => (
-              <span
-                key={value}
-                className="token-chip"
-                onClick={(event) => {
-                  event.stopPropagation();
-                  removeValue(value);
-                }}
-                role="button"
-                tabIndex={0}
-                onKeyDown={(event) => {
-                  if (event.key === "Enter" || event.key === " ") {
-                    event.preventDefault();
-                    removeValue(value);
-                  }
-                }}
-              >
-                {value}
-                <X size={12} />
-              </span>
-            ))}
-            {values.length === 0 && <span className="token-placeholder">{placeholder}</span>}
-          </div>
-          <ChevronDown size={16} className="token-chevron" />
-        </div>
+    <select value={value} onChange={(e) => onChange(e.target.value)}>
+      <option value="">{field.placeholder || "Select User"}</option>
+      {userOptions.map((m) => (
+        <option key={m.id} value={m.id}>{m.name}</option>
+      ))}
+    </select>
+  );
+}
 
-        {isOpen && (
-          <div className="token-dropdown">
-            <input
-              type="text"
-              value={query}
-              onChange={(event) => setQuery(event.target.value)}
-              placeholder={`Search ${label.toLowerCase()}`}
-              className="token-dropdown-search"
-              autoFocus
-            />
-            <div className="token-dropdown-list">
-              {filteredOptions.map((option) => (
-                <button
-                  key={option}
-                  type="button"
-                  className="token-dropdown-item"
-                  onClick={() => addValue(option)}
-                >
-                  {option}
-                </button>
-              ))}
-              {filteredOptions.length === 0 && (
-                <div className="token-dropdown-empty">No more options available.</div>
-              )}
-            </div>
-          </div>
-        )}
+function MultiSelectField({ field, value, onChange }) {
+  const selected = Array.isArray(value) ? value : [];
+  const options = Array.isArray(field.options) && field.options.length > 0
+    ? field.options
+    : ["Endoscopy System", "OT Light", "Patient Monitor", "X-Ray Machine", "Ventilator"];
+
+  const toggle = (opt) =>
+    onChange(selected.includes(opt) ? selected.filter((o) => o !== opt) : [...selected, opt]);
+
+  return (
+    <div className="multi-value-select">
+      <div className="token-field token-field-button">
+        <div className="token-field-values">
+          {selected.map((opt) => (
+            <span
+              key={opt}
+              className="token-chip"
+              onClick={() => toggle(opt)}
+              role="button"
+              tabIndex={0}
+              onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") toggle(opt); }}
+            >
+              {opt}<X size={12} />
+            </span>
+          ))}
+          {selected.length === 0 && <span className="token-placeholder">{field.placeholder || "Select options"}</span>}
+        </div>
+        <ChevronDown size={16} className="token-chevron" />
+      </div>
+      <div style={{ display: "flex", flexWrap: "wrap", gap: 4, marginTop: 4 }}>
+        {options.filter((o) => !selected.includes(o)).map((opt) => (
+          <button
+            key={opt}
+            type="button"
+            onClick={() => toggle(opt)}
+            style={{ fontSize: 11, padding: "2px 10px", border: "1px solid #e2e8f0", borderRadius: 99, background: "#f8fafc", cursor: "pointer" }}
+          >
+            {opt}
+          </button>
+        ))}
       </div>
     </div>
   );
 }
 
-export default function CreateLeadModal({ isOpen, onClose, onCreate, onEditLayout, showTour }) {
-  const [products, setProducts] = useState([]);
-  const [leadUsers, setLeadUsers] = useState([]);
-  const [photoPreview, setPhotoPreview] = useState("");
-  const [leadName, setLeadName] = useState("");
-  const [company, setCompany] = useState("");
-  const [email, setEmail] = useState("");
-  const [phone, setPhone] = useState("");
-  const [sourceId, setSourceId] = useState("");
-  const [titleValue, setTitleValue] = useState("");
-  const [industry, setIndustry] = useState("");
+function CheckboxField({ field, value, onChange }) {
+  return (
+    <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13 }}>
+      <input
+        type="checkbox"
+        checked={!!value}
+        onChange={(e) => onChange(e.target.checked)}
+        style={{ width: 16, height: 16 }}
+      />
+      {field.placeholder || field.label}
+    </label>
+  );
+}
 
-  // The lookups the form offers, as configured on the server.
-  const sources = useCrmStore((s) => s.sources);
-  const userOptions = useUserOptions();
-  const [ownerId, setOwnerId] = useState("");
-  const [createdOn, setCreatedOn] = useState("");
-  const [taskDate, setTaskDate] = useState("");
-  const [taskTime, setTaskTime] = useState("");
-  const photoInputRef = useRef(null);
-  const createdOnRef = useRef(null);
-  const taskDateRef = useRef(null);
-  const taskTimeRef = useRef(null);
+function RadioField({ field, value, onChange }) {
+  const options = Array.isArray(field.options) && field.options.length > 0
+    ? field.options
+    : ["Option 1", "Option 2", "Option 3"];
+  return (
+    <div style={{ display: "flex", flexWrap: "wrap", gap: 10 }}>
+      {options.map((opt) => (
+        <label key={opt} style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 13, cursor: "pointer" }}>
+          <input
+            type="radio"
+            name={field.id}
+            value={opt}
+            checked={value === opt}
+            onChange={() => onChange(opt)}
+          />
+          {opt}
+        </label>
+      ))}
+    </div>
+  );
+}
 
-  const isFormComplete =
-    leadName.trim() !== "" &&
-    company.trim() !== "" &&
-    email.trim() !== "" &&
-    phone.trim() !== "" &&
-    sourceId !== "" &&
-    titleValue.trim() !== "" &&
-    industry.trim() !== "" &&
-    ownerId !== "";
+function LeadImageField({ value, onChange }) {
+  const ref = useRef(null);
+  return (
+    <>
+      <input ref={ref} type="file" accept="image/*" className="sr-only" onChange={(e) => {
+        const file = e.target.files?.[0];
+        if (!file) return;
+        const url = URL.createObjectURL(file);
+        onChange(url);
+      }} />
+      <button type="button" className="lead-photo-upload" onClick={() => ref.current?.click()}>
+        {value ? (
+          <img src={value} alt="Lead preview" className="lead-photo-preview" />
+        ) : (
+          <>
+            <span className="lead-photo-placeholder"><ImagePlus size={24} /></span>
+            <strong>Upload Image</strong>
+            <small>JPG, PNG or WebP</small>
+          </>
+        )}
+      </button>
+    </>
+  );
+}
 
-  useEffect(() => {
-    if (!isOpen) {
-      setProducts([]);
-      setLeadUsers([]);
-      setPhotoPreview("");
-      setLeadName("");
-      setCompany("");
-      setEmail("");
-      setPhone("");
-      setSourceId("");
-      setTitleValue("");
-      setIndustry("");
-      setOwnerId("");
-      setCreatedOn("");
-      setTaskDate("");
-      setTaskTime("");
+// ---------------------------------------------------------------------------
+// Renders one field based on its type
+// ---------------------------------------------------------------------------
+function DynamicField({ field, values, onChange, sources, userOptions }) {
+  const value = values[field.id] ?? "";
+  const set = (v) => onChange(field.id, v);
+
+  const isWide =
+    field.type === "Multi Line" ||
+    field.type === "Lead Image" ||
+    field.type === "Multi Select" ||
+    field.id === "lead-users";
+
+  const inner = (() => {
+    switch (field.type) {
+      case "Single Line":
+      case "Number":
+      case "Currency":
+        return <TextField field={field} value={value} onChange={set} />;
+      case "Email":
+        return <TextField field={field} value={value} onChange={set} />;
+      case "Phone":
+        return <TextField field={field} value={value} onChange={set} />;
+      case "Multi Line":
+        return <TextAreaField field={field} value={value} onChange={set} />;
+      case "Date":
+        // task-time is stored as a separate time field in schema but keyed "task-time"
+        if (field.id === "task-time") return <TimeField field={field} value={value} onChange={set} />;
+        return <DateField field={field} value={value} onChange={set} />;
+      case "Dropdown":
+        return <DropdownField field={field} sources={sources} userOptions={userOptions} value={value} onChange={set} />;
+      case "User":
+        return <UserField field={field} userOptions={userOptions} value={value} onChange={set} />;
+      case "Multi Select":
+        return <MultiSelectField field={field} value={value} onChange={set} />;
+      case "Checkbox":
+        return <CheckboxField field={field} value={value} onChange={set} />;
+      case "Radio":
+        return <RadioField field={field} value={value} onChange={set} />;
+      case "Lead Image":
+        return <LeadImageField value={value} onChange={set} />;
+      default:
+        return <TextField field={field} value={value} onChange={set} />;
     }
-  }, [isOpen]);
+  })();
+
+  // Time field — handle as Single Line with clock icon
+  if (field.id === "task-time" && field.type === "Single Line") {
+    return (
+      <label className={`lead-create-field${isWide ? " lead-create-field-wide" : ""}`}>
+        <span>{field.label}{field.required && " *"}</span>
+        <TimeField field={field} value={value} onChange={set} />
+        {field.helpText && <small className="lead-create-help">{field.helpText}</small>}
+      </label>
+    );
+  }
+
+  return (
+    <label className={`lead-create-field${isWide ? " lead-create-field-wide" : ""}`}>
+      <span>{field.label}{field.required && " *"}</span>
+      {inner}
+      {field.helpText && <small className="lead-create-help">{field.helpText}</small>}
+    </label>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Main modal
+// ---------------------------------------------------------------------------
+export default function CreateLeadModal({ isOpen, onClose, onCreate, onEditLayout, showTour }) {
+  const sections = useFormSections();
+  const userOptions = useUserOptions();
+  const sources = useSources();
+
+  // Flat map of fieldId → value
+  const [values, setValues] = useState({});
+
+  // Derived required fields
+  const allFields = sections.flatMap((s) => s.fields);
+  const requiredFields = allFields.filter((f) => f.required);
+  const isFormComplete = requiredFields.every((f) => {
+    const v = values[f.id];
+    return v !== undefined && v !== "" && v !== null;
+  });
 
   useEffect(() => {
-    return () => {
-      if (photoPreview) {
-        URL.revokeObjectURL(photoPreview);
-      }
-    };
-  }, [photoPreview]);
+    if (!isOpen) setValues({});
+  }, [isOpen]);
 
   if (!isOpen) return null;
 
-  function handlePhotoChange(event) {
-    const file = event.target.files?.[0];
-    if (!file) return;
-
-    const nextPreview = URL.createObjectURL(file);
-    setPhotoPreview((current) => {
-      if (current) URL.revokeObjectURL(current);
-      return nextPreview;
-    });
+  function handleChange(fieldId, val) {
+    setValues((prev) => ({ ...prev, [fieldId]: val }));
   }
 
   function handleClose() {
-    if (photoPreview) {
-      URL.revokeObjectURL(photoPreview);
-    }
     onClose();
   }
 
   function handleCreate() {
+    // Map known field ids to the shape LeadsPage.handleCreateLead expects
+    const get = (id) => values[id] ?? "";
+    const sourceField = allFields.find((f) => f.id === "lead-source" || f.label?.toLowerCase().includes("source"));
+    const ownerField  = allFields.find((f) => f.id === "lead-owner"  || (f.type === "User" && f.label?.toLowerCase().includes("owner")));
+
     onCreate({
-      leadName,
-      company,
-      email,
-      phone,
-      // The API records the lookup ids; the labels are only for display.
-      sourceId,
-      source: sources.find((option) => option.id === sourceId)?.name || "",
-      titleValue,
-      industry,
-      ownerId,
-      owner: userOptions.find((member) => member.id === ownerId)?.name || "",
-      createdOn,
-      taskDate,
-      taskTime,
-      products,
-      leadUsers,
-      photoPreview,
+      leadName:    get("lead-name"),
+      company:     get("company"),
+      email:       get("email"),
+      phone:       get("phone"),
+      sourceId:    sourceField ? get(sourceField.id) : "",
+      source:      sourceField ? (sources.find((s) => s.id === get(sourceField.id))?.name ?? "") : "",
+      titleValue:  get("title"),
+      industry:    get("industry"),
+      ownerId:     ownerField  ? get(ownerField.id) : "",
+      owner:       ownerField  ? (userOptions.find((m) => m.id === get(ownerField.id))?.name ?? "") : "",
+      createdOn:   get("created-on"),
+      taskDate:    get("task-date"),
+      taskTime:    get("task-time"),
+      products:    get("products") || [],
+      leadUsers:   get("lead-users") || [],
+      photoPreview: get("lead-photo"),
+      // Pass through any extra dynamic values
+      _extra: values,
     });
   }
 
@@ -235,8 +443,9 @@ export default function CreateLeadModal({ isOpen, onClose, onCreate, onEditLayou
         role="dialog"
         aria-modal="true"
         aria-labelledby="create-lead-title"
-        onClick={(event) => event.stopPropagation()}
+        onClick={(e) => e.stopPropagation()}
       >
+        {/* Header */}
         <div className="lead-create-modal-head">
           <h2 id="create-lead-title">Create Lead</h2>
           <button type="button" className="modal-close" onClick={handleClose} aria-label="Close create lead form">
@@ -244,166 +453,60 @@ export default function CreateLeadModal({ isOpen, onClose, onCreate, onEditLayou
           </button>
         </div>
 
+        {/* Tour hint */}
         {showTour && (
-        <div className="pointer-events-none absolute left-[22%] top-[58px] z-30 flex flex-col items-center">
-          <div className="inline-flex w-max max-w-[280px] items-center gap-2.5 rounded-[16px] bg-[#1d6bff] px-4 py-2.5 text-left text-[14px] font-medium leading-snug text-white shadow-[0_4px_14px_rgba(29,107,255,0.35)]">
-            <span className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-white text-[15px] font-bold text-[#1d6bff]">3</span>
-            <span>Fill in the lead details here</span>
+          <div className="pointer-events-none absolute left-[22%] top-[58px] z-30 flex flex-col items-center">
+            <div className="inline-flex w-max max-w-[280px] items-center gap-2.5 rounded-[16px] bg-[#1d6bff] px-4 py-2.5 text-left text-[14px] font-medium leading-snug text-white shadow-[0_4px_14px_rgba(29,107,255,0.35)]">
+              <span className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-white text-[15px] font-bold text-[#1d6bff]">3</span>
+              <span>Fill in the lead details here</span>
+            </div>
+            <svg width="56" height="48" viewBox="0 0 56 48" fill="none" className="-mt-1" aria-hidden="true">
+              <path d="M28 2 C 28 26, 24 36, 14 42" stroke="#1d6bff" strokeWidth="3.5" strokeLinecap="round" fill="none" />
+              <path d="M6 34 L13 43 L23 35" stroke="#1d6bff" strokeWidth="3.5" strokeLinecap="round" strokeLinejoin="round" fill="none" />
+            </svg>
           </div>
-          <svg width="56" height="48" viewBox="0 0 56 48" fill="none" className="-mt-1" aria-hidden="true">
-            <path d="M28 2 C 28 26, 24 36, 14 42" stroke="#1d6bff" strokeWidth="3.5" strokeLinecap="round" fill="none" />
-            <path d="M6 34 L13 43 L23 35" stroke="#1d6bff" strokeWidth="3.5" strokeLinecap="round" strokeLinejoin="round" fill="none" />
-          </svg>
-        </div>
         )}
 
+        {/* Dynamic body — renders whatever sections/fields the builder saved */}
         <div className="lead-create-modal-body">
-          <h3 className="lead-create-section-title">Lead Information</h3>
-          <label className="lead-create-field">
-            <span>Lead Name *</span>
-            <select value={leadName} onChange={(event) => setLeadName(event.target.value)}>
-              <option value="" disabled>Enter lead name</option>
-              <option>Christopher Maclead</option>
-              <option>Carissa Kidman</option>
-              <option>James Merced</option>
-            </select>
-          </label>
-
-          <div className="lead-create-field lead-create-photo-field">
-            <span>Lead Photo</span>
-            <input
-              ref={photoInputRef}
-              type="file"
-              accept="image/*"
-              className="sr-only"
-              onChange={handlePhotoChange}
-            />
-            <button
-              type="button"
-              className="lead-photo-upload"
-              onClick={() => photoInputRef.current?.click()}
-            >
-              {photoPreview ? (
-                <img src={photoPreview} alt="Client preview" className="lead-photo-preview" />
-              ) : (
-                <>
-                  <span className="lead-photo-placeholder">
-                    <ImagePlus size={24} />
-                  </span>
-                    <strong>Upload Image</strong>
-                  <small>JPG, PNG or WebP</small>
-                </>
+          {sections.map((section) => (
+            <div key={section.id} style={{ gridColumn: "1 / -1", display: "contents" }}>
+              {sections.length > 1 && (
+                <h3 className="lead-create-section-title" style={{ gridColumn: "1 / -1" }}>
+                  {section.title}
+                </h3>
               )}
-            </button>
-          </div>
-
-          <label className="lead-create-field">
-            <span>Company *</span>
-            <input type="text" placeholder="Enter company name" value={company} onChange={(event) => setCompany(event.target.value)} />
-          </label>
-
-          <label className="lead-create-field">
-            <span>Email</span>
-            <input type="email" placeholder="Enter email address" value={email} onChange={(event) => setEmail(event.target.value)} />
-          </label>
-
-          <label className="lead-create-field">
-            <span>Phone</span>
-            <input type="tel" placeholder="Enter phone number" value={phone} onChange={(event) => setPhone(event.target.value)} />
-          </label>
-
-          <label className="lead-create-field">
-            <span>Lead Source</span>
-            <select value={sourceId} onChange={(event) => setSourceId(event.target.value)}>
-              <option value="">Select source</option>
-              {sources.map((option) => (
-                <option key={option.id} value={option.id}>{option.name}</option>
+              {sections.length === 1 && (
+                <h3 className="lead-create-section-title">{section.title}</h3>
+              )}
+              {section.fields.map((field) => (
+                <DynamicField
+                  key={field.id}
+                  field={field}
+                  values={values}
+                  onChange={handleChange}
+                  sources={sources}
+                  userOptions={userOptions}
+                />
               ))}
-            </select>
-          </label>
-
-          <label className="lead-create-field">
-            <span>Title</span>
-            <input type="text" placeholder="Enter title" value={titleValue} onChange={(event) => setTitleValue(event.target.value)} />
-          </label>
-
-          <label className="lead-create-field">
-            <span>Industry</span>
-            <input type="text" placeholder="Enter industry" value={industry} onChange={(event) => setIndustry(event.target.value)} />
-          </label>
-
-          <label className="lead-create-field">
-            <span>Lead Owner *</span>
-            <select value={ownerId} onChange={(event) => setOwnerId(event.target.value)}>
-              <option value="">Select User</option>
-              {userOptions.map((member) => (
-                <option key={member.id} value={member.id}>{member.name}</option>
-              ))}
-            </select>
-          </label>
-
-          <label className="lead-create-field">
-            <span>Created On</span>
-            <div className="input-icon-wrap">
-              <input ref={createdOnRef} type="date" value={createdOn} onChange={(event) => setCreatedOn(event.target.value)} />
-              <span role="button" tabIndex={0} aria-label="Open calendar" style={{ position: "absolute", top: 0, right: 0, width: 34, height: "100%", display: "grid", placeItems: "center", cursor: "pointer" }} onClick={() => { try { createdOnRef.current?.showPicker?.(); } catch { createdOnRef.current?.focus(); } }} onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); try { createdOnRef.current?.showPicker?.(); } catch { createdOnRef.current?.focus(); } } }}>
-                <CalendarDays size={16} />
-              </span>
             </div>
-          </label>
-
-          <MultiValueSelect
-            label="Products"
-            placeholder="Select Products"
-            options={PRODUCT_OPTIONS}
-            values={products}
-            onChange={setProducts}
-          />
-
-          <MultiValueSelect
-            label="Lead Users"
-            placeholder="Select Users"
-            options={userOptions.map((member) => member.name)}
-            values={leadUsers}
-            onChange={setLeadUsers}
-          />
-
-          <label className="lead-create-field">
-            <span>Task Date (Optional)</span>
-            <div className="input-icon-wrap">
-              <input ref={taskDateRef} type="date" value={taskDate} onChange={(event) => setTaskDate(event.target.value)} />
-              <span role="button" tabIndex={0} aria-label="Open calendar" style={{ position: "absolute", top: 0, right: 0, width: 34, height: "100%", display: "grid", placeItems: "center", cursor: "pointer" }} onClick={() => { try { taskDateRef.current?.showPicker?.(); } catch { taskDateRef.current?.focus(); } }} onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); try { taskDateRef.current?.showPicker?.(); } catch { taskDateRef.current?.focus(); } } }}>
-                <CalendarDays size={16} />
-              </span>
-            </div>
-            <small>Leave blank to allocate the first form task immediately.</small>
-          </label>
-
-          <label className="lead-create-field">
-            <span>Task Time (Optional)</span>
-            <div className="input-icon-wrap">
-              <input ref={taskTimeRef} type="time" value={taskTime} onChange={(event) => setTaskTime(event.target.value)} />
-              <span role="button" tabIndex={0} aria-label="Open time picker" style={{ position: "absolute", top: 0, right: 0, width: 34, height: "100%", display: "grid", placeItems: "center", cursor: "pointer" }} onClick={() => { try { taskTimeRef.current?.showPicker?.(); } catch { taskTimeRef.current?.focus(); } }} onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); try { taskTimeRef.current?.showPicker?.(); } catch { taskTimeRef.current?.focus(); } } }}>
-                <Clock3 size={16} />
-              </span>
-            </div>
-            <small>No need to set time before calling.</small>
-          </label>
+          ))}
         </div>
 
+        {/* Footer */}
         <div className="lead-create-modal-actions">
           <div className="relative inline-block">
             {showTour && isFormComplete && (
-            <div className="pointer-events-none absolute bottom-[calc(100%+6px)] left-0 z-30 flex flex-col items-start">
-              <div className="inline-flex w-max max-w-[280px] items-start gap-2.5 rounded-[16px] bg-[#1d6bff] px-4 py-3 text-left text-[14px] font-medium leading-snug text-white shadow-[0_4px_14px_rgba(29,107,255,0.35)]">
-                <span className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-white text-[15px] font-bold text-[#1d6bff]">4</span>
-                <span>Click here to edit the form layout<br />(if needed)</span>
+              <div className="pointer-events-none absolute bottom-[calc(100%+6px)] left-0 z-30 flex flex-col items-start">
+                <div className="inline-flex w-max max-w-[280px] items-start gap-2.5 rounded-[16px] bg-[#1d6bff] px-4 py-3 text-left text-[14px] font-medium leading-snug text-white shadow-[0_4px_14px_rgba(29,107,255,0.35)]">
+                  <span className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-white text-[15px] font-bold text-[#1d6bff]">4</span>
+                  <span>Click here to edit the form layout<br />(if needed)</span>
+                </div>
+                <svg width="64" height="42" viewBox="0 0 64 42" fill="none" className="mb-[-6px] ml-[24px] mt-[-4px]" aria-hidden="true">
+                  <path d="M54 2 C 36 10, 22 20, 16 34" stroke="#1d6bff" strokeWidth="3.5" strokeLinecap="round" fill="none" />
+                  <path d="M8 26 L15 35 L25 28" stroke="#1d6bff" strokeWidth="3.5" strokeLinecap="round" strokeLinejoin="round" fill="none" />
+                </svg>
               </div>
-              <svg width="64" height="42" viewBox="0 0 64 42" fill="none" className="mb-[-6px] ml-[24px] mt-[-4px]" aria-hidden="true">
-                <path d="M54 2 C 36 10, 22 20, 16 34" stroke="#1d6bff" strokeWidth="3.5" strokeLinecap="round" fill="none" />
-                <path d="M8 26 L15 35 L25 28" stroke="#1d6bff" strokeWidth="3.5" strokeLinecap="round" strokeLinejoin="round" fill="none" />
-              </svg>
-            </div>
             )}
             <button type="button" className="btn-outline" onClick={onEditLayout}>
               <Plus size={15} />
@@ -414,18 +517,26 @@ export default function CreateLeadModal({ isOpen, onClose, onCreate, onEditLayou
             <button type="button" className="btn-outline" onClick={handleClose}>Cancel</button>
             <div className="relative inline-block">
               {showTour && isFormComplete && (
-              <div className="pointer-events-none absolute bottom-[calc(100%+6px)] right-0 z-30 flex flex-col items-end">
-                <div className="inline-flex w-max max-w-[280px] items-center gap-2.5 rounded-[16px] bg-[#1d6bff] px-4 py-3 text-left text-[14px] font-medium leading-snug text-white shadow-[0_4px_14px_rgba(29,107,255,0.35)]">
-                  <span className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-white text-[15px] font-bold text-[#1d6bff]">5</span>
-                  <span>Click Submit to create the lead</span>
+                <div className="pointer-events-none absolute bottom-[calc(100%+6px)] right-0 z-30 flex flex-col items-end">
+                  <div className="inline-flex w-max max-w-[280px] items-center gap-2.5 rounded-[16px] bg-[#1d6bff] px-4 py-3 text-left text-[14px] font-medium leading-snug text-white shadow-[0_4px_14px_rgba(29,107,255,0.35)]">
+                    <span className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-white text-[15px] font-bold text-[#1d6bff]">5</span>
+                    <span>Click Submit to create the lead</span>
+                  </div>
+                  <svg width="56" height="48" viewBox="0 0 56 48" fill="none" className="mb-[-6px] mr-[52px] mt-[-4px]" aria-hidden="true">
+                    <path d="M28 2 C 28 26, 26 36, 20 42" stroke="#1d6bff" strokeWidth="3.5" strokeLinecap="round" fill="none" />
+                    <path d="M12 34 L19 43 L29 35" stroke="#1d6bff" strokeWidth="3.5" strokeLinecap="round" strokeLinejoin="round" fill="none" />
+                  </svg>
                 </div>
-                <svg width="56" height="48" viewBox="0 0 56 48" fill="none" className="mb-[-6px] mr-[52px] mt-[-4px]" aria-hidden="true">
-                  <path d="M28 2 C 28 26, 26 36, 20 42" stroke="#1d6bff" strokeWidth="3.5" strokeLinecap="round" fill="none" />
-                  <path d="M12 34 L19 43 L29 35" stroke="#1d6bff" strokeWidth="3.5" strokeLinecap="round" strokeLinejoin="round" fill="none" />
-                </svg>
-              </div>
               )}
-              <button type="button" className="btn-primary" onClick={handleCreate} disabled={!isFormComplete} style={!isFormComplete ? { opacity: 0.5, cursor: "not-allowed" } : undefined}>Create</button>
+              <button
+                type="button"
+                className="btn-primary"
+                onClick={handleCreate}
+                disabled={!isFormComplete}
+                style={!isFormComplete ? { opacity: 0.5, cursor: "not-allowed" } : undefined}
+              >
+                Create
+              </button>
             </div>
           </div>
         </div>

@@ -39,19 +39,6 @@ const ROLES_PER_PAGE = 10;
 const DEFAULT_MODULE_PERMISSIONS = {
   CRM: [
     {
-      id: 'crm_dashboard',
-      name: 'CRM Dashboard',
-      description: 'Dashboard and reports',
-      icon: 'dashboard',
-      color: 'green',
-      permissions: [
-        { id: 'show_crm_dashboard', label: 'Show CRM Dashboard' },
-        { id: 'show_hrm_dashboard', label: 'Show HRM Dashboard' },
-        { id: 'show_account_dashboard', label: 'Show Account Dashboard' },
-        { id: 'show_templates_menu', label: 'Show Templates Menu' },
-      ],
-    },
-    {
       id: 'lead_management',
       name: 'Lead Management',
       description: 'Manage leads and related activities',
