@@ -36,6 +36,47 @@
   --shadow-card-hover: var(--shadow-card-hover);
   --shadow-modal: var(--shadow-modal);
   --shadow-popover: var(--shadow-popover);
+
+  /* Canonical control sizes — one value for every button / KPI */
+  --btn-height: 38px;
+  --kpi-min-height: 92px;
+  --kpi-badge: 44px;
+}
+
+/* Tailwind-native canonical utilities (use these in className) */
+@utility btn-std {
+  height: var(--btn-height);
+  min-height: var(--btn-height);
+  padding-inline: 1rem;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  line-height: 1;
+  gap: 0.5rem;
+  border-radius: 10px;
+  white-space: nowrap;
+}
+
+@utility icon-btn-std {
+  width: var(--btn-height);
+  height: var(--btn-height);
+  min-width: var(--btn-height);
+  min-height: var(--btn-height);
+  border-radius: 10px;
+}
+
+@utility kpi-std {
+  min-height: var(--kpi-min-height);
+  padding: 14px 16px;
+  gap: 0.75rem;
+  border-radius: var(--radius-lg);
+}
+
+@utility kpi-badge-std {
+  width: var(--kpi-badge);
+  height: var(--kpi-badge);
+  min-width: var(--kpi-badge);
+  min-height: var(--kpi-badge);
+  border-radius: 12px;
 }
 
 @layer base {
@@ -1122,12 +1163,12 @@ img { display: block; max-width: 100%; }
 .topbar-hamburger,
 .top-search-compact {
   display: none;
-  width: 36px;
-  height: 36px;
+  width: 38px;
+  height: 38px;
   flex-shrink: 0;
   align-items: center;
   justify-content: center;
-  border-radius: 12px;
+  border-radius: 10px;
   border: 1px solid var(--border);
   background: var(--card);
   color: var(--text);
@@ -1177,9 +1218,9 @@ img { display: block; max-width: 100%; }
 }
 
 .add-btn {
-  width: 36px;
-  height: 36px;
-  border-radius: var(--radius);
+  width: 38px;
+  height: 38px;
+  border-radius: 10px;
   border: 1.5px solid var(--primary);
   background: var(--primary);
   color: #fff;
@@ -1194,10 +1235,10 @@ img { display: block; max-width: 100%; }
 }
 
 .top-icon {
-  width: 36px;
-  height: 36px;
+  width: 38px;
+  height: 38px;
   border: 1px solid var(--border);
-  border-radius: var(--radius);
+  border-radius: 10px;
   background: var(--card);
   color: var(--text);
   display: grid;
@@ -1345,15 +1386,20 @@ img { display: block; max-width: 100%; }
 }
 
 /* ── Buttons ─────────────────────────────────────────────── */
+/* Canonical size: every text button is 38px tall, 13px font — no variants. */
 .btn-primary, .btn-outline, .btn-ghost, .btn-danger {
-  height: 36px;
-  border-radius: var(--radius);
+  height: 38px;
+  min-height: 38px;
+  border-radius: 10px;
   padding: 0 16px;
   display: inline-flex;
   align-items: center;
+  justify-content: center;
   gap: 8px;
   font-weight: 600;
-  font-size: 0.88rem;
+  font-size: 0.8125rem;
+  line-height: 1;
+  white-space: nowrap;
   border: 0;
   transition: all 0.15s ease;
   box-shadow: var(--shadow-card);
@@ -1390,16 +1436,16 @@ img { display: block; max-width: 100%; }
 }
 .btn-danger:hover { opacity: 0.9; }
 
-.btn-sm { height: 30px; padding: 0 12px; font-size: 0.8rem; }
-.btn-lg { height: 44px; padding: 0 24px; font-size: 0.96rem; }
+.btn-sm { height: 38px; min-height: 38px; padding: 0 16px; font-size: 0.8125rem; }
+.btn-lg { height: 38px; min-height: 38px; padding: 0 16px; font-size: 0.8125rem; }
 
-/* Icon button */
+/* Icon button — 38px square to match text-button height */
 .icon-ghost {
-  width: 32px;
-  height: 32px;
+  width: 38px;
+  height: 38px;
   border: 0;
   background: transparent;
-  border-radius: var(--radius);
+  border-radius: 10px;
   color: var(--text);
   display: grid;
   place-items: center;
@@ -1407,6 +1453,21 @@ img { display: block; max-width: 100%; }
 }
 
 .icon-ghost:hover { background: var(--soft); }
+
+/* HRMS action buttons share the canonical 38px height */
+.hrms-date-btn,
+.hrms-export,
+.hrms-add-btn,
+.hrms-submit {
+  min-height: 38px;
+  font-size: 0.8125rem;
+  border-radius: 10px;
+}
+.hrms-iconbtn {
+  min-height: 38px;
+  min-width: 38px;
+  border-radius: 10px;
+}
 
 /* ── Cards ───────────────────────────────────────────────── */
 .card {
@@ -1442,17 +1503,20 @@ img { display: block; max-width: 100%; }
 }
 
 /* ── Stat Cards ──────────────────────────────────────────── */
+/* Canonical KPI size: every KPI card is min 92px tall, 14/16px padding,
+   44px icon badge, 20px value, 11px label — identical everywhere. */
 .stat-card {
   background: var(--card);
   border: 1px solid var(--border);
   border-radius: var(--radius-lg);
-  padding: 16px;
+  padding: 14px 16px;
   display: flex;
   gap: 12px;
   align-items: flex-start;
   box-shadow: var(--shadow-card);
   transition: transform 0.2s ease, box-shadow 0.2s ease, border-color 0.2s ease;
   min-width: 0;
+  min-height: 92px;
   overflow: hidden;
 }
 
@@ -1480,7 +1544,7 @@ img { display: block; max-width: 100%; }
 }
 
 .stat-num {
-  font-size: clamp(1.2rem, 1.35vw, 1.45rem);
+  font-size: 1.25rem;
   font-weight: 800;
   color: var(--text);
   display: block;
@@ -1493,7 +1557,7 @@ img { display: block; max-width: 100%; }
 
 .stat-label {
   color: var(--muted);
-  font-size: 0.78rem;
+  font-size: 0.6875rem;
   font-weight: 600;
   display: block;
   text-transform: uppercase;
@@ -1519,30 +1583,32 @@ img { display: block; max-width: 100%; }
 .stat-trend b { font-weight: 700; white-space: nowrap; }
 .stat-trend em { font-style: normal; color: var(--muted); font-weight: 400; margin-left: 2px; }
 
-/* Phones: stat cards sit two-across, so stack the badge above the numbers. */
+/* Phones: stat cards sit two-across, so stack the badge above the numbers.
+   Icon stays 44px so KPI size is identical at every breakpoint. */
 @media (max-width: 639px) {
   .stat-card {
     flex-direction: column;
     gap: 8px;
-    padding: 12px;
+    padding: 14px 16px;
     min-width: 0;
+    min-height: 92px;
   }
 
   .stat-badge {
-    width: 38px;
-    height: 38px;
-    border-radius: 10px;
+    width: 44px;
+    height: 44px;
+    border-radius: 12px;
   }
 
   .stat-body { width: 100%; }
 
   .stat-num {
-    font-size: 1.15rem;
+    font-size: 1.25rem;
     overflow-wrap: anywhere;
   }
 
   .stat-label {
-    font-size: 0.72rem;
+    font-size: 0.6875rem;
     overflow-wrap: anywhere;
   }
 
@@ -1551,6 +1617,13 @@ img { display: block; max-width: 100%; }
     gap: 3px;
     font-size: 0.72rem;
   }
+}
+
+/* ── KPI size guardrail: every KPI variant shares the canonical box ── */
+.hrms-stat-card {
+  min-height: 92px;
+  padding: 14px 16px;
+  border-radius: var(--radius-lg);
 }
 
 /* ── Table ───────────────────────────────────────────────── */

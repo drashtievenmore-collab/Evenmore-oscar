@@ -7,108 +7,7 @@ import { ConfirmModal } from "../../../components/hrms/Shared";
 import { PageInfoButton } from "../../../components/common/PageInfoButton";
 import { hrmsGuides } from "../../../data/hrms/hrmsGuides";
 
-const SAMPLE_REQUESTS = [
-  {
-    id: "REQ-1001",
-    employee: "Priya Patel",
-    dept: "Engineering",
-    type: "Regularization",
-    date: "10 Oct 2024",
-    currentIn: "09:15",
-    currentOut: "17:45",
-    requestedIn: "09:30",
-    requestedOut: "18:30",
-    reason: "Missed punch",
-    requestedBy: "Priya Patel",
-    submitted: "10 Oct",
-    status: "Pending",
-    avatar: "https://randomuser.me/api/portraits/women/44.jpg",
-  },
-  {
-    id: "REQ-1002",
-    employee: "Marcus Chen",
-    dept: "Design",
-    type: "Early Clock-Out",
-    date: "11 Oct 2024",
-    currentIn: "09:18",
-    currentOut: "18:30",
-    requestedIn: "09:18",
-    requestedOut: "16:30",
-    reason: "Personal appointment",
-    requestedBy: "Marcus Chen",
-    submitted: "11 Oct",
-    status: "Pending",
-    avatar: "https://randomuser.me/api/portraits/men/32.jpg",
-  },
-  {
-    id: "REQ-1003",
-    employee: "Liam Cooper",
-    dept: "Engineering",
-    type: "Regularization",
-    date: "09 Oct 2024",
-    currentIn: "—",
-    currentOut: "—",
-    requestedIn: "09:02",
-    requestedOut: "18:04",
-    reason: "Missing Check-In",
-    requestedBy: "Liam Cooper",
-    submitted: "09 Oct",
-    status: "Approved",
-    reviewer: "Ayesha Khan",
-    reviewedAt: "09 Oct 11:20",
-    avatar: "https://randomuser.me/api/portraits/men/75.jpg",
-  },
-  {
-    id: "REQ-1004",
-    employee: "Sarah Wilson",
-    dept: "Marketing",
-    type: "Early Clock-Out",
-    date: "08 Oct 2024",
-    currentIn: "09:00",
-    currentOut: "17:55",
-    requestedIn: "09:00",
-    requestedOut: "15:00",
-    reason: "Medical appointment",
-    requestedBy: "Sarah Wilson",
-    submitted: "08 Oct",
-    status: "Rejected",
-    reviewer: "Ayesha Khan",
-    rejectReason: "Insufficient advance notice",
-    avatar: "https://randomuser.me/api/portraits/women/68.jpg",
-  },
-  {
-    id: "REQ-1005",
-    employee: "Chen Li",
-    dept: "Operations",
-    type: "Regularization",
-    date: "07 Oct 2024",
-    currentIn: "09:42",
-    currentOut: "18:10",
-    requestedIn: "09:02",
-    requestedOut: "18:10",
-    reason: "Incorrect Check-In",
-    requestedBy: "Chen Li",
-    submitted: "07 Oct",
-    status: "Cancelled",
-    avatar: "https://randomuser.me/api/portraits/women/33.jpg",
-  },
-  {
-    id: "REQ-1006",
-    employee: "Rahul Verma",
-    dept: "Design",
-    type: "Regularization",
-    date: "06 Oct 2024",
-    currentIn: "09:00",
-    currentOut: "—",
-    requestedIn: "09:00",
-    requestedOut: "18:00",
-    reason: "Missing Check-Out",
-    requestedBy: "Rahul Verma",
-    submitted: "06 Oct",
-    status: "Pending",
-    avatar: "https://randomuser.me/api/portraits/men/62.jpg",
-  },
-];
+const SAMPLE_REQUESTS = [];
 
 const DEPARTMENTS = ["All", "Engineering", "Design", "Marketing", "HR", "Finance", "Operations"];
 const TYPES = ["All", "Regularization", "Early Clock-Out"];
@@ -129,6 +28,8 @@ const statusStyles = {
 export default function Requests() {
   const setToast = useAppStore((s) => s.setToast || s.showToast);
   const storeEmployees = useAppStore((s) => s.employees || []);
+  const currentUser = useAppStore((s) => s.currentUser);
+  const reviewerName = currentUser?.name || "HR Manager";
   const storeRequests = useAttendanceStore((s) => s.requests || []);
   const setStoreRequestStatus = useAttendanceStore((s) => s.setRequestStatus);
   const addStoreRequest = useAttendanceStore((s) => s.addRequest);
@@ -163,20 +64,20 @@ export default function Requests() {
   const [showEarlyModal, setShowEarlyModal] = useState(false);
 
   const [regForm, setRegForm] = useState({
-    employee: "Priya Patel",
-    date: "2024-10-10",
-    curIn: "09:15",
-    curOut: "17:45",
+    employee: "",
+    date: new Date().toISOString().slice(0, 10),
+    curIn: "",
+    curOut: "",
     reqIn: "09:30",
     reqOut: "18:30",
     reason: "",
   });
 
   const [earlyForm, setEarlyForm] = useState({
-    employee: "Marcus Chen",
-    date: "2024-10-11",
-    curIn: "09:18",
-    curOut: "18:30",
+    employee: "",
+    date: new Date().toISOString().slice(0, 10),
+    curIn: "",
+    curOut: "",
     reqOut: "16:30",
     reason: "",
   });
@@ -213,17 +114,17 @@ export default function Requests() {
   };
 
   const handleApprove = (id) => {
-    setStoreRequestStatus(id, "Approved", { reviewer: "Ayesha Khan" });
+    setStoreRequestStatus(id, "Approved", { reviewer: reviewerName });
     setToast("Attendance request approved.");
     setApproveId(null);
     if (selectedReq?.id === id) {
-      setSelectedReq((prev) => ({ ...prev, status: "Approved", reviewer: "Ayesha Khan" }));
+      setSelectedReq((prev) => ({ ...prev, status: "Approved", reviewer: reviewerName }));
     }
   };
 
   const handleReject = () => {
     if (!rejectId) return;
-    setStoreRequestStatus(rejectId, "Rejected", { reviewer: "Ayesha Khan", rejectReason });
+    setStoreRequestStatus(rejectId, "Rejected", { reviewer: reviewerName, rejectReason });
     setToast("Attendance request rejected.");
     setRejectId(null);
     setRejectReason("");
@@ -233,12 +134,13 @@ export default function Requests() {
   };
 
   const handleRegSubmit = () => {
+    if (!regForm.employee) return setToast("Please select an employee.", "error");
     if (!regForm.reason) return setToast("Please enter reason for regularization.", "error");
     addStoreRequest({
       employee: regForm.employee,
-      dept: "Engineering",
+      dept: "General",
       type: "Regularization",
-      date: regForm.date || "12 Oct 2024",
+      date: regForm.date || new Date().toISOString().slice(0, 10),
       currentIn: regForm.curIn,
       currentOut: regForm.curOut,
       requestedIn: regForm.reqIn,
@@ -250,10 +152,10 @@ export default function Requests() {
     setToast("Regularization request submitted successfully.");
     setShowRegModal(false);
     setRegForm({
-      employee: "Priya Patel",
-      date: "2024-10-10",
-      curIn: "09:15",
-      curOut: "17:45",
+      employee: "",
+      date: new Date().toISOString().slice(0, 10),
+      curIn: "",
+      curOut: "",
       reqIn: "09:30",
       reqOut: "18:30",
       reason: "",
@@ -261,12 +163,13 @@ export default function Requests() {
   };
 
   const handleEarlySubmit = () => {
+    if (!earlyForm.employee) return setToast("Please select an employee.", "error");
     if (!earlyForm.reason) return setToast("Please enter reason for early clock-out.", "error");
     addStoreRequest({
       employee: earlyForm.employee,
-      dept: "Design",
+      dept: "General",
       type: "Early Clock-Out",
-      date: earlyForm.date || "12 Oct 2024",
+      date: earlyForm.date || new Date().toISOString().slice(0, 10),
       currentIn: earlyForm.curIn,
       currentOut: earlyForm.curOut,
       requestedIn: earlyForm.curIn,
@@ -278,10 +181,10 @@ export default function Requests() {
     setToast("Early clock-out request submitted successfully.");
     setShowEarlyModal(false);
     setEarlyForm({
-      employee: "Marcus Chen",
-      date: "2024-10-11",
-      curIn: "09:18",
-      curOut: "18:30",
+      employee: "",
+      date: new Date().toISOString().slice(0, 10),
+      curIn: "",
+      curOut: "",
       reqOut: "16:30",
       reason: "",
     });
@@ -632,7 +535,8 @@ export default function Requests() {
               value={regForm.employee}
               onChange={(e) => setRegForm({ ...regForm, employee: e.target.value })}
             >
-              {(storeEmployees.length > 0 ? storeEmployees.map((e) => e.name) : ["Priya Patel", "Marcus Chen", "Liam Cooper", "Sarah Wilson", "Chen Li", "Rahul Verma"]).map((name) => (
+              <option value="">Select employee…</option>
+              {storeEmployees.map((e) => e.name).map((name) => (
                 <option key={name} value={name}>{name}</option>
               ))}
             </select>
@@ -710,7 +614,8 @@ export default function Requests() {
               value={earlyForm.employee}
               onChange={(e) => setEarlyForm({ ...earlyForm, employee: e.target.value })}
             >
-              {(storeEmployees.length > 0 ? storeEmployees.map((e) => e.name) : ["Marcus Chen", "Priya Patel", "Sarah Wilson", "Liam Cooper"]).map((name) => (
+              <option value="">Select employee…</option>
+              {storeEmployees.map((e) => e.name).map((name) => (
                 <option key={name} value={name}>{name}</option>
               ))}
             </select>

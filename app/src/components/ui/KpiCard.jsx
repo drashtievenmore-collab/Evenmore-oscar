@@ -14,18 +14,18 @@ export default function KpiCard({ label, value, icon: Icon, symbol, tone = 'blue
 
   return (
     <article
-      className="flex min-w-0 items-center gap-3.5 rounded-2xl border px-3.5 py-3"
-      style={{ background, borderColor, minHeight: 74 }}
+      className="kpi-std flex min-w-0 items-center border"
+      style={{ background, borderColor }}
     >
       <span
-        className="grid h-11 w-11 shrink-0 place-items-center rounded-2xl text-xl font-bold"
+        className="kpi-badge-std grid shrink-0 place-items-center text-xl font-bold"
         style={{ background: iconBackground, color }}
       >
-        {Icon ? <Icon size={21} strokeWidth={2} aria-hidden="true" /> : symbol}
+        {Icon ? <Icon size={20} strokeWidth={2} aria-hidden="true" /> : symbol}
       </span>
       <div className="min-w-0">
-        <span className="block text-[11px] font-medium leading-4 text-slate-500">{label}</span>
-        <strong className="block break-words text-[22px] font-bold leading-7 text-slate-900">{value}</strong>
+        <span className="block text-[11px] font-semibold uppercase leading-4 tracking-[0.04em] text-slate-500">{label}</span>
+        <strong className="block break-words text-[20px] font-bold leading-6 text-slate-900">{value}</strong>
         {children}
       </div>
     </article>

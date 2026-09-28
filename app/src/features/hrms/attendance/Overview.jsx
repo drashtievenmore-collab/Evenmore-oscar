@@ -6,96 +6,7 @@ import { useAttendanceStore } from "../../../stores/attendanceStore";
 import { PageInfoButton } from "../../../components/common/PageInfoButton";
 import { hrmsGuides } from "../../../data/hrms/hrmsGuides";
 
-const MOCK_ATTENDANCE = [
-  {
-    id: "EMP1024",
-    name: "Priya Patel",
-    dept: "Engineering",
-    checkIn: "09:02",
-    checkOut: "18:04",
-    workHours: "08:32",
-    shift: "General",
-    status: "Present",
-    img: "https://randomuser.me/api/portraits/women/44.jpg",
-  },
-  {
-    id: "EMP1025",
-    name: "Marcus Chen",
-    dept: "Design",
-    checkIn: "09:18",
-    checkOut: "18:30",
-    workHours: "08:42",
-    shift: "General",
-    status: "Late",
-    img: "https://randomuser.me/api/portraits/men/32.jpg",
-  },
-  {
-    id: "EMP1026",
-    name: "Liam Cooper",
-    dept: "Engineering",
-    checkIn: "—",
-    checkOut: "—",
-    workHours: "—",
-    shift: "General",
-    status: "Absent",
-    img: "https://randomuser.me/api/portraits/men/75.jpg",
-  },
-  {
-    id: "EMP1027",
-    name: "Sarah Wilson",
-    dept: "Marketing",
-    checkIn: "09:00",
-    checkOut: "17:55",
-    workHours: "08:25",
-    shift: "Flexible",
-    status: "WFH",
-    img: "https://randomuser.me/api/portraits/women/68.jpg",
-  },
-  {
-    id: "EMP1028",
-    name: "James Wilson",
-    dept: "Finance",
-    checkIn: "09:42",
-    checkOut: "13:30",
-    workHours: "03:48",
-    shift: "General",
-    status: "Half Day",
-    img: "https://randomuser.me/api/portraits/men/54.jpg",
-  },
-  {
-    id: "EMP1029",
-    name: "Ayesha Khan",
-    dept: "HR",
-    checkIn: "—",
-    checkOut: "—",
-    workHours: "—",
-    shift: "General",
-    status: "On Leave",
-    img: "https://randomuser.me/api/portraits/women/24.jpg",
-  },
-  {
-    id: "EMP1030",
-    name: "David Park",
-    dept: "Engineering",
-    checkIn: "09:05",
-    checkOut: "18:10",
-    workHours: "08:35",
-    shift: "General",
-    status: "Present",
-    img: "https://randomuser.me/api/portraits/men/46.jpg",
-  },
-  {
-    id: "EMP1031",
-    name: "Chen Li",
-    dept: "Operations",
-    checkIn: "09:22",
-    checkOut: "18:00",
-    workHours: "08:08",
-    shift: "Night",
-    status: "Late",
-    img: "https://randomuser.me/api/portraits/women/33.jpg",
-  },
-];
+const LIVE_ATTENDANCE_FALLBACK = [];
 
 const DEPARTMENTS = ["All", "Engineering", "Design", "Marketing", "Finance", "HR", "Operations"];
 const STATUSES = ["All", "Present", "Late", "Absent", "WFH", "Half Day", "On Leave"];
@@ -118,7 +29,7 @@ export default function AttendanceOverview() {
   const updateStoreRecord = useAttendanceStore((s) => s.updateRecord);
 
   const [search, setSearch] = useState("");
-  const [dateVal, setDateVal] = useState("2024-10-11");
+  const [dateVal, setDateVal] = useState(() => new Date().toISOString().slice(0, 10));
   const [deptFilter, setDeptFilter] = useState("All");
   const [statusFilter, setStatusFilter] = useState("All");
   const [shiftFilter, setShiftFilter] = useState("All");
@@ -126,13 +37,14 @@ export default function AttendanceOverview() {
   const [roleFilter, setRoleFilter] = useState("All");
 
   const [showRegModal, setShowRegModal] = useState(false);
-  const [regEmp, setRegEmp] = useState("Priya Patel");
-  const [regDate, setRegDate] = useState("2024-10-11");
+  const [regEmp, setRegEmp] = useState("");
+  const [regDate, setRegDate] = useState(() => new Date().toISOString().slice(0, 10));
   const [regReason, setRegReason] = useState("");
   const [regIn, setRegIn] = useState("09:00");
   const [regOut, setRegOut] = useState("18:00");
 
-  // Normalize attendance records for table display
+  // Live attendance records only — no dummy data. Falls back to the employee
+  // directory so marking attendance is still possible when no records exist.
   const combinedAttendance = useMemo(() => {
     if (storeRecords && storeRecords.length > 0) {
       return storeRecords.map((r) => ({
@@ -144,12 +56,23 @@ export default function AttendanceOverview() {
         role: r.role || r.jobType || "Full-Time",
       }));
     }
-    return MOCK_ATTENDANCE.map((r) => ({
-      ...r,
-      location: r.location || (r.status === "WFH" ? "Remote" : "On-Site"),
-      role: r.role || r.jobType || "Full-Time",
-    }));
-  }, [storeRecords]);
+    if (storeEmployees && storeEmployees.length > 0) {
+      return storeEmployees.map((e, i) => ({
+        id: e.empId || e.id || `EMP-${i + 1}`,
+        name: e.name,
+        dept: e.department || e.dept || "General",
+        checkIn: "—",
+        checkOut: "—",
+        workHours: "—",
+        shift: "General",
+        status: "Present",
+        img: e.avatar || `https://i.pravatar.cc/100?u=${e.id || e.name}`,
+        location: "On-Site",
+        role: e.role || e.jobType || "Full-Time",
+      }));
+    }
+    return LIVE_ATTENDANCE_FALLBACK;
+  }, [storeRecords, storeEmployees]);
 
   const filtered = useMemo(() => {
     return combinedAttendance.filter((item) => {
@@ -167,27 +90,27 @@ export default function AttendanceOverview() {
 
   // Dynamic live STATS
   const statsData = useMemo(() => {
-    const total = combinedAttendance.length || 1;
+    const total = combinedAttendance.length;
     const presentCount = combinedAttendance.filter((r) => r.status === "Present").length;
     const absentCount = combinedAttendance.filter((r) => r.status === "Absent").length;
     const lateCount = combinedAttendance.filter((r) => r.status === "Late").length;
     const leaveCount = combinedAttendance.filter((r) => r.status === "On Leave").length;
     const wfhCount = combinedAttendance.filter((r) => r.status === "WFH").length;
-    const percent = Math.round((presentCount / total) * 100);
+    const percent = total > 0 ? Math.round((presentCount / total) * 100) : 0;
 
     return [
-      { label: "PRESENT", val: String(presentCount), sub: `${percent}% of staff`, dotColor: "#22c55e" },
-      { label: "ABSENT", val: String(absentCount), sub: "Needs review", dotColor: "#ef4444" },
+      { label: "PRESENT", val: String(presentCount), sub: total > 0 ? `${percent}% of staff` : "No records", dotColor: "#22c55e" },
+      { label: "ABSENT", val: String(absentCount), sub: total > 0 ? "Needs review" : "No records", dotColor: "#ef4444" },
       { label: "LATE", val: String(lateCount), sub: "Grace 10 min", dotColor: "#f59e0b" },
       { label: "ON LEAVE", val: String(leaveCount), sub: "Approved leave", dotColor: "#3b82f6" },
       { label: "WFH", val: String(wfhCount), sub: "Remote active", dotColor: null },
-      { label: "OVERTIME", val: "18h", sub: "Today", dotColor: "#22c55e" },
+      { label: "OVERTIME", val: "0h", sub: "Today", dotColor: "#22c55e" },
     ];
   }, [combinedAttendance]);
 
   const handleClearFilters = () => {
     setSearch("");
-    setDateVal("2024-10-11");
+    setDateVal(() => new Date().toISOString().slice(0, 10));
     setDeptFilter("All");
     setStatusFilter("All");
     setShiftFilter("All");
@@ -210,6 +133,7 @@ export default function AttendanceOverview() {
   };
 
   const handleRegularizeSubmit = () => {
+    if (!regEmp) return setToast("Please select an employee for regularization.", "error");
     if (!regReason.trim()) return setToast("Please provide a reason for regularization.", "error");
     addAttendanceRequest({
       employee: regEmp,
@@ -498,6 +422,7 @@ export default function AttendanceOverview() {
               value={regEmp}
               onChange={(e) => setRegEmp(e.target.value)}
             >
+              <option value="">Select employee…</option>
               {combinedAttendance.map((e) => (
                 <option key={e.id} value={e.name}>
                   {e.name} ({e.id})

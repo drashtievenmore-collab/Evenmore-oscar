@@ -7,17 +7,7 @@ import { PageInfoButton } from "../../../components/common/PageInfoButton";
 import { hrmsGuides } from "../../../data/hrms/hrmsGuides";
 import { bulkAttendance, isBackendEnabled } from "../../../services/hrmsSync";
 
-const INITIAL_EMPLOYEES = [
-  { id: "EMP1024", name: "Priya Patel", dept: "Engineering", status: "Present", avatar: "https://randomuser.me/api/portraits/women/44.jpg" },
-  { id: "EMP1025", name: "Marcus Chen", dept: "Design", status: "WFH", avatar: "https://randomuser.me/api/portraits/men/32.jpg" },
-  { id: "EMP1026", name: "Liam Cooper", dept: "Engineering", status: "Absent", avatar: "https://randomuser.me/api/portraits/men/75.jpg" },
-  { id: "EMP1027", name: "Sarah Wilson", dept: "Marketing", status: "WFH", avatar: "https://randomuser.me/api/portraits/women/68.jpg" },
-  { id: "EMP1028", name: "James Wilson", dept: "Finance", status: "WFH", avatar: "https://randomuser.me/api/portraits/men/54.jpg" },
-  { id: "EMP1029", name: "Ayesha Khan", dept: "HR", status: "WFH", avatar: "https://randomuser.me/api/portraits/women/24.jpg" },
-  { id: "EMP1030", name: "David Park", dept: "Engineering", status: "WFH", avatar: "https://randomuser.me/api/portraits/men/46.jpg" },
-  { id: "EMP1031", name: "Chen Li", dept: "Operations", status: "WFH", avatar: "https://randomuser.me/api/portraits/women/33.jpg" },
-  { id: "EMP1032", name: "Rahul Verma", dept: "Design", status: "WFH", avatar: "https://randomuser.me/api/portraits/men/62.jpg" },
-];
+const INITIAL_EMPLOYEES = [];
 
 const DEPARTMENTS = ["All", "Engineering", "Design", "Marketing", "Finance", "HR", "Operations"];
 const LOCATIONS = ["All", "Bangalore", "Mumbai", "Delhi", "Hyderabad"];
@@ -38,7 +28,7 @@ export default function BulkAttendance() {
   const storeRecords = useAttendanceStore((s) => s.records);
   const bulkUpdateStore = useAttendanceStore((s) => s.bulkUpdate);
 
-  const [date, setDate] = useState("2024-10-11");
+  const [date, setDate] = useState(() => new Date().toISOString().slice(0, 10));
   const [dept, setDept] = useState("All");
   const [location, setLocation] = useState("All");
   const [shift, setShift] = useState("All");
