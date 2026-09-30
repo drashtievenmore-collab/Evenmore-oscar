@@ -10,6 +10,7 @@ import {
   Trash2,
 } from "lucide-react";
 import InfoBanner from "../common/InfoBanner";
+import PageHeader from "../../../components/ui/PageHeader";
 
 function parseDateValue(dateString) {
   if (!dateString || typeof dateString !== "string") return 0;
@@ -47,69 +48,62 @@ export default function LeadFormsManager({ forms, activeFormId, onToggleForm, on
     return nextForms;
   }, [forms, sortOrder, statusFilter, activeFormId]);
 
-  function StatusToggle({ form }) {
-    const isOn = form.id === activeFormId;
-    return (
-      <span className="inline-flex items-center gap-2">
-        <button
-          type="button"
-          role="switch"
-          aria-checked={isOn}
-          aria-label={`${isOn ? 'Deactivate' : 'Activate'} ${form.name}`}
-          title={isOn ? 'On — this form opens from Create Lead' : 'Off — toggle on to use this form'}
-          onClick={() => onToggleForm?.(form.id)}
-          className={`relative inline-flex h-5.5 w-10 shrink-0 cursor-pointer items-center rounded-full p-0.5 transition-colors ${
-            isOn ? 'bg-emerald-500 justify-end' : 'bg-slate-300 justify-start'
-          }`}
-          style={{ height: 22 }}
-        >
-          <span className="inline-block h-4 w-4 rounded-full bg-white shadow-xs" />
-        </button>
-        <span className={`text-[11px] font-bold ${isOn ? 'text-emerald-700' : 'text-slate-400'}`}>
-          {isOn ? 'ACTIVE' : 'OFF'}
-        </span>
+function StatusToggle({ form, activeFormId, onToggleForm }) {
+  const isOn = form?.id === activeFormId;
+  return (
+    <span className="inline-flex items-center gap-2">
+      <button
+        type="button"
+        role="switch"
+        aria-checked={isOn}
+        aria-label={`${isOn ? 'Deactivate' : 'Activate'} ${form?.name || ''}`}
+        title={isOn ? 'On — this form opens from Create Lead' : 'Off — toggle on to use this form'}
+        onClick={() => onToggleForm?.(form?.id)}
+        className={`relative inline-flex h-5.5 w-10 shrink-0 cursor-pointer items-center rounded-full p-0.5 transition-colors ${
+          isOn ? 'bg-emerald-500 justify-end' : 'bg-slate-300 justify-start'
+        }`}
+        style={{ height: 22 }}
+      >
+        <span className="inline-block h-4 w-4 rounded-full bg-white shadow-xs" />
+      </button>
+      <span className={`text-[11px] font-bold ${isOn ? 'text-emerald-700' : 'text-slate-400'}`}>
+        {isOn ? 'ACTIVE' : 'OFF'}
       </span>
-    );
-  }
+    </span>
+  );
+}
 
   return (
     <section className="w-full">
-      <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
-        <div className="min-w-0">
-          <h1 className="text-[22px] sm:text-[24px] leading-tight font-bold text-slate-900 tracking-tight">
-            Manage Lead Create Forms
-          </h1>
-          <div className="mt-1 flex flex-wrap items-center gap-1.5 text-xs font-medium text-slate-500">
-            <span>Dashboard</span>
-            <span>&gt;</span>
-            <span className="text-slate-700">Lead Create Form</span>
-          </div>
-        </div>
+      <PageHeader
+        title="Manage Lead Create Forms"
+        subtitle="Define which fields appear while creating a lead — design once, every new lead follows the same structure."
+        actions={
+          <div className="flex flex-wrap items-center gap-3">
+            {onOpenGuide && (
+              <button
+                type="button"
+                onClick={onOpenGuide}
+                aria-haspopup="dialog"
+                className="btn-outline whitespace-nowrap"
+              >
+                <span aria-hidden="true" className="inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-blue-600 text-xs font-bold text-white">?</span>
+                <span>How to create a form?</span>
+              </button>
+            )}
 
-        <div className="flex flex-wrap items-center gap-3 lg:justify-end">
-          {onOpenGuide && (
             <button
               type="button"
-              onClick={onOpenGuide}
-              aria-haspopup="dialog"
-              className="inline-flex h-11 shrink-0 items-center justify-center gap-2 whitespace-nowrap rounded-xl border border-blue-200 bg-blue-50 px-4 text-sm font-semibold text-blue-700 transition-colors hover:border-blue-300 hover:bg-blue-100 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600 cursor-pointer"
+              className="btn-primary"
+              onClick={onCreateForm}
+              aria-label="Create new lead form"
             >
-              <span aria-hidden="true" className="inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-blue-600 text-xs font-bold text-white">?</span>
-              <span>How to create a form?</span>
+              <Plus size={16} />
+              <span>Create Form</span>
             </button>
-          )}
-
-          <button
-            type="button"
-            className="inline-flex h-11 shrink-0 items-center justify-center gap-2 rounded-[14px] bg-[#2f6fed] px-4 text-sm font-semibold text-white shadow-sm transition hover:bg-[#1d4ed8] cursor-pointer"
-            onClick={onCreateForm}
-            aria-label="Create new lead form"
-          >
-            <Plus size={18} />
-            <span>Create Form</span>
-          </button>
-        </div>
-      </div>
+          </div>
+        }
+      />
 
       <div className="mt-5">
         <InfoBanner
@@ -216,7 +210,7 @@ export default function LeadFormsManager({ forms, activeFormId, onToggleForm, on
                       </td>
                       <td className="px-5 py-4 text-slate-700 whitespace-nowrap">{form.createdOn}</td>
                       <td className="px-5 py-4 whitespace-nowrap">
-                        <StatusToggle form={form} />
+                        <StatusToggle form={form} activeFormId={activeFormId} onToggleForm={onToggleForm} />
                       </td>
                       <td className="px-5 py-4">
                         <div className="flex items-center justify-end gap-2 whitespace-nowrap">
@@ -284,7 +278,7 @@ export default function LeadFormsManager({ forms, activeFormId, onToggleForm, on
                   <div>
                     <div className="text-[11px] font-semibold uppercase tracking-[0.08em] text-slate-400">Status</div>
                     <div className="mt-1">
-                      <StatusToggle form={form} />
+                      <StatusToggle form={form} activeFormId={activeFormId} onToggleForm={onToggleForm} />
                     </div>
                   </div>
                   <div className="col-span-2">

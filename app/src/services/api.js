@@ -140,10 +140,17 @@ export async function apiClient(
         return result;
       }
 
-      const message =
+      let message =
         (result && (result.message || result.detail || result.error)) ||
         (result && typeof result === 'object' && Object.values(result)[0]?.[0]) ||
         `Request failed with status ${response.status}`;
+      // Error pages (Django DEBUG 404/500, proxies) come back as HTML, not
+      // JSON — never surface raw markup in the toast, just the status.
+      if (typeof message === 'string' && /<\s*!?doctype|<\s*html/i.test(message)) {
+        message = `Request failed with status ${response.status}`;
+      }
+      if (typeof message !== 'string') message = `Request failed with status ${response.status}`;
+      if (message.length > 300) message = `${message.slice(0, 297)}…`;
 
       throw new ApiError(message, { status: response.status, endpoint: normalizedEp, payload: result });
     } catch (err) {

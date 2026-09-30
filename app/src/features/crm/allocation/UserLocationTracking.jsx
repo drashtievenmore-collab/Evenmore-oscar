@@ -1,4 +1,5 @@
 import CrmKpiCard from '../common/CrmKpiCard';
+import PageHeader from '../../../components/ui/PageHeader';
 import { useEffect, useMemo, useState } from 'react';
 import {
   Search,
@@ -201,34 +202,34 @@ export default function UserLocationTracking() {
         </div>
       )}
 
-      <div className="flex flex-col xl:flex-row xl:items-start justify-between gap-3">
-        <div>
-          <h1 className="text-xl font-bold text-slate-900 tracking-tight">User Location Tracking</h1>
-          <p className="text-xs text-slate-500 mt-0.5">Track your team's live location, activity and working hours in real time.</p>
-        </div>
-        <div className="flex flex-wrap items-center gap-2">
-          <label className="inline-flex items-center gap-1.5 px-3 py-2 bg-white border border-slate-200 rounded-lg text-xs font-medium text-slate-600">
-            <CalendarDays size={14} className="text-slate-400" />
-            <input type="date" value={date} onChange={(e) => setDate(e.target.value)} className="outline-none bg-transparent text-xs text-slate-700" />
-          </label>
-          <button
-            type="button"
-            onClick={() => setLive((v) => !v)}
-            className={`inline-flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-bold transition cursor-pointer ${live ? 'bg-blue-600 text-white' : 'bg-white text-slate-600 border border-slate-200'}`}
-          >
-            <Radio size={14} /> {live ? 'Live Tracking' : 'Start Live'}
-          </button>
-          <button
-            type="button"
-            onClick={() => setReportsOpen(true)}
-            className="inline-flex items-center gap-1.5 px-4 py-2 bg-white border border-slate-200 rounded-lg text-xs font-semibold text-slate-600 hover:bg-slate-50 transition cursor-pointer"
-          >
-            <FileText size={14} /> Reports
-          </button>
-        </div>
-      </div>
+      <PageHeader
+        title="User Location Tracking"
+        subtitle="Track your team's live location, activity and working hours in real time."
+        actions={
+          <div className="flex flex-wrap items-center gap-3">
+            <label className="inline-flex items-center gap-1.5 px-3 h-[38px] bg-white border border-slate-200 rounded-[10px] text-xs font-medium text-slate-600">
+              <CalendarDays size={14} className="text-slate-400" />
+              <input type="date" value={date} onChange={(e) => setDate(e.target.value)} className="outline-none bg-transparent text-xs text-slate-700" />
+            </label>
+            <button
+              type="button"
+              onClick={() => setLive((v) => !v)}
+              className={live ? 'btn-primary' : 'btn-outline'}
+            >
+              <Radio size={16} /> {live ? 'Live Tracking' : 'Start Live'}
+            </button>
+            <button
+              type="button"
+              onClick={() => setReportsOpen(true)}
+              className="btn-outline"
+            >
+              <FileText size={16} /> Reports
+            </button>
+          </div>
+        }
+      />
 
-      <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-5 gap-3">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3.5 my-4">
         <CrmKpiCard label="Total Employees" value={STAFF.length} icon={Users} tone="blue" />
         <CrmKpiCard label="Online Now" value={online.length} icon={Wifi} tone="emerald"> <em className="not-italic text-[10px] font-bold text-emerald-600">23.8%</em></CrmKpiCard>
         <CrmKpiCard label="Offline" value={offline.length} icon={WifiOff} tone="rose"> <em className="not-italic text-[10px] font-bold text-slate-400">76.2%</em></CrmKpiCard>
@@ -254,11 +255,11 @@ export default function UserLocationTracking() {
         <button type="button" onClick={() => { setPing((p) => p + 1); showToast('Live location data refreshed!'); }} className="inline-flex items-center gap-1.5 px-3 py-2 bg-white border border-slate-200 rounded-lg text-xs font-semibold text-slate-600 hover:bg-slate-50 cursor-pointer">
           <RefreshCw size={13} /> Auto Refresh
         </button>
-        <button type="button" onClick={exportExcel} className="inline-flex items-center gap-1.5 px-3 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-bold transition cursor-pointer">
-          <FileSpreadsheet size={13} /> Excel
+        <button type="button" onClick={exportExcel} className="btn-primary" style={{ background: '#059669' }}>
+          <FileSpreadsheet size={16} /> Excel
         </button>
-        <button type="button" onClick={exportPdf} className="inline-flex items-center gap-1.5 px-3 py-2 bg-rose-500 hover:bg-rose-600 text-white rounded-lg text-xs font-bold transition cursor-pointer">
-          <FileText size={13} /> PDF
+        <button type="button" onClick={exportPdf} className="btn-primary" style={{ background: '#f43f5e' }}>
+          <FileText size={16} /> PDF
         </button>
       </div>
 

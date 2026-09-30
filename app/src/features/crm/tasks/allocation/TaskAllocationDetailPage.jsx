@@ -77,9 +77,9 @@ export default function TaskAllocationDetailPage() {
           <button
             type="button"
             onClick={() => setIsEditOpen(true)}
-            className="inline-flex items-center gap-1.5 px-3.5 py-2 bg-[#1d4a79] hover:bg-[#163a61] text-white text-xs font-semibold rounded-md transition"
+            className="btn-primary"
           >
-            <Pencil size={13} /> Edit
+            <Pencil size={16} /> Edit
           </button>
           <button type="button" onClick={() => navigate('/crm/tasks/allocation')} className="text-[13px] font-medium text-slate-700 hover:text-slate-900">
             Back

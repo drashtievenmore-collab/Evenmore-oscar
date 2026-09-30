@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   Search,
@@ -24,8 +24,11 @@ import {
 
 import MasterTasksGuideModal from './MasterTasksGuideModal';
 import InfoBanner from '../common/InfoBanner';
-import { useCrmStore } from '../../../stores/crmStore';
-import { syncCollection } from '../../../services/crmCollections';
+import PageHeader from '../../../components/ui/PageHeader';
+
+// ── Frontend-only mode ──────────────────────────────────────────────
+// No backend / store / API. All rows live in local component state so
+// create / edit / duplicate / status / delete work instantly in the UI.
 
 
 const ROLES = ['Tele Caller Executive', 'Sales Support Executive', 'BDE', 'Area Sales Manager'];
@@ -83,13 +86,45 @@ const EMPTY_FORM = {
   status: 'Active',
 };
 
+// Seed rows so the table matches the design (10 x "call") on first load.
+// Afterwards the list persists to localStorage, so deletes/edits survive
+// a page refresh without any backend.
+const STORAGE_KEY = 'masterTasksFrontendV1';
+
+function seedTasks() {
+  return Array.from({ length: 10 }, (_, i) => ({
+    id: `mt-seed-${i + 1}`,
+    order: i + 1,
+    name: 'call',
+    title: 'call',
+    icon: 'call',
+    stages: [],
+    role: 'Tele Caller Executive',
+    department: 'Sales',
+    priority: 'Medium',
+    dueIn: 2,
+    status: 'Active',
+  }));
+}
+
+function loadInitialTasks() {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed)) return parsed;
+    }
+  } catch {
+    // Corrupt cache — fall through to seed data.
+  }
+  return seedTasks();
+}
+
 export default function MasterTasksPage() {
   const navigate = useNavigate();
-  // Master task templates live at `/crm/master-tasks/`; the automation that
-  // generates a lead's stage tasks reads the same rows.
-  const storeTasks = useCrmStore((s) => s.masterTasks);
-  const [tasks, setTasks] = useState([]);
-  useEffect(() => { setTasks(storeTasks); }, [storeTasks]);
+  // Pure local state — every mutation below is a synchronous setTasks,
+  // so delete/edit/create apply immediately with no server round-trip.
+  const [tasks, setTasks] = useState(loadInitialTasks);
   const [search, setSearch] = useState('');
   const [roleFilter, setRoleFilter] = useState('All');
   const [deptFilter, setDeptFilter] = useState('All');
@@ -107,19 +142,15 @@ export default function MasterTasksPage() {
   const [bulkDelete, setBulkDelete] = useState(false);
   const [menuId, setMenuId] = useState(null);
   const [isGuideOpen, setIsGuideOpen] = useState(false);
-  // Each distinct list is synced at most once — a sync that never sticks
-  // (offline write the server rejects) must not re-trigger this effect
-  // via the store subscription forever ("Maximum update depth exceeded").
-  const lastSyncedRef = useRef('');
 
+  // Persist frontend-only list so delete/edit survive a page refresh.
   useEffect(() => {
-    if (tasks.length > 0 || storeTasks.length > 0) {
-      const key = JSON.stringify(tasks);
-      if (key === lastSyncedRef.current) return;
-      lastSyncedRef.current = key;
-      syncCollection('masterTasks', tasks, storeTasks);
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(tasks));
+    } catch {
+      // Storage full / blocked — table still works in memory.
     }
-  }, [tasks, storeTasks]);
+  }, [tasks]);
 
   useEffect(() => {
     setPage(1);
@@ -226,13 +257,20 @@ export default function MasterTasksPage() {
       setFormError('Select at least one stage.');
       return;
     }
+    const clean = {
+      ...form,
+      name: form.name.trim(),
+      title: form.name.trim(),
+      dueIn: Number(form.dueIn) || 0,
+    };
+    setFormError('');
     if (editingId) {
-      setTasks((prev) => prev.map((t) => (t.id === editingId ? { ...t, ...form, name: form.name.trim(), dueIn: Number(form.dueIn) || 0 } : t)));
+      setTasks((prev) => prev.map((t) => (t.id === editingId ? { ...t, ...clean } : t)));
     } else {
       const maxOrder = tasks.reduce((m, t) => Math.max(m, t.order || 0), 0);
       setTasks((prev) => [
         ...prev,
-        { id: `mt-${Date.now()}`, order: maxOrder + 1, ...form, name: form.name.trim(), dueIn: Number(form.dueIn) || 0 },
+        { id: `mt-${Date.now()}`, order: maxOrder + 1, ...clean },
       ]);
     }
     setModalOpen(false);
@@ -242,14 +280,23 @@ export default function MasterTasksPage() {
   function duplicateTask(id) {
     const src = tasks.find((t) => t.id === id);
     if (!src) return;
-    const maxOrder = tasks.reduce((m, t) => Math.max(m, t.order || 0), 0);
-    const copy = { ...src, id: `mt-${Date.now()}`, order: maxOrder + 1, name: `${src.name} Copy`, stages: [...src.stages] };
-    setTasks((prev) => [...prev, copy]);
     setMenuId(null);
+    const maxOrder = tasks.reduce((m, t) => Math.max(m, t.order || 0), 0);
+    const copy = {
+      ...src,
+      id: `mt-${Date.now()}`,
+      order: maxOrder + 1,
+      name: `${src.name} Copy`,
+      title: `${src.name} Copy`,
+      stages: [...(src.stages || [])],
+    };
+    setTasks((prev) => [...prev, copy]);
   }
 
   function toggleStatus(id) {
-    setTasks((prev) => prev.map((t) => (t.id === id ? { ...t, status: t.status === 'Active' ? 'Inactive' : 'Active' } : t)));
+    setTasks((prev) =>
+      prev.map((t) => (t.id === id ? { ...t, status: t.status === 'Active' ? 'Inactive' : 'Active' } : t)),
+    );
     setMenuId(null);
   }
 
@@ -258,12 +305,18 @@ export default function MasterTasksPage() {
     setTasks((prev) => prev.filter((t) => t.id !== deleteId));
     setSelected((prev) => prev.filter((id) => id !== deleteId));
     setDeleteId(null);
+    setMenuId(null);
   }
 
   function confirmBulkDelete() {
+    if (selected.length === 0) {
+      setBulkDelete(false);
+      return;
+    }
     setTasks((prev) => prev.filter((t) => !selected.includes(t.id)));
     setSelected([]);
     setBulkDelete(false);
+    setMenuId(null);
   }
 
   function priorityPill(priority) {
@@ -274,30 +327,30 @@ export default function MasterTasksPage() {
 
   return (
     <section className="w-full space-y-4">
-      <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3 mb-3">
-        <div>
-          <h1 className="text-xl font-bold text-slate-900 tracking-tight">Manage Master Lead Tasks</h1>
-          <p className="text-xs text-slate-500 mt-1">Create and manage reusable tasks that can be assigned to different lead stages.</p>
-        </div>
-        <div className="flex flex-wrap lg:flex-nowrap items-center gap-2 shrink-0">
-          <button
-            type="button"
-            onClick={() => setIsGuideOpen(true)}
-            className="inline-flex items-center gap-2 rounded-[12px] border-2 border-[#1d6bff] bg-[#f2f7ff] px-3 py-2 text-[13px] font-semibold text-[#1d6bff]"
-            aria-label="How to create lead tasks master"
-          >
-            <span className="inline-flex h-5 w-5 items-center justify-center rounded-full bg-[#1d6bff] text-[12px] font-bold text-white">?</span>
-            <span>How to create lead tasks master?</span>
-          </button>
-          <button
-            type="button"
-            onClick={openCreate}
-            className="inline-flex items-center gap-1.5 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold rounded-lg shadow-xs transition"
-          >
-            <Plus size={15} /> Create Master Task
-          </button>
-        </div>
-      </div>
+      <PageHeader
+        title="Manage Master Lead Tasks"
+        subtitle="Create and manage reusable tasks that can be assigned to different lead stages."
+        actions={
+          <div className="flex flex-wrap items-center gap-3">
+            <button
+              type="button"
+              onClick={() => setIsGuideOpen(true)}
+              className="btn-outline"
+              aria-label="How to create lead tasks master"
+            >
+              <span className="inline-flex h-5 w-5 items-center justify-center rounded-full bg-[#1d6bff] text-[12px] font-bold text-white">?</span>
+              <span>How to create lead tasks master?</span>
+            </button>
+            <button
+              type="button"
+              onClick={openCreate}
+              className="btn-primary"
+            >
+              <Plus size={16} /> Create Master Task
+            </button>
+          </div>
+        }
+      />
 
       <InfoBanner
         storageKey="leadMasterTasksBannerV2"

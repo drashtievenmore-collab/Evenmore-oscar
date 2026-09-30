@@ -29,6 +29,7 @@ import {
   X,
 } from "lucide-react";
 import { FIELD_LIBRARY } from "../../../data/crm/leadFormSchema";
+import PageHeader from "../../../components/ui/PageHeader";
 
 const FIELD_ICONS = {
   "Single Line": Type,
@@ -80,7 +81,7 @@ function FieldPreview({
     Array.isArray(field.options) && field.options.length > 0
       ? field.options
       : field.label?.toLowerCase().includes("source")
-      ? ["Website", "Referral", "Campaign", "Cold Call"]
+      ? ["Broker", "Sales Person"]
       : ["Option 1", "Option 2", "Option 3"];
 
   function handleDrop(event, position) {
@@ -334,41 +335,30 @@ export default function LeadFormBuilder({
   return (
     <section className="w-full">
       {!hideHeader && (
-        <div className="mb-6">
-          <div className="text-xs font-medium text-slate-500 mb-1 flex items-center gap-1.5">
-            <span>CRM</span>
-            <span>&gt;</span>
-            <span>Leads</span>
-            <span>&gt;</span>
-            <span>Form Builder</span>
-          </div>
-          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-            <div>
-              <h1 className="text-2xl font-bold text-slate-900 tracking-tight">{formTitle || "Lead Form Builder"}</h1>
-              <p className="text-sm text-slate-500 mt-0.5">
-                Create and manage your lead form with custom fields. Click or drag fields to build your layout.
-              </p>
-            </div>
-            <div className="flex flex-wrap lg:flex-nowrap items-center gap-2.5 shrink-0">
+        <PageHeader
+          title={formTitle || "Lead Form Builder"}
+          subtitle="Create and manage your lead form with custom fields. Click or drag fields to build your layout."
+          actions={
+            <div className="flex flex-wrap items-center gap-3">
               <button
                 type="button"
                 onClick={onPreview}
-                className="inline-flex items-center gap-2 px-4 py-2 bg-white hover:bg-slate-50 text-slate-700 text-sm font-medium rounded-lg border border-slate-200 shadow-xs transition cursor-pointer"
+                className="btn-outline"
               >
-                <Eye size={16} className="text-slate-500" />
+                <Eye size={16} />
                 Preview
               </button>
               <button
                 type="button"
                 onClick={onSaveAndOpen}
-                className="inline-flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium rounded-lg shadow-xs transition cursor-pointer"
+                className="btn-primary"
               >
                 <Save size={16} />
                 Save Changes
               </button>
             </div>
-          </div>
-        </div>
+          }
+        />
       )}
 
       <div className="flex flex-col lg:flex-row items-start gap-6">

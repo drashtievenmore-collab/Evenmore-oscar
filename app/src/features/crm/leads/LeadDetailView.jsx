@@ -63,6 +63,7 @@ import { createFieldFromType } from '../../../data/crm/leadFormSchema';
 import { exportToCSV } from '../../../services/exportUtils';
 import { useEstimates, estimateMatchesLead, addEstimate } from '../../../services/estimateStore';
 import { useCrmStore } from '../../../stores/crmStore';
+import { withSampleTeam } from '../common/sampleTeam';
 import { useLeadDetailStore, EMPTY_DETAIL } from '../../../stores/leadDetailStore';
 import { isServerId } from '../../../services/resourceSync';
 import { loadForms, saveForms, TASK_FORM } from '../../../services/crmForms';
@@ -117,15 +118,22 @@ function updateStoredLead(leadId, updates) {
 /**
  * Persist rows a tab just produced. Each key is a sub-collection, and only the
  * rows the server has not seen are posted — the rest are already its own.
+ *
+ * Each local row is posted at most once per page lifetime. Without this, every
+ * re-run of a tab's persist effect (StrictMode double-effect, parent
+ * re-render, tab remount) re-posts all unsynced rows, so one click becomes
+ * many server rows.
  */
+const sentDetailRowIds = new Set();
 function updateStoredLeadDetail(leadId, updates) {
   if (!leadId || !updates || Object.keys(updates).length === 0) return false;
   const { add } = useLeadDetailStore.getState();
   Object.entries(updates).forEach(([section, rows]) => {
     if (!Array.isArray(rows)) return;
     rows
-      .filter((row) => row && !row._synced && !isServerId(row.id))
+      .filter((row) => row && !row._synced && !isServerId(row.id) && row.id && !sentDetailRowIds.has(row.id))
       .forEach((row) => {
+        sentDetailRowIds.add(row.id);
         add(leadId, section, row).catch((err) => {
           console.warn(`[CRM] ${section} not saved:`, err?.message || err);
         });
@@ -313,8 +321,8 @@ function formatNoteValue(currentValue, textarea, prefix, suffix = prefix, fallba
 
 function fieldRows(lead) {
   return [
-    ['Company', lead.company || 'Hirapara Industries'],
-    ['Title', lead.jobTitle || 'Managing Director'],
+    ['Company', lead.company || '—'],
+    ['Title', lead.jobTitle || '—'],
     ['Email', lead.email],
     ['Phone', lead.phone],
     ['Amount', formatAmount(lead.amount)],
@@ -326,7 +334,6 @@ function addressRows(lead) {
     ['City', lead.city],
     ['State', lead.state],
     ['Country', lead.country],
-    ['Zip Code', `39${4200 + (lead.id || 0)}`],
   ];
 }
 
@@ -344,7 +351,6 @@ function leadExportRows(lead) {
     ['City', lead.city],
     ['State', lead.state],
     ['Country', lead.country],
-    ['Zip Code', `39${4200 + (lead.id || 0)}`],
     ['Amount', formatAmount(lead.amount)],
   ];
 }
@@ -396,6 +402,8 @@ function metricCards(counts) {
 // ── 1. Sources & Emails Tab (Screenshot Focus) ────────────────
 function SourcesAndEmailsTab({ lead, onCountsChange, onActivity }) {
   const initialState = useLeadDetailState(lead);
+  const currentUser = useAppStore((s) => s.currentUser);
+  const actorName = currentUser?.name || currentUser?.fullName || lead?.owner || '—';
   const [sources, setSources] = useState(() => initialState.sources);
   const [emails, setEmails] = useState(() => initialState.emails);
   const [timeline, setTimeline] = useState(() => initialState.timeline);
@@ -484,8 +492,7 @@ function SourcesAndEmailsTab({ lead, onCountsChange, onActivity }) {
       sourceType: String(newSource.source ?? '').toLowerCase(),
       details: newSource.details,
       date: new Date().toLocaleDateString('en-GB') + ' ' + new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-      createdBy: 'David Patel',
-      avatar: 'https://i.pravatar.cc/160?img=68',
+      createdBy: actorName,
       color: '#1f6bff',
       icon: iconName,
     };
@@ -509,8 +516,7 @@ function SourcesAndEmailsTab({ lead, onCountsChange, onActivity }) {
       id: Date.now(),
       subject: newEmail.subject,
       date: now,
-      person: 'David Patel',
-      avatar: 'https://i.pravatar.cc/160?img=68',
+      person: actorName,
       status: 'Sent',
       statusColor: 'green',
     };
@@ -520,7 +526,7 @@ function SourcesAndEmailsTab({ lead, onCountsChange, onActivity }) {
       title: newEmail.subject,
       preview: bodyText || 'Direct email communication with client representative.',
       date: now,
-      author: 'David Patel',
+      author: actorName,
       dotColor: '#10b981',
     };
     setEmails((current) => [addedEmail, ...current]);
@@ -639,7 +645,7 @@ function SourcesAndEmailsTab({ lead, onCountsChange, onActivity }) {
                       <td className="text-slate-500 font-mono text-xs whitespace-nowrap">{s.date}</td>
                       <td>
                         <div className="flex items-center gap-1.5">
-                          <img src={s.avatar} alt={s.createdBy} className="w-5 h-5 rounded-full object-cover" />
+                          <span className="w-5 h-5 rounded-full grid place-items-center text-[9px] font-bold text-white shrink-0" style={{ backgroundColor: '#2F6FED' }}>{getInitials(s.createdBy)}</span>
                           <span className="text-xs font-medium">{s.createdBy}</span>
                         </div>
                       </td>
@@ -773,7 +779,7 @@ function SourcesAndEmailsTab({ lead, onCountsChange, onActivity }) {
                     <td className="text-slate-500 font-mono text-xs whitespace-nowrap">{e.date}</td>
                     <td>
                       <div className="flex items-center gap-1.5">
-                        <img src={e.avatar} alt={e.person} className="w-5 h-5 rounded-full object-cover" />
+                        <span className="w-5 h-5 rounded-full grid place-items-center text-[9px] font-bold text-white shrink-0" style={{ backgroundColor: '#2F6FED' }}>{getInitials(e.person)}</span>
                         <span className="text-xs font-medium">{e.person}</span>
                       </div>
                     </td>
@@ -853,6 +859,8 @@ function SourcesAndEmailsTab({ lead, onCountsChange, onActivity }) {
 // ── Files Tab ───────────────────────────────────────────────
 function FilesTab({ lead, onCountsChange, onActivity }) {
   const initialState = useLeadDetailState(lead);
+  const currentUser = useAppStore((s) => s.currentUser);
+  const actorName = currentUser?.name || currentUser?.fullName || lead?.owner || '—';
   const [files, setFiles] = useState(() => initialState.files);
   const [fileSearch, setFileSearch] = useState('');
   const [fileType, setFileType] = useState('All');
@@ -881,7 +889,7 @@ function FilesTab({ lead, onCountsChange, onActivity }) {
         name: file.name,
         size: `${Math.max(1, Math.round(file.size / 1024))} KB`,
         sentOn: now,
-        sentBy: lead?.owner || 'David Patel',
+        sentBy: actorName,
         preview: imagePreview,
         downloadUrl: imagePreview,
         description: 'Uploaded from Files tab.',
@@ -972,12 +980,14 @@ function FilesTab({ lead, onCountsChange, onActivity }) {
 
 function CallsTab({ lead, onCountsChange, onActivity }) {
   const initialState = useLeadDetailState(lead);
+  const currentUser = useAppStore((s) => s.currentUser);
+  const actorName = currentUser?.name || currentUser?.fullName || lead?.owner || '—';
   const [calls, setCalls] = useState(() => initialState.calls);
   const [isLogOpen, setIsLogOpen] = useState(false);
   const [isAddOpen, setIsAddOpen] = useState(false);
   const [subject, setSubject] = useState('');
   const [callType, setCallType] = useState('Outbound');
-  const [assignee, setAssignee] = useState(() => lead?.owner || 'Priya Patel');
+  const [assignee, setAssignee] = useState(() => lead?.owner || '');
   const [description, setDescription] = useState('');
   const [outcome, setOutcome] = useState('Connected');
   const [duration, setDuration] = useState('');
@@ -986,6 +996,10 @@ function CallsTab({ lead, onCountsChange, onActivity }) {
     const names = [lead?.owner, ...useCrmStore.getState().teamMembers.map((e) => e.name)].map((n) => String(n || '').trim()).filter(Boolean);
     return [...new Set(names)];
   }, [lead?.owner]);
+  // One physical click must log at most one row. Touch devices, double-clicks
+  // and StrictMode re-runs can otherwise invoke the handler twice in the same
+  // tick, and `tel:` navigation never blocks the second call.
+  const lastDialAt = React.useRef(0);
 
   React.useEffect(() => {
     updateStoredLeadDetail(lead?.id, { calls });
@@ -1005,9 +1019,9 @@ function CallsTab({ lead, onCountsChange, onActivity }) {
 
   function addCallLog(entry) {
     const item = {
-      id: `call-${Date.now()}`,
+      id: `call-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
       date: new Date().toLocaleDateString('en-GB') + ' ' + new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-      by: lead?.owner || 'David Patel',
+      by: actorName,
       phone: lead?.phone || '',
       direction: 'Outgoing',
       ...entry,
@@ -1017,6 +1031,9 @@ function CallsTab({ lead, onCountsChange, onActivity }) {
   }
 
   function callNow() {
+    const now = Date.now();
+    if (now - lastDialAt.current < 3000) return;
+    lastDialAt.current = now;
     addCallLog({ outcome: 'Dialled', duration: '-', notes: 'Dialled from Calls tab.' });
     dialNumber();
   }
@@ -1067,7 +1084,7 @@ function CallsTab({ lead, onCountsChange, onActivity }) {
           <button type="button" onClick={callNow} className="btn-primary btn-sm flex items-center gap-1.5 !bg-emerald-600 hover:!bg-emerald-700">
             <Phone size={13} /> Call Lead
           </button>
-          <button type="button" onClick={() => { setSubject(''); setCallType('Outbound'); setAssignee(lead?.owner || assigneeOptions[0] || 'Priya Patel'); setDescription(''); setIsAddOpen(true); }} title="Add Call" aria-label="Add Call" className="w-8 h-8 grid place-items-center rounded-md bg-[#1d3f6e] hover:bg-[#16325a] text-white transition">
+          <button type="button" onClick={() => { setSubject(''); setCallType('Outbound'); setAssignee(lead?.owner || assigneeOptions[0] || ''); setDescription(''); setIsAddOpen(true); }} title="Add Call" aria-label="Add Call" className="w-8 h-8 grid place-items-center rounded-md bg-[#1d3f6e] hover:bg-[#16325a] text-white transition">
             <Plus size={16} />
           </button>
         </div>
@@ -2566,7 +2583,23 @@ function ActivityTab({ lead, items }) {
 
 // ── Discussion & Notes Tab ────────────────────────────────────
 function DiscussionNotesTab({ lead, onActivity }) {
-  const initialThreads = useLeadDetailState(lead).threads;
+  const storedThreads = useLeadDetailState(lead).threads;
+  // Frontend-only: when the server has no threads (or the lead is a local
+  // `lead-local-…` row with no server record), seed a default thread from
+  // the lead so the tab never renders blank.
+  const initialThreads = useMemo(() => {
+    if (Array.isArray(storedThreads) && storedThreads.length > 0) return storedThreads;
+    return [
+      {
+        id: `thread-${lead?.id || 'local'}`,
+        name: lead?.name || 'Lead Discussion',
+        note: lead?.company || 'General discussion',
+        kind: 'lead',
+        color: '#2F6FED',
+        messages: [],
+      },
+    ];
+  }, [storedThreads, lead?.id, lead?.name, lead?.company]);
   const [threads, setThreads] = useState(initialThreads);
   const [selectedThreadId, setSelectedThreadId] = useState(initialThreads[0]?.id ?? null);
   const [messageDraft, setMessageDraft] = useState('');
@@ -2575,6 +2608,13 @@ function DiscussionNotesTab({ lead, onActivity }) {
   const [notesList, setNotesList] = useState([]);
 
   const selectedThread = threads.find((t) => t.id === selectedThreadId) ?? threads[0];
+
+  // Server threads may arrive after first render — adopt them, and keep a
+  // selection when the seeded fallback is replaced.
+  useEffect(() => {
+    setThreads(initialThreads);
+    setSelectedThreadId((prev) => prev ?? initialThreads[0]?.id ?? null);
+  }, [initialThreads]);
 
   function updateThreadMessages(threadId, updater) {
     setThreads((current) => current.map((t) => (t.id === threadId ? { ...t, messages: updater(t.messages) } : t)));
@@ -2644,7 +2684,14 @@ function DiscussionNotesTab({ lead, onActivity }) {
     if (command === 'mail') handleMailAction();
   }
 
-  if (!selectedThread) return null;
+  if (!selectedThread) {
+    return (
+      <div className="card p-8 text-center">
+        <p className="text-sm font-semibold text-slate-700">No discussions yet</p>
+        <p className="text-xs text-slate-500 mt-1">Start a conversation or save a note for this lead.</p>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-4">
@@ -2659,7 +2706,10 @@ function DiscussionNotesTab({ lead, onActivity }) {
         </div>
         <div className="card p-4 space-y-3 lg:col-span-2">
           <div className="space-y-2">
-            {selectedThread.messages.map((m) => (
+            {(selectedThread.messages || []).length === 0 && (
+              <p className="text-[11px] text-slate-400">No messages yet. Write the first message below.</p>
+            )}
+            {(selectedThread.messages || []).map((m) => (
               <div key={m.id} className={`text-xs p-2 rounded-lg ${m.side === 'out' ? 'bg-blue-50 ml-8' : 'bg-slate-100 mr-8'}`}>
                 <strong>{m.sender}</strong><p>{m.body}</p><span className="text-[10px] text-slate-400">{m.time}</span>
               </div>
@@ -2716,55 +2766,47 @@ function DiscussionNotesTab({ lead, onActivity }) {
 
 // ── 2. General Tab ────────────────────────────────────────────
 function GeneralTab({ lead }) {
+  const nameParts = String(lead.name || '').split(' ').filter(Boolean);
   const infoRows = [
-    ['Company', lead.company || 'Hirapara Industries'],
-    ['First Name', (lead.name || 'Chirag').split(' ')[0]],
-    ['Last Name', (lead.name || 'Hirapara').split(' ').slice(1).join(' ') || 'Hirapara'],
-    ['Title', lead.jobTitle || 'Managing Director'],
-    ['Email', lead.email || 'chirag@hirapara.com'],
-    ['Phone', `+91 ${lead.phone || '98765 43210'}`],
-    ['Mobile', `+91 ${lead.phone || '98765 43210'}`],
-    ['Lead Source', lead.source || 'Website'],
-    ['Lead Status', lead.status || 'Qualified'],
-    ['Industry', lead.industry || 'Manufacturing & Electronics'],
-    ['Annual Revenue', formatAmount(lead.amount || 185000)],
-    ['Website', `www.${(lead.company || 'hiraparaindustries').toLowerCase().replace(/[^a-z0-9]+/g, '')}.com`],
+    ['Company', lead.company || '—'],
+    ['First Name', nameParts[0] || '—'],
+    ['Last Name', nameParts.slice(1).join(' ') || '—'],
+    ['Title', lead.jobTitle || '—'],
+    ['Email', lead.email || '—'],
+    ['Phone', lead.phone ? `+91 ${lead.phone}` : '—'],
+    ['Mobile', lead.phone ? `+91 ${lead.phone}` : '—'],
+    ['Lead Source', lead.source || '—'],
+    ['Lead Status', lead.status || '—'],
+    ['Industry', lead.industry || '—'],
+    ['Annual Revenue', formatAmount(lead.amount)],
+    ['Website', '—'],
   ];
 
   const addressRows = [
-    ['Address', `123, Mumbai Industrial Estate`],
-    ['City', lead.city || 'Surat'],
-    ['State', lead.state || 'Gujarat'],
-    ['Country', lead.country || 'India'],
-    ['Zip Code', lead.zipCode || '394201'],
+    ['Address', '—'],
+    ['City', lead.city || '—'],
+    ['State', lead.state || '—'],
+    ['Country', lead.country || '—'],
+    ['Zip Code', '—'],
   ];
 
-  const activities = [
-    {
-      id: 1,
-      title: 'Stage updated to Qualified',
-      time: '2 hours ago',
-      color: '#8b5cf6',
-    },
-    {
-      id: 2,
-      title: 'Task created - Follow up call',
-      time: '5 hours ago',
-      color: '#f59e0b',
-    },
-    {
-      id: 3,
-      title: 'Email sent to lead',
-      time: '1 day ago',
-      color: '#3b82f6',
-    },
-    {
-      id: 4,
-      title: 'Lead record updated',
-      time: '2 days ago',
-      color: '#10b981',
-    },
-  ];
+  // Extra capture from the create form — products, lead users and the
+  // optional task schedule. Only rows with values are shown.
+  const extraRows = (() => {
+    const extras = lead.customValues || {};
+    const rows = [];
+    if (Array.isArray(extras.products) && extras.products.length > 0) {
+      rows.push(['Products', extras.products.join(', ')]);
+    }
+    if (Array.isArray(extras.leadUsers) && extras.leadUsers.length > 0) {
+      rows.push(['Lead Users', extras.leadUsers.join(', ')]);
+    }
+    if (extras.taskDate) rows.push(['Task Date', extras.taskDate]);
+    if (extras.taskTime) rows.push(['Task Time', extras.taskTime]);
+    return rows;
+  })();
+
+  const activities = [];
 
   return (
     <div className="grid grid-cols-1 lg:grid-cols-3 gap-5 items-start">
@@ -2819,7 +2861,10 @@ function GeneralTab({ lead }) {
         </div>
 
         <div className="space-y-4">
-          {activities.map((item) => (
+          {activities.length === 0 ? (
+            <p className="text-[11px] text-slate-400">No activity yet.</p>
+          ) : (
+            activities.map((item) => (
             <div key={item.id} className="flex items-start gap-3">
               <span
                 className="w-2.5 h-2.5 rounded-full mt-1 shrink-0"
@@ -2830,9 +2875,23 @@ function GeneralTab({ lead }) {
                 <span className="text-[11px] text-slate-400 mt-0.5 block">{item.time}</span>
               </div>
             </div>
-          ))}
+            ))
+          )}
         </div>
       </div>
+      {extraRows.length > 0 && (
+        <div className="bg-white rounded-2xl border border-slate-200/90 p-6 shadow-xs">
+          <h3 className="font-bold text-sm text-slate-900 mb-5">Additional Details</h3>
+          <div className="space-y-3.5 text-xs">
+            {extraRows.map(([label, val]) => (
+              <div key={label} className="flex items-center justify-between gap-3">
+                <span className="text-slate-400 font-normal shrink-0">{label}</span>
+                <span className="text-slate-900 font-semibold text-right truncate min-w-0 lg:min-w-auto">{val}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -2865,7 +2924,7 @@ function UsersProductsTab({ lead, onCountsChange, onActivity }) {
   }), [products, productSearch, productFilter]);
 
   const availableEmployees = useMemo(
-    () => useCrmStore.getState().teamMembers.filter((member) => !users.some((user) => user.name === member.name)),
+    () => withSampleTeam(useCrmStore.getState().teamMembers).filter((member) => !users.some((user) => user.name === member.name)),
     [users],
   );
 
@@ -2875,7 +2934,7 @@ function UsersProductsTab({ lead, onCountsChange, onActivity }) {
   }, [lead?.id, users, products, users.length, products.length, onCountsChange]);
 
   function addUser() {
-    const employee = useCrmStore.getState().teamMembers.find((item) => item.id === selectedEmployeeId);
+    const employee = withSampleTeam(useCrmStore.getState().teamMembers).find((item) => item.id === selectedEmployeeId);
     if (!employee) return;
     setUsers((current) => [
       ...current,
@@ -3612,7 +3671,7 @@ export default function LeadDetailView({ lead, onBackToLeads }) {
     showToast?.(`Lead "${activeLeadData.name}" converted to Customer.`);
   };
 
-  const displayName = activeLeadData.name?.replace(/\s*\(Sample\)/i, '') || 'Christopher Maclead';
+  const displayName = activeLeadData.name?.replace(/\s*\(Sample\)/i, '') || 'Untitled Lead';
 
   return (
     <div className="space-y-4">
@@ -3689,24 +3748,33 @@ export default function LeadDetailView({ lead, onBackToLeads }) {
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-5">
           <div className="flex items-center gap-4 min-w-0 lg:min-w-auto">
             <div className="w-16 h-16 rounded-full overflow-hidden shrink-0 shadow-xs border border-slate-100 ring-2 ring-slate-50">
-              <img
-                src={activeLeadData.photo || 'https://i.pravatar.cc/160?img=60'}
-                alt={displayName}
-                className="w-full h-full object-cover"
-              />
+              {activeLeadData.photo ? (
+                <img
+                  src={activeLeadData.photo}
+                  alt={displayName}
+                  className="w-full h-full object-cover"
+                />
+              ) : (
+                <span
+                  className="w-full h-full grid place-items-center text-xl font-bold text-white"
+                  style={{ backgroundColor: activeLeadData.avatarColor || '#2F6FED' }}
+                >
+                  {getInitials(displayName)}
+                </span>
+              )}
             </div>
             <div className="space-y-1 min-w-0 lg:min-w-auto">
               <div className="flex flex-wrap lg:flex-nowrap items-center gap-2.5">
                 <h1 className="text-xl font-bold text-slate-900 tracking-tight break-words">{displayName}</h1>
                 <span className="px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200">
-                  {isConverted ? 'Converted' : (activeLeadData.status || 'Qualified')}
+                  {isConverted ? 'Converted' : (activeLeadData.status || '—')}
                 </span>
               </div>
-              <p className="text-xs text-slate-500 font-medium">{activeLeadData.company || 'Hirapara Industries'}</p>
+              <p className="text-xs text-slate-500 font-medium">{activeLeadData.company || '—'}</p>
               <div className="flex flex-wrap items-center gap-4 text-xs text-slate-500 pt-0.5">
-                <span className="flex items-center gap-1.5"><Phone size={13} className="text-slate-400" /> +91 {activeLeadData.phone || '98765 43210'}</span>
-                <span className="flex items-center gap-1.5 min-w-0 lg:min-w-auto break-all"><Mail size={13} className="text-slate-400 shrink-0 lg:shrink" /> {activeLeadData.email || 'chirag@hirapara.com'}</span>
-                <span className="flex items-center gap-1.5"><MapPin size={13} className="text-slate-400" /> {activeLeadData.city || 'Surat'}, {activeLeadData.state || 'Gujarat'}, {activeLeadData.country || 'India'}</span>
+                <span className="flex items-center gap-1.5"><Phone size={13} className="text-slate-400" /> {activeLeadData.phone ? `+91 ${activeLeadData.phone}` : '—'}</span>
+                <span className="flex items-center gap-1.5 min-w-0 lg:min-w-auto break-all"><Mail size={13} className="text-slate-400 shrink-0 lg:shrink" /> {activeLeadData.email || '—'}</span>
+                <span className="flex items-center gap-1.5"><MapPin size={13} className="text-slate-400" /> {[activeLeadData.city, activeLeadData.state, activeLeadData.country].filter(Boolean).join(', ') || '—'}</span>
               </div>
             </div>
           </div>
@@ -3714,21 +3782,21 @@ export default function LeadDetailView({ lead, onBackToLeads }) {
           <div className="grid grid-cols-2 sm:grid-cols-3 gap-6 text-xs border-t md:border-t-0 md:border-l border-slate-100 pt-3 md:pt-0 md:pl-8">
             <div>
               <span className="text-[11px] text-slate-400 block font-normal mb-1">Lead Number</span>
-              <strong className="text-xs font-bold text-slate-900 font-mono">{activeLeadData.leadNumber || 'L00000185'}</strong>
+              <strong className="text-xs font-bold text-slate-900 font-mono">{activeLeadData.leadNumber || '—'}</strong>
             </div>
             <div>
               <span className="text-[11px] text-slate-400 block font-normal mb-1">Source</span>
-              <strong className="text-xs font-bold text-slate-900">{activeLeadData.source || 'Website'}</strong>
+              <strong className="text-xs font-bold text-slate-900">{activeLeadData.source || '—'}</strong>
             </div>
             <div>
               <span className="text-[11px] text-slate-400 block font-normal mb-1">Created On</span>
-              <strong className="text-xs font-bold text-slate-900">{activeLeadData.createdOn || '27/08/2026'}</strong>
+              <strong className="text-xs font-bold text-slate-900">{activeLeadData.createdOn || '—'}</strong>
             </div>
           </div>
         </div>
       </div>
 
-      <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-3">
+      <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-3.5 my-4">
         {metrics.map((m, index) => (
           <CrmKpiCard key={m.label} label={m.label} value={m.value} icon={m.icon} tone={['rose', 'emerald', 'purple', 'amber', 'blue', 'teal', 'orange'][index]} />
         ))}
@@ -3809,14 +3877,9 @@ export default function LeadDetailView({ lead, onBackToLeads }) {
                 Lead Source
                 <select className="border border-slate-200 rounded-lg px-3 py-2 text-xs font-normal text-slate-900 outline-none focus:border-blue-400 bg-white" value={editForm.source} onChange={(e) => updateEditField('source', e.target.value)}>
                   <option value="">Select source</option>
-                  <option value="Website">Website</option>
-                  <option value="Cold Call">Cold Call</option>
-                  <option value="Advertisement">Advertisement</option>
-                  <option value="Partner">Partner</option>
-                  <option value="Web Download">Web Download</option>
-                  <option value="Online Store">Online Store</option>
-                  <option value="External Referral">External Referral</option>
-                  <option value="Seminar Partner">Seminar Partner</option>
+                  {Array.from(new Set(['Broker', 'Sales Person', editForm.source].filter(Boolean))).map((s) => (
+                    <option key={s} value={s}>{s}</option>
+                  ))}
                 </select>
               </label>
               <label className="flex flex-col gap-1 text-xs font-semibold text-slate-600">
@@ -3841,7 +3904,7 @@ export default function LeadDetailView({ lead, onBackToLeads }) {
               </label>
               <label className="flex flex-col gap-1 text-xs font-semibold text-slate-600">
                 Lead Number
-                <input className="border border-slate-200 rounded-lg px-3 py-2 text-xs font-normal text-slate-900 outline-none focus:border-blue-400" value={editForm.leadNumber} onChange={(e) => updateEditField('leadNumber', e.target.value)} placeholder="L00000185" />
+                <input className="border border-slate-200 rounded-lg px-3 py-2 text-xs font-normal text-slate-900 outline-none focus:border-blue-400" value={editForm.leadNumber} onChange={(e) => updateEditField('leadNumber', e.target.value)} placeholder="L-001" />
               </label>
               <label className="flex flex-col gap-1 text-xs font-semibold text-slate-600">
                 City

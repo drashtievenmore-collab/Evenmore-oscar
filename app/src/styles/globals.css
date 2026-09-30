@@ -3030,6 +3030,21 @@ img { display: block; max-width: 100%; }
 .mail-link { color: var(--primary); }
 .mail-link:hover { text-decoration: underline; }
 
+/* Lead No. column (L-001) — blue link like the reference screenshot. */
+.lead-no-btn {
+  border: 0;
+  background: transparent;
+  padding: 0;
+  color: var(--primary, #2f6fed);
+  font-weight: 600;
+  font-size: 0.92rem;
+  white-space: nowrap;
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+.lead-no-btn:hover { text-decoration-thickness: 2px; }
+
 .phone-cell { display: inline-flex; align-items: center; gap: 10px; white-space: nowrap; }
 
 .pager-wrap { margin-top: 10px; }
@@ -3089,6 +3104,111 @@ img { display: block; max-width: 100%; }
   white-space: nowrap;
 }
 .activity-menu button:hover { background: var(--soft); }
+
+/* ── Leads row ⋮ menu (floating, portal-rendered) ────────────── */
+.lead-row-menu {
+  position: fixed;
+  z-index: 90;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  box-shadow: var(--shadow-popover);
+  padding: 6px;
+  animation: lead-row-menu-in 0.14s ease-out;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+  scrollbar-color: var(--border) transparent;
+}
+
+.lead-row-menu::-webkit-scrollbar { width: 6px; }
+.lead-row-menu::-webkit-scrollbar-track { background: transparent; }
+.lead-row-menu::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border-radius: 99px;
+}
+.lead-row-menu::-webkit-scrollbar-thumb:hover { background: var(--muted); }
+
+@keyframes lead-row-menu-in {
+  from { opacity: 0; transform: translateY(-5px) scale(0.98); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+.lead-row-menu.open-up {
+  animation-name: lead-row-menu-in-up;
+}
+
+@keyframes lead-row-menu-in-up {
+  from { opacity: 0; transform: translateY(5px) scale(0.98); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+.lead-row-menu-title {
+  margin: 0;
+  padding: 5px 10px 6px;
+  font-size: 0.72rem;
+  font-weight: 700;
+  color: var(--muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  letter-spacing: 0.02em;
+}
+
+.lead-row-menu-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  border: 0;
+  background: transparent;
+  padding: 6px 10px;
+  border-radius: 10px;
+  cursor: pointer;
+  text-align: left;
+  transition: background 0.12s ease;
+}
+
+.lead-row-menu-item:hover { background: var(--soft); }
+
+.lead-row-menu-ico {
+  width: 30px;
+  height: 30px;
+  border-radius: 10px;
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+}
+
+.lead-row-menu-ico-blue { background: rgba(59, 130, 246, 0.14); color: #2563eb; }
+.lead-row-menu-ico-violet { background: rgba(139, 92, 246, 0.14); color: #7c3aed; }
+.lead-row-menu-ico-amber { background: rgba(245, 158, 11, 0.16); color: #b45309; }
+.lead-row-menu-ico-emerald { background: rgba(16, 185, 129, 0.14); color: #059669; }
+.lead-row-menu-ico-teal { background: rgba(20, 184, 166, 0.14); color: #0d9488; }
+.lead-row-menu-ico-sky { background: rgba(2, 132, 199, 0.14); color: #0284c7; }
+
+.lead-row-menu-text { display: grid; gap: 1px; min-width: 0; }
+.lead-row-menu-text strong {
+  font-size: 0.83rem;
+  font-weight: 600;
+  color: var(--text);
+  line-height: 1.25;
+}
+.lead-row-menu-text small {
+  font-size: 0.7rem;
+  color: var(--muted);
+  line-height: 1.3;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.lead-row-menu-divider {
+  height: 1px;
+  background: var(--border-subtle);
+  margin: 6px 4px;
+}
+
+.row-more.open { background: var(--soft); color: var(--primary); }
 
 .pinned-indicator {
   width: 26px;

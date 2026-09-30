@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { X } from 'lucide-react';
 import LeadFormsManager from '../leads/LeadFormsManager';
@@ -11,33 +11,30 @@ export default function LeadFormsPage() {
   const navigate = useNavigate();
   // Forms live at `/crm/forms/`, so a form designed here is the form the
   // capture page renders for everyone.
+  // Single source of truth: derived from store/storage instead of mirroring into
+  // local state, preventing infinite re-render loops ("Maximum update depth exceeded").
   const storeForms = useCrmStore((s) => s.forms);
-  const [leadForms, setLeadForms] = useState([]);
-  // Which form the Create Lead page renders — flipped by the row toggle.
-  const [activeFormId, setActiveFormIdState] = useState(() => getActiveFormId());
-
-  useEffect(() => {
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const leadForms = useMemo(() => {
     const loaded = loadForms(LEAD_FORM);
     if (loaded.length === 0) {
-      // Seed the default form so the page is never empty out of the box.
       const defaultId = 'lead-form-default';
-      const defaultForm = {
-        id: defaultId,
-        name: 'Lead Create Form',
-        description: 'Default lead capture form with all standard fields.',
-        createdOn: new Date().toLocaleDateString('en-GB'),
-        sections: defaultLeadFormSections,
-        kind: LEAD_FORM,
-      };
-      const seeded = [defaultForm];
-      saveForms(seeded, LEAD_FORM);
-      setActiveFormId(defaultId);
-      setActiveFormIdState(defaultId);
-      setLeadForms(seeded);
-    } else {
-      setLeadForms(loaded);
+      return [
+        {
+          id: defaultId,
+          name: 'Lead Create Form',
+          description: 'Default lead capture form with all standard fields.',
+          createdOn: new Date().toLocaleDateString('en-GB'),
+          sections: defaultLeadFormSections,
+          kind: LEAD_FORM,
+        },
+      ];
     }
+    return loaded;
   }, [storeForms]);
+
+  // Which form the Create Lead page renders — flipped by the row toggle.
+  const [activeFormId, setActiveFormIdState] = useState(() => getActiveFormId() || 'lead-form-default');
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isGuideOpen, setIsGuideOpen] = useState(false);
   const [formName, setFormName] = useState('');
@@ -72,13 +69,12 @@ export default function LeadFormsPage() {
       description: formDesc.trim() || 'Custom lead capture form',
       createdOn: new Date().toLocaleDateString('en-GB'),
       sections: [{ id: 'lead-information', title: 'Lead Information', fields: [] }],
+      kind: LEAD_FORM,
     };
 
-    const updated = [...leadForms, newForm];
-    saveForms(updated, LEAD_FORM);
+    saveForms([...leadForms, newForm], LEAD_FORM);
     setActiveFormId(newId);
     setActiveFormIdState(newId);
-    setLeadForms(updated);
     setIsModalOpen(false);
     navigate(`/crm/leads/form-builder?formId=${newId}`);
   }
@@ -92,11 +88,11 @@ export default function LeadFormsPage() {
   function handleDeleteForm(formId) {
     const updated = leadForms.filter((f) => f.id !== formId);
     saveForms(updated, LEAD_FORM);
-    if (getActiveFormId() === formId) {
-      setActiveFormId(null);
-      setActiveFormIdState(null);
+    if (activeFormId === formId) {
+      const nextActive = updated[0]?.id || null;
+      setActiveFormId(nextActive);
+      setActiveFormIdState(nextActive);
     }
-    setLeadForms(updated);
   }
 
   return (

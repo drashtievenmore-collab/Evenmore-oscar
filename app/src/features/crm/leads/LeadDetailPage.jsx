@@ -2,7 +2,7 @@ import React from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import LeadDetailView from './LeadDetailView';
 import { useCrmStore } from '../../../stores/crmStore';
-import { crmSync } from '../../../services/crmSync';
+import { crmSync, isServerId } from '../../../services/crmSync';
 
 /**
  * Resolves `/crm/leads/:id` against the store, falling back to a direct read so
@@ -20,20 +20,42 @@ export default function LeadDetailPage() {
   );
 
   const [fetched, setFetched] = React.useState(null);
+  const [fetchAttempted, setFetchAttempted] = React.useState(false);
 
   React.useEffect(() => {
-    if (fromStore || !id) return undefined;
+    setFetched(null);
+    setFetchAttempted(false);
+  }, [id]);
+
+  React.useEffect(() => {
+    if (fromStore) return undefined;
+    if (!id) {
+      setFetchAttempted(true);
+      return undefined;
+    }
+    // Local-only ids (`lead-local-…`) were never persisted — the server has
+    // nothing to return, so don't wait on a fetch that resolves null.
+    if (!isServerId(id)) {
+      setFetchAttempted(true);
+      return undefined;
+    }
     let cancelled = false;
     crmSync.pullOne('leads', id).then((row) => {
-      if (!cancelled) setFetched(row);
+      if (cancelled) return;
+      setFetched(row);
+      setFetchAttempted(true);
     });
     return () => { cancelled = true; };
   }, [fromStore, id]);
 
   const activeLead = fromStore || fetched;
+  const isLocalId = Boolean(id) && !isServerId(id);
 
   if (!activeLead) {
-    if (loading || (!fetched && leads.length === 0)) {
+    // Show the spinner only while the collection / single fetch is in flight.
+    // The old `leads.length === 0` check trapped local-only leads here
+    // forever after a refresh, because the server can never return them.
+    if (loading || !fetchAttempted) {
       return (
         <div className="card p-8 text-center text-xs text-slate-500">Loading lead…</div>
       );
@@ -42,7 +64,11 @@ export default function LeadDetailPage() {
       <div>
         <div className="card p-8 text-center space-y-3">
           <h3 className="text-sm font-bold text-slate-900">Lead not found</h3>
-          <p className="text-xs text-slate-500">This lead may have been deleted.</p>
+          <p className="text-xs text-slate-500">
+            {isLocalId
+              ? 'This lead was created locally and was never saved to the server, so it does not survive a refresh. Go back and recreate it.'
+              : 'This lead may have been deleted.'}
+          </p>
           <button type="button" className="btn-primary btn-sm" onClick={() => navigate('/crm/leads')}>
             Back to Leads
           </button>

@@ -1,7 +1,8 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Plus, Pencil, Trash2, CalendarDays, PhoneCall, MapPinned, X, ChevronDown, LayoutGrid, Rows3 } from 'lucide-react';
 import InfoBanner from '../common/InfoBanner';
+import PageHeader from '../../../components/ui/PageHeader';
 import { useCrmStore } from '../../../stores/crmStore';
 import { loadForms, saveForms, TASK_FORM } from '../../../services/crmForms';
 
@@ -19,9 +20,19 @@ function parseDateValue(dateString) {
 
 export default function TaskFormPage() {
   const navigate = useNavigate();
+  // Task forms are the same server collection as lead forms, tagged by kind.
+  // Single source of truth: the list is DERIVED from the store (falling back
+  // to the last saved builder state), never mirrored into local state.
+  // The old mirror-then-push-back effects raced within a single flush — the
+  // push fired with stale local rows while the mirror was already fixing
+  // them, clobbering server truth back and forth until React threw
+  // "Maximum update depth exceeded". User actions below write through
+  // saveForms directly, so no effect can chase its own tail.
   const storeForms = useCrmStore((s) => s.forms);
-  const [forms, setForms] = useState([]);
-  useEffect(() => { setForms(loadForms(TASK_FORM)); }, [storeForms]);
+  // loadForms reads the store itself — the dep below re-runs this when the
+  // store reference changes.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const forms = useMemo(() => loadForms(TASK_FORM), [storeForms]);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingId, setEditingId] = useState(null);
   const [formName, setFormName] = useState('');
@@ -31,16 +42,7 @@ export default function TaskFormPage() {
   const [sortOrder, setSortOrder] = useState('Newest First');
   const [viewMode, setViewMode] = useState('grid');
 
-  // Task forms are the same server collection as lead forms, tagged by kind.
-  // Persist only when the local list actually differs from the store —
-  // saving unconditionally hands this effect a new store reference each
-  // time and it re-saves forever ("Maximum update depth exceeded").
-  useEffect(() => {
-    if (forms.length === 0 && storeForms.length === 0) return;
-    const storeTaskForms = storeForms.filter((f) => (f.kind || TASK_FORM) === TASK_FORM);
-    if (JSON.stringify(forms) === JSON.stringify(storeTaskForms)) return;
-    saveForms(forms, TASK_FORM);
-  }, [forms, storeForms]);
+  // (Derived `forms` above replaces the old push-back effect entirely.)
 
   function openCreateModal() {
     setEditingId(null);
@@ -71,7 +73,7 @@ export default function TaskFormPage() {
     const today = new Date().toLocaleDateString('en-GB');
 
     if (editingId) {
-      setForms((prev) => prev.map((f) => (f.id === editingId ? { ...f, title, description: desc, lastUpdated: today } : f)));
+      saveForms(forms.map((f) => (f.id === editingId ? { ...f, title, description: desc, lastUpdated: today } : f)), TASK_FORM);
       closeModal();
     } else {
       const newId = `task-form-${Date.now()}`;
@@ -86,7 +88,7 @@ export default function TaskFormPage() {
         status: 'ACTIVE',
         iconName: 'call',
       };
-      setForms((prev) => [...prev, newForm]);
+      saveForms([...forms, newForm], TASK_FORM);
       closeModal();
       try {
         localStorage.setItem('activeTaskFormId', newId);
@@ -97,7 +99,7 @@ export default function TaskFormPage() {
 
   function confirmDelete() {
     if (!deleteId) return;
-    setForms((prev) => prev.filter((f) => f.id !== deleteId));
+    saveForms(forms.filter((f) => f.id !== deleteId), TASK_FORM);
     setDeleteId(null);
   }
 
@@ -130,26 +132,23 @@ export default function TaskFormPage() {
 
   return (
     <section className="w-full">
-      <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
-        <div className="min-w-0">
-          <h1 className="text-[22px] sm:text-[24px] leading-tight font-bold text-slate-900 tracking-tight">Manage Lead Task Forms</h1>
-          <div className="mt-1 flex flex-wrap items-center gap-1.5 text-xs font-medium text-slate-500">
-            <span>Dashboard</span>
-            <span>&gt;</span>
-            <span className="text-slate-700">Lead Task Form</span>
+      <PageHeader
+        title="Manage Lead Task Forms"
+        subtitle="Design the fields collected while doing a task — every call, visit or follow-up follows the same checklist."
+        actions={
+          <div className="flex flex-wrap items-center gap-3">
+            <button
+              type="button"
+              className="btn-primary"
+              onClick={openCreateModal}
+              aria-label="Create new task form"
+            >
+              <Plus size={16} />
+              <span>Create Form</span>
+            </button>
           </div>
-        </div>
-
-        <button
-          type="button"
-          className="inline-flex h-11 shrink-0 items-center justify-center gap-2 rounded-[14px] bg-[#2f6fed] px-4 text-sm font-semibold text-white shadow-sm transition hover:bg-[#1d4ed8] cursor-pointer"
-          onClick={openCreateModal}
-          aria-label="Create new task form"
-        >
-          <Plus size={18} />
-          <span>Create Form</span>
-        </button>
-      </div>
+        }
+      />
 
       <div className="mt-5">
         <InfoBanner

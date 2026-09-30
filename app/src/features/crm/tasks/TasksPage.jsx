@@ -29,6 +29,8 @@ const STATUS_OPTIONS = ['Open', 'In Progress', 'Waiting', 'Completed'];
 export default function TasksPage() {
   const currentUser = useAppStore((s) => s.currentUser);
   const tasks = useCrmStore((s) => s.tasks);
+  const leads = useCrmStore((s) => s.leads);
+  const deals = useCrmStore((s) => s.deals);
   const updateTask = useCrmStore((s) => s.updateTask);
   const [activeStatus, setActiveStatus] = useState('All');
   const [search, setSearch] = useState('');
@@ -323,41 +325,12 @@ export default function TasksPage() {
         breadcrumb={[{ label: 'CRM', to: '/crm/leads' }, { label: 'Tasks' }]}
       />
 
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3.5 my-5">
-        <CrmKpiCard label="Total Active Leads" value="6" icon={Users} tone="blue">
-            <div className="text-[11px] font-semibold text-emerald-600 mt-0.5 flex items-center gap-1">
-              <span>↑ 12%</span>
-              <span className="text-slate-400 font-normal">vs last week</span>
-          </div>
-        </CrmKpiCard>
-
-        <CrmKpiCard label="New Leads" value="1" icon={UserPlus} tone="emerald">
-            <div className="text-[11px] font-semibold text-emerald-600 mt-0.5 flex items-center gap-1">
-              <span>↑ 2%</span>
-              <span className="text-slate-400 font-normal">vs last week</span>
-          </div>
-        </CrmKpiCard>
-
-        <CrmKpiCard label="Pending Tasks" value={tasks.filter((t) => t.status !== 'Completed').length} icon={Clock} tone="amber">
-            <div className="text-[11px] font-semibold text-rose-500 mt-0.5 flex items-center gap-1">
-              <span>↓ 4%</span>
-              <span className="text-slate-400 font-normal">vs last week</span>
-          </div>
-        </CrmKpiCard>
-
-        <CrmKpiCard label="Deals in Pipeline" value="6" icon={TrendingUp} tone="purple">
-            <div className="text-[11px] font-semibold text-emerald-600 mt-0.5 flex items-center gap-1">
-              <span>↑ 15%</span>
-              <span className="text-slate-400 font-normal">Rs 1.72 Cr</span>
-          </div>
-        </CrmKpiCard>
-
-        <CrmKpiCard label="Total Revenue Expected" value="$17,355,083.00" symbol="$" tone="rose">
-            <div className="text-[11px] font-semibold text-emerald-600 mt-0.5 flex items-center gap-1">
-              <span>↑ 22%</span>
-              <span className="text-slate-400 font-normal">$5,884.00 due</span>
-          </div>
-        </CrmKpiCard>
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3.5 my-4">
+        <CrmKpiCard label="Total Active Leads" value={leads.length} icon={Users} tone="blue" />
+        <CrmKpiCard label="New Leads" value={leads.filter((l) => l.status === 'New').length} icon={UserPlus} tone="emerald" />
+        <CrmKpiCard label="Pending Tasks" value={tasks.filter((t) => t.status !== 'Completed').length} icon={Clock} tone="amber" />
+        <CrmKpiCard label="Deals in Pipeline" value={deals.filter((d) => d.stage !== 'Declined').length} icon={TrendingUp} tone="purple" />
+        <CrmKpiCard label="Total Revenue Expected" value={'Rs ' + deals.reduce((sum, d) => sum + (Number(d.price) || 0), 0).toLocaleString('en-IN', { maximumFractionDigits: 0 })} symbol="₹" tone="rose" />
       </div>
 
       <div

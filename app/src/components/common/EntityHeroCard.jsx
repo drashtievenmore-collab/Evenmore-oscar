@@ -11,7 +11,7 @@ export const EntityHeroCard = ({
   phone,
   email,
   location,
-  metadata = [], // [{ label: 'Lead Number', value: 'L00000185' }, { label: 'Source', value: 'Website' }, ...]
+  metadata = [], // [{ label: 'Lead Number', value: 'L-001' }, { label: 'Source', value: 'Website' }, ...]
   actions,
   onEdit,
   onConvert,

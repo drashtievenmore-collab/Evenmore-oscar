@@ -89,9 +89,9 @@ function DownloadButton({ onClick, label }) {
     <button
       type="button"
       onClick={onClick}
-      className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold transition cursor-pointer shadow-xs"
+      className="btn-primary"
     >
-      <Download size={13} /> {label || 'Download CSV'}
+      <Download size={16} /> {label || 'Download CSV'}
     </button>
   );
 }
@@ -391,56 +391,27 @@ export default function CRMReportsPage() {
             <button
               type="button"
               onClick={handlePrint}
-              className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-white hover:bg-slate-50 text-slate-700 text-xs font-semibold border border-slate-200 transition cursor-pointer"
+              className="btn-outline"
             >
-              <Printer size={14} /> Print Report
+              <Printer size={16} /> Print Report
             </button>
             <button
               type="button"
               onClick={() => setTick((t) => t + 1)}
-              className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold transition cursor-pointer shadow-sm shadow-blue-500/20"
+              className="btn-primary"
             >
-              <RefreshCw size={14} /> Refresh Data
+              <RefreshCw size={16} /> Refresh Data
             </button>
           </div>
         }
       />
 
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3.5 my-4">
-        <CrmKpiCard label="Total Active Leads" value={totalLeads} icon={Users} tone="blue">
-            <div className="text-[11px] font-semibold text-emerald-600 mt-0.5 flex items-center gap-1">
-              <span>↑ 12%</span>
-              <span className="text-slate-400 font-normal">vs last week</span>
-          </div>
-        </CrmKpiCard>
-
-        <CrmKpiCard label="New Leads" value={leads.filter((l) => l.status === 'New').length || 1} icon={UserPlus} tone="emerald">
-            <div className="text-[11px] font-semibold text-emerald-600 mt-0.5 flex items-center gap-1">
-              <span>↑ 2%</span>
-              <span className="text-slate-400 font-normal">vs last week</span>
-          </div>
-        </CrmKpiCard>
-
-        <CrmKpiCard label="Pending Tasks" value={pendingTasks.length} icon={Clock} tone="amber">
-            <div className="text-[11px] font-semibold text-rose-500 mt-0.5 flex items-center gap-1">
-              <span>↓ 4%</span>
-              <span className="text-slate-400 font-normal">vs last week</span>
-          </div>
-        </CrmKpiCard>
-
-        <CrmKpiCard label="Deals in Pipeline" value={deals.length} icon={TrendingUp} tone="purple">
-            <div className="text-[11px] font-semibold text-emerald-600 mt-0.5 flex items-center gap-1">
-              <span>↑ 15%</span>
-              <span className="text-slate-400 font-normal">Rs 1.72 Cr</span>
-          </div>
-        </CrmKpiCard>
-
-        <CrmKpiCard label="Total Revenue Expected" value="$17,355,083.00" symbol="$" tone="rose">
-            <div className="text-[11px] font-semibold text-emerald-600 mt-0.5 flex items-center gap-1">
-              <span>↑ 22%</span>
-              <span className="text-slate-400 font-normal">$5,884.00 due</span>
-          </div>
-        </CrmKpiCard>
+        <CrmKpiCard label="Total Active Leads" value={totalLeads} icon={Users} tone="blue" />
+        <CrmKpiCard label="New Leads" value={leads.filter((l) => l.status === 'New').length} icon={UserPlus} tone="emerald" />
+        <CrmKpiCard label="Pending Tasks" value={pendingTasks.length} icon={Clock} tone="amber" />
+        <CrmKpiCard label="Deals in Pipeline" value={deals.length} icon={TrendingUp} tone="purple" />
+        <CrmKpiCard label="Total Revenue Expected" value={formatINR(dealValue)} symbol="₹" tone="rose" />
       </div>
 
       <div className="flex flex-wrap gap-2 border-b border-slate-200 pb-3">

@@ -260,7 +260,7 @@ export default function ProjectsPage() {
       {error && <p role="alert" className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-xs text-rose-700">{error}</p>}
       {notice && <p role="status" className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-xs text-emerald-700">{notice}</p>}
 
-      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-3">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3.5 my-4">
         <KpiCard label="Total Projects" value={stats.total} icon={FolderOpen} tone="blue" />
         <KpiCard label="Active" value={stats.active} icon={Clock} tone="emerald" />
         <KpiCard label="Completed" value={stats.completed} icon={CheckCircle2} tone="purple" />

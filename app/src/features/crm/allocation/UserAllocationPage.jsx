@@ -195,7 +195,7 @@ export default function UserAllocationPage() {
       ) : (
       <>
       {/* Overview Cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3.5 my-4">
         <CrmKpiCard label="Active Representatives" value={teamMembers.length} icon={Users} tone="blue" />
         <CrmKpiCard label="Total Won Deals" value={totalDeals} icon={CheckCircle2} tone="emerald" />
         <CrmKpiCard label="Avg. Conversion Rate" value="48.2%" icon={Award} tone="amber" />

@@ -32,8 +32,22 @@ export function syncCollection(key, next = [], previous = []) {
   });
 
   previous.forEach((row) => {
-    if (row && !after.has(String(row.id)) && isServerId(row.id)) {
-      store.deleteRecord(key, row.id).catch(report);
+    if (row && !after.has(String(row.id))) {
+      if (isServerId(row.id)) {
+        store.deleteRecord(key, row.id).catch(report);
+      } else {
+        // Local-only row (e.g. `mt-<timestamp>`) has no server record, so
+        // there is nothing to DELETE — drop it from the store directly.
+        // Without this the row silently survives every delete attempt.
+        try {
+          const current = useCrmStore.getState()[key] || [];
+          useCrmStore.setState({
+            [key]: current.filter((r) => String(r?.id) !== String(row.id)),
+          });
+        } catch (err) {
+          report(err);
+        }
+      }
     }
   });
 

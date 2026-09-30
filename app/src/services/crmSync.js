@@ -12,10 +12,11 @@
  * short: the contract was written against these components.
  */
 import { createSync, compact, asText, isServerId, describeError, isBackendEnabled } from './resourceSync';
+import { normalizeSection, toApiSection, WRITABLE_LEAD_SECTIONS } from './leadDetailMap';
 import { api } from './api';
 import { formatDateDDMMYYYY, toISODate } from '../utils/dateUtils';
 
-export { isServerId, describeError, isBackendEnabled };
+export { isServerId, describeError, isBackendEnabled, normalizeSection, toApiSection, WRITABLE_LEAD_SECTIONS };
 
 /** `DD/MM/YYYY`, `Today`, a Date or an ISO string → `YYYY-MM-DD` for the API. */
 function isoOut(value) {
@@ -60,40 +61,72 @@ export function avatarColorFor(seed) {
 // ── leads ───────────────────────────────────────────────────────────────────
 
 function leadFromApi(row) {
+  const customValues = row.customValues && typeof row.customValues === 'object' ? row.customValues : undefined;
   return {
     ...asText(row, [
       'name', 'company', 'phone', 'email', 'owner', 'city', 'state',
       'country', 'jobTitle', 'industry', 'source',
     ]),
-    createdOn: displayIn(row.createdOn),
-    // The list groups by stage name; the record stores the id.
+    id: row.id,
+    leadNumber: row.leadNumber || row.lead_number || '',
+    // Backend stores the stage FK; `status` is the stage name derived server-side.
+    stageId: row.stageId || row.stage_id || '',
     status: row.status || row.stageName || '',
-    avatarColor: row.avatarColor || avatarColorFor(row.id || row.name),
+    sourceId: row.sourceId || row.source_id || undefined,
+    ownerId: row.ownerId || row.owner_id || undefined,
+    // Backend key is `party` (PK); the UI also reads `partyId`.
+    party: row.party || row.partyId || undefined,
+    partyId: row.partyId || row.party || undefined,
+    lostReason: row.lostReason || row.lost_reason || undefined,
+    isPinned: row.isPinned ?? row.is_pinned ?? false,
+    createdOn: displayIn(row.createdOn || row.created_on),
+    // Extra capture from the create form (products, lead users, task
+    // schedule) — kept verbatim so the detail page can render it.
+    customValues,
+    // Avatar lives inside customValues (no dedicated column) — lift it back
+    // to the top level so table/detail avatars render it.
+    photo: row.photo || customValues?.photo || undefined,
+    // The list groups by stage name; the record stores the id.
+    avatarColor: row.avatarColor || row.avatar_color || avatarColorFor(row.id || row.name),
     amount: num(row.amount),
+    latitude: row.latitude ?? undefined,
+    longitude: row.longitude ?? undefined,
     _synced: true,
   };
 }
 
+function serverIdOrUndefined(value) {
+  return isServerId(value) ? value : undefined;
+}
+
 function leadToApi(lead) {
+  // Keys must match the backend LeadSerializer's writable fields.
+  // Read-only display fields (`status`, `source`/`owner` names, `leadNumber`,
+  // `createdOn`) are intentionally omitted — sending them is silently ignored
+  // server-side and confuses debugging. Relation names also matter: the API
+  // field is `party`, not `partyId`, and `industry` is free text (no
+  // `industryId` column exists).
+  const party = serverIdOrUndefined(lead.party || lead.partyId);
   return compact({
     name: lead.name,
     company: lead.company || undefined,
     phone: lead.phone || undefined,
     email: lead.email || undefined,
-    stageId: lead.stageId || undefined,
-    status: lead.status || undefined,
-    ownerId: lead.ownerId || undefined,
-    sourceId: lead.sourceId || undefined,
-    industryId: lead.industryId || undefined,
-    partyId: lead.partyId || undefined,
+    stageId: serverIdOrUndefined(lead.stageId) || undefined,
+    ownerId: serverIdOrUndefined(lead.ownerId) || undefined,
+    sourceId: serverIdOrUndefined(lead.sourceId) || undefined,
+    party: party || undefined,
+    lostReason: serverIdOrUndefined(lead.lostReason || lead.lostReasonId) || undefined,
+    industry: lead.industry || undefined,
     jobTitle: lead.jobTitle || undefined,
     city: lead.city || undefined,
     state: lead.state || undefined,
     country: lead.country || undefined,
-    amount: lead.amount !== undefined ? num(lead.amount) : undefined,
+    amount: lead.amount !== undefined && lead.amount !== '' ? num(lead.amount) : undefined,
     latitude: lead.latitude ?? undefined,
     longitude: lead.longitude ?? undefined,
-    createdOn: isoOut(lead.createdOn),
+    avatarColor: lead.avatarColor || undefined,
+    isPinned: lead.isPinned ?? undefined,
     customValues: lead.customValues || undefined,
   });
 }
@@ -227,20 +260,54 @@ export const CRM_RESOURCES = {
 
   masterTasks: {
     path: '/crm/master-tasks/',
-    toApi: (t) => compact({
-      name: t.name || t.title,
-      description: t.description || undefined,
-      role: t.role || t.assigneeRole || undefined,
-      department: t.department || undefined,
-      priority: t.priority || undefined,
-      dueIn: t.dueIn ?? t.offsetDays ?? undefined,
-      isActive: t.isActive ?? undefined,
-    }),
-    fromApi: (row) => ({
-      ...asText(row, ['name', 'description', 'role', 'department', 'priority']),
-      title: row.title || row.name || '',
-      _synced: true,
-    }),
+    // The API speaks `title`/`sort_order`/`duration_days`/`is_active` plus a
+    // stage PK list; the screens speak `name`/`order`/`dueIn`/`status` plus
+    // stage names. Both directions are translated here — sending `name`
+    // without `title` used to 400 (title is required) and the optimistic row
+    // was rolled back, so created tasks "vanished".
+    toApi: (t) => {
+      const ids = Array.isArray(t.stageIds) && t.stageIds.length > 0
+        ? t.stageIds
+        : (Array.isArray(t.stages) ? t.stages.filter((s) => isServerId(String(s))) : []);
+      return compact({
+        title: t.title || t.name,
+        description: t.description || undefined,
+        role: t.role || t.assigneeRole || undefined,
+        department: t.department || undefined,
+        priority: t.priority || undefined,
+        order: t.order ?? t.sortOrder ?? undefined,
+        dueIn: t.dueIn ?? t.offsetDays ?? undefined,
+        stages: ids.length > 0 ? ids : undefined,
+        isActive: t.isActive ?? (t.status != null ? t.status === 'Active' : undefined),
+        icon: t.icon || undefined,
+      });
+    },
+    fromApi: (row) => {
+      const base = asText(row, ['description', 'role', 'department', 'priority']);
+      const name = row.title || row.name || '';
+      const stageNames = Array.isArray(row.stageNames) && row.stageNames.length > 0
+        ? row.stageNames
+        : (Array.isArray(row.stages) ? row.stages.filter((s) => !isServerId(String(s))) : []);
+      const stageIds = Array.isArray(row.stages)
+        ? row.stages.filter((s) => isServerId(String(s)))
+        : (Array.isArray(row.stageIds) ? row.stageIds : []);
+      const isActive = row.is_active ?? row.isActive ?? true;
+      return {
+        ...base,
+        name,
+        title: name,
+        order: row.order ?? row.sort_order ?? row.sortOrder ?? 0,
+        dueIn: row.dueIn ?? row.duration_days ?? 0,
+        stages: stageNames,
+        stageNames,
+        stageIds,
+        status: row.status ?? (isActive ? 'Active' : 'Inactive'),
+        isActive,
+        is_active: isActive,
+        icon: row.icon || 'call',
+        _synced: true,
+      };
+    },
   },
 
   stageTasks: {
@@ -411,7 +478,8 @@ export async function pullLeadDetail(leadId, section) {
   if (!isBackendEnabled() || !isServerId(leadId)) return null;
   try {
     const body = await api.get(`/crm/leads/${leadId}/${section}/`);
-    return Array.isArray(body) ? body : (body?.results || body || []);
+    const rows = Array.isArray(body) ? body : (body?.results || body || []);
+    return normalizeSection(section, Array.isArray(rows) ? rows : []);
   } catch (err) {
     console.warn(`[crmSync] pull lead ${section} failed:`, err?.message || err);
     return null;
@@ -420,7 +488,14 @@ export async function pullLeadDetail(leadId, section) {
 
 export async function pushLeadDetail(leadId, section, payload) {
   if (!isBackendEnabled() || !isServerId(leadId)) return null;
-  return api.post(`/crm/leads/${leadId}/${section}/`, payload);
+  if (!WRITABLE_LEAD_SECTIONS.has(section)) return null;
+  const body = toApiSection(section, payload);
+  // Rows with no server representation (file previews without a file record,
+  // timeline/activity mirrors) stay local-only instead of 400ing.
+  if (!body) return null;
+  const saved = await api.post(`/crm/leads/${leadId}/${section}/`, body);
+  const normalized = normalizeSection(section, [saved]);
+  return normalized[0] || saved;
 }
 
 /** Edit or remove one row in a lead's sub-collection. */
@@ -450,7 +525,8 @@ export async function completeTask(taskId, payload = {}) {
 
 export async function reorderStages(orderedIds) {
   if (!isBackendEnabled()) return null;
-  return api.post('/crm/stages/reorder/', { ids: orderedIds });
+  // The backend reads `order` (api.md §9.3); `ids` would 400.
+  return api.post('/crm/stages/reorder/', { order: orderedIds });
 }
 
 export async function bulkDeleteLeads(ids) {

@@ -5,6 +5,7 @@ import { ArrowLeft, ArrowRight, Building2, CalendarDays, CheckCircle2, CircleDas
 import { loadProjects } from '../../../services/dealProjectService';
 import { loadDeals } from '../../../services/dealService';
 import { useAppStore } from '../../../stores/appStore';
+import KpiCard from '../../../components/ui/KpiCard';
 
 function formatDate(value) {
   if (!value) return 'Not specified';
@@ -68,10 +69,10 @@ export default function ProjectDetailPage() {
     [team ? 'Team transferred' : 'No team assigned', Boolean(team)],
   ];
   const summary = [
-    ['Customer', customer || 'Not specified', Building2, 'bg-blue-50 text-blue-600'],
-    ['Project Manager', owner || 'Not specified', UserRound, 'bg-violet-50 text-violet-600'],
-    ['Team', team || 'Not assigned', Users, 'bg-amber-50 text-amber-600'],
-    ['Status', status, statusTone === 'positive' ? CheckCircle2 : CircleDashed, statusTone === 'positive' ? 'bg-emerald-50 text-emerald-600' : 'bg-slate-100 text-slate-600'],
+    ['Customer', customer || 'Not specified', Building2, 'blue'],
+    ['Project Manager', owner || 'Not specified', UserRound, 'purple'],
+    ['Team', team || 'Not assigned', Users, 'amber'],
+    ['Status', status, statusTone === 'positive' ? CheckCircle2 : CircleDashed, statusTone === 'positive' ? 'emerald' : 'blue'],
   ];
   return <div className="crm-project-detail space-y-4 pb-5">
     <button type="button" className="project-mobile-navigation btn-outline btn-sm" aria-label={navigationOpen ? 'Close navigation' : 'Open navigation'} aria-expanded={navigationOpen} onClick={toggleNavigation}>{navigationOpen ? <X size={16} /> : <Menu size={16} />}Menu</button>
@@ -91,8 +92,8 @@ export default function ProjectDetailPage() {
         <div><CalendarDays size={17} /><span>Expected end date<strong>{formatDate(project.expectedEndDate)}</strong></span></div>
       </div>
     </header>
-    <div className="project-summary grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-3">
-      {summary.map(([label, value, Icon, tone]) => <div key={label} className="card p-4 flex items-center gap-3 min-w-0"><span className={`p-2.5 rounded-xl shrink-0 ${tone}`}><Icon size={20} /></span><div className="min-w-0"><p className="text-xs text-slate-500">{label}</p><p className="mt-1 text-sm font-bold break-words">{value}</p></div></div>)}
+    <div className="project-summary grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3.5 my-4">
+      {summary.map(([label, value, Icon, tone]) => <KpiCard key={label} label={label} value={value} icon={Icon} tone={tone} />)}
     </div>
     <div className="project-information-grid grid grid-cols-1 xl:grid-cols-2 gap-4">
       <InfoCard icon={FolderOpen} title="Project Information"><Fields rows={[

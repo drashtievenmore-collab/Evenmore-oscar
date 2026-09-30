@@ -41,31 +41,31 @@ export const TASK_FORM = 'task';
 export function loadForms(kind = LEAD_FORM) {
   const dedupe = (rows) => {
     const seen = new Map();
-    rows.forEach((form) => {
-      if (form) seen.set(String(form.id), form);
+    (rows || []).forEach((form) => {
+      if (form && form.id) seen.set(String(form.id), form);
     });
     return [...seen.values()];
   };
   const inStore = dedupe(
-    useCrmStore.getState().forms.filter((form) => (form.kind || LEAD_FORM) === kind),
+    (useCrmStore.getState().forms || []).filter((form) => form && (form.kind || LEAD_FORM) === kind),
   );
   if (inStore.length > 0) return inStore;
   // Session survived a refresh with no backend: serve the last saved builder
   // state instead of falling back to defaults (which brings back deleted
   // fields like Email). The store is filled on the next saveForms.
-  return dedupe(readLocal().filter((form) => (form.kind || LEAD_FORM) === kind));
+  return dedupe(readLocal().filter((form) => form && (form.kind || LEAD_FORM) === kind));
 }
 
 /** Persist the form list a builder just produced. */
 export function saveForms(next = [], kind = LEAD_FORM) {
   const seen = new Map();
-  next.forEach((form) => {
-    if (form) seen.set(String(form.id), { ...form, kind: form.kind || kind });
+  (next || []).forEach((form) => {
+    if (form && form.id) seen.set(String(form.id), { ...form, kind: form.kind || kind });
   });
   const stamped = [...seen.values()];
-  const previous = useCrmStore.getState().forms;
+  const previous = useCrmStore.getState().forms || [];
   // Forms of the other kind are untouched, so they are carried through as-is.
-  const others = previous.filter((form) => (form.kind || LEAD_FORM) !== kind);
+  const others = previous.filter((form) => form && (form.kind || LEAD_FORM) !== kind);
   const merged = [...others, ...stamped];
   // No-op when nothing changed. Several pages save on every store/form
   // change (TaskFormPage auto-persists); an unconditional setState hands

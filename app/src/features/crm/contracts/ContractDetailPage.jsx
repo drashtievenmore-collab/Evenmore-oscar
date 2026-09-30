@@ -3,13 +3,13 @@ import { Link, useNavigate, useParams } from 'react-router-dom';
 import {
   ArrowLeft, Pencil, Download, MoreHorizontal, RefreshCw,
   FileText, Upload, Trash2, X, CheckCircle2, Plus, ChevronDown,
-  Handshake, UserRound, FolderOpen, Link2, Phone, Flag, Users, FolderPlus,
+  Handshake, UserRound, Link2, Phone, Flag, Users, FolderPlus,
 } from 'lucide-react';
 import Modal from '../../../components/ui/Modal';
+import KpiCard from '../../../components/ui/KpiCard';
 import './ContractDetailPage.css';
 import { printContract } from '../../../utils/contractPrint';
 import { useAppStore } from '../../../stores/appStore';
-import { loadProjects } from '../../../services/dealProjectService';
 import {
   CONTRACT_TYPES,
   CONTRACT_TEMPLATES,
@@ -89,7 +89,6 @@ export default function ContractDetailPage() {
   const currentUser = useAppStore((state) => state.currentUser);
   const actor = currentUser?.name || currentUser?.fullName || 'CRM User';
   const [record, setRecord] = useState({ contract: null, deal: null, loading: true });
-  const [project, setProject] = useState(null);
   const [tab, setTab] = useState('Terms & Conditions');
   const [notice, setNotice] = useState('');
   const [error, setError] = useState('');
@@ -114,13 +113,6 @@ export default function ContractDetailPage() {
     try {
       const found = findContract(id);
       setRecord({ contract: found.contract, deal: found.deal, loading: false });
-      try {
-        const projects = loadProjects();
-        const linked = found.deal
-          ? projects.find((item) => String(item.sourceDealId) === String(found.deal.id) || String(item.id) === String(found.deal.projectId))
-          : null;
-        setProject(linked || null);
-      } catch { setProject(null); }
       setError('');
     } catch (failure) { setRecord({ contract: null, deal: null, loading: false }); setError(failure.message); }
   }
@@ -153,7 +145,7 @@ export default function ContractDetailPage() {
     }
     return list;
   }, [deal, contract]);
-  const relatedCount = Number(Boolean(contract?.customer)) + Number(Boolean(deal)) + Number(deal?.leadId != null) + Number(Boolean(project));
+  const relatedCount = Number(Boolean(contract?.customer)) + Number(Boolean(deal)) + Number(deal?.leadId != null);
 
   const tabs = useMemo(() => [
     { name: 'Overview' },
@@ -373,17 +365,10 @@ export default function ContractDetailPage() {
           </div>
         </div>
 
-        {tab === 'Overview' && <div className="mt-4 grid grid-cols-1 sm:grid-cols-3 gap-3">
-          {[
-            ['Contract Value', formatContractMoney(contract.amount)],
-            ['Start Date', formatContractDate(contract.startDate)],
-            ['End Date', formatContractDate(contract.endDate)],
-          ].map(([label, value]) => (
-            <div key={label} className="rounded-xl border border-slate-200 px-4 py-3 text-center">
-              <p className="text-[11px] text-slate-400">{label}</p>
-              <p className="mt-1 text-sm font-bold text-slate-900">{value}</p>
-            </div>
-          ))}
+        {tab === 'Overview' && <div className="grid grid-cols-1 sm:grid-cols-3 gap-3.5 my-4">
+          <KpiCard label="Contract Value" value={formatContractMoney(contract.amount)} icon={FileText} tone="blue" />
+          <KpiCard label="Start Date" value={formatContractDate(contract.startDate)} icon={Flag} tone="emerald" />
+          <KpiCard label="End Date" value={formatContractDate(contract.endDate)} icon={CheckCircle2} tone="amber" />
         </div>}
       </div>
 
@@ -506,7 +491,7 @@ export default function ContractDetailPage() {
           )}
 
           {tab === 'Related' && (
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div className="rounded-xl border border-slate-200 bg-white p-5 text-center">
                 <span className="mx-auto grid h-11 w-11 place-items-center rounded-full bg-blue-50 text-blue-600"><UserRound size={20} /></span>
                 <p className="mt-3 text-[11px] text-slate-400">Customer</p>
@@ -524,18 +509,6 @@ export default function ContractDetailPage() {
                   <Link className="btn-outline btn-sm w-full mt-4" to={`/crm/deals?deal=${encodeURIComponent(deal.id)}`}>View Deal</Link>
                 ) : (
                   <button type="button" className="btn-outline btn-sm w-full mt-4" disabled>View Deal</button>
-                )}
-              </div>
-              <div className="rounded-xl border border-slate-200 bg-white p-5 text-center">
-                <span className="mx-auto grid h-11 w-11 place-items-center rounded-full bg-purple-50 text-purple-600"><FolderOpen size={20} /></span>
-                <p className="mt-3 text-[11px] text-slate-400">Project</p>
-                <p className="mt-1 text-sm font-bold text-slate-800">{project?.projectNumber || 'Not created'}</p>
-                <p className="mt-1 text-[11px] text-slate-400">{project?.name || ''}</p>
-                <p className="mt-1 text-[11px] text-slate-400">Status: {project?.status || '—'}</p>
-                {project ? (
-                  <Link className="btn-outline btn-sm w-full mt-4" to={`/crm/projects/${encodeURIComponent(project.id)}`}>View Project</Link>
-                ) : (
-                  <Link className="btn-outline btn-sm w-full mt-4" to="/crm/projects">View Project</Link>
                 )}
               </div>
             </div>

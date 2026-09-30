@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
 import { Plus, Search, RotateCcw, Eye, Trash2, ChevronUp, ChevronDown, ChevronsUpDown, CalendarClock, ListFilter, AlertTriangle, ClipboardList, Clock, Activity, CheckCircle2 } from 'lucide-react';
 import AssignTaskModal from './AssignTaskModal';
 import InfoBanner from '../../common/InfoBanner';
+import PageHeader from '../../../../components/ui/PageHeader';
 import KpiCard from '../../../../components/ui/KpiCard';
 import { loadAllocationTasks, saveAllocationTasks, formatDeadline, EMPLOYEES, DEPARTMENTS, STATUSES } from './taskAllocationStore';
 
@@ -153,25 +154,22 @@ export default function TaskAllocationPage() {
 
   return (
     <section className="w-full space-y-4">
-      <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4">
-        <div className="min-w-0">
-          <h1 className="text-[22px] leading-tight font-extrabold text-slate-900 tracking-tight">Task Allocation</h1>
-          <div className="text-xs mt-1.5 flex flex-wrap items-center gap-1.5">
-            <Link to="/crm/dashboard" className="text-blue-600 font-medium hover:underline">Dashboard</Link>
-            <span className="text-slate-300">/</span>
-            <span className="text-slate-500">Task Allocation</span>
-            <span className="ml-2 inline-flex items-center px-2 py-0.5 rounded-full bg-slate-100 border border-slate-200 text-[11px] font-semibold text-slate-500">{filtered.length} tasks</span>
+      <PageHeader
+        title="Task Allocation"
+        subtitle="Assign tasks to team members, set priorities and deadlines, and track progress in one place."
+        actions={
+          <div className="flex flex-wrap items-center gap-3">
+            <button
+              type="button"
+              onClick={() => setIsModalOpen(true)}
+              className="btn-primary"
+            >
+              <Plus size={16} strokeWidth={2.5} />
+              Assign Task
+            </button>
           </div>
-        </div>
-        <button
-          type="button"
-          onClick={() => setIsModalOpen(true)}
-          className="shrink-0 h-10 px-4 inline-flex items-center gap-2 bg-blue-600 hover:bg-blue-700 active:scale-[0.98] text-white text-[13px] font-semibold rounded-xl shadow-sm shadow-blue-600/25 transition"
-        >
-          <Plus size={16} strokeWidth={2.5} />
-          Assign Task
-        </button>
-      </div>
+        }
+      />
 
       <InfoBanner
         storageKey="taskAllocationInfoBannerV1"
@@ -179,7 +177,7 @@ export default function TaskAllocationPage() {
         text="Assign tasks to team members, set priorities and deadlines, and track progress in one place. Filter by assignee, department or status to review workloads, then open a task to view its details and activity."
       />
 
-      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-3.5">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3.5 my-4">
         <KpiCard label="Total Tasks" value={tasks.length} icon={ClipboardList} tone="blue" />
         <KpiCard label="Pending" value={tasks.filter((task) => task.status === 'Pending').length} icon={Clock} tone="amber" />
         <KpiCard label="In Progress" value={tasks.filter((task) => task.status === 'In Progress').length} icon={Activity} tone="purple" />

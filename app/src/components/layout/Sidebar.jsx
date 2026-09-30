@@ -56,7 +56,6 @@ import {
   Lock,
 } from 'lucide-react';
 import { useAppStore } from '../../stores/appStore';
-import { useCrmStore } from '../../stores/crmStore';
 import { usePmsStore, computeNavBadges } from '../../stores/pmsStore';
 import { useERP } from '../../context/ERPContext';
 import { useModuleWhenIdle } from '../../hooks/useIdleReady';
@@ -106,7 +105,6 @@ const NAV = [
         ],
       },
       { label: 'Deals', icon: TrendingUp, to: '/crm/deals' },
-      { label: 'Projects', icon: Briefcase, to: '/crm/projects' },
       { label: 'Contracts', icon: FileText, to: '/crm/contracts' },
       { label: 'CRM System Setup', icon: Settings, to: '/crm/system-setup' },
     ],
@@ -423,11 +421,6 @@ function SubItem({ item, depth = 1, badges = {} }) {
   const isRecruitmentLeaf = item.label === 'Recruitment';
   const leafEnabled = isTrainingRow ? trainingEnabled : recruitmentEnabled;
   const setLeafEnabled = isTrainingRow ? setTrainingEnabled : setRecruitmentEnabled;
-  const createLeadMode = useCrmStore((s) => s.createLeadMode);
-
-  // "Lead Create Form" follows the Leads page "Create Lead" switch:
-  // toggle OFF hides it, toggle ON shows it.
-  if (item.label === 'Lead Create Form' && !createLeadMode) return null;
 
   // Training (and any module leaf) gets an inline toggle where the chevron sits.
   if ((isTrainingRow || isRecruitmentLeaf) && Icon && item.to) {

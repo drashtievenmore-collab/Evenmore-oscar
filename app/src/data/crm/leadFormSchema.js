@@ -54,6 +54,21 @@ export function createFieldFromType(type, seed = Date.now()) {
   return createField(`${normalized}-${seed}`, type);
 }
 
+// Dump data for the textile catalogue: the Products/Fabric ("Febric")
+// multi-select ships with these options instead of the old medical-device
+// placeholders.
+export const TEXTILE_FABRIC_OPTIONS = ["Cotton", "Denim", "Nylon"];
+
+// The previous placeholder set — saved forms still carrying exactly these
+// are healed to the textile set on read (see CreateLeadModal).
+export const LEGACY_FABRIC_OPTIONS = [
+  "Endoscopy System",
+  "OT Light",
+  "Patient Monitor",
+  "X-Ray Machine",
+  "Ventilator",
+];
+
 export const defaultLeadFormSections = [
   {
     id: "lead-information",
@@ -61,15 +76,15 @@ export const defaultLeadFormSections = [
     fields: [
       createField("lead-name", "Single Line", { label: "Lead Name", placeholder: "Enter lead name", required: true, showInList: true, locked: true }),
       createField("lead-photo", "Lead Image", { label: "Lead Photo", placeholder: "Upload lead photo", locked: true }),
-      createField("company", "Single Line", { label: "Company", placeholder: "Enter company name", required: true, showInList: true }),
+      createField("company", "Single Line", { label: "Company", placeholder: "Enter company name", showInList: true }),
       createField("email", "Email", { label: "Email", placeholder: "Enter email address", showInList: true, uniqueValue: true }),
       createField("phone", "Phone", { label: "Phone", placeholder: "Enter phone number", showInList: true }),
       createField("lead-source", "Dropdown", { label: "Lead Source", placeholder: "Select source", showInList: true }),
       createField("title", "Single Line", { label: "Title", placeholder: "Enter title" }),
       createField("industry", "Single Line", { label: "Industry", placeholder: "Enter industry" }),
-      createField("lead-owner", "User", { label: "Lead Owner", placeholder: "Select User", required: true, showInList: true }),
+      createField("lead-owner", "User", { label: "Lead Owner", placeholder: "Select User", showInList: true }),
       createField("created-on", "Date", { label: "Created On", placeholder: "Select created date" }),
-      createField("products", "Multi Select", { label: "Products", placeholder: "Select Products" }),
+      createField("products", "Multi Select", { label: "Products", placeholder: "Select Products", options: [...TEXTILE_FABRIC_OPTIONS] }),
       createField("lead-users", "User", { label: "Lead Users", placeholder: "Select Users" }),
       createField("task-date", "Date", { label: "Task Date (Optional)", placeholder: "dd-mm-yyyy", helpText: "Leave blank to allocate the first form task immediately." }),
       createField("task-time", "Single Line", { label: "Task Time (Optional)", placeholder: "--:--", helpText: "No need to set time before calling." }),

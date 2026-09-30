@@ -8,6 +8,7 @@ import {
   CheckCircle2,
 } from "lucide-react";
 import InfoBanner from "../common/InfoBanner";
+import PageHeader from "../../../components/ui/PageHeader";
 import StageTasksGuideModal from "./StageTasksGuideModal";
 import { useCrmStore } from "../../../stores/crmStore";
 import { syncCollection } from "../../../services/crmCollections";
@@ -103,10 +104,13 @@ const PIPELINE_KEY = 'leadStageTasksPipelineV1';
 const EMPTY_MASTER_TASK = {
   name: '',
   description: '',
-  role: '',
-  department: '',
+  role: 'Tele Caller Executive',
+  department: 'Any',
   priority: 'Medium',
   dueIn: 1,
+  repeats: 1,
+  time: '',
+  form: '',
   autoCreate: true,
   isActive: true,
 };
@@ -246,8 +250,10 @@ export default function LeadStageTasks({ leadForms = [] }) {
   }
 
   function addTask(stageId) {
-    setTaskModalStageId(stageId || stages[0].id);
-    setMasterTask(EMPTY_MASTER_TASK);
+    const targetId = stageId || stages[0]?.id;
+    if (!targetId) return;
+    setTaskModalStageId(targetId);
+    setMasterTask({ ...EMPTY_MASTER_TASK });
   }
 
   function closeTaskModal() {
@@ -343,30 +349,15 @@ export default function LeadStageTasks({ leadForms = [] }) {
 
   return (
     <section className="w-full space-y-4">
-      <div className="mb-6">
-        <h2 className="text-xl font-bold text-slate-900 tracking-tight">Leads</h2>
-        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mt-2">
-          <div>
-            <div className="text-xs font-medium text-slate-400 mb-1 flex items-center gap-1.5">
-              <span>CRM</span>
-              <span>&gt;</span>
-              <span>Leads</span>
-              <span>&gt;</span>
-              <span className="text-slate-600 font-semibold">Lead Stage Tasks</span>
-            </div>
-            <h1 className="text-lg font-bold text-slate-900 tracking-tight">
-              Lead Stage Tasks
-            </h1>
-            <p className="text-xs text-slate-500 mt-0.5">
-              Assign and manage tasks for each lead stage. When a lead moves to a stage, selected tasks are created automatically.
-            </p>
-          </div>
-
-          <div className="flex flex-wrap lg:flex-nowrap items-center gap-3 shrink-0">
+      <PageHeader
+        title="Lead Stage Tasks"
+        subtitle="Assign and manage tasks for each lead stage. When a lead moves to a stage, selected tasks are created automatically."
+        actions={
+          <div className="flex flex-wrap items-center gap-3">
             <button
               type="button"
               onClick={() => setIsGuideOpen(true)}
-              className="inline-flex items-center gap-2 rounded-[12px] border-2 border-[#1d6bff] bg-[#f2f7ff] px-3 py-2 text-[13px] font-semibold text-[#1d6bff]"
+              className="btn-outline"
               aria-label="How to create lead stage tasks"
             >
               <span className="inline-flex h-5 w-5 items-center justify-center rounded-full bg-[#1d6bff] text-[12px] font-bold text-white">?</span>
@@ -385,15 +376,17 @@ export default function LeadStageTasks({ leadForms = [] }) {
             </div>
             <button
               type="button"
-              onClick={() => addTask(stages[0].id)}
-              className="inline-flex items-center gap-1.5 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold rounded-lg shadow-xs transition cursor-pointer"
+              onClick={() => addTask(stages[0]?.id)}
+              disabled={stages.length === 0}
+              title={stages.length === 0 ? "No stages configured yet" : "Add a task to the first stage"}
+              className="btn-primary disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              <Plus size={15} />
+              <Plus size={16} />
               Add Stage Task
             </button>
           </div>
-        </div>
-      </div>
+        }
+      />
 
       <InfoBanner
         storageKey="infoBannerLeadStageTasksV1"
@@ -427,9 +420,11 @@ export default function LeadStageTasks({ leadForms = [] }) {
             type="button"
             onClick={(e) => {
               e.stopPropagation();
-              addTask(stages[0].id);
+              addTask(stages[0]?.id);
             }}
-            className="inline-flex items-center gap-1 px-3 py-1.5 bg-white hover:bg-slate-50 text-slate-700 text-xs font-semibold rounded-lg border border-slate-200 shadow-2xs transition cursor-pointer shrink-0"
+            disabled={stages.length === 0}
+            title={stages.length === 0 ? "No stages configured yet" : "Add a task"}
+            className="inline-flex items-center gap-1 px-3 py-1.5 bg-white hover:bg-slate-50 text-slate-700 text-xs font-semibold rounded-lg border border-slate-200 shadow-2xs transition cursor-pointer shrink-0 disabled:opacity-50 disabled:cursor-not-allowed"
           >
             <Plus size={14} />
             Add Task
@@ -524,6 +519,11 @@ export default function LeadStageTasks({ leadForms = [] }) {
           Configure the tasks that are created when a lead enters each stage.
         </p>
 
+        {stages.length === 0 && (
+          <div className="bg-white rounded-2xl border border-slate-200 p-6 text-center text-xs text-slate-500">
+            No stages configured yet. Add lead stages first, then use “Add Task” to map follow-ups to each stage.
+          </div>
+        )}
         <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-8 gap-1.5 p-1 bg-slate-50/50 rounded-2xl border border-slate-200/80 mb-5">
           {stages.map((stage, idx) => {
             const theme = STAGE_THEMES[idx] ?? STAGE_THEMES[0];

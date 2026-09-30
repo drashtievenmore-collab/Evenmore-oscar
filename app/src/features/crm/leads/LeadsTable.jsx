@@ -1,20 +1,24 @@
-import { useState } from "react";
-import { Activity, ArrowUpDown, MoreVertical, NotebookPen, Phone, Pin } from "lucide-react";
+import { useEffect, useState } from "react";
+import { createPortal } from "react-dom";
+import { Archive, ArrowUpDown, Building2, ClipboardList, Handshake, MoreVertical, NotebookPen, Pencil, Phone, Pin, RotateCcw, Scissors } from "lucide-react";
 import LeadAvatar from "./LeadAvatar";
+import { leadColumnPatch, leadColumnValue } from "./leadColumns";
 
-function EditableCell({ row, field, className = "", onUpdate, renderValue }) {
+function EditableCell({ row, field, value, onSave, className = "", onUpdate, renderValue }) {
   const [editing, setEditing] = useState(false);
-  const [value, setValue] = useState(row[field] ?? "");
+  const [draft, setDraft] = useState("");
+  const current = value !== undefined ? value : row[field];
 
   function startEditing() {
-    setValue(row[field] ?? "");
+    setDraft(current ?? "");
     setEditing(true);
   }
 
   function save() {
-    const nextValue = value.trim();
-    if (nextValue !== String(row[field] ?? "")) {
-      onUpdate?.(row.id, { [field]: nextValue });
+    const nextValue = draft.trim();
+    if (nextValue !== String(current ?? "")) {
+      if (onSave) onSave(nextValue);
+      else onUpdate?.(row.id, { [field]: nextValue });
     }
     setEditing(false);
   }
@@ -29,9 +33,9 @@ function EditableCell({ row, field, className = "", onUpdate, renderValue }) {
       <td className={className}>
         <input
           className="table-inline-input"
-          value={value}
+          value={draft}
           autoFocus
-          onChange={(event) => setValue(event.target.value)}
+          onChange={(event) => setDraft(event.target.value)}
           onBlur={save}
           onKeyDown={handleKeyDown}
           aria-label={`Edit ${field}`}
@@ -42,14 +46,152 @@ function EditableCell({ row, field, className = "", onUpdate, renderValue }) {
 
   return (
     <td className={className} onDoubleClick={startEditing} title="Double-click to edit">
-      {renderValue ? renderValue(row) : row[field]}
+      {renderValue ? renderValue(row) : current}
     </td>
   );
 }
 
-export default function LeadsTable({ rows = [], selected = [], pinnedLeadIds = [], onToggleOne, onToggleAll, onTogglePin, onRequestDelete, onRequestDeleteAll, onAddNote, onOpenLead, onUpdateLead, variant = "list" }) {
+// One body cell for a dynamic form-driven column.
+function LeadColumnCell({ lead, column, onUpdateLead, onOpenLead, pinnedLeadIds, onTogglePin, variant }) {
+  // System column — Lead No. (L-001). Blue link like the screenshot, opens detail.
+  if (column.kind === "leadNumber") {
+    const leadNo = lead.leadNumber || lead.lead_number || "—";
+    return (
+      <td className="nowrap">
+        <button
+          type="button"
+          className="lead-no-btn"
+          onClick={() => onOpenLead?.(lead)}
+          aria-label={`Open details for ${leadNo}`}
+          title={leadNo}
+        >
+          {leadNo}
+        </button>
+      </td>
+    );
+  }
+  if (column.kind === "name") {
+    return (
+      <EditableCell
+        row={lead}
+        field="name"
+        onUpdate={onUpdateLead}
+        renderValue={(row) => (
+          <div className="lead-name-cell">
+            <button
+              type="button"
+              className="lead-link-btn"
+              onClick={() => onOpenLead?.(row)}
+              aria-label={`Open details for ${row.name}`}
+            >
+              <LeadAvatar
+                lead={row}
+                className={variant === "grid" ? "grid-lead-avatar" : "screenshot-avatar"}
+              />
+              <strong>{row.name}</strong>
+            </button>
+            <button
+              type="button"
+              className={`pinned-indicator${pinnedLeadIds.includes(row.id) ? " active" : ""}`}
+              title={pinnedLeadIds.includes(row.id) ? "Unpin record" : "Pin record"}
+              aria-label={`${pinnedLeadIds.includes(row.id) ? "Unpin" : "Pin"} ${row.name}`}
+              aria-pressed={pinnedLeadIds.includes(row.id)}
+              onClick={() => onTogglePin?.(row)}
+            >
+              <Pin size={14} fill={pinnedLeadIds.includes(row.id) ? "currentColor" : "none"} />
+            </button>
+          </div>
+        )}
+      />
+    );
+  }
+
+  const cellValue = leadColumnValue(lead, column);
+  if (column.kind === "row" && column.rowKey === "phone") {
+    return (
+      <EditableCell
+        row={lead}
+        field="phone"
+        value={cellValue}
+        onSave={(next) => onUpdateLead?.(lead.id, leadColumnPatch(column, next))}
+        renderValue={(row) => (
+          <span className="phone-cell">
+            <span>{leadColumnValue(row, column)}</span>
+            <Phone size={15} strokeWidth={1.8} />
+          </span>
+        )}
+      />
+    );
+  }
+  if (!column.editable) {
+    return <td className="muted">{cellValue}</td>;
+  }
+  const cellClass = column.kind === "row" && column.rowKey === "email"
+    ? "mail-link"
+    : column.kind === "row" && column.rowKey === "createdOn"
+      ? "muted nowrap"
+      : "muted";
+  return (
+    <EditableCell
+      row={lead}
+      field={column.key}
+      value={cellValue}
+      className={cellClass}
+      onSave={(next) => onUpdateLead?.(lead.id, leadColumnPatch(column, next))}
+    />
+  );
+}
+
+export default function LeadsTable({ rows = [], selected = [], pinnedLeadIds = [], columns = [], onToggleOne, onToggleAll, onTogglePin, onRequestDelete, onRequestDeleteAll, onAddNote, onOpenLead, onUpdateLead, onEditLead, onToggleCloseLead, onCreateTask, onIssueSample, onConvertDeal, onLogCall, onConvertParty, variant = "list" }) {
   const allChecked = rows.length > 0 && rows.every((row) => selected.includes(row.id));
-  const [openMenuId, setOpenMenuId] = useState(null);
+  // Floating row menu — rendered in a portal with fixed positioning so the
+  // scrollable table body can never clip it. Always opens under the ⋮ button.
+  const [menu, setMenu] = useState(null); // { row, top, left }
+  const MENU_WIDTH = 232;
+  const MENU_GAP = 8;
+
+  function openMenu(event, row) {
+    const rect = event.currentTarget.getBoundingClientRect();
+    setMenu({
+      row,
+      top: rect.bottom + MENU_GAP,
+      left: Math.max(8, Math.min(rect.right - MENU_WIDTH, window.innerWidth - MENU_WIDTH - 8)),
+    });
+  }
+
+  function closeMenu() {
+    setMenu(null);
+  }
+
+  // Dismiss the floating menu on outside click, Escape, scroll or resize.
+  useEffect(() => {
+    if (!menu) return;
+    function handlePointerDown(event) {
+      if (!event.target.closest?.('.lead-row-menu')) closeMenu();
+    }
+    function handleKeyDown(event) {
+      if (event.key === 'Escape') closeMenu();
+    }
+    function handleScroll(event) {
+      // Wheel/trackpad scrolling INSIDE the menu must not dismiss it —
+      // only page/table scrolls close it.
+      if (event.target?.closest?.('.lead-row-menu')) return;
+      closeMenu();
+    }
+    document.addEventListener('mousedown', handlePointerDown);
+    document.addEventListener('keydown', handleKeyDown);
+    document.addEventListener('scroll', handleScroll, true);
+    window.addEventListener('resize', handleScroll);
+    return () => {
+      document.removeEventListener('mousedown', handlePointerDown);
+      document.removeEventListener('keydown', handleKeyDown);
+      document.removeEventListener('scroll', handleScroll, true);
+      window.removeEventListener('resize', handleScroll);
+    };
+  }, [menu]);
+
+  const menuRow = menu?.row;
+  const menuIsClosed = /closed|lost/i.test(String(menuRow?.status || ''));
 
   return (
     <div className={`table-card screenshot-table-card${variant === "grid" ? " grid-table-card" : ""}`}>
@@ -69,19 +211,15 @@ export default function LeadsTable({ rows = [], selected = [], pinnedLeadIds = [
                   aria-label="Select all"
                 />
               </th>
-              <th>
-                <span className="th-inner">Lead Name <ArrowUpDown size={13} className="sort-ico" /></span>
-              </th>
-              <th>Company</th>
-              <th>Email</th>
-              <th>Phone</th>
-              <th>Lead Source</th>
-              <th>Title</th>
-              <th>Industry</th>
-              <th>Lead Owner</th>
-              <th>
-                <span className="th-inner">Created On <ArrowUpDown size={13} className="sort-ico" /></span>
-              </th>
+              {columns.map((column) => (
+                <th key={column.key}>
+                  {column.kind === "name" || column.rowKey === "createdOn" ? (
+                    <span className="th-inner">{column.label} <ArrowUpDown size={13} className="sort-ico" /></span>
+                  ) : (
+                    column.label
+                  )}
+                </th>
+              ))}
               <th className="col-more"><MoreVertical size={15} /></th>
             </tr>
           </thead>
@@ -101,89 +239,33 @@ export default function LeadsTable({ rows = [], selected = [], pinnedLeadIds = [
                       aria-label={`Select ${row.name}`}
                     />
                   </td>
-                  <EditableCell
-                    row={row}
-                    field="name"
-                    onUpdate={onUpdateLead}
-                    renderValue={(lead) => (
-                      <div className="lead-name-cell">
-                        <button
-                          type="button"
-                          className="lead-link-btn"
-                          onClick={() => onOpenLead?.(lead)}
-                          aria-label={`Open details for ${lead.name}`}
-                        >
-                          <LeadAvatar
-                            lead={lead}
-                            className={variant === "grid" ? "grid-lead-avatar" : "screenshot-avatar"}
-                          />
-                          <strong>{lead.name}</strong>
-                        </button>
-                        <button
-                          type="button"
-                          className={`pinned-indicator${pinnedLeadIds.includes(lead.id) ? " active" : ""}`}
-                          title={pinnedLeadIds.includes(lead.id) ? "Unpin record" : "Pin record"}
-                          aria-label={`${pinnedLeadIds.includes(lead.id) ? "Unpin" : "Pin"} ${lead.name}`}
-                          aria-pressed={pinnedLeadIds.includes(lead.id)}
-                          onClick={() => onTogglePin?.(lead)}
-                        >
-                          <Pin size={14} fill={pinnedLeadIds.includes(lead.id) ? "currentColor" : "none"} />
-                        </button>
-                      </div>
-                    )}
-                  />
-                  <EditableCell row={row} field="company" className="muted" onUpdate={onUpdateLead} />
-                  <EditableCell row={row} field="email" className="mail-link" onUpdate={onUpdateLead} />
-                  <EditableCell
-                    row={row}
-                    field="phone"
-                    onUpdate={onUpdateLead}
-                    renderValue={(lead) => (
-                      <span className="phone-cell">
-                        <span>{lead.phone}</span>
-                        <Phone size={15} strokeWidth={1.8} />
-                      </span>
-                    )}
-                  />
-                  <EditableCell row={row} field="source" className="muted" onUpdate={onUpdateLead} />
-                  <EditableCell row={row} field="jobTitle" className="muted" onUpdate={onUpdateLead} />
-                  <EditableCell row={row} field="industry" className="muted" onUpdate={onUpdateLead} />
-                  <EditableCell row={row} field="owner" className="muted" onUpdate={onUpdateLead} />
-                  <EditableCell row={row} field="createdOn" className="muted nowrap" onUpdate={onUpdateLead} />
+                  {columns.map((column) => (
+                    <LeadColumnCell
+                      key={column.key}
+                      lead={row}
+                      column={column}
+                      onUpdateLead={onUpdateLead}
+                      onOpenLead={onOpenLead}
+                      pinnedLeadIds={pinnedLeadIds}
+                      onTogglePin={onTogglePin}
+                      variant={variant}
+                    />
+                  ))}
                   <td>
                     <div className="activity-action-wrap">
                       <button
                         type="button"
-                        className="row-more"
+                        className={`row-more${menu?.row?.id === row.id ? ' open' : ''}`}
                         aria-label={`More actions for ${row.name}`}
-                        onClick={() => setOpenMenuId((current) => (current === row.id ? null : row.id))}
+                        aria-expanded={menu?.row?.id === row.id}
+                        aria-haspopup="menu"
+                        onClick={(event) => {
+                          if (menu?.row?.id === row.id) closeMenu();
+                          else openMenu(event, row);
+                        }}
                       >
                         <MoreVertical size={16} />
                       </button>
-                      {openMenuId === row.id && (
-                        <div className="activity-menu" style={{ left: "auto", right: 0 }}>
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setOpenMenuId(null);
-                              onAddNote?.(row);
-                            }}
-                          >
-                            <NotebookPen size={16} />
-                            Add Note
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setOpenMenuId(null);
-                              onOpenLead?.(row);
-                            }}
-                          >
-                            <Activity size={16} />
-                            Add Activity
-                          </button>
-                        </div>
-                      )}
                     </div>
                   </td>
                 </tr>
@@ -191,12 +273,195 @@ export default function LeadsTable({ rows = [], selected = [], pinnedLeadIds = [
             })}
             {rows.length === 0 && (
               <tr>
-                <td colSpan={11} className="empty-row">No leads match the current filters.</td>
+                <td colSpan={columns.length + 2} className="empty-row">No leads match the current filters.</td>
               </tr>
             )}
           </tbody>
         </table>
       </div>
+      {menu && menuRow && createPortal(
+        <div
+          className="lead-row-menu"
+          role="menu"
+          aria-label={`Actions for ${menuRow.name}`}
+          style={{
+            top: menu.top,
+            left: menu.left,
+            width: MENU_WIDTH,
+            maxHeight: `calc(100vh - ${menu.top}px - 8px)`,
+            overflowY: 'auto',
+          }}
+        >
+          <p className="lead-row-menu-title">{menuRow.name}</p>
+          <button
+            type="button"
+            role="menuitem"
+            className="lead-row-menu-item"
+            onClick={() => {
+              const target = menuRow;
+              closeMenu();
+              onEditLead?.(target);
+            }}
+          >
+            <span className="lead-row-menu-ico lead-row-menu-ico-blue">
+              <Pencil size={15} />
+            </span>
+            <span className="lead-row-menu-text">
+              <strong>Edit Lead</strong>
+              <small>Update lead information</small>
+            </span>
+          </button>
+          <button
+            type="button"
+            role="menuitem"
+            className="lead-row-menu-item"
+            onClick={() => {
+              const target = menuRow;
+              closeMenu();
+              onAddNote?.(target);
+            }}
+          >
+            <span className="lead-row-menu-ico lead-row-menu-ico-blue">
+              <NotebookPen size={15} />
+            </span>
+            <span className="lead-row-menu-text">
+              <strong>Add Note</strong>
+              <small>Log a note on this lead</small>
+            </span>
+          </button>
+          <button
+            type="button"
+            role="menuitem"
+            className="lead-row-menu-item"
+            onClick={() => {
+              const target = menuRow;
+              closeMenu();
+              onCreateTask?.(target);
+            }}
+          >
+            <span className="lead-row-menu-ico lead-row-menu-ico-emerald">
+              <ClipboardList size={15} />
+            </span>
+            <span className="lead-row-menu-text">
+              <strong>Create Task</strong>
+              <small>Sample visit follow-up</small>
+            </span>
+          </button>
+          <button
+            type="button"
+            role="menuitem"
+            className="lead-row-menu-item"
+            onClick={() => {
+              const target = menuRow;
+              closeMenu();
+              onIssueSample?.(target);
+            }}
+          >
+            <span className="lead-row-menu-ico lead-row-menu-ico-violet">
+              <Scissors size={15} />
+            </span>
+            <span className="lead-row-menu-text">
+              <strong>Issue Sample</strong>
+              <small>Taka and meters cut</small>
+            </span>
+          </button>
+          <button
+            type="button"
+            role="menuitem"
+            className="lead-row-menu-item"
+            onClick={() => {
+              const target = menuRow;
+              closeMenu();
+              onConvertDeal?.(target);
+            }}
+          >
+            <span className="lead-row-menu-ico lead-row-menu-ico-amber">
+              <Handshake size={15} />
+            </span>
+            <span className="lead-row-menu-text">
+              <strong>Convert to Deal</strong>
+              <small>Rate offer for design + colour</small>
+            </span>
+          </button>
+          <button
+            type="button"
+            role="menuitem"
+            className="lead-row-menu-item"
+            onClick={() => {
+              const target = menuRow;
+              closeMenu();
+              onLogCall?.(target);
+            }}
+          >
+            <span className="lead-row-menu-ico lead-row-menu-ico-teal">
+              <Phone size={15} />
+            </span>
+            <span className="lead-row-menu-text">
+              <strong>Log Call</strong>
+              <small>Outcome and follow-up</small>
+            </span>
+          </button>
+          <button
+            type="button"
+            role="menuitem"
+            className="lead-row-menu-item"
+            onClick={() => {
+              const target = menuRow;
+              closeMenu();
+              onConvertParty?.(target);
+            }}
+          >
+            <span className="lead-row-menu-ico lead-row-menu-ico-sky">
+              <Building2 size={15} />
+            </span>
+            <span className="lead-row-menu-text">
+              <strong>Convert to Party</strong>
+              <small>Regular buyer for Sales Orders</small>
+            </span>
+          </button>
+          <div className="lead-row-menu-divider" />
+          {menuIsClosed ? (
+            <button
+              type="button"
+              role="menuitem"
+              className="lead-row-menu-item"
+              onClick={() => {
+                const target = menuRow;
+                closeMenu();
+                onToggleCloseLead?.(target);
+              }}
+            >
+              <span className="lead-row-menu-ico lead-row-menu-ico-emerald">
+                <RotateCcw size={15} />
+              </span>
+              <span className="lead-row-menu-text">
+                <strong>Reopen Lead</strong>
+                <small>Move back to the pipeline</small>
+              </span>
+            </button>
+          ) : (
+            <button
+              type="button"
+              role="menuitem"
+              className="lead-row-menu-item lead-row-menu-item-warn"
+              onClick={() => {
+                const target = menuRow;
+                closeMenu();
+                onToggleCloseLead?.(target);
+              }}
+            >
+              <span className="lead-row-menu-ico lead-row-menu-ico-amber">
+                <Archive size={15} />
+              </span>
+              <span className="lead-row-menu-text">
+                <strong>Close Lead</strong>
+                <small>Keep the record, stop follow-up</small>
+              </span>
+            </button>
+          )}
+        </div>,
+        document.body,
+      )}
     </div>
   );
 }
