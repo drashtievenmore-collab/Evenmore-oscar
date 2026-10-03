@@ -8,6 +8,7 @@ import { PageLoadingSkeleton } from '../components/common/PageLoadingSkeleton';
 
 // ── CRM (Lazy Loaded) ───────────────────────────────────────
 const LeadsPage = lazy(() => import('../features/crm/leads/LeadsPage'));
+const LostLeadsPage = lazy(() => import('../features/crm/leads/LostLeadsPage'));
 const LeadDetailPage = lazy(() => import('../features/crm/leads/LeadDetailPage'));
 const LeadFormBuilderPage = lazy(() => import('../features/crm/leads/LeadFormBuilderPage'));
 const LeadFormsPage = lazy(() => import('../features/crm/leads/LeadFormsPage'));
@@ -19,10 +20,15 @@ const MasterTasksPage = lazy(() => import('../features/crm/tasks/MasterTasksPage
 const StageTasksPage = lazy(() => import('../features/crm/tasks/StageTasksPage'));
 const TaskFormPage = lazy(() => import('../features/crm/tasks/TaskFormPage'));
 const TaskFormBuilderPage = lazy(() => import('../features/crm/tasks/TaskFormBuilderPage'));
-const ProjectsPage = lazy(() => import('../features/crm/projects/ProjectsPage'));
+// [REMOVED] CRM Projects concept removed from the CRM module.
+//   `features/crm/projects/ProjectsPage.jsx` and `ProjectDetailPage.jsx` are kept
+//   per the no-delete rule. Routes `crm/projects` and `crm/projects/:id` were
+//   dropped; restore both if needed.
+// const ProjectsPage = lazy(() => import('../features/crm/projects/ProjectsPage'));
 const ContractsPage = lazy(() => import('../features/crm/contracts/ContractsPage'));
 const ContractDetailPage = lazy(() => import('../features/crm/contracts/ContractDetailPage'));
-const ProjectDetailPage = lazy(() => import('../features/crm/projects/ProjectDetailPage'));
+// [REMOVED] CRM Projects concept removed — see ProjectsPage note above.
+// const ProjectDetailPage = lazy(() => import('../features/crm/projects/ProjectDetailPage'));
 const DealsPage = lazy(() => import('../features/crm/deals/DealsPage'));
 // [REMOVED] User Tracking concept removed from the CRM module.
 //   `features/crm/allocation/UserAllocationPage.jsx` is kept per the no-delete rule.
@@ -255,6 +261,7 @@ const router = createBrowserRouter([
       // ── CRM ───────────────────────────────────────────────
       { path: 'crm', element: <Navigate to="/crm/leads" replace /> },
       { path: 'crm/leads', element: <Page component={LeadsPage} /> },
+      { path: 'crm/leads/lost', element: <Page component={LostLeadsPage} /> },
       { path: 'crm/leads/:id', element: <Page component={LeadDetailPage} /> },
       { path: 'crm/leads/forms', element: <Page component={LeadFormsPage} /> },
       { path: 'crm/leads/tasks-master', element: <Page component={MasterTasksPage} /> },
@@ -268,10 +275,10 @@ const router = createBrowserRouter([
       { path: 'crm/tasks/allocation', element: <Page component={TaskAllocationPage} /> },
       { path: 'crm/tasks/allocation/:id', element: <Page component={TaskAllocationDetailPage} /> },
       { path: 'crm/stage-tasks', element: <Page component={StageTasksPage} /> },
-      { path: 'crm/projects', element: <Page component={ProjectsPage} /> },
+      // [REMOVED] `crm/projects` — CRM Projects concept removed from the CRM module.
       { path: 'crm/contracts', element: <Page component={ContractsPage} /> },
       { path: 'crm/contracts/:id', element: <Page component={ContractDetailPage} /> },
-      { path: 'crm/projects/:id', element: <Page component={ProjectDetailPage} /> },
+      // [REMOVED] `crm/projects/:id` — CRM Projects concept removed from the CRM module.
       { path: 'crm/deals', element: <Page component={DealsPage} /> },
       // [REMOVED] `crm/user-allocation` — User Tracking concept removed from the CRM module.
       { path: 'crm/system-setup', element: <Page component={CRMSystemSetupPage} /> },

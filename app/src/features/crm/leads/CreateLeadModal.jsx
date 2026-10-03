@@ -1,22 +1,81 @@
 import { useEffect, useRef, useState } from "react";
 import { useCrmStore } from '../../../stores/crmStore';
+import { withSampleTeam } from '../common/sampleTeam';
 import { loadForms, findForm, getActiveFormId, LEAD_FORM } from '../../../services/crmForms';
-import { defaultLeadFormSections } from '../../../data/crm/leadFormSchema';
+import { defaultLeadFormSections, TEXTILE_FABRIC_OPTIONS, LEGACY_FABRIC_OPTIONS } from '../../../data/crm/leadFormSchema';
+import { matchKnownLeadField } from './leadColumns';
 import { CalendarDays, ChevronDown, Clock3, ImagePlus, Plus, X } from "lucide-react";
+
+/** Shipped Lead Source options — only these are offered for new selection. */
+export const DEFAULT_LEAD_SOURCES = [
+  "Broker",
+  "Sales Person",
+];
+
+/**
+ * Options for the Lead Source dropdown: the backend sources are the source
+ * of truth; the shipped pair only fills gaps when the workspace has no
+ * sources configured yet, and the lead's current value is preserved so
+ * existing rows never render blank or lose data on save.
+ */
+export function leadSourceOptions(sources, current) {
+  const rows = [...(sources || [])];
+  for (const name of DEFAULT_LEAD_SOURCES) {
+    if (!rows.some((s) => String(s?.name ?? '').toLowerCase() === name.toLowerCase())) {
+      rows.push({ id: name, name });
+    }
+  }
+  const cur = String(current ?? '');
+  if (cur && !rows.some((s) => String(s.id) === cur || String(s?.name ?? '').toLowerCase() === cur.toLowerCase())) {
+    const known = (sources || []).find((s) => String(s.id) === cur);
+    rows.push({ id: cur, name: known?.name ?? cur });
+  }
+  return rows.map((s) => ({ id: s.id, name: s.name }));
+}
+
+/** Saved forms still carrying the old medical-device placeholders (or no
+ * options at all) on the Products/Fabric field are healed to the textile
+ * set on read, so the builder never has to be re-saved by hand. */
+function withFabricDefaults(sections) {
+  return (sections || []).map((section) => ({
+    ...section,
+    fields: (section.fields || []).map((field) => {
+      if (matchKnownLeadField(field)?.kind !== 'products') return field;
+      const opts = Array.isArray(field.options) ? field.options : [];
+      const isLegacy = opts.length > 0
+        && opts.length === LEGACY_FABRIC_OPTIONS.length
+        && LEGACY_FABRIC_OPTIONS.every((o) => opts.includes(o));
+      if (opts.length > 0 && !isLegacy) return field;
+      return { ...field, options: [...TEXTILE_FABRIC_OPTIONS] };
+    }),
+  }));
+}
 
 /** Resolve the active form sections from the store, falling back to defaults. */
 function useFormSections() {
-  const storeForms = useCrmStore((s) => s.forms);
+  // Subscribe so the modal re-renders when the builder saves a new layout.
+  useCrmStore((s) => s.forms);
+  return getActiveLeadFormSections();
+}
+
+/**
+ * Non-hook version for pages (e.g. the leads table) that need the same
+ * field list to build dynamic columns.
+ */
+export function getActiveLeadFormSections() {
   const forms = loadForms(LEAD_FORM);
   // Respect the toggle in Manage Lead Create Forms: the form switched on there
   // is the form Create Lead renders. `forms[0]` is only a fallback for older
   // sessions that never toggled anything on.
   const activeId = getActiveFormId();
   const active = (activeId ? findForm(activeId) : null) ?? forms[0] ?? null;
-  return active?.sections ?? defaultLeadFormSections;
+  return withFabricDefaults(active?.sections ?? defaultLeadFormSections);
 }
 
 function useUserOptions() {
+  // The assignee roster comes from `/crm/team-roster/` — the backend is the
+  // source of truth, so no sample directory is substituted here. Selecting a
+  // sample id would be dropped by the API mapper (ids must be server UUIDs).
   return useCrmStore((s) => s.teamMembers);
 }
 
@@ -112,12 +171,12 @@ function DropdownField({ field, sources, userOptions, value, onChange }) {
 
   if (isLeadName) {
     return (
-      <select value={value} onChange={(e) => onChange(e.target.value)}>
-        <option value="" disabled>Enter lead name</option>
-        <option>Christopher Maclead</option>
-        <option>Carissa Kidman</option>
-        <option>James Merced</option>
-      </select>
+      <input
+        type="text"
+        placeholder="Enter lead name"
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+      />
     );
   }
 
@@ -125,7 +184,7 @@ function DropdownField({ field, sources, userOptions, value, onChange }) {
     return (
       <select value={value} onChange={(e) => onChange(e.target.value)}>
         <option value="">Select source</option>
-        {sources.map((opt) => (
+        {leadSourceOptions(sources, value).map((opt) => (
           <option key={opt.id} value={opt.id}>{opt.name}</option>
         ))}
       </select>
@@ -205,9 +264,12 @@ function UserField({ field, userOptions, value, onChange }) {
 
 function MultiSelectField({ field, value, onChange }) {
   const selected = Array.isArray(value) ? value : [];
+  const isFabric = matchKnownLeadField(field)?.kind === 'products';
   const options = Array.isArray(field.options) && field.options.length > 0
     ? field.options
-    : ["Endoscopy System", "OT Light", "Patient Monitor", "X-Ray Machine", "Ventilator"];
+    : isFabric
+      ? [...TEXTILE_FABRIC_OPTIONS]
+      : ["Option 1", "Option 2", "Option 3"];
 
   const toggle = (opt) =>
     onChange(selected.includes(opt) ? selected.filter((o) => o !== opt) : [...selected, opt]);
@@ -291,8 +353,27 @@ function LeadImageField({ value, onChange }) {
       <input ref={ref} type="file" accept="image/*" className="sr-only" onChange={(e) => {
         const file = e.target.files?.[0];
         if (!file) return;
+        // Downscale to a small avatar-sized data URL so it can travel with
+        // the lead (custom_values) without bloating the payload.
         const url = URL.createObjectURL(file);
-        onChange(url);
+        const img = new Image();
+        img.onload = () => {
+          try {
+            const max = 256;
+            const scale = Math.min(1, max / Math.max(img.width, img.height));
+            const canvas = document.createElement('canvas');
+            canvas.width = Math.max(1, Math.round(img.width * scale));
+            canvas.height = Math.max(1, Math.round(img.height * scale));
+            canvas.getContext('2d').drawImage(img, 0, 0, canvas.width, canvas.height);
+            onChange(canvas.toDataURL('image/jpeg', 0.8));
+          } catch {
+            onChange(url);
+          } finally {
+            URL.revokeObjectURL(url);
+          }
+        };
+        img.onerror = () => onChange(url);
+        img.src = url;
       }} />
       <button type="button" className="lead-photo-upload" onClick={() => ref.current?.click()}>
         {value ? (
@@ -312,7 +393,7 @@ function LeadImageField({ value, onChange }) {
 // ---------------------------------------------------------------------------
 // Renders one field based on its type
 // ---------------------------------------------------------------------------
-function DynamicField({ field, values, onChange, sources, userOptions }) {
+export function DynamicField({ field, values, onChange, sources, userOptions }) {
   const value = values[field.id] ?? "";
   const set = (v) => onChange(field.id, v);
 
@@ -376,6 +457,63 @@ function DynamicField({ field, values, onChange, sources, userOptions }) {
 }
 
 // ---------------------------------------------------------------------------
+// Maps a flat `{ fieldId: value }` capture (modal or CSV import) to the shape
+// LeadsPage.saveLead expects. Ids come first; label matching covers renamed
+// builder fields (e.g. a "Compnay" typo still maps).
+// ---------------------------------------------------------------------------
+export function leadFormValuesToPayload(values, sections, { sources = [], userOptions = [] } = {}) {
+  const allFields = (sections || []).flatMap((s) => s.fields || []);
+  const labelOf = (f) => String(f?.label || '').toLowerCase();
+  const byLabel = (re) => allFields.find((f) => re.test(labelOf(f)));
+  const fieldBy = (id, re) =>
+    allFields.find((f) => f.id === id) || (re ? byLabel(re) : undefined);
+  const get = (id) => values[id] ?? "";
+  const getValue = (id, re) => {
+    const f = fieldBy(id, re);
+    return f ? get(f.id) : "";
+  };
+  const sourceField = fieldBy("lead-source", /source/);
+  const ownerField  = fieldBy("lead-owner", /owner/);
+  const usersField  = fieldBy("lead-users", /lead\s*users?/);
+  const photoField  = fieldBy("lead-photo", /photo|image/);
+  const productsField = fieldBy("products", /products?/);
+  const rawSource = sourceField ? String(get(sourceField.id) || "") : "";
+  // Only a real store row may travel as sourceId (the API field is a PK —
+  // a shipped-default name would 400). Unknown names still ride along as
+  // `source` for local rows; the backend seed covers server rows.
+  const storeSource = (sources || []).find((s) => String(s.id) === rawSource) || null;
+  const rawOwner = ownerField ? String(get(ownerField.id) || "") : "";
+  const storeOwner = (userOptions || []).find((m) => String(m.id) === rawOwner) || null;
+  // Every captured value, keyed by field id — the leads table renders
+  // custom builder fields from this map. The photo travels separately
+  // (data URL) and is excluded here.
+  const fieldValues = { ...values };
+  if (photoField?.id) delete fieldValues[photoField.id];
+
+  return {
+    leadName:    getValue("lead-name", /^\s*lead\s*name\s*$/i),
+    company:     getValue("company", /comp/),
+    email:       getValue("email", /^\s*e-?mail\s*$/i),
+    phone:       getValue("phone", /^\s*phone\s*$/i),
+    sourceId:    storeSource ? storeSource.id : undefined,
+    source:      storeSource ? storeSource.name : rawSource,
+    titleValue:  getValue("title", /^\s*title\s*$/i),
+    industry:    getValue("industry", /^\s*industry\s*$/i),
+    ownerId:     storeOwner ? storeOwner.id : undefined,
+    owner:       storeOwner ? storeOwner.name : rawOwner,
+    createdOn:   getValue("created-on", /creat\w*\s*on/),
+    taskDate:    getValue("task-date", /task\s*date/),
+    taskTime:    getValue("task-time", /task\s*time/),
+    products:    (productsField ? get(productsField.id) : "") || [],
+    leadUsers:   (usersField ? get(usersField.id) : "") || [],
+    photoPreview: photoField ? get(photoField.id) : "",
+    // Pass through any extra dynamic values
+    _extra: values,
+    fieldValues,
+  };
+}
+
+// ---------------------------------------------------------------------------
 // Main modal
 // ---------------------------------------------------------------------------
 export default function CreateLeadModal({ isOpen, onClose, onCreate, onEditLayout, showTour }) {
@@ -386,13 +524,18 @@ export default function CreateLeadModal({ isOpen, onClose, onCreate, onEditLayou
   // Flat map of fieldId → value
   const [values, setValues] = useState({});
 
-  // Derived required fields
+  // Only the lead name is truly required — the server stores every other
+  // field as optional, so filling just the name is enough to create a lead.
+  // (Schema `required` flags stay as visual "*" hints.)
+  // Custom builder forms can rename field ids, so resolve by id first and
+  // fall back to matching the label (e.g. a "Compnay" typo still maps).
   const allFields = sections.flatMap((s) => s.fields);
-  const requiredFields = allFields.filter((f) => f.required);
-  const isFormComplete = requiredFields.every((f) => {
-    const v = values[f.id];
-    return v !== undefined && v !== "" && v !== null;
-  });
+  const labelOf = (f) => String(f?.label || '').toLowerCase();
+  const byLabel = (re) => allFields.find((f) => re.test(labelOf(f)));
+  const fieldBy = (id, re) =>
+    allFields.find((f) => f.id === id) || (re ? byLabel(re) : undefined);
+  const nameField = fieldBy('lead-name', /^\s*lead\s*name\s*$/i);
+  const isFormComplete = String(values[nameField?.id] ?? '').trim() !== '';
 
   useEffect(() => {
     if (!isOpen) setValues({});
@@ -409,31 +552,7 @@ export default function CreateLeadModal({ isOpen, onClose, onCreate, onEditLayou
   }
 
   function handleCreate() {
-    // Map known field ids to the shape LeadsPage.handleCreateLead expects
-    const get = (id) => values[id] ?? "";
-    const sourceField = allFields.find((f) => f.id === "lead-source" || f.label?.toLowerCase().includes("source"));
-    const ownerField  = allFields.find((f) => f.id === "lead-owner"  || (f.type === "User" && f.label?.toLowerCase().includes("owner")));
-
-    onCreate({
-      leadName:    get("lead-name"),
-      company:     get("company"),
-      email:       get("email"),
-      phone:       get("phone"),
-      sourceId:    sourceField ? get(sourceField.id) : "",
-      source:      sourceField ? (sources.find((s) => s.id === get(sourceField.id))?.name ?? "") : "",
-      titleValue:  get("title"),
-      industry:    get("industry"),
-      ownerId:     ownerField  ? get(ownerField.id) : "",
-      owner:       ownerField  ? (userOptions.find((m) => m.id === get(ownerField.id))?.name ?? "") : "",
-      createdOn:   get("created-on"),
-      taskDate:    get("task-date"),
-      taskTime:    get("task-time"),
-      products:    get("products") || [],
-      leadUsers:   get("lead-users") || [],
-      photoPreview: get("lead-photo"),
-      // Pass through any extra dynamic values
-      _extra: values,
-    });
+    onCreate(leadFormValuesToPayload(values, sections, { sources, userOptions }));
   }
 
   return (

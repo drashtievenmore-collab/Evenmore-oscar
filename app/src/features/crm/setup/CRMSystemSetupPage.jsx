@@ -1,5 +1,5 @@
 import CrmKpiCard from '../common/CrmKpiCard';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState, useRef } from 'react';
 import {
   Users,
   DollarSign,
@@ -132,13 +132,24 @@ export default function CRMSystemSetupPage() {
   const [dragLead, setDragLead] = useState(null);
   const [dragDeal, setDragDeal] = useState(null);
 
+  const leadSyncedRef = useRef('');
+  const dealSyncedRef = useRef('');
+
   // Edits are written back to the pipelines they came from.
   useEffect(() => {
-    if (leadStages.length > 0) syncStages('stages', leadStages, storeLeadStages);
+    if (leadStages.length === 0) return;
+    const key = JSON.stringify(leadStages);
+    if (key === leadSyncedRef.current) return;
+    leadSyncedRef.current = key;
+    syncStages('stages', leadStages, storeLeadStages);
   }, [leadStages, storeLeadStages]);
 
   useEffect(() => {
-    if (dealStages.length > 0) syncStages('dealStages', dealStages, storeDealStages);
+    if (dealStages.length === 0) return;
+    const key = JSON.stringify(dealStages);
+    if (key === dealSyncedRef.current) return;
+    dealSyncedRef.current = key;
+    syncStages('dealStages', dealStages, storeDealStages);
   }, [dealStages, storeDealStages]);
 
   const leadActive = useMemo(() => leadStages.filter((s) => s.status === 'Active').length, [leadStages]);
@@ -322,12 +333,12 @@ export default function CRMSystemSetupPage() {
                 <p className="text-xs text-slate-500 truncate">Manage stages for your lead follow-up process.</p>
               </div>
             </div>
-            <button type="button" onClick={openAddLead} className="bg-[#1f6bff] hover:bg-blue-700 text-white rounded-lg px-3 py-2 text-xs font-semibold flex items-center gap-1.5 shrink-0">
+            <button type="button" onClick={openAddLead} className="btn-primary shrink-0">
               <Plus size={14} /> Add Lead Stage
             </button>
           </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 px-4">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3.5 px-4">
             <CrmKpiCard label="Total Stages" value={leadStages.length} icon={Users} tone="blue" />
             <CrmKpiCard label="Active" value={leadActive} icon={ShieldCheck} tone="emerald" />
             <CrmKpiCard label="Inactive" value={leadInactive} icon={GitBranch} tone="rose" />
@@ -406,12 +417,12 @@ export default function CRMSystemSetupPage() {
                 <p className="text-xs text-slate-500 truncate">Manage stages for your sales pipeline process.</p>
               </div>
             </div>
-            <button type="button" onClick={openAddDeal} className="bg-[#1f6bff] hover:bg-blue-700 text-white rounded-lg px-3 py-2 text-xs font-semibold flex items-center gap-1.5 shrink-0">
+            <button type="button" onClick={openAddDeal} className="btn-primary shrink-0">
               <Plus size={14} /> Add Deal Stage
             </button>
           </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 px-4">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3.5 px-4">
             <CrmKpiCard label="Total Stages" value={dealStages.length} icon={Layers} tone="blue" />
             <CrmKpiCard label="Active" value={dealActive} icon={ShieldCheck} tone="emerald" />
             <CrmKpiCard label="Inactive" value={dealInactive} icon={GitBranch} tone="rose" />

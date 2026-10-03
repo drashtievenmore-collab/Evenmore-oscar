@@ -1,6 +1,5 @@
 import {
   ChevronDown,
-  ChevronsUpDown,
   Filter,
   Printer,
   LayoutGrid,
@@ -41,7 +40,6 @@ export default function LeadsTabs({
   onClearSort,
   leadView,
   onLeadViewChange,
-  onOpenGuide,
   recordActionLead,
   recordActionLeads = [],
   onCloseRecordAction,
@@ -71,15 +69,6 @@ export default function LeadsTabs({
             </select>
             <ChevronDown size={16} aria-hidden="true" className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2" />
           </div>
-          <button
-            type="button"
-            onClick={onOpenGuide}
-            className="inline-flex items-center gap-2 rounded-[12px] border-2 border-[#1d6bff] bg-[#f2f7ff] px-3 py-2.5 text-[13px] font-semibold text-[#1d6bff]"
-            aria-label="How to create a lead"
-          >
-            <span className="inline-flex h-5 w-5 items-center justify-center rounded-full bg-[#1d6bff] text-[12px] font-bold text-white">?</span>
-            <span>How to create a lead?</span>
-          </button>
         </div>
       </div>
       <div className={`list-toolbar${hasRecordAction ? " list-toolbar-actions" : ""}`}>
@@ -103,9 +92,6 @@ export default function LeadsTabs({
             onCancel={onCancelSort}
             onClear={onClearSort}
           />
-          <button type="button" className="toolbar-icon" aria-label="Sort settings">
-            <ChevronsUpDown size={16} />
-          </button>
           <ViewButton label="Print Leads" onClick={onPrint}>
             <Printer size={18} />
           </ViewButton>

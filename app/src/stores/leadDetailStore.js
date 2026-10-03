@@ -68,7 +68,10 @@ export const useLeadDetailStore = create((set, get) => ({
   add: async (leadId, section, payload) => {
     const key = String(leadId || '');
     const saved = await pushLeadDetail(leadId, section, payload);
-    const row = saved || payload;
+    // `saved` is the normalized server row; when the row cannot be posted
+    // (local-only lead, file preview without a file record) the payload
+    // itself stays in the cache marked unsynced so nothing typed is lost.
+    const row = saved || { ...payload, _synced: false };
     set((s) => {
       const current = s.byLead[key] || EMPTY_DETAIL;
       return {

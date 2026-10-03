@@ -12,6 +12,7 @@
  */
 import { create } from 'zustand';
 import { lazyStore } from '../services/lazyModules';
+import { formatDateDDMMYYYY } from '../utils/dateUtils';
 import {
   crmSync,
   CRM_PULL_ORDER,
@@ -23,6 +24,7 @@ import {
   bulkDeleteLeads,
   describeError,
   isBackendEnabled,
+  isServerId,
 } from '../services/crmSync';
 
 const EMPTY = {
@@ -65,10 +67,6 @@ const useCrmStoreBase = create((set, get) => ({
   roster: {},
   teamMembers: [],
   leadStats: null,
-
-  /** Whether the "Create Lead" toggle is ON — controls modal + sidebar item visibility. */
-  createLeadMode: false,
-  setCreateLeadMode: (value) => set({ createLeadMode: value }),
 
   status: { loading: false, loaded: false, error: null, lastSyncAt: null },
 
@@ -128,6 +126,15 @@ const useCrmStoreBase = create((set, get) => ({
     try {
       const saved = await crmSync.create(key, record);
       if (!saved) {
+        if (!isBackendEnabled()) {
+          // Frontend-design mode: no server to confirm — the optimistic row
+          // IS the record. Keep it (marked local) instead of dropping it.
+          const local = { ...optimistic, _pending: false, _local: true };
+          set((s) => ({
+            [key]: (s[key] || []).map((r) => (r.id === optimistic.id ? local : r)),
+          }));
+          return local;
+        }
         set((s) => ({ [key]: (s[key] || []).filter((r) => r.id !== optimistic.id) }));
         return null;
       }
@@ -151,7 +158,7 @@ const useCrmStoreBase = create((set, get) => ({
       set((s) => ({
         [key]: (s[key] || []).map((r) => {
           if (r.id !== id) return r;
-          return saved || { ...r, ...updates, _pending: false };
+          return saved ? { ...r, ...saved, ...updates, _pending: false } : { ...r, ...updates, _pending: false };
         }),
       }));
       return saved;
@@ -178,14 +185,81 @@ const useCrmStoreBase = create((set, get) => ({
   // ── leads ─────────────────────────────────────────────────────────────────
 
   createLead: (lead) => get().createRecord('leads', lead),
-  updateLead: (id, updates) => get().updateRecord('leads', id, updates),
-  deleteLead: (id) => get().deleteRecord('leads', id),
+
+  /**
+   * Frontend-design mode: create the lead locally when there is no pipeline
+   * stage to save it under (no stages configured / server unreachable).
+   * The row mirrors the synced shape so the list, KPIs and detail page work
+   * unchanged. Local rows vanish on refresh — the server never saw them.
+   */
+  createLeadLocal: (lead) => {
+    const source = lead || {};
+    const now = new Date();
+    // Local-only row — mirror the server's L-001 sequence so the table
+    // looks the same before the first sync. Next free number in-session.
+    const existing = new Set(
+      (get().leads || []).map((l) => String(l.leadNumber || l.lead_number || '')),
+    );
+    let seq = (get().leads || []).length + 1;
+    let candidate = '';
+    for (; ; seq += 1) {
+      candidate = `L-${String(seq).padStart(3, '0')}`;
+      if (!existing.has(candidate)) break;
+    }
+    const row = {
+      id: tempId('lead'),
+      leadNumber: candidate,
+      name: source.name || 'Untitled Lead',
+      company: source.company || '',
+      phone: source.phone || '',
+      email: source.email || '',
+      jobTitle: source.jobTitle || '',
+      industry: source.industry || '',
+      city: source.city || '',
+      state: source.state || '',
+      country: source.country || 'India',
+      owner: source.owner || '',
+      ownerId: source.ownerId || undefined,
+      source: source.source || '',
+      sourceId: source.sourceId || undefined,
+      stageId: source.stageId || '',
+      status: 'New',
+      createdOn: now.toISOString().slice(0, 10),
+      amount: 0,
+      photo: source.photo || source.customValues?.photo || '',
+      customValues: source.customValues || undefined,
+      _local: true,
+    };
+    set((s) => ({ leads: [row, ...(s.leads || [])] }));
+    return row;
+  },
+
+  updateLead: (id, updates) => {
+    // Local rows have no server record — update the store directly.
+    if (!isServerId(id)) {
+      set((s) => ({
+        leads: (s.leads || []).map((l) => (l.id === id ? { ...l, ...updates } : l)),
+      }));
+      return Promise.resolve({ id, ...updates });
+    }
+    return get().updateRecord('leads', id, updates);
+  },
+
+  deleteLead: (id) => {
+    if (!isServerId(id)) {
+      set((s) => ({ leads: (s.leads || []).filter((l) => l.id !== id) }));
+      return Promise.resolve(true);
+    }
+    return get().deleteRecord('leads', id);
+  },
 
   deleteLeads: async (ids) => {
+    const serverIds = (ids || []).filter((id) => isServerId(id));
     const previous = get().leads;
     set({ leads: previous.filter((l) => !ids.includes(l.id)) });
+    if (serverIds.length === 0) return true;
     try {
-      await bulkDeleteLeads(ids);
+      await bulkDeleteLeads(serverIds);
       return true;
     } catch (err) {
       set({ leads: previous });
@@ -198,6 +272,8 @@ const useCrmStoreBase = create((set, get) => ({
     if (!lead) return null;
     const pinned = !lead.isPinned;
     set((s) => ({ leads: s.leads.map((l) => (l.id === id ? { ...l, isPinned: pinned } : l)) }));
+    // Local rows have no server record — the store flip above is the save.
+    if (!isServerId(id)) return pinned;
     try {
       await setLeadPinned(id, pinned);
       return pinned;
@@ -220,6 +296,32 @@ const useCrmStoreBase = create((set, get) => ({
   updateTask: (id, updates) => get().updateRecord('tasks', id, updates),
   deleteTask: (id) => get().deleteRecord('tasks', id),
 
+  /**
+   * Frontend-design mode: local task row mirroring the synced shape
+   * (taskFromApi), e.g. for follow-ups on a local lead the server never saw.
+   */
+  createTaskLocal: (task) => {
+    const source = task || {};
+    const dueDisplay = source.dueDate ? formatDateDDMMYYYY(source.dueDate) : '';
+    const row = {
+      id: tempId('task'),
+      title: source.title || 'Untitled Task',
+      description: source.description || '',
+      leadId: source.leadId || '',
+      lead: source.lead || '',
+      owner: source.owner || 'Unassigned',
+      assigneeId: source.assigneeId || undefined,
+      dueDate: dueDisplay || source.dueDate || '',
+      due: dueDisplay || source.due || '',
+      priority: source.priority || 'Medium',
+      status: source.status || 'Open',
+      source: 'Manual',
+      _local: true,
+    };
+    set((s) => ({ tasks: [row, ...(s.tasks || [])] }));
+    return row;
+  },
+
   completeTask: async (id, payload = {}) => {
     const saved = await completeTaskRequest(id, payload);
     if (saved?.id) {
@@ -235,6 +337,36 @@ const useCrmStoreBase = create((set, get) => ({
   createDeal: (deal) => get().createRecord('deals', deal),
   updateDeal: (id, updates) => get().updateRecord('deals', id, updates),
   deleteDeal: (id) => get().deleteRecord('deals', id),
+
+  /**
+   * Frontend-design mode: local deal row mirroring the synced shape
+   * (dealFromApi + the list columns), e.g. converting a local lead.
+   */
+  createDealLocal: (deal) => {
+    const source = deal || {};
+    const today = formatDateDDMMYYYY(new Date().toISOString().slice(0, 10));
+    const title = source.title || source.name || 'Untitled Deal';
+    const row = {
+      id: tempId('deal'),
+      name: title,
+      title,
+      client: source.client || '',
+      phone: source.phone || '',
+      price: Number(source.price ?? source.value ?? 0) || 0,
+      value: Number(source.value ?? source.price ?? 0) || 0,
+      stage: source.stage || 'Draft',
+      leadId: source.leadId || '',
+      expectedCloseDate: source.expectedCloseDate || '',
+      date: source.date || today,
+      assignedUser: source.assignedUser || '',
+      ownerId: source.ownerId || undefined,
+      product: source.product || '',
+      source: source.source || '',
+      _local: true,
+    };
+    set((s) => ({ deals: [row, ...(s.deals || [])] }));
+    return row;
+  },
 
   /** Reset on sign-out so the next user never sees the previous one's rows. */
   clear: () => set({

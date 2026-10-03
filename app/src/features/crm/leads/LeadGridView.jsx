@@ -51,6 +51,12 @@ export default function LeadGridView({ rows = [], selected = [], pinnedLeadIds =
 
           <div className="lead-tile-body">
             <div className="lead-tile-line">
+              <label>Lead No.</label>
+              <button type="button" className="lead-no-btn" onClick={() => onOpenLead(row)}>
+                {row.leadNumber || row.lead_number || '—'}
+              </button>
+            </div>
+            <div className="lead-tile-line">
               <label>Title</label>
               <span>{row.jobTitle}</span>
             </div>

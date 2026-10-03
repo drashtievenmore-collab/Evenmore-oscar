@@ -1,6 +1,7 @@
 import DealDetailView from './DealDetailView';
 import CrmKpiCard from '../common/CrmKpiCard';
 import Modal from '../../../components/ui/Modal';
+import PageHeader from '../../../components/ui/PageHeader';
 import React, { useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import {
@@ -198,20 +199,21 @@ export default function DealsPage() {
   }, [deals, searchQuery, selectedProduct, selectedStage, selectedSource, selectedUser]);
 
   const stats = useMemo(() => {
-    const totalDeals = 48;
-    const totalValue = '₹ 1.72 Cr';
-    const wonDeals = 18;
-    const avgDealSize = '₹ 9.6 Lakh';
-    const conversionRate = '37%';
+    const totalDeals = deals.length;
+    const totalValueNum = deals.reduce((sum, d) => sum + (Number(d.price) || 0), 0);
+    const wonDeals = deals.filter((d) => d.stage === 'Won').length;
+    const avgDealSizeNum = totalDeals > 0 ? totalValueNum / totalDeals : 0;
+    const conversionRateNum = totalDeals > 0 ? (wonDeals / totalDeals) * 100 : 0;
+    const fmt = (n) => 'Rs ' + Number(n || 0).toLocaleString('en-IN', { maximumFractionDigits: 0 });
 
     return {
       totalDeals,
-      totalValue,
+      totalValue: fmt(totalValueNum),
       wonDeals,
-      avgDealSize,
-      conversionRate,
+      avgDealSize: fmt(avgDealSizeNum),
+      conversionRate: conversionRateNum.toFixed(1) + '%',
     };
-  }, []);
+  }, [deals]);
 
   const handleResetFilters = () => {
     setSearchQuery('');
@@ -570,43 +572,30 @@ export default function DealsPage() {
         showNotification('Deal duplicated as a new draft.');
       }} /> : <>
       {/* Top Header Card */}
-      <div className="bg-white border border-slate-200/90 rounded-2xl p-4 md:p-5 shadow-xs flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-        <div>
-          <div className="flex items-center gap-2 text-xs text-slate-500 mb-1.5">
-            <Link to="/dashboard" className="hover:text-blue-600 transition-colors font-medium">
-              Dashboard
-            </Link>
-            <span>&gt;</span>
-            <span className="text-slate-700 font-medium">Deals</span>
-            <span className="ml-1.5 px-2.5 py-0.5 rounded-full bg-slate-100 text-slate-600 border border-slate-200/80 text-[11px] font-semibold">
-              {filteredDeals.length} of {deals.length} deals
-            </span>
+      <PageHeader
+        title="Manage Deals"
+        subtitle="Track pipeline stages, deal values, conversion rates, and client opportunities."
+        actions={
+          <div className="flex flex-wrap items-center gap-3">
+            <button
+              type="button"
+              onClick={handlePrintDeals}
+              className="btn-outline"
+            >
+              <Printer size={16} />
+              <span>Print</span>
+            </button>
+
+            <button
+              onClick={() => handleOpenCreateModal()}
+              className="btn-primary"
+            >
+              <Plus size={16} strokeWidth={2.5} />
+              <span>Add Deal</span>
+            </button>
           </div>
-          <h1 className="text-2xl font-bold text-[#0f172a] tracking-tight">Manage Deals</h1>
-          <p className="text-xs md:text-sm text-slate-500 mt-0.5">
-            Track pipeline stages, deal values, conversion rates, and client opportunities.
-          </p>
-        </div>
-
-        <div className="flex flex-wrap lg:flex-nowrap items-center gap-2.5">
-          <button
-            type="button"
-            onClick={handlePrintDeals}
-            className="inline-flex items-center gap-2 bg-white hover:bg-slate-50 text-slate-700 border border-slate-200 font-semibold text-xs md:text-sm px-4 py-2.5 rounded-xl shadow-2xs transition-colors cursor-pointer"
-          >
-            <Printer size={16} />
-            <span>Print</span>
-          </button>
-
-          <button
-            onClick={() => handleOpenCreateModal()}
-            className="inline-flex items-center gap-2 bg-[#1d4a79] hover:bg-[#163a61] text-white font-semibold text-xs md:text-sm px-4 py-2.5 rounded-xl shadow-xs transition-colors cursor-pointer"
-          >
-            <Plus size={16} strokeWidth={2.5} />
-            <span>Add Deal</span>
-          </button>
-        </div>
-      </div>
+        }
+      />
 
       {showLearnMoreBanner && (
         <div className="rounded-2xl border border-blue-100 bg-[#eef5ff] px-4 py-3 shadow-2xs">
@@ -642,41 +631,12 @@ export default function DealsPage() {
         </div>
       )}
 
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
-        <CrmKpiCard label="Total Deals" value={stats.totalDeals} icon={Handshake} tone="blue">
-            <div className="text-[11px] font-semibold text-emerald-600 mt-0.5 flex items-center gap-1">
-              <span>↑ 12%</span>
-              <span className="text-slate-400 font-normal">vs last month</span>
-          </div>
-        </CrmKpiCard>
-
-        <CrmKpiCard label="Total Value" value={stats.totalValue} symbol="₹" tone="emerald">
-            <div className="text-[11px] font-semibold text-emerald-600 mt-0.5 flex items-center gap-1">
-              <span>↑ 18%</span>
-              <span className="text-slate-400 font-normal">vs last month</span>
-          </div>
-        </CrmKpiCard>
-
-        <CrmKpiCard label="Won Deals" value={stats.wonDeals} icon={Trophy} tone="amber">
-            <div className="text-[11px] font-semibold text-emerald-600 mt-0.5 flex items-center gap-1">
-              <span>↑ 25%</span>
-              <span className="text-slate-400 font-normal">vs last month</span>
-          </div>
-        </CrmKpiCard>
-
-        <CrmKpiCard label="Average Deal Size" value={stats.avgDealSize} icon={Clock} tone="purple">
-            <div className="text-[11px] font-semibold text-emerald-600 mt-0.5 flex items-center gap-1">
-              <span>↑ 14%</span>
-              <span className="text-slate-400 font-normal">vs last month</span>
-          </div>
-        </CrmKpiCard>
-
-        <CrmKpiCard label="Conversion Rate" value={stats.conversionRate} icon={TrendingUp} tone="rose">
-            <div className="text-[11px] font-semibold text-emerald-600 mt-0.5 flex items-center gap-1">
-              <span>↑ 6%</span>
-              <span className="text-slate-400 font-normal">vs last month</span>
-          </div>
-        </CrmKpiCard>
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3.5 my-4">
+        <CrmKpiCard label="Total Deals" value={stats.totalDeals} icon={Handshake} tone="blue" />
+        <CrmKpiCard label="Total Value" value={stats.totalValue} symbol="₹" tone="emerald" />
+        <CrmKpiCard label="Won Deals" value={stats.wonDeals} icon={Trophy} tone="amber" />
+        <CrmKpiCard label="Average Deal Size" value={stats.avgDealSize} icon={Clock} tone="purple" />
+        <CrmKpiCard label="Conversion Rate" value={stats.conversionRate} icon={TrendingUp} tone="rose" />
       </div>
 
       <div className="bg-white border border-slate-200 rounded-2xl p-4 shadow-2xs space-y-3">

@@ -2,12 +2,18 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import {
   ChevronDown,
   ChevronRight,
+  ChevronUp,
+  ClipboardList,
+  MousePointerClick,
   Plus,
   Trash2,
+  Users,
+  Workflow,
   X,
   CheckCircle2,
 } from "lucide-react";
 import InfoBanner from "../common/InfoBanner";
+import PageHeader from "../../../components/ui/PageHeader";
 import StageTasksGuideModal from "./StageTasksGuideModal";
 import { useCrmStore } from "../../../stores/crmStore";
 import { syncCollection } from "../../../services/crmCollections";
@@ -18,50 +24,88 @@ const STAGE_THEMES = [
     badgeBg: "bg-blue-600 text-white",
     ribbonBg: "bg-blue-600 text-white shadow-xs",
     badgeNumber: 1,
+    flowOn: "linear-gradient(135deg, #3b82f6 0%, #1d4ed8 100%)",
+    flowOff: "linear-gradient(135deg, #dbeafe 0%, #eff6ff 100%)",
+    flowOffText: "#1d4ed8",
+    glow: "rgba(37, 99, 235, 0.35)",
   },
   {
     headerBg: "bg-[#f0fdf4] border-[#bbf7d0]",
     badgeBg: "bg-emerald-600 text-white",
     ribbonBg: "bg-[#ccfbf1] text-[#0f766e]",
     badgeNumber: 2,
+    flowOn: "linear-gradient(135deg, #10b981 0%, #047857 100%)",
+    flowOff: "linear-gradient(135deg, #bbf7d0 0%, #ecfdf5 100%)",
+    flowOffText: "#047857",
+    glow: "rgba(5, 150, 105, 0.35)",
   },
   {
     headerBg: "bg-[#fefce8] border-[#fef08a]",
     badgeBg: "bg-amber-500 text-white",
     ribbonBg: "bg-[#fef9c3] text-[#a16207]",
     badgeNumber: 3,
+    flowOn: "linear-gradient(135deg, #f59e0b 0%, #b45309 100%)",
+    flowOff: "linear-gradient(135deg, #fde68a 0%, #fffbeb 100%)",
+    flowOffText: "#b45309",
+    glow: "rgba(217, 119, 6, 0.35)",
   },
   {
     headerBg: "bg-[#faf5ff] border-[#f3e8ff]",
     badgeBg: "bg-purple-600 text-white",
     ribbonBg: "bg-[#f3e8ff] text-[#7e22ce]",
     badgeNumber: 4,
+    flowOn: "linear-gradient(135deg, #a855f7 0%, #7e22ce 100%)",
+    flowOff: "linear-gradient(135deg, #e9d5ff 0%, #faf5ff 100%)",
+    flowOffText: "#7e22ce",
+    glow: "rgba(147, 51, 234, 0.35)",
   },
   {
     headerBg: "bg-[#eef2ff] border-[#e0e7ff]",
     badgeBg: "bg-indigo-600 text-white",
     ribbonBg: "bg-[#e0e7ff] text-[#4338ca]",
     badgeNumber: 5,
+    flowOn: "linear-gradient(135deg, #6366f1 0%, #4338ca 100%)",
+    flowOff: "linear-gradient(135deg, #c7d2fe 0%, #eef2ff 100%)",
+    flowOffText: "#4338ca",
+    glow: "rgba(79, 70, 229, 0.35)",
   },
   {
     headerBg: "bg-[#eff6ff] border-[#dbeafe]",
     badgeBg: "bg-sky-600 text-white",
     ribbonBg: "bg-[#dbeafe] text-[#1d4ed8]",
     badgeNumber: 6,
+    flowOn: "linear-gradient(135deg, #0ea5e9 0%, #0369a1 100%)",
+    flowOff: "linear-gradient(135deg, #bae6fd 0%, #f0f9ff 100%)",
+    flowOffText: "#0369a1",
+    glow: "rgba(2, 132, 199, 0.35)",
   },
   {
     headerBg: "bg-[#f0fdf4] border-[#dcfce7]",
     badgeBg: "bg-teal-600 text-white",
     ribbonBg: "bg-[#dcfce7] text-[#15803d]",
     badgeNumber: 7,
+    flowOn: "linear-gradient(135deg, #14b8a6 0%, #0f766e 100%)",
+    flowOff: "linear-gradient(135deg, #99f6e4 0%, #f0fdfa 100%)",
+    flowOffText: "#0f766e",
+    glow: "rgba(13, 148, 136, 0.35)",
   },
   {
     headerBg: "bg-[#fff1f2] border-[#ffe4e6]",
     badgeBg: "bg-rose-500 text-white",
     ribbonBg: "bg-[#ffe4e6] text-[#be123c]",
     badgeNumber: 8,
+    flowOn: "linear-gradient(135deg, #f43f5e 0%, #be123c 100%)",
+    flowOff: "linear-gradient(135deg, #fecdd3 0%, #fff1f2 100%)",
+    flowOffText: "#be123c",
+    glow: "rgba(225, 29, 72, 0.35)",
   },
 ];
+
+/** Arrow shapes for the connected pipeline flow (clip-path, so no borders). */
+const CHEVRON_FIRST =
+  "polygon(0 0, calc(100% - 16px) 0, 100% 50%, calc(100% - 16px) 100%, 0 100%)";
+const CHEVRON_STEP =
+  "polygon(0 0, calc(100% - 16px) 0, 100% 50%, calc(100% - 16px) 100%, 0 100%, 16px 50%)";
 
 const TASK_ROLE_MAP = {
   "Call": "Tele Caller Executive",
@@ -72,6 +116,15 @@ const TASK_ROLE_MAP = {
   "Client meeting": "Sales Support Executive",
   "Negotiate pricing": "BDE",
 };
+
+/** Soft chip colors per role — [background, text, dot]. */
+const ROLE_CHIP_STYLES = {
+  "Tele Caller Executive": ["linear-gradient(135deg, #ecfeff, #f0fdfa)", "#0e7490", "#06b6d4"],
+  "Sales Support Executive": ["linear-gradient(135deg, #eff6ff, #eef2ff)", "#1d4ed8", "#3b82f6"],
+  "BDE": ["linear-gradient(135deg, #faf5ff, #fdf4ff)", "#7e22ce", "#a855f7"],
+  "Area Sales Manager": ["linear-gradient(135deg, #fffbeb, #fff7ed)", "#b45309", "#f59e0b"],
+};
+const ROLE_CHIP_FALLBACK = ["linear-gradient(135deg, #f8fafc, #f1f5f9)", "#475569", "#94a3b8"];
 
 const DEFAULT_TASK_OPTIONS = [
   "Call",
@@ -96,6 +149,56 @@ function getDynamicTaskOptions() {
   return DEFAULT_TASK_OPTIONS;
 }
 
+/**
+ * Small −/+ control for numeric cells (MAX REPEATS). Typing still works, but
+ * the buttons give one-click increments; the value never leaves 1…max.
+ */
+function NumberStepper({ value, onChange, min = 1, max = 99, ariaLabel }) {
+  const parsed = Number(value);
+  const current = Number.isFinite(parsed) && parsed > 0 ? parsed : 1;
+  const commit = (next) => onChange(Math.min(max, Math.max(min, next)));
+  const btn =
+    "grid h-7 w-7 place-items-center text-slate-500 transition hover:bg-slate-100 hover:text-slate-800 disabled:opacity-35 disabled:cursor-not-allowed disabled:hover:bg-transparent cursor-pointer text-sm font-bold";
+  return (
+    <div className="inline-flex items-center rounded-lg border border-slate-200 bg-white shadow-2xs overflow-hidden">
+      <button
+        type="button"
+        onClick={() => commit(current - 1)}
+        disabled={current <= min}
+        className={btn}
+        aria-label={`Decrease ${ariaLabel}`}
+      >
+        −
+      </button>
+      <input
+        type="text"
+        inputMode="numeric"
+        aria-label={ariaLabel}
+        value={value ?? ""}
+        onChange={(e) => {
+          const raw = e.target.value;
+          if (raw === "") {
+            onChange(null);
+            return;
+          }
+          if (/^\d{1,2}$/.test(raw)) onChange(Number(raw));
+        }}
+        onBlur={() => commit(current)}
+        className="w-9 border-0 py-1.5 text-center text-xs font-bold text-slate-800 focus:outline-none"
+      />
+      <button
+        type="button"
+        onClick={() => commit(current + 1)}
+        disabled={current >= max}
+        className={btn}
+        aria-label={`Increase ${ariaLabel}`}
+      >
+        +
+      </button>
+    </div>
+  );
+}
+
 // Which pipeline the screen is looking at is a view preference, not data.
 const PIPELINE_KEY = 'leadStageTasksPipelineV1';
 
@@ -103,10 +206,13 @@ const PIPELINE_KEY = 'leadStageTasksPipelineV1';
 const EMPTY_MASTER_TASK = {
   name: '',
   description: '',
-  role: '',
-  department: '',
+  role: 'Tele Caller Executive',
+  department: 'Any',
   priority: 'Medium',
   dueIn: 1,
+  repeats: 1,
+  time: '',
+  form: '',
   autoCreate: true,
   isActive: true,
 };
@@ -246,8 +352,10 @@ export default function LeadStageTasks({ leadForms = [] }) {
   }
 
   function addTask(stageId) {
-    setTaskModalStageId(stageId || stages[0].id);
-    setMasterTask(EMPTY_MASTER_TASK);
+    const targetId = stageId || stages[0]?.id;
+    if (!targetId) return;
+    setTaskModalStageId(targetId);
+    setMasterTask({ ...EMPTY_MASTER_TASK });
   }
 
   function closeTaskModal() {
@@ -340,37 +448,23 @@ export default function LeadStageTasks({ leadForms = [] }) {
   const allRoleTasks = stages.flatMap((stage) =>
     stage.tasks.map((task) => ({ ...task, stageId: stage.id }))
   );
+  const uniqueRoles = [...new Set(allRoleTasks.map((task) => task.role).filter(Boolean))];
 
   return (
     <section className="w-full space-y-4">
-      <div className="mb-6">
-        <h2 className="text-xl font-bold text-slate-900 tracking-tight">Leads</h2>
-        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mt-2">
-          <div>
-            <div className="text-xs font-medium text-slate-400 mb-1 flex items-center gap-1.5">
-              <span>CRM</span>
-              <span>&gt;</span>
-              <span>Leads</span>
-              <span>&gt;</span>
-              <span className="text-slate-600 font-semibold">Lead Stage Tasks</span>
-            </div>
-            <h1 className="text-lg font-bold text-slate-900 tracking-tight">
-              Lead Stage Tasks
-            </h1>
-            <p className="text-xs text-slate-500 mt-0.5">
-              Assign and manage tasks for each lead stage. When a lead moves to a stage, selected tasks are created automatically.
-            </p>
-          </div>
-
-          <div className="flex flex-wrap lg:flex-nowrap items-center gap-3 shrink-0">
+      <PageHeader
+        title="Lead Stage Tasks"
+        subtitle="Assign and manage tasks for each lead stage. When a lead moves to a stage, selected tasks are created automatically."
+        actions={
+          <div className="flex flex-wrap items-center gap-3">
             <button
               type="button"
               onClick={() => setIsGuideOpen(true)}
-              className="inline-flex items-center gap-2 rounded-[12px] border-2 border-[#1d6bff] bg-[#f2f7ff] px-3 py-2 text-[13px] font-semibold text-[#1d6bff]"
               aria-label="How to create lead stage tasks"
+              className="group inline-flex h-[38px] items-center gap-2 rounded-[10px] border border-blue-200 bg-gradient-to-r from-blue-50 via-indigo-50 to-blue-50 pl-1.5 pr-3.5 text-[13px] font-semibold text-blue-700 shadow-sm transition-all duration-200 hover:-translate-y-px hover:border-blue-400 hover:shadow-md hover:shadow-blue-500/15"
             >
-              <span className="inline-flex h-5 w-5 items-center justify-center rounded-full bg-[#1d6bff] text-[12px] font-bold text-white">?</span>
-              <span>How to create lead stage tasks?</span>
+              <span className="grid h-7 w-7 place-items-center rounded-lg bg-gradient-to-br from-blue-500 to-indigo-600 text-[13px] font-bold text-white shadow-sm transition-transform duration-200 group-hover:scale-105 group-hover:rotate-6">?</span>
+              How to create lead stage tasks?
             </button>
             <div className="flex items-center gap-2 text-xs text-slate-600 font-medium">
               <span>Pipeline</span>
@@ -385,15 +479,17 @@ export default function LeadStageTasks({ leadForms = [] }) {
             </div>
             <button
               type="button"
-              onClick={() => addTask(stages[0].id)}
-              className="inline-flex items-center gap-1.5 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold rounded-lg shadow-xs transition cursor-pointer"
+              onClick={() => addTask(stages[0]?.id)}
+              disabled={stages.length === 0}
+              title={stages.length === 0 ? "No stages configured yet" : "Add a task to the first stage"}
+              className="btn-primary disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              <Plus size={15} />
+              <Plus size={16} />
               Add Stage Task
             </button>
           </div>
-        </div>
-      </div>
+        }
+      />
 
       <InfoBanner
         storageKey="infoBannerLeadStageTasksV1"
@@ -401,25 +497,51 @@ export default function LeadStageTasks({ leadForms = [] }) {
         text="These auto-create the right tasks when a lead enters a stage. You map tasks once, then every stage change creates follow-ups automatically."
       />
 
-      <div className="bg-white rounded-2xl border border-slate-200 shadow-xs mb-8 overflow-hidden">
+      <div className="relative bg-gradient-to-br from-white via-white to-slate-50/70 rounded-2xl border border-slate-200 shadow-sm mb-8 overflow-hidden">
+        <span aria-hidden="true" className="absolute inset-y-0 left-0 w-1 bg-gradient-to-b from-cyan-500 to-blue-600" />
         <div
           onClick={() => setIsTaskRolesOpen((prev) => !prev)}
           className="flex items-center justify-between gap-3 lg:gap-0 p-4 sm:p-5 cursor-pointer hover:bg-slate-50/50 transition select-none"
         >
-          <div className="flex items-start gap-3">
-            <span className="text-slate-500 mt-0.5">
+          <div className="flex items-start gap-3 min-w-0">
+            <span className="text-slate-400 mt-2.5">
               {isTaskRolesOpen ? <ChevronDown size={18} /> : <ChevronRight size={18} />}
             </span>
-            <div>
-              <div className="flex items-center gap-2">
+            <span className="grid h-11 w-11 shrink-0 place-items-center rounded-2xl bg-gradient-to-br from-cyan-500 to-blue-600 text-white shadow-lg shadow-blue-500/30">
+              <Users size={19} />
+            </span>
+            <div className="min-w-0">
+              <div className="flex flex-wrap items-center gap-2">
                 <h3 className="text-sm font-bold text-slate-900">Task Roles</h3>
-                <span className="text-xs font-medium text-slate-500 bg-slate-100 px-2 py-0.5 rounded-full">
+                <span className="text-[11px] font-bold text-white bg-gradient-to-r from-blue-500 to-indigo-600 px-2 py-0.5 rounded-full shadow-sm">
                   {allRoleTasks.length} Tasks
                 </span>
               </div>
               <p className="text-xs text-slate-500 mt-0.5">
                 Each task is done by one role. When a task is created on a lead it goes to whoever owns that role on the lead.
               </p>
+              {uniqueRoles.length > 0 && (
+                <div className="mt-2 flex flex-wrap items-center gap-1.5">
+                  {uniqueRoles.slice(0, 4).map((role) => {
+                    const [bg, text, dot] = ROLE_CHIP_STYLES[role] || ROLE_CHIP_FALLBACK;
+                    return (
+                      <span
+                        key={role}
+                        className="inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[10px] font-bold shadow-xs"
+                        style={{ background: bg, color: text }}
+                      >
+                        <span className="h-1.5 w-1.5 rounded-full" style={{ background: dot }} />
+                        {role}
+                      </span>
+                    );
+                  })}
+                  {uniqueRoles.length > 4 && (
+                    <span className="text-[10px] font-semibold text-slate-400">
+                      +{uniqueRoles.length - 4} more
+                    </span>
+                  )}
+                </div>
+              )}
             </div>
           </div>
 
@@ -427,9 +549,11 @@ export default function LeadStageTasks({ leadForms = [] }) {
             type="button"
             onClick={(e) => {
               e.stopPropagation();
-              addTask(stages[0].id);
+              addTask(stages[0]?.id);
             }}
-            className="inline-flex items-center gap-1 px-3 py-1.5 bg-white hover:bg-slate-50 text-slate-700 text-xs font-semibold rounded-lg border border-slate-200 shadow-2xs transition cursor-pointer shrink-0"
+            disabled={stages.length === 0}
+            title={stages.length === 0 ? "No stages configured yet" : "Add a task"}
+            className="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-semibold rounded-lg border border-blue-200 bg-gradient-to-r from-blue-50 to-indigo-50 text-blue-700 shadow-sm transition hover:-translate-y-px hover:border-blue-400 hover:shadow-md hover:shadow-blue-500/15 cursor-pointer shrink-0 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:translate-y-0"
           >
             <Plus size={14} />
             Add Task
@@ -440,7 +564,7 @@ export default function LeadStageTasks({ leadForms = [] }) {
           <div className="border-t border-slate-100 overflow-x-auto">
             <table className="w-full min-w-[640px] lg:min-w-0 text-left text-xs border-collapse">
               <thead>
-                <tr className="bg-slate-50/80 border-b border-slate-100 text-[11px] font-bold text-slate-500 uppercase tracking-wider">
+                <tr className="bg-gradient-to-r from-slate-50 via-slate-50/80 to-indigo-50/40 border-b border-slate-100 text-[11px] font-bold text-slate-500 uppercase tracking-wider">
                   <th className="px-5 py-3">TASK</th>
                   <th className="px-4 py-3">ROLE</th>
                   <th className="px-4 py-3">DEPARTMENT</th>
@@ -449,8 +573,20 @@ export default function LeadStageTasks({ leadForms = [] }) {
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
+                {allRoleTasks.length === 0 && (
+                  <tr>
+                    <td colSpan={5} className="px-5 py-9 text-center">
+                      <span className="mx-auto mb-2.5 grid h-10 w-10 place-items-center rounded-xl bg-gradient-to-br from-slate-100 to-slate-200/70 text-slate-400">
+                        <ClipboardList size={18} />
+                      </span>
+                      <p className="text-xs text-slate-400">
+                        No stage tasks yet. Click <span className="font-semibold text-slate-500">“Add Task”</span> to create the first one.
+                      </p>
+                    </td>
+                  </tr>
+                )}
                 {allRoleTasks.map((task) => (
-                  <tr key={task.id} className="hover:bg-slate-50/60 transition">
+                  <tr key={task.id} className="even:bg-slate-50/40 hover:bg-blue-50/40 transition">
                     <td className="px-5 py-3.5 font-bold text-slate-800 whitespace-nowrap">
                       {task.name}
                     </td>
@@ -482,13 +618,10 @@ export default function LeadStageTasks({ leadForms = [] }) {
                       </select>
                     </td>
                     <td className="px-4 py-3.5">
-                      <input
-                        type="number"
+                      <NumberStepper
                         value={task.repeats}
-                        onChange={(e) =>
-                          updateTask(task.stageId, task.id, "repeats", Number(e.target.value))
-                        }
-                        className="w-24 bg-white border border-slate-200 rounded-lg px-3 py-1.5 text-xs text-slate-700 focus:outline-none focus:border-blue-500 shadow-2xs"
+                        onChange={(v) => updateTask(task.stageId, task.id, "repeats", v)}
+                        ariaLabel="max repeats"
                       />
                     </td>
                     <td className="px-5 py-3.5 text-center whitespace-nowrap">
@@ -496,7 +629,7 @@ export default function LeadStageTasks({ leadForms = [] }) {
                         <button
                           type="button"
                           onClick={() => triggerSaveToast()}
-                          className="px-4 py-1.5 bg-[#17487d] hover:bg-[#12365e] text-white text-xs font-semibold rounded-lg shadow-2xs transition cursor-pointer"
+                          className="px-4 py-1.5 bg-gradient-to-r from-blue-700 to-indigo-700 hover:from-blue-800 hover:to-indigo-800 text-white text-xs font-semibold rounded-lg shadow-sm transition cursor-pointer"
                         >
                           Save
                         </button>
@@ -519,35 +652,102 @@ export default function LeadStageTasks({ leadForms = [] }) {
       </div>
 
       <div className="mb-4">
-        <h3 className="text-sm font-bold text-slate-900">Lead Stage Tasks</h3>
-        <p className="text-xs text-slate-500 mt-0.5 mb-3.5">
-          Configure the tasks that are created when a lead enters each stage.
-        </p>
-
-        <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-8 gap-1.5 p-1 bg-slate-50/50 rounded-2xl border border-slate-200/80 mb-5">
-          {stages.map((stage, idx) => {
-            const theme = STAGE_THEMES[idx] ?? STAGE_THEMES[0];
-            return (
-              <button
-                key={stage.id}
-                type="button"
-                onClick={() => toggleStage(stage.id)}
-                className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl text-xs font-semibold transition cursor-pointer select-none truncate ${theme.ribbonBg}`}
-              >
-                <span className="w-4.5 h-4.5 rounded-full bg-white/25 flex items-center justify-center text-[10px] shrink-0 font-bold">
-                  {idx + 1}
-                </span>
-                <span className="truncate">{stage.name}</span>
-              </button>
-            );
-          })}
+        <div className="flex items-center gap-2.5">
+          <span className="grid h-8 w-8 place-items-center rounded-xl bg-gradient-to-br from-blue-500 to-indigo-600 text-white shadow-md shadow-blue-500/25">
+            <Workflow size={15} />
+          </span>
+          <div>
+            <h3 className="text-sm font-bold text-slate-900">Lead Stage Tasks</h3>
+            <p className="text-xs text-slate-500 mt-0.5">
+              Configure the tasks that are created when a lead enters each stage.
+            </p>
+          </div>
         </div>
+
+        {stages.length === 0 && (
+          <div className="mt-3.5 rounded-2xl border-2 border-dashed border-slate-200 bg-gradient-to-br from-slate-50 via-white to-blue-50/40 px-6 py-12 text-center">
+            <span className="mx-auto mb-4 grid h-14 w-14 place-items-center rounded-2xl bg-gradient-to-br from-blue-500 to-indigo-600 text-white shadow-lg shadow-blue-500/30">
+              <Workflow size={26} />
+            </span>
+            <h4 className="text-sm font-bold text-slate-900">No lead stages yet</h4>
+            <p className="mx-auto mt-1 max-w-md text-xs leading-relaxed text-slate-500">
+              Lead stages power this page. Add your pipeline stages first, then come back to map follow-up tasks to each stage.
+            </p>
+          </div>
+        )}
+
+        {stages.length > 0 && (
+          <div className="mt-4 mb-5 rounded-2xl border border-slate-200 bg-gradient-to-br from-white via-white to-slate-50/80 p-3.5 shadow-xs">
+            <div className="flex items-stretch overflow-x-auto px-0.5 pb-1 pt-0.5">
+              {stages.map((stage, idx) => {
+                const theme = STAGE_THEMES[idx % STAGE_THEMES.length];
+                const isOpen = openStages.includes(stage.id);
+                return (
+                  <button
+                    key={stage.id}
+                    type="button"
+                    onClick={() => toggleStage(stage.id)}
+                    aria-pressed={isOpen}
+                    title={`${stage.name} — ${stage.tasks.length} task${stage.tasks.length === 1 ? "" : "s"}`}
+                    className="group flex items-center gap-2.5 py-3 pl-5 pr-9 text-left transition-all duration-200 hover:-translate-y-0.5 cursor-pointer select-none"
+                    style={{
+                      flex: "1 1 160px",
+                      minWidth: 150,
+                      maxWidth: 260,
+                      clipPath: idx === 0 ? CHEVRON_FIRST : CHEVRON_STEP,
+                      marginLeft: idx === 0 ? 0 : -12,
+                      background: isOpen ? theme.flowOn : theme.flowOff,
+                      filter: isOpen
+                        ? `drop-shadow(0 8px 16px ${theme.glow})`
+                        : "drop-shadow(0 2px 4px rgba(15, 23, 42, 0.10))",
+                    }}
+                  >
+                    <span
+                      className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-extrabold shrink-0 ${isOpen ? "bg-white/25 text-white" : "text-white shadow-sm"}`}
+                      style={isOpen ? undefined : { background: theme.flowOn }}
+                    >
+                      {idx + 1}
+                    </span>
+                    <span className="min-w-0">
+                      <span
+                        className={`block truncate text-[13px] font-bold leading-4 ${isOpen ? "text-white" : ""}`}
+                        style={isOpen ? undefined : { color: theme.flowOffText }}
+                      >
+                        {stage.name}
+                      </span>
+                      <span
+                        className={`mt-0.5 block text-[10px] font-semibold leading-3 ${isOpen ? "text-white/75" : "opacity-70"}`}
+                        style={isOpen ? undefined : { color: theme.flowOffText }}
+                      >
+                        {stage.tasks.length} task{stage.tasks.length === 1 ? "" : "s"}
+                      </span>
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
+        {stages.length > 0 && !stages.some((s) => openStages.includes(s.id)) && (
+          <div className="mb-5 rounded-2xl border border-dashed border-slate-200 bg-white/70 px-6 py-8 text-center">
+            <span className="mx-auto mb-3 grid h-11 w-11 place-items-center rounded-xl bg-gradient-to-br from-blue-500 to-indigo-600 text-white shadow-md shadow-blue-500/25">
+              <MousePointerClick size={20} />
+            </span>
+            <p className="text-xs font-semibold text-slate-600">No stage selected</p>
+            <p className="mt-0.5 text-[11px] text-slate-400">
+              Click a stage in the pipeline above to view and configure its tasks.
+            </p>
+          </div>
+        )}
 
         <div className="space-y-3.5">
           {stages.map((stage, idx) => {
             const isOpen = openStages.includes(stage.id);
-            const theme = STAGE_THEMES[idx] ?? STAGE_THEMES[0];
+            const theme = STAGE_THEMES[idx % STAGE_THEMES.length];
             const draft = getDraft(stage.id);
+
+            if (!isOpen) return null;
 
             return (
               <div
@@ -555,38 +755,43 @@ export default function LeadStageTasks({ leadForms = [] }) {
                 className="bg-white rounded-2xl border border-slate-200 shadow-xs overflow-hidden transition"
               >
                 <div
-                  onClick={() => toggleStage(stage.id)}
-                  className={`flex items-center justify-between gap-2 lg:gap-0 px-4 sm:px-5 py-3 cursor-pointer transition select-none ${theme.headerBg}`}
+                  className="flex items-center justify-between gap-2 px-4 sm:px-5 py-3 select-none"
+                  style={{ background: theme.flowOn }}
                 >
                   <div className="flex flex-wrap lg:flex-nowrap items-center gap-2.5 min-w-0 lg:min-w-auto">
-                    <span className="text-slate-600">
-                      {isOpen ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
-                    </span>
-                    <span
-                      className={`w-5 h-5 rounded-full flex items-center justify-center text-xs font-bold shrink-0 ${theme.badgeBg}`}
-                    >
+                    <span className="w-5 h-5 rounded-full bg-white/25 flex items-center justify-center text-xs font-bold text-white shrink-0">
                       {idx + 1}
                     </span>
-                    <span className="text-sm font-bold text-slate-900">{stage.name}</span>
-                    <span className="text-xs text-slate-400 font-normal">
+                    <span className="text-sm font-bold text-white">{stage.name}</span>
+                    <span className="text-[11px] font-semibold text-white/90 bg-white/15 px-2 py-0.5 rounded-full">
                       {stage.tasks.length} Tasks
                     </span>
                   </div>
 
-                  <button
-                    type="button"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      addTask(stage.id);
-                    }}
-                    className="inline-flex items-center gap-1 px-3 py-1 bg-white hover:bg-slate-50 text-slate-700 text-xs font-semibold rounded-lg border border-slate-200 shadow-2xs transition cursor-pointer"
-                  >
-                    <Plus size={13} />
-                    Add Task
-                  </button>
+                  <div className="flex items-center gap-2 shrink-0">
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        addTask(stage.id);
+                      }}
+                      className="inline-flex items-center gap-1 px-3 py-1.5 bg-white/15 hover:bg-white/25 text-white text-xs font-semibold rounded-lg border border-white/30 transition cursor-pointer"
+                    >
+                      <Plus size={13} />
+                      Add Task
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => toggleStage(stage.id)}
+                      className="inline-flex items-center justify-center w-7 h-7 rounded-lg text-white/80 hover:text-white hover:bg-white/15 transition cursor-pointer"
+                      aria-label={`Collapse ${stage.name}`}
+                    >
+                      <ChevronUp size={15} />
+                    </button>
+                  </div>
                 </div>
 
-                {isOpen && (
+                {(
                   <div className="border-t border-slate-100 overflow-x-auto">
                     <table className="w-full min-w-[900px] lg:min-w-0 text-left text-xs border-collapse">
                       <thead>
@@ -663,13 +868,10 @@ export default function LeadStageTasks({ leadForms = [] }) {
                                 />
                               </td>
                               <td className="px-3 py-2.5">
-                                <input
-                                  type="text"
-                                  value={task.repeats ?? ""}
-                                  onChange={(e) =>
-                                    updateTask(stage.id, task.id, "repeats", e.target.value)
-                                  }
-                                  className="w-24 bg-white border border-slate-200 rounded-lg px-3 py-1.5 text-xs text-slate-800 focus:outline-none focus:border-blue-500 shadow-2xs"
+                                <NumberStepper
+                                  value={task.repeats}
+                                  onChange={(v) => updateTask(stage.id, task.id, "repeats", v)}
+                                  ariaLabel="max repeats"
                                 />
                               </td>
                               <td className="px-3 py-2.5">

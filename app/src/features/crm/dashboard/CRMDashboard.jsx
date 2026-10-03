@@ -1,4 +1,5 @@
 import CrmKpiCard from '../common/CrmKpiCard';
+import PageHeader from "../../../components/ui/PageHeader";
 import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { Users, UserPlus, Clock, TrendingUp, DollarSign, Search, Phone, Mail, CalendarDays, FileText, ClipboardList, Video, Send } from "lucide-react";
@@ -219,18 +220,18 @@ export default function DashboardView() {
   ].slice(0, 4);
   return (
     <div className="grid-cols-1 lg:grid-cols-none" style={{ display: "grid", gap: 14, background: "#f6f9ff", minHeight: "100%" }}>
-      <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
-        <div>
-          <h1 style={{ margin: 0, fontSize: 22, fontWeight: 800, color: "#0f1f3d" }}>{greet}, {firstName}!</h1>
-          <p style={{ margin: "4px 0 0", fontSize: 12, color: "#64748b" }}>Here is what is happening with your CRM today. {ordersTotal > 0 ? formatCurrency(ordersTotal) + " orders" : ""} {paymentIns.length > 0 ? paymentIns.length + " payments" : ""}</p>
-        </div>
-        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 8, background: "#fff", border: "1px solid #e2e8f0", borderRadius: 10, padding: "8px 12px", fontSize: 12, fontWeight: 600, color: "#334155" }}>
-            <CalendarDays size={15} color="#64748b" /> {todayStr}
+      <PageHeader
+        title={`${greet}, ${firstName}!`}
+        subtitle={`Here is what is happening with your CRM today.${ordersTotal > 0 ? ` ${formatCurrency(ordersTotal)} orders` : ''}${paymentIns.length > 0 ? ` ${paymentIns.length} payments` : ''}`}
+        actions={
+          <div className="flex flex-wrap items-center gap-3">
+            <div style={{ display: "flex", alignItems: "center", gap: 8, background: "#fff", border: "1px solid #e2e8f0", borderRadius: 10, padding: "8px 12px", fontSize: 12, fontWeight: 600, color: "#334155" }}>
+              <CalendarDays size={15} color="#64748b" /> {todayStr}
+            </div>
           </div>
-        </div>
-      </div>
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(180px,1fr))", gap: 12 }}>
+        }
+      />
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3.5 my-4">
         {kpis.map((k, index) => {
           return (
             <CrmKpiCard key={k.label} label={k.label} value={k.value} icon={k.icon} tone={['blue', 'emerald', 'amber', 'purple', 'rose'][index]}>

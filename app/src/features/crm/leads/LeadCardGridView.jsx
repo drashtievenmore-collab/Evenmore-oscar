@@ -58,8 +58,10 @@ export default function LeadCardGridView({ rows = [], selected = [], pinnedLeadI
             <Building2 size={16} />
             <span>{row.company}</span>
           </div>
-
           <div className="lead-grid-meta">
+            {(row.leadNumber || row.lead_number) && (
+              <span><button type="button" className="lead-no-btn" onClick={() => onOpenLead(row)}>{row.leadNumber || row.lead_number}</button></span>
+            )}
             <span><Mail size={15} /> {row.email}</span>
             <span><Phone size={15} /> {row.phone}</span>
             <span><UserRound size={15} /> {row.owner}</span>

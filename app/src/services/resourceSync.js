@@ -185,6 +185,17 @@ export function createSync(registry, { label = 'sync' } = {}) {
     const payload = resource.toApi ? resource.toApi(updates) : { ...updates };
     (resource.omitOnUpdate || []).forEach((field) => delete payload[field]);
     const body = await api.patch(`${resource.path}${id}/`, payload);
+    if (!body || typeof body !== 'object' || Array.isArray(body)) return body;
+    // `PATCH /crm/leads/{id}/` answers `{ lead, createdTasks: [] }` (the stage
+    // automation reports what it generated) rather than the bare row, so
+    // unwrap it — otherwise the store would keep the envelope as the lead.
+    if (body.lead && typeof body.lead === 'object' && body.lead.id) {
+      const mapped = resource.fromApi ? resource.fromApi(body.lead) : body.lead;
+      if (mapped && typeof mapped === 'object' && !Array.isArray(mapped)) {
+        mapped.createdTasks = body.createdTasks || [];
+      }
+      return mapped;
+    }
     return resource.fromApi ? resource.fromApi(body) : body;
   }
 

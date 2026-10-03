@@ -56,6 +56,7 @@ import {
   Link2,
   X,
   Users,
+  XCircle,
 } from 'lucide-react';
 import LeadAvatar from './LeadAvatar';
 import LeadFormBuilder from './LeadFormBuilder';
@@ -63,6 +64,7 @@ import { createFieldFromType } from '../../../data/crm/leadFormSchema';
 import { exportToCSV } from '../../../services/exportUtils';
 import { useEstimates, estimateMatchesLead, addEstimate } from '../../../services/estimateStore';
 import { useCrmStore } from '../../../stores/crmStore';
+import { withSampleTeam } from '../common/sampleTeam';
 import { useLeadDetailStore, EMPTY_DETAIL } from '../../../stores/leadDetailStore';
 import { isServerId } from '../../../services/resourceSync';
 import { loadForms, saveForms, TASK_FORM } from '../../../services/crmForms';
@@ -117,15 +119,22 @@ function updateStoredLead(leadId, updates) {
 /**
  * Persist rows a tab just produced. Each key is a sub-collection, and only the
  * rows the server has not seen are posted — the rest are already its own.
+ *
+ * Each local row is posted at most once per page lifetime. Without this, every
+ * re-run of a tab's persist effect (StrictMode double-effect, parent
+ * re-render, tab remount) re-posts all unsynced rows, so one click becomes
+ * many server rows.
  */
+const sentDetailRowIds = new Set();
 function updateStoredLeadDetail(leadId, updates) {
   if (!leadId || !updates || Object.keys(updates).length === 0) return false;
   const { add } = useLeadDetailStore.getState();
   Object.entries(updates).forEach(([section, rows]) => {
     if (!Array.isArray(rows)) return;
     rows
-      .filter((row) => row && !row._synced && !isServerId(row.id))
+      .filter((row) => row && !row._synced && !isServerId(row.id) && row.id && !sentDetailRowIds.has(row.id))
       .forEach((row) => {
+        sentDetailRowIds.add(row.id);
         add(leadId, section, row).catch((err) => {
           console.warn(`[CRM] ${section} not saved:`, err?.message || err);
         });
@@ -313,8 +322,8 @@ function formatNoteValue(currentValue, textarea, prefix, suffix = prefix, fallba
 
 function fieldRows(lead) {
   return [
-    ['Company', lead.company || 'Hirapara Industries'],
-    ['Title', lead.jobTitle || 'Managing Director'],
+    ['Company', lead.company || '—'],
+    ['Title', lead.jobTitle || '—'],
     ['Email', lead.email],
     ['Phone', lead.phone],
     ['Amount', formatAmount(lead.amount)],
@@ -326,7 +335,6 @@ function addressRows(lead) {
     ['City', lead.city],
     ['State', lead.state],
     ['Country', lead.country],
-    ['Zip Code', `39${4200 + (lead.id || 0)}`],
   ];
 }
 
@@ -344,7 +352,6 @@ function leadExportRows(lead) {
     ['City', lead.city],
     ['State', lead.state],
     ['Country', lead.country],
-    ['Zip Code', `39${4200 + (lead.id || 0)}`],
     ['Amount', formatAmount(lead.amount)],
   ];
 }
@@ -396,6 +403,8 @@ function metricCards(counts) {
 // ── 1. Sources & Emails Tab (Screenshot Focus) ────────────────
 function SourcesAndEmailsTab({ lead, onCountsChange, onActivity }) {
   const initialState = useLeadDetailState(lead);
+  const currentUser = useAppStore((s) => s.currentUser);
+  const actorName = currentUser?.name || currentUser?.fullName || lead?.owner || '—';
   const [sources, setSources] = useState(() => initialState.sources);
   const [emails, setEmails] = useState(() => initialState.emails);
   const [timeline, setTimeline] = useState(() => initialState.timeline);
@@ -412,14 +421,6 @@ function SourcesAndEmailsTab({ lead, onCountsChange, onActivity }) {
 
   React.useEffect(() => {
     updateStoredLeadDetail(lead?.id, { sources: sources.map((s) => ({ ...s, icon: sourceIconName(s.icon) })), emails, timeline });
-  }, [lead?.id, sources, emails, timeline]);
-
-  React.useEffect(() => {
-    onCountsChange?.({ sources: sources.length });
-  }, [sources.length, onCountsChange]);
-
-  React.useEffect(() => {
-    updateStoredLeadDetail(lead?.id, { sources, emails, timeline });
   }, [lead?.id, sources, emails, timeline]);
 
   React.useEffect(() => {
@@ -484,8 +485,7 @@ function SourcesAndEmailsTab({ lead, onCountsChange, onActivity }) {
       sourceType: String(newSource.source ?? '').toLowerCase(),
       details: newSource.details,
       date: new Date().toLocaleDateString('en-GB') + ' ' + new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-      createdBy: 'David Patel',
-      avatar: 'https://i.pravatar.cc/160?img=68',
+      createdBy: actorName,
       color: '#1f6bff',
       icon: iconName,
     };
@@ -509,8 +509,7 @@ function SourcesAndEmailsTab({ lead, onCountsChange, onActivity }) {
       id: Date.now(),
       subject: newEmail.subject,
       date: now,
-      person: 'David Patel',
-      avatar: 'https://i.pravatar.cc/160?img=68',
+      person: actorName,
       status: 'Sent',
       statusColor: 'green',
     };
@@ -520,7 +519,7 @@ function SourcesAndEmailsTab({ lead, onCountsChange, onActivity }) {
       title: newEmail.subject,
       preview: bodyText || 'Direct email communication with client representative.',
       date: now,
-      author: 'David Patel',
+      author: actorName,
       dotColor: '#10b981',
     };
     setEmails((current) => [addedEmail, ...current]);
@@ -639,7 +638,7 @@ function SourcesAndEmailsTab({ lead, onCountsChange, onActivity }) {
                       <td className="text-slate-500 font-mono text-xs whitespace-nowrap">{s.date}</td>
                       <td>
                         <div className="flex items-center gap-1.5">
-                          <img src={s.avatar} alt={s.createdBy} className="w-5 h-5 rounded-full object-cover" />
+                          <span className="w-5 h-5 rounded-full grid place-items-center text-[9px] font-bold text-white shrink-0" style={{ backgroundColor: '#2F6FED' }}>{getInitials(s.createdBy)}</span>
                           <span className="text-xs font-medium">{s.createdBy}</span>
                         </div>
                       </td>
@@ -773,7 +772,7 @@ function SourcesAndEmailsTab({ lead, onCountsChange, onActivity }) {
                     <td className="text-slate-500 font-mono text-xs whitespace-nowrap">{e.date}</td>
                     <td>
                       <div className="flex items-center gap-1.5">
-                        <img src={e.avatar} alt={e.person} className="w-5 h-5 rounded-full object-cover" />
+                        <span className="w-5 h-5 rounded-full grid place-items-center text-[9px] font-bold text-white shrink-0" style={{ backgroundColor: '#2F6FED' }}>{getInitials(e.person)}</span>
                         <span className="text-xs font-medium">{e.person}</span>
                       </div>
                     </td>
@@ -818,33 +817,43 @@ function SourcesAndEmailsTab({ lead, onCountsChange, onActivity }) {
       {/* Bottom Card: Email Activity Timeline */}
       <div className="card p-5 space-y-4">
         <h3 className="font-bold text-sm" style={{ color: 'var(--text)' }}>Email Activity Timeline</h3>
-        <div className="relative pl-6 space-y-6 before:absolute before:left-2 before:top-2 before:bottom-2 before:w-0.5 before:bg-slate-200 dark:before:bg-slate-700">
-          {timeline.map((item) => (
-            <div key={item.id} className="relative flex items-start justify-between gap-4">
-              <span
-                className="absolute -left-6 top-1 w-4 h-4 rounded-full border-2 border-white dark:border-slate-800 flex items-center justify-center"
-                style={{ background: item.dotColor }}
-              />
-              <div className="space-y-1 max-w-2xl">
-                <div className="flex items-center gap-2">
+        {(() => {
+          const emailEntries = timeline.filter((item) => item.type === 'email' || item.type === 'sent');
+          if (emailEntries.length === 0) {
+            return (
+              <p className="text-xs py-4 text-center" style={{ color: 'var(--muted)' }}>No email activity recorded.</p>
+            );
+          }
+          return (
+            <div className="relative pl-6 space-y-6 before:absolute before:left-2 before:top-2 before:bottom-2 before:w-0.5 before:bg-slate-200 dark:before:bg-slate-700">
+              {emailEntries.map((item) => (
+                <div key={item.id} className="relative flex items-start justify-between gap-4">
                   <span
-                    className={`px-1.5 py-0.5 rounded text-[10px] font-bold uppercase ${
-                      item.type === 'sent' ? 'bg-emerald-50 text-emerald-700' : 'bg-slate-100 text-slate-700'
-                    }`}
-                  >
-                    Email {item.type}
-                  </span>
-                  <strong className="text-xs font-bold" style={{ color: 'var(--text)' }}>{item.title}</strong>
+                    className="absolute -left-6 top-1 w-4 h-4 rounded-full border-2 border-white dark:border-slate-800 flex items-center justify-center"
+                    style={{ background: item.dotColor }}
+                  />
+                  <div className="space-y-1 max-w-2xl">
+                    <div className="flex items-center gap-2">
+                      <span
+                        className={`px-1.5 py-0.5 rounded text-[10px] font-bold uppercase ${
+                          item.type === 'sent' ? 'bg-emerald-50 text-emerald-700' : 'bg-blue-50 text-blue-700'
+                        }`}
+                      >
+                        {item.type === 'sent' ? 'Sent' : 'Email'}
+                      </span>
+                      <strong className="text-xs font-bold" style={{ color: 'var(--text)' }}>{item.title}</strong>
+                    </div>
+                    <p className="text-xs leading-relaxed" style={{ color: 'var(--muted)' }}>{item.preview}</p>
+                  </div>
+                  <div className="text-right shrink-0">
+                    <time className="text-[11px] font-mono block" style={{ color: 'var(--muted)' }}>{item.date}</time>
+                    <span className="text-[11px] font-medium" style={{ color: 'var(--text-secondary)' }}>by {item.author}</span>
+                  </div>
                 </div>
-                <p className="text-xs leading-relaxed" style={{ color: 'var(--muted)' }}>{item.preview}</p>
-              </div>
-              <div className="text-right shrink-0">
-                <time className="text-[11px] font-mono block" style={{ color: 'var(--muted)' }}>{item.date}</time>
-                <span className="text-[11px] font-medium" style={{ color: 'var(--text-secondary)' }}>by {item.author}</span>
-              </div>
+              ))}
             </div>
-          ))}
-        </div>
+          );
+        })()}
       </div>
     </div>
   );
@@ -853,6 +862,8 @@ function SourcesAndEmailsTab({ lead, onCountsChange, onActivity }) {
 // ── Files Tab ───────────────────────────────────────────────
 function FilesTab({ lead, onCountsChange, onActivity }) {
   const initialState = useLeadDetailState(lead);
+  const currentUser = useAppStore((s) => s.currentUser);
+  const actorName = currentUser?.name || currentUser?.fullName || lead?.owner || '—';
   const [files, setFiles] = useState(() => initialState.files);
   const [fileSearch, setFileSearch] = useState('');
   const [fileType, setFileType] = useState('All');
@@ -881,7 +892,7 @@ function FilesTab({ lead, onCountsChange, onActivity }) {
         name: file.name,
         size: `${Math.max(1, Math.round(file.size / 1024))} KB`,
         sentOn: now,
-        sentBy: lead?.owner || 'David Patel',
+        sentBy: actorName,
         preview: imagePreview,
         downloadUrl: imagePreview,
         description: 'Uploaded from Files tab.',
@@ -972,12 +983,14 @@ function FilesTab({ lead, onCountsChange, onActivity }) {
 
 function CallsTab({ lead, onCountsChange, onActivity }) {
   const initialState = useLeadDetailState(lead);
+  const currentUser = useAppStore((s) => s.currentUser);
+  const actorName = currentUser?.name || currentUser?.fullName || lead?.owner || '—';
   const [calls, setCalls] = useState(() => initialState.calls);
   const [isLogOpen, setIsLogOpen] = useState(false);
   const [isAddOpen, setIsAddOpen] = useState(false);
   const [subject, setSubject] = useState('');
   const [callType, setCallType] = useState('Outbound');
-  const [assignee, setAssignee] = useState(() => lead?.owner || 'Priya Patel');
+  const [assignee, setAssignee] = useState(() => lead?.owner || '');
   const [description, setDescription] = useState('');
   const [outcome, setOutcome] = useState('Connected');
   const [duration, setDuration] = useState('');
@@ -986,6 +999,10 @@ function CallsTab({ lead, onCountsChange, onActivity }) {
     const names = [lead?.owner, ...useCrmStore.getState().teamMembers.map((e) => e.name)].map((n) => String(n || '').trim()).filter(Boolean);
     return [...new Set(names)];
   }, [lead?.owner]);
+  // One physical click must log at most one row. Touch devices, double-clicks
+  // and StrictMode re-runs can otherwise invoke the handler twice in the same
+  // tick, and `tel:` navigation never blocks the second call.
+  const lastDialAt = React.useRef(0);
 
   React.useEffect(() => {
     updateStoredLeadDetail(lead?.id, { calls });
@@ -1005,9 +1022,9 @@ function CallsTab({ lead, onCountsChange, onActivity }) {
 
   function addCallLog(entry) {
     const item = {
-      id: `call-${Date.now()}`,
+      id: `call-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
       date: new Date().toLocaleDateString('en-GB') + ' ' + new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-      by: lead?.owner || 'David Patel',
+      by: actorName,
       phone: lead?.phone || '',
       direction: 'Outgoing',
       ...entry,
@@ -1017,6 +1034,9 @@ function CallsTab({ lead, onCountsChange, onActivity }) {
   }
 
   function callNow() {
+    const now = Date.now();
+    if (now - lastDialAt.current < 3000) return;
+    lastDialAt.current = now;
     addCallLog({ outcome: 'Dialled', duration: '-', notes: 'Dialled from Calls tab.' });
     dialNumber();
   }
@@ -1067,7 +1087,7 @@ function CallsTab({ lead, onCountsChange, onActivity }) {
           <button type="button" onClick={callNow} className="btn-primary btn-sm flex items-center gap-1.5 !bg-emerald-600 hover:!bg-emerald-700">
             <Phone size={13} /> Call Lead
           </button>
-          <button type="button" onClick={() => { setSubject(''); setCallType('Outbound'); setAssignee(lead?.owner || assigneeOptions[0] || 'Priya Patel'); setDescription(''); setIsAddOpen(true); }} title="Add Call" aria-label="Add Call" className="w-8 h-8 grid place-items-center rounded-md bg-[#1d3f6e] hover:bg-[#16325a] text-white transition">
+          <button type="button" onClick={() => { setSubject(''); setCallType('Outbound'); setAssignee(lead?.owner || assigneeOptions[0] || ''); setDescription(''); setIsAddOpen(true); }} title="Add Call" aria-label="Add Call" className="w-8 h-8 grid place-items-center rounded-md bg-[#1d3f6e] hover:bg-[#16325a] text-white transition">
             <Plus size={16} />
           </button>
         </div>
@@ -2566,58 +2586,22 @@ function ActivityTab({ lead, items }) {
 
 // ── Discussion & Notes Tab ────────────────────────────────────
 function DiscussionNotesTab({ lead, onActivity }) {
-  const initialThreads = useLeadDetailState(lead).threads;
-  const [threads, setThreads] = useState(initialThreads);
-  const [selectedThreadId, setSelectedThreadId] = useState(initialThreads[0]?.id ?? null);
-  const [messageDraft, setMessageDraft] = useState('');
   const [noteDraft, setNoteDraft] = useState('');
   const [pendingAttachments, setPendingAttachments] = useState([]);
   const [notesList, setNotesList] = useState([]);
 
-  const selectedThread = threads.find((t) => t.id === selectedThreadId) ?? threads[0];
-
-  function updateThreadMessages(threadId, updater) {
-    setThreads((current) => current.map((t) => (t.id === threadId ? { ...t, messages: updater(t.messages) } : t)));
-  }
-
-  function appendSystemMessage(threadId, body) {
-    updateThreadMessages(threadId, (messages) => [...messages, { id: `sys-${Date.now()}`, side: 'out', sender: 'System', body, time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) }]);
-  }
-
-  function handleSendMessage(event) {
-    event?.preventDefault();
-    if (!messageDraft.trim() || !selectedThread) return;
-    const body = messageDraft.trim();
-    updateThreadMessages(selectedThread.id, (messages) => [...messages, { id: `msg-${Date.now()}`, side: 'out', sender: 'You', body, time: 'Now' }]);
-    setMessageDraft('');
-    onActivity?.('Message sent in discussion', '#3b82f6');
-  }
-
-  function handleCallAction() {
-    if (!selectedThread) return;
-    appendSystemMessage(selectedThread.id, `Call logged with ${selectedThread.name}.`);
-    onActivity?.(`Call logged with ${selectedThread.name}`, '#3b82f6');
-  }
-
-  function handleMailAction() {
-    if (!selectedThread) return;
-    appendSystemMessage(selectedThread.id, `Email sent to ${selectedThread.name}.`);
-    onActivity?.(`Email sent to ${selectedThread.name}`, '#3b82f6');
-  }
-
-  function handleUserAction() {
-    if (!selectedThread) return;
-    appendSystemMessage(selectedThread.id, `Mentioned ${selectedThread.name} in a note.`);
-  }
-
   function handleSaveNote(event) {
     event?.preventDefault();
     const text = noteDraft.trim();
-    if ((!text && pendingAttachments.length === 0) || !selectedThread) return;
-    const entry = { id: `note-${Date.now()}`, body: text, attachments: [...pendingAttachments], time: new Date().toLocaleString([], { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' }), author: 'You' };
+    if (!text && pendingAttachments.length === 0) return;
+    const entry = {
+      id: `note-${Date.now()}`,
+      body: text,
+      attachments: [...pendingAttachments],
+      time: new Date().toLocaleString([], { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' }),
+      author: 'You',
+    };
     setNotesList((current) => [entry, ...current]);
-    if (text) appendSystemMessage(selectedThread.id, `Note: ${text}`);
-    else appendSystemMessage(selectedThread.id, `Note with ${pendingAttachments.length} attachment(s) added.`);
     setNoteDraft('');
     setPendingAttachments([]);
     onActivity?.('Note saved in discussion', '#8b5cf6');
@@ -2633,61 +2617,41 @@ function DiscussionNotesTab({ lead, onActivity }) {
     setPendingAttachments((current) => current.filter((a) => a.name !== name));
   }
 
-  function handleNoteFormatting(prefix, suffix) {
-    setNoteDraft((current) => formatNoteValue(current, null, prefix, suffix).nextValue);
-  }
-
-  function applyNoteCommand(command) {
-    if (command === 'bold') handleNoteFormatting('**');
-    if (command === 'italic') handleNoteFormatting('*');
-    if (command === 'call') handleCallAction();
-    if (command === 'mail') handleMailAction();
-  }
-
-  if (!selectedThread) return null;
-
   return (
     <div className="space-y-4">
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-        <div className="card p-3 space-y-2">
-          {threads.map((thread) => (
-            <button key={thread.id} type="button" onClick={() => setSelectedThreadId(thread.id)} className={`w-full text-left p-2 rounded-lg flex items-center gap-2 ${thread.id === selectedThread.id ? 'bg-blue-50' : 'hover:bg-slate-50'}`}>
-              <DiscussionAvatar thread={thread} lead={lead} />
-              <span className="min-w-0"><strong className="block text-xs truncate">{thread.name}</strong><span className="block text-[11px] text-slate-400 truncate">{thread.note}</span></span>
-            </button>
-          ))}
-        </div>
-        <div className="card p-4 space-y-3 lg:col-span-2">
-          <div className="space-y-2">
-            {selectedThread.messages.map((m) => (
-              <div key={m.id} className={`text-xs p-2 rounded-lg ${m.side === 'out' ? 'bg-blue-50 ml-8' : 'bg-slate-100 mr-8'}`}>
-                <strong>{m.sender}</strong><p>{m.body}</p><span className="text-[10px] text-slate-400">{m.time}</span>
-              </div>
-            ))}
-          </div>
-          <form onSubmit={handleSendMessage} className="flex gap-2">
-            <input type="text" value={messageDraft} onChange={(e) => setMessageDraft(e.target.value)} placeholder="Write a message..." className="form-input text-xs flex-1" />
-            <button type="submit" className="btn-primary btn-sm flex items-center gap-1"><Send size={12} /> Send</button>
-          </form>
-        </div>
-      </div>
       <div className="card p-4">
         <h3 className="font-bold text-sm text-slate-900 mb-3">Notes</h3>
         <form onSubmit={handleSaveNote} className="space-y-2">
-          <textarea rows={3} value={noteDraft} onChange={(e) => setNoteDraft(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) handleSaveNote(e); }} placeholder="Write a note..." className="form-textarea text-xs w-full" />
+          <textarea
+            rows={3}
+            value={noteDraft}
+            onChange={(e) => setNoteDraft(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) handleSaveNote(e);
+            }}
+            placeholder="Write a note..."
+            className="form-textarea text-xs w-full"
+          />
           {pendingAttachments.length > 0 && (
             <div className="flex gap-1 flex-wrap">
               {pendingAttachments.map((a) => (
                 <span key={a.name} className="text-[11px] bg-slate-100 rounded-full px-2 py-0.5 flex items-center gap-1">
                   <Paperclip size={11} /> {a.name}
-                  <button type="button" onClick={() => removePendingAttachment(a.name)} aria-label={`Remove ${a.name}`}>×</button>
+                  <button type="button" onClick={() => removePendingAttachment(a.name)} aria-label={`Remove ${a.name}`}>
+                    ×
+                  </button>
                 </span>
               ))}
             </div>
           )}
           <div className="flex justify-between items-center">
-            <label className="btn-ghost btn-sm cursor-pointer flex items-center gap-1"><Paperclip size={12} /> Attach<input type="file" multiple hidden onChange={handleAttachmentSelect} /></label>
-            <button type="submit" disabled={!noteDraft.trim() && pendingAttachments.length === 0} className="btn-outline btn-sm disabled:opacity-50">Save Note</button>
+            <label className="btn-ghost btn-sm cursor-pointer flex items-center gap-1">
+              <Paperclip size={12} /> Attach
+              <input type="file" multiple hidden onChange={handleAttachmentSelect} />
+            </label>
+            <button type="submit" disabled={!noteDraft.trim() && pendingAttachments.length === 0} className="btn-outline btn-sm disabled:opacity-50">
+              Save Note
+            </button>
           </div>
         </form>
         {notesList.length > 0 && (
@@ -2704,7 +2668,9 @@ function DiscussionNotesTab({ lead, onActivity }) {
                     ))}
                   </div>
                 )}
-                <p className="text-[10px] text-slate-400 mt-1.5">{n.author} · {n.time}</p>
+                <p className="text-[10px] text-slate-400 mt-1.5">
+                  {n.author} · {n.time}
+                </p>
               </div>
             ))}
           </div>
@@ -2716,55 +2682,47 @@ function DiscussionNotesTab({ lead, onActivity }) {
 
 // ── 2. General Tab ────────────────────────────────────────────
 function GeneralTab({ lead }) {
+  const nameParts = String(lead.name || '').split(' ').filter(Boolean);
   const infoRows = [
-    ['Company', lead.company || 'Hirapara Industries'],
-    ['First Name', (lead.name || 'Chirag').split(' ')[0]],
-    ['Last Name', (lead.name || 'Hirapara').split(' ').slice(1).join(' ') || 'Hirapara'],
-    ['Title', lead.jobTitle || 'Managing Director'],
-    ['Email', lead.email || 'chirag@hirapara.com'],
-    ['Phone', `+91 ${lead.phone || '98765 43210'}`],
-    ['Mobile', `+91 ${lead.phone || '98765 43210'}`],
-    ['Lead Source', lead.source || 'Website'],
-    ['Lead Status', lead.status || 'Qualified'],
-    ['Industry', lead.industry || 'Manufacturing & Electronics'],
-    ['Annual Revenue', formatAmount(lead.amount || 185000)],
-    ['Website', `www.${(lead.company || 'hiraparaindustries').toLowerCase().replace(/[^a-z0-9]+/g, '')}.com`],
+    ['Company', lead.company || '—'],
+    ['First Name', nameParts[0] || '—'],
+    ['Last Name', nameParts.slice(1).join(' ') || '—'],
+    ['Title', lead.jobTitle || '—'],
+    ['Email', lead.email || '—'],
+    ['Phone', lead.phone ? `+91 ${lead.phone}` : '—'],
+    ['Mobile', lead.phone ? `+91 ${lead.phone}` : '—'],
+    ['Lead Source', lead.source || '—'],
+    ['Lead Status', lead.status || '—'],
+    ['Industry', lead.industry || '—'],
+    ['Annual Revenue', formatAmount(lead.amount)],
+    ['Website', '—'],
   ];
 
   const addressRows = [
-    ['Address', `123, Mumbai Industrial Estate`],
-    ['City', lead.city || 'Surat'],
-    ['State', lead.state || 'Gujarat'],
-    ['Country', lead.country || 'India'],
-    ['Zip Code', lead.zipCode || '394201'],
+    ['Address', '—'],
+    ['City', lead.city || '—'],
+    ['State', lead.state || '—'],
+    ['Country', lead.country || '—'],
+    ['Zip Code', '—'],
   ];
 
-  const activities = [
-    {
-      id: 1,
-      title: 'Stage updated to Qualified',
-      time: '2 hours ago',
-      color: '#8b5cf6',
-    },
-    {
-      id: 2,
-      title: 'Task created - Follow up call',
-      time: '5 hours ago',
-      color: '#f59e0b',
-    },
-    {
-      id: 3,
-      title: 'Email sent to lead',
-      time: '1 day ago',
-      color: '#3b82f6',
-    },
-    {
-      id: 4,
-      title: 'Lead record updated',
-      time: '2 days ago',
-      color: '#10b981',
-    },
-  ];
+  // Extra capture from the create form — products, lead users and the
+  // optional task schedule. Only rows with values are shown.
+  const extraRows = (() => {
+    const extras = lead.customValues || {};
+    const rows = [];
+    if (Array.isArray(extras.products) && extras.products.length > 0) {
+      rows.push(['Products', extras.products.join(', ')]);
+    }
+    if (Array.isArray(extras.leadUsers) && extras.leadUsers.length > 0) {
+      rows.push(['Lead Users', extras.leadUsers.join(', ')]);
+    }
+    if (extras.taskDate) rows.push(['Task Date', extras.taskDate]);
+    if (extras.taskTime) rows.push(['Task Time', extras.taskTime]);
+    return rows;
+  })();
+
+  const activities = [];
 
   return (
     <div className="grid grid-cols-1 lg:grid-cols-3 gap-5 items-start">
@@ -2819,7 +2777,10 @@ function GeneralTab({ lead }) {
         </div>
 
         <div className="space-y-4">
-          {activities.map((item) => (
+          {activities.length === 0 ? (
+            <p className="text-[11px] text-slate-400">No activity yet.</p>
+          ) : (
+            activities.map((item) => (
             <div key={item.id} className="flex items-start gap-3">
               <span
                 className="w-2.5 h-2.5 rounded-full mt-1 shrink-0"
@@ -2830,9 +2791,23 @@ function GeneralTab({ lead }) {
                 <span className="text-[11px] text-slate-400 mt-0.5 block">{item.time}</span>
               </div>
             </div>
-          ))}
+            ))
+          )}
         </div>
       </div>
+      {extraRows.length > 0 && (
+        <div className="bg-white rounded-2xl border border-slate-200/90 p-6 shadow-xs">
+          <h3 className="font-bold text-sm text-slate-900 mb-5">Additional Details</h3>
+          <div className="space-y-3.5 text-xs">
+            {extraRows.map(([label, val]) => (
+              <div key={label} className="flex items-center justify-between gap-3">
+                <span className="text-slate-400 font-normal shrink-0">{label}</span>
+                <span className="text-slate-900 font-semibold text-right truncate min-w-0 lg:min-w-auto">{val}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -2865,7 +2840,7 @@ function UsersProductsTab({ lead, onCountsChange, onActivity }) {
   }), [products, productSearch, productFilter]);
 
   const availableEmployees = useMemo(
-    () => useCrmStore.getState().teamMembers.filter((member) => !users.some((user) => user.name === member.name)),
+    () => withSampleTeam(useCrmStore.getState().teamMembers).filter((member) => !users.some((user) => user.name === member.name)),
     [users],
   );
 
@@ -2875,7 +2850,7 @@ function UsersProductsTab({ lead, onCountsChange, onActivity }) {
   }, [lead?.id, users, products, users.length, products.length, onCountsChange]);
 
   function addUser() {
-    const employee = useCrmStore.getState().teamMembers.find((item) => item.id === selectedEmployeeId);
+    const employee = withSampleTeam(useCrmStore.getState().teamMembers).find((item) => item.id === selectedEmployeeId);
     if (!employee) return;
     setUsers((current) => [
       ...current,
@@ -3418,16 +3393,34 @@ export default function LeadDetailView({ lead, onBackToLeads }) {
   const [isEditOpen, setIsEditOpen] = useState(false);
   const [editForm, setEditForm] = useState(null);
   const storedDetailState = useLeadDetailState(lead);
-  const storeLeads = useCrmStore((s) => s.leads);
   const [activeTab, setActiveTab] = useState('Users & Products');
-  const { addCustomer, showToast } = useERP() || {};
-  const [isConverted, setIsConverted] = useState(lead?.status === 'Converted');
+  const { addCustomer, showToast, customers } = useERP() || {};
+  const isLeadConverted = Boolean(
+    lead?.isConverted ||
+    lead?.customValues?.isConverted ||
+    viewLead?.isConverted ||
+    viewLead?.customValues?.isConverted ||
+    lead?.status === 'Converted' ||
+    viewLead?.status === 'Converted' ||
+    lead?.party ||
+    lead?.partyId ||
+    viewLead?.party ||
+    viewLead?.partyId ||
+    customers?.some((c) => (
+      (lead?.company && c.name?.toLowerCase() === lead?.company?.toLowerCase()) ||
+      (lead?.name && c.name?.toLowerCase() === lead?.name?.toLowerCase()) ||
+      (lead?.email && c.email && c.email?.toLowerCase() === lead?.email?.toLowerCase())
+    ))
+  );
+  const [isConverted, setIsConverted] = useState(() => isLeadConverted);
+  const [isLost, setIsLost] = useState(/lost|closed/i.test(String(lead?.status || '')));
   const [isExportOpen, setIsExportOpen] = useState(false);
 
   useEffect(() => {
     setViewLead(lead);
-    setIsConverted(lead?.status === 'Converted');
-  }, [lead]);
+    setIsConverted((prev) => prev || isLeadConverted);
+    setIsLost(/lost|closed/i.test(String(lead?.status || '')));
+  }, [lead, isLeadConverted]);
   const [detailCounts, setDetailCounts] = useState(() => ({
     users: storedDetailState.users.length,
     products: storedDetailState.products.length,
@@ -3450,34 +3443,24 @@ export default function LeadDetailView({ lead, onBackToLeads }) {
   }, [viewLead?.id, lead?.id]);
 
   const updateDetailCounts = React.useCallback((counts) => {
-    setDetailCounts((current) => ({ ...current, ...counts }));
+    if (!counts) return;
+    setDetailCounts((current) => {
+      let changed = false;
+      for (const [k, v] of Object.entries(counts)) {
+        if (current[k] !== v) {
+          changed = true;
+          break;
+        }
+      }
+      return changed ? { ...current, ...counts } : current;
+    });
   }, []);
 
+  // Sync converted deal, activities, and task counts when lead or detail state updates
   React.useEffect(() => {
-    updateStoredLead(viewLead?.id ?? lead?.id, {
-      status: isConverted ? 'Converted' : (viewLead?.status ?? lead?.status),
-      productsCount: detailCounts.products,
-      sourcesCount: detailCounts.sources,
-      filesCount: detailCounts.files,
-      openTasksCount: detailCounts.openTasks,
-      callsCount: detailCounts.calls,
-      estimatesCount: detailCounts.estimates,
-      deliveryChallansCount: detailCounts.challans,
-    });
-  }, [viewLead?.id, lead?.id, viewLead?.status, lead?.status, isConverted, detailCounts]);
-
-  // The lead row and its sections both live in the CRM stores now, so this only
-  // has to react to them rather than re-reading a browser cache.
-  React.useEffect(() => {
-    const target = viewLead ?? lead;
-    if (!target?.id) return;
-    const freshLead = storeLeads.find((row) => String(row.id) === String(target.id));
-    if (freshLead) {
-      setViewLead((current) => (
-        JSON.stringify(current) === JSON.stringify(freshLead) ? current : freshLead
-      ));
-    }
-    setConvertedDeal(findDealForLead(target.id));
+    const targetId = lead?.id || viewLead?.id;
+    if (!targetId) return;
+    setConvertedDeal(findDealForLead(targetId));
 
     const incoming = storedDetailState.activities || [];
     setActivities((current) => {
@@ -3489,7 +3472,7 @@ export default function LeadDetailView({ lead, onBackToLeads }) {
 
     const openTasks = (storedDetailState.tasks || []).filter((t) => t.status !== 'Completed').length;
     setDetailCounts((current) => (current.openTasks === openTasks ? current : { ...current, openTasks }));
-  }, [viewLead, lead, storeLeads, storedDetailState]);
+  }, [lead?.id, viewLead?.id, storedDetailState]);
 
   function openEditLead() {
     const source = viewLead ?? lead;
@@ -3596,28 +3579,99 @@ export default function LeadDetailView({ lead, onBackToLeads }) {
   ];
 
   const handleConvert = () => {
-    if (isConverted) {
+    if (isConverted || isLeadConverted) {
       showToast?.('Lead is already converted to an active Customer.');
       return;
     }
-    addCustomer?.({
-      name: activeLeadData.company || activeLeadData.name,
-      contactPerson: activeLeadData.name,
-      email: activeLeadData.email,
-      phone: `+91 ${activeLeadData.phone}`,
-      balance: 0,
-      status: 'Active',
-    });
+    if (isLost) {
+      showToast?.('Lead is marked as Lost — reopen it before converting.');
+      return;
+    }
+    const customerName = activeLeadData.company || activeLeadData.name;
+    const customerEmail = activeLeadData.email;
+    const alreadyExists = customers?.some((c) => (
+      (customerName && c.name?.toLowerCase() === customerName.toLowerCase()) ||
+      (customerEmail && c.email && c.email.toLowerCase() === customerEmail.toLowerCase())
+    ));
+    if (!alreadyExists) {
+      addCustomer?.({
+        name: customerName,
+        contactPerson: activeLeadData.name,
+        email: customerEmail,
+        phone: `+91 ${activeLeadData.phone}`,
+        balance: 0,
+        status: 'Active',
+      });
+    }
+    const targetId = viewLead?.id ?? lead?.id;
+    const prevStatus = viewLead?.status ?? lead?.status ?? '';
+    const crmState = useCrmStore.getState();
+    const wonStage = [...(crmState.stages || [])].find(
+      (stage) => stage.isActive !== false && (stage.isWon || stage.is_won || /won|convert/i.test(String(stage.name || ''))),
+    );
+    const convertedStatus = wonStage?.name || 'Converted';
+    const nextCustomValues = {
+      ...((viewLead ?? lead)?.customValues || {}),
+      isConverted: true,
+      convertedAt: new Date().toISOString(),
+    };
+    const updates = {
+      status: convertedStatus,
+      isConverted: true,
+      customValues: nextCustomValues,
+      ...(wonStage?.id ? { stageId: wonStage.id } : {}),
+    };
+    updateStoredLead(targetId, updates);
+    setViewLead((current) => ({ ...(current ?? lead), ...updates }));
     setIsConverted(true);
+    try {
+      runLeadStageAutomation({ ...(viewLead ?? lead), ...updates }, convertedStatus, { previousStage: prevStatus });
+    } catch (e) {
+      console.error('[CRM Automation] Error in convert automation:', e);
+    }
+    logActivity('Lead converted to Customer', '#10b981');
     showToast?.(`Lead "${activeLeadData.name}" converted to Customer.`);
   };
 
-  const displayName = activeLeadData.name?.replace(/\s*\(Sample\)/i, '') || 'Christopher Maclead';
+  const handleLost = () => {
+    if (isLost) {
+      showToast?.('Lead is already marked as Lost.');
+      return;
+    }
+    if (isConverted) {
+      showToast?.('Lead is already converted — cannot mark it as Lost.');
+      return;
+    }
+    const targetId = viewLead?.id ?? lead?.id;
+    const prevStatus = viewLead?.status ?? lead?.status ?? '';
+    // Find the workspace's Lost stage when one exists, so the Lost lead
+    // lands in the right pipeline column everywhere.
+    const crmState = useCrmStore.getState();
+    const lostStage = [...(crmState.stages || [])].find(
+      (stage) => stage.isActive !== false && /lost|closed/i.test(String(stage.name || '')),
+    );
+    const lostStatus = lostStage?.name || 'Lost';
+    updateStoredLead(targetId, {
+      status: lostStatus,
+      ...(lostStage?.id ? { stageId: lostStage.id } : {}),
+    });
+    setViewLead((current) => ({ ...(current ?? lead), status: lostStatus }));
+    setIsLost(true);
+    try {
+      runLeadStageAutomation({ ...(viewLead ?? lead), status: lostStatus }, lostStatus, { previousStage: prevStatus });
+    } catch (e) {
+      console.error('[CRM Automation] Error in lost-stage automation:', e);
+    }
+    logActivity('Lead marked as Lost', '#ef4444');
+    showToast?.(`Lead "${activeLeadData.name}" marked as Lost.`);
+  };
+
+  const displayName = activeLeadData.name?.replace(/\s*\(Sample\)/i, '') || 'Untitled Lead';
 
   return (
     <div className="space-y-4">
       <div className="card p-3 text-xs text-slate-600">
-        {convertedDeal ? <>Converted to Deal: {convertedDeal.id} <Link className="ml-2 text-blue-600 hover:underline" to={`/crm/deals?deal=${encodeURIComponent(convertedDeal.id)}`}>View Deal</Link></> : 'Not converted / No Deal'}
+        {convertedDeal ? <>Converted to Deal: {convertedDeal.id} <Link className="ml-2 text-blue-600 hover:underline" to={`/crm/deals?deal=${encodeURIComponent(convertedDeal.id)}`}>View Deal</Link></> : (isConverted ? <span className="text-emerald-600 font-semibold">Converted to Customer</span> : (isLost ? <span className="text-rose-600 font-semibold">Lost — not converted / no deal</span> : 'Not converted / No Deal'))}
       </div>
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pt-0.5">
         <div className="flex flex-wrap lg:flex-nowrap items-center gap-2 min-w-0 lg:min-w-auto text-xs font-medium text-slate-500">
@@ -3646,13 +3700,28 @@ export default function LeadDetailView({ lead, onBackToLeads }) {
           <button
             type="button"
             onClick={handleConvert}
-            className={`inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-xs font-semibold shadow-xs transition cursor-pointer ${
+            disabled={isConverted || isLost}
+            className={`inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-xs font-semibold shadow-xs transition ${
               isConverted
-                ? 'bg-emerald-600 text-white hover:bg-emerald-700'
-                : 'bg-white hover:bg-blue-50 text-blue-600 border border-blue-200'
+                ? 'bg-emerald-600 text-white cursor-not-allowed opacity-90'
+                : 'bg-white hover:bg-blue-50 text-blue-600 border border-blue-200 cursor-pointer'
             }`}
           >
             <CheckCircle size={13} /> {isConverted ? 'Converted' : 'Convert'}
+          </button>
+          <button
+            type="button"
+            onClick={handleLost}
+            disabled={isConverted || isLost}
+            className={`inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-xs font-semibold shadow-xs transition ${
+              isLost
+                ? 'bg-rose-600 text-white cursor-not-allowed'
+                : isConverted
+                  ? 'bg-slate-100 text-slate-400 border border-slate-200 cursor-not-allowed'
+                  : 'bg-white hover:bg-rose-50 text-rose-600 border border-rose-200 cursor-pointer'
+            }`}
+          >
+            <XCircle size={13} /> {isLost ? 'Lost' : 'Mark Lost'}
           </button>
           <button
             type="button"
@@ -3689,24 +3758,33 @@ export default function LeadDetailView({ lead, onBackToLeads }) {
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-5">
           <div className="flex items-center gap-4 min-w-0 lg:min-w-auto">
             <div className="w-16 h-16 rounded-full overflow-hidden shrink-0 shadow-xs border border-slate-100 ring-2 ring-slate-50">
-              <img
-                src={activeLeadData.photo || 'https://i.pravatar.cc/160?img=60'}
-                alt={displayName}
-                className="w-full h-full object-cover"
-              />
+              {activeLeadData.photo ? (
+                <img
+                  src={activeLeadData.photo}
+                  alt={displayName}
+                  className="w-full h-full object-cover"
+                />
+              ) : (
+                <span
+                  className="w-full h-full grid place-items-center text-xl font-bold text-white"
+                  style={{ backgroundColor: activeLeadData.avatarColor || '#2F6FED' }}
+                >
+                  {getInitials(displayName)}
+                </span>
+              )}
             </div>
             <div className="space-y-1 min-w-0 lg:min-w-auto">
               <div className="flex flex-wrap lg:flex-nowrap items-center gap-2.5">
                 <h1 className="text-xl font-bold text-slate-900 tracking-tight break-words">{displayName}</h1>
-                <span className="px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200">
-                  {isConverted ? 'Converted' : (activeLeadData.status || 'Qualified')}
+                <span className={`px-2.5 py-0.5 rounded-full text-[11px] font-semibold border ${isConverted ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : (isLost ? 'bg-rose-50 text-rose-700 border-rose-200' : 'bg-blue-50 text-blue-700 border-blue-200')}`}>
+                  {isConverted ? 'Converted' : (isLost ? (activeLeadData.status || 'Lost') : (activeLeadData.status || '—'))}
                 </span>
               </div>
-              <p className="text-xs text-slate-500 font-medium">{activeLeadData.company || 'Hirapara Industries'}</p>
+              <p className="text-xs text-slate-500 font-medium">{activeLeadData.company || '—'}</p>
               <div className="flex flex-wrap items-center gap-4 text-xs text-slate-500 pt-0.5">
-                <span className="flex items-center gap-1.5"><Phone size={13} className="text-slate-400" /> +91 {activeLeadData.phone || '98765 43210'}</span>
-                <span className="flex items-center gap-1.5 min-w-0 lg:min-w-auto break-all"><Mail size={13} className="text-slate-400 shrink-0 lg:shrink" /> {activeLeadData.email || 'chirag@hirapara.com'}</span>
-                <span className="flex items-center gap-1.5"><MapPin size={13} className="text-slate-400" /> {activeLeadData.city || 'Surat'}, {activeLeadData.state || 'Gujarat'}, {activeLeadData.country || 'India'}</span>
+                <span className="flex items-center gap-1.5"><Phone size={13} className="text-slate-400" /> {activeLeadData.phone ? `+91 ${activeLeadData.phone}` : '—'}</span>
+                <span className="flex items-center gap-1.5 min-w-0 lg:min-w-auto break-all"><Mail size={13} className="text-slate-400 shrink-0 lg:shrink" /> {activeLeadData.email || '—'}</span>
+                <span className="flex items-center gap-1.5"><MapPin size={13} className="text-slate-400" /> {[activeLeadData.city, activeLeadData.state, activeLeadData.country].filter(Boolean).join(', ') || '—'}</span>
               </div>
             </div>
           </div>
@@ -3714,21 +3792,21 @@ export default function LeadDetailView({ lead, onBackToLeads }) {
           <div className="grid grid-cols-2 sm:grid-cols-3 gap-6 text-xs border-t md:border-t-0 md:border-l border-slate-100 pt-3 md:pt-0 md:pl-8">
             <div>
               <span className="text-[11px] text-slate-400 block font-normal mb-1">Lead Number</span>
-              <strong className="text-xs font-bold text-slate-900 font-mono">{activeLeadData.leadNumber || 'L00000185'}</strong>
+              <strong className="text-xs font-bold text-slate-900 font-mono">{activeLeadData.leadNumber || '—'}</strong>
             </div>
             <div>
               <span className="text-[11px] text-slate-400 block font-normal mb-1">Source</span>
-              <strong className="text-xs font-bold text-slate-900">{activeLeadData.source || 'Website'}</strong>
+              <strong className="text-xs font-bold text-slate-900">{activeLeadData.source || '—'}</strong>
             </div>
             <div>
               <span className="text-[11px] text-slate-400 block font-normal mb-1">Created On</span>
-              <strong className="text-xs font-bold text-slate-900">{activeLeadData.createdOn || '27/08/2026'}</strong>
+              <strong className="text-xs font-bold text-slate-900">{activeLeadData.createdOn || '—'}</strong>
             </div>
           </div>
         </div>
       </div>
 
-      <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-3">
+      <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-3.5 my-4">
         {metrics.map((m, index) => (
           <CrmKpiCard key={m.label} label={m.label} value={m.value} icon={m.icon} tone={['rose', 'emerald', 'purple', 'amber', 'blue', 'teal', 'orange'][index]} />
         ))}
@@ -3809,14 +3887,9 @@ export default function LeadDetailView({ lead, onBackToLeads }) {
                 Lead Source
                 <select className="border border-slate-200 rounded-lg px-3 py-2 text-xs font-normal text-slate-900 outline-none focus:border-blue-400 bg-white" value={editForm.source} onChange={(e) => updateEditField('source', e.target.value)}>
                   <option value="">Select source</option>
-                  <option value="Website">Website</option>
-                  <option value="Cold Call">Cold Call</option>
-                  <option value="Advertisement">Advertisement</option>
-                  <option value="Partner">Partner</option>
-                  <option value="Web Download">Web Download</option>
-                  <option value="Online Store">Online Store</option>
-                  <option value="External Referral">External Referral</option>
-                  <option value="Seminar Partner">Seminar Partner</option>
+                  {Array.from(new Set(['Broker', 'Sales Person', editForm.source].filter(Boolean))).map((s) => (
+                    <option key={s} value={s}>{s}</option>
+                  ))}
                 </select>
               </label>
               <label className="flex flex-col gap-1 text-xs font-semibold text-slate-600">
@@ -3841,7 +3914,7 @@ export default function LeadDetailView({ lead, onBackToLeads }) {
               </label>
               <label className="flex flex-col gap-1 text-xs font-semibold text-slate-600">
                 Lead Number
-                <input className="border border-slate-200 rounded-lg px-3 py-2 text-xs font-normal text-slate-900 outline-none focus:border-blue-400" value={editForm.leadNumber} onChange={(e) => updateEditField('leadNumber', e.target.value)} placeholder="L00000185" />
+                <input className="border border-slate-200 rounded-lg px-3 py-2 text-xs font-normal text-slate-900 outline-none focus:border-blue-400" value={editForm.leadNumber} onChange={(e) => updateEditField('leadNumber', e.target.value)} placeholder="L-001" />
               </label>
               <label className="flex flex-col gap-1 text-xs font-semibold text-slate-600">
                 City
