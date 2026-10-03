@@ -213,10 +213,28 @@ export function normalizeSection(section, rows) {
         };
       });
     case 'timeline':
-    case 'activities':
-      // Server timeline rows already match what ActivityTab renders
-      // ({type, id, at, title, body, actor}); keep them verbatim.
-      return list;
+    case 'activities': {
+      const DOT_COLOR = {
+        email: '#3b82f6',
+        sent: '#10b981',
+        note: '#f59e0b',
+        call: '#8b5cf6',
+        task: '#ef4444',
+        activity: '#94a3b8',
+      };
+      return list
+        .filter((row) => {
+          if (row.type === 'activity' && (!row.title || row.title === 'update')) return false;
+          return true;
+        })
+        .map((row) => ({
+          ...row,
+          date: displayDateTime(row.at || row.date),
+          author: text(row.actor || row.author, '—'),
+          preview: text(row.body || row.preview, ''),
+          dotColor: row.dotColor || DOT_COLOR[row.type] || '#94a3b8',
+        }));
+    }
     default:
       return list;
   }

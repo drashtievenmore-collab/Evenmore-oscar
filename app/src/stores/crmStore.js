@@ -158,7 +158,7 @@ const useCrmStoreBase = create((set, get) => ({
       set((s) => ({
         [key]: (s[key] || []).map((r) => {
           if (r.id !== id) return r;
-          return saved || { ...r, ...updates, _pending: false };
+          return saved ? { ...r, ...saved, ...updates, _pending: false } : { ...r, ...updates, _pending: false };
         }),
       }));
       return saved;

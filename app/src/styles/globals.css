@@ -1486,7 +1486,8 @@ img { display: block; max-width: 100%; }
   background: var(--primary);
   color: #fff;
 }
-.btn-primary:hover { background: var(--primary-dark); }
+.btn-primary:hover { background: var(--primary-dark); transform: translateY(-1px); box-shadow: 0 6px 14px -6px rgba(31, 107, 255, 0.5); }
+.btn-primary:active { transform: translateY(0); }
 .btn-primary:disabled { cursor: not-allowed; opacity: 0.55; background: var(--muted); }
 
 .btn-outline {
@@ -1497,7 +1498,10 @@ img { display: block; max-width: 100%; }
 .btn-outline:hover {
   background: var(--soft);
   border-color: var(--primary);
+  transform: translateY(-1px);
+  box-shadow: 0 6px 14px -8px rgba(15, 23, 42, 0.25);
 }
+.btn-outline:active { transform: translateY(0); }
 
 .btn-ghost {
   background: transparent;

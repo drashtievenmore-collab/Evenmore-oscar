@@ -89,6 +89,7 @@ const NAV = [
         defaultOpen: true,
         children: [
           { label: 'Leads', to: '/crm/leads', dot: true },
+          { label: 'Lost Leads', to: '/crm/leads/lost' },
           { label: 'Lead Create Form', to: '/crm/leads/forms' },
           { label: 'Lead Tasks Master', to: '/crm/leads/tasks-master' },
           { label: 'Lead Task Form', to: '/crm/leads/task-form' },

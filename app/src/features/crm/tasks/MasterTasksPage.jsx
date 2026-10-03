@@ -358,7 +358,7 @@ export default function MasterTasksPage() {
         text="Create reusable tasks such as calls, demos and quotations once, then link them to the relevant lead stages. Set the responsible role, department, priority and due days so your team follows a consistent process for every lead."
       />
 
-      <div className="bg-white rounded-2xl border border-slate-200 shadow-xs overflow-hidden">
+      <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
         <div className="flex flex-col lg:flex-row lg:items-center gap-2.5 p-3.5 border-b border-slate-100">
           <div className="relative flex-1 min-w-0">
             <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
@@ -366,7 +366,7 @@ export default function MasterTasksPage() {
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               placeholder="Search task name, role or department..."
-              className="w-full pl-9 pr-3 py-2 bg-white border border-slate-200 rounded-lg text-xs text-slate-800 focus:outline-none focus:border-blue-500"
+              className="w-full pl-9 pr-3 py-2 bg-slate-50/60 border border-slate-200 rounded-lg text-xs text-slate-800 focus:outline-none focus:border-blue-500 focus:bg-white transition"
             />
           </div>
           <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
@@ -410,7 +410,7 @@ export default function MasterTasksPage() {
         <div className="overflow-x-auto">
           <table className="w-full text-left text-xs border-collapse min-w-[1020px]">
             <thead>
-              <tr className="border-b border-slate-100 text-[11px] font-bold text-slate-500 uppercase tracking-wider">
+              <tr className="border-b border-slate-100 bg-slate-50/60 text-[11px] font-bold text-slate-500 uppercase tracking-wider">
                 <th className="px-4 py-3 w-10">
                   <input type="checkbox" checked={allChecked} onChange={toggleSelectPage} className="w-4 h-4 rounded border-slate-300 cursor-pointer" />
                 </th>
@@ -439,7 +439,7 @@ export default function MasterTasksPage() {
                 const visibleStages = (t.stages || []).slice(0, 2);
                 const extra = (t.stages || []).length - visibleStages.length;
                 return (
-                  <tr key={t.id} className="hover:bg-slate-50/60 transition">
+                  <tr key={t.id} className="transition hover:bg-blue-50/40 hover:shadow-[inset_3px_0_0_0_#2f6fed]">
                     <td className="px-4 py-3">
                       <input type="checkbox" checked={selected.includes(t.id)} onChange={() => toggleSelect(t.id)} className="w-4 h-4 rounded border-slate-300 cursor-pointer" />
                     </td>
@@ -455,7 +455,7 @@ export default function MasterTasksPage() {
                     <td className="px-3 py-3">
                       <span className="inline-flex items-center gap-1.5 flex-wrap">
                         {visibleStages.map((s) => (
-                          <span key={s} className={`px-2 py-0.5 rounded-md border text-[10px] font-semibold whitespace-nowrap ${STAGE_STYLES[s] || 'bg-slate-50 text-slate-600 border-slate-200'}`}>{s}</span>
+                          <span key={s} className={`px-2 py-0.5 rounded-full border text-[10px] font-semibold whitespace-nowrap ${STAGE_STYLES[s] || 'bg-slate-50 text-slate-600 border-slate-200'}`}>{s}</span>
                         ))}
                         {extra > 0 && <span className="px-1.5 py-0.5 rounded-md bg-slate-100 text-slate-500 text-[10px] font-bold border border-slate-200">+{extra}</span>}
                       </span>
@@ -463,14 +463,14 @@ export default function MasterTasksPage() {
                     <td className="px-3 py-3 text-slate-600 font-medium whitespace-nowrap">{t.role}</td>
                     <td className="px-3 py-3 text-slate-600 whitespace-nowrap">{t.department}</td>
                     <td className="px-3 py-3">
-                      <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md border text-[11px] font-bold ${priorityPill(t.priority)}`}>
+                      <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full border text-[11px] font-bold ${priorityPill(t.priority)}`}>
                         {t.priority === 'Low' ? <ArrowDown size={11} /> : <ArrowUp size={11} />} {t.priority}
                       </span>
                     </td>
                     <td className="px-3 py-3 text-slate-600 text-center">{t.dueIn}</td>
                     <td className="px-3 py-3">
                       <button type="button" onClick={() => toggleStatus(t.id)} title="Toggle status" className="inline-flex items-center gap-1.5 text-[11px] font-semibold text-slate-600 hover:text-slate-900">
-                        <span className={`w-2 h-2 rounded-full ${t.status === 'Active' ? 'bg-emerald-500' : 'bg-slate-300'}`} /> {t.status}
+                        <span className={`w-2 h-2 rounded-full ${t.status === 'Active' ? 'bg-emerald-500 animate-pulse' : 'bg-slate-300'}`} /> {t.status}
                       </button>
                     </td>
                     <td className="px-4 py-3">

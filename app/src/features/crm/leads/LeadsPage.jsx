@@ -957,6 +957,15 @@ export default function LeadsPage() {
           <div className="flex flex-wrap items-center gap-3">
             <button
               type="button"
+              onClick={() => setIsGuideOpen(true)}
+              aria-label="How to create a lead"
+              className="group inline-flex h-[38px] items-center gap-2 rounded-[10px] border border-blue-200 bg-gradient-to-r from-blue-50 via-indigo-50 to-blue-50 pl-1.5 pr-3.5 text-[13px] font-semibold text-blue-700 shadow-sm transition-all duration-200 hover:-translate-y-px hover:border-blue-400 hover:shadow-md hover:shadow-blue-500/15"
+            >
+              <span className="grid h-7 w-7 place-items-center rounded-lg bg-gradient-to-br from-blue-500 to-indigo-600 text-[13px] font-bold text-white shadow-sm transition-transform duration-200 group-hover:scale-105 group-hover:rotate-6">?</span>
+              How to create a lead?
+            </button>
+            <button
+              type="button"
               onClick={() => setIsImportOpen(true)}
               className="btn-outline"
             >
@@ -999,7 +1008,6 @@ export default function LeadsPage() {
         onClearSort={clearSort}
         leadView={leadView}
         onLeadViewChange={setLeadView}
-        onOpenGuide={() => setIsGuideOpen(true)}
         recordActionLead={recordActionLead}
         recordActionLeads={selectedLeads}
         onCloseRecordAction={clearSelected}

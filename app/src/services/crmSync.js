@@ -61,7 +61,18 @@ export function avatarColorFor(seed) {
 // ── leads ───────────────────────────────────────────────────────────────────
 
 function leadFromApi(row) {
-  const customValues = row.customValues && typeof row.customValues === 'object' ? row.customValues : undefined;
+  const customValues = (row.customValues && typeof row.customValues === 'object')
+    ? row.customValues
+    : (row.custom_values && typeof row.custom_values === 'object' ? row.custom_values : undefined);
+  const isConverted = Boolean(
+    customValues?.isConverted ||
+    row.isConverted ||
+    row.status === 'Converted' ||
+    row.party ||
+    row.partyId ||
+    row.converted_deal ||
+    row.convertedDealId
+  );
   return {
     ...asText(row, [
       'name', 'company', 'phone', 'email', 'owner', 'city', 'state',
@@ -69,24 +80,18 @@ function leadFromApi(row) {
     ]),
     id: row.id,
     leadNumber: row.leadNumber || row.lead_number || '',
-    // Backend stores the stage FK; `status` is the stage name derived server-side.
     stageId: row.stageId || row.stage_id || '',
-    status: row.status || row.stageName || '',
+    status: isConverted ? 'Converted' : (row.status || row.stageName || ''),
+    isConverted,
     sourceId: row.sourceId || row.source_id || undefined,
     ownerId: row.ownerId || row.owner_id || undefined,
-    // Backend key is `party` (PK); the UI also reads `partyId`.
     party: row.party || row.partyId || undefined,
     partyId: row.partyId || row.party || undefined,
     lostReason: row.lostReason || row.lost_reason || undefined,
     isPinned: row.isPinned ?? row.is_pinned ?? false,
     createdOn: displayIn(row.createdOn || row.created_on),
-    // Extra capture from the create form (products, lead users, task
-    // schedule) — kept verbatim so the detail page can render it.
     customValues,
-    // Avatar lives inside customValues (no dedicated column) — lift it back
-    // to the top level so table/detail avatars render it.
     photo: row.photo || customValues?.photo || undefined,
-    // The list groups by stage name; the record stores the id.
     avatarColor: row.avatarColor || row.avatar_color || avatarColorFor(row.id || row.name),
     amount: num(row.amount),
     latitude: row.latitude ?? undefined,
@@ -321,6 +326,11 @@ export const CRM_RESOURCES = {
       order: t.order ?? t.sortOrder ?? undefined,
       dueIn: t.dueIn ?? t.offsetDays ?? undefined,
       priority: t.priority || undefined,
+      required: t.required ?? undefined,
+      autoCreate: t.autoCreate ?? undefined,
+      // Null is meaningful (cleared back to "create once") — only undefined
+      // means "leave the server value alone".
+      repeats: t.repeats === undefined ? undefined : t.repeats,
       isActive: t.isActive ?? undefined,
     }),
     fromApi: (row) => ({

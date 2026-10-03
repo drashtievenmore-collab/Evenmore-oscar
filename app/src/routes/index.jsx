@@ -8,6 +8,7 @@ import { PageLoadingSkeleton } from '../components/common/PageLoadingSkeleton';
 
 // ── CRM (Lazy Loaded) ───────────────────────────────────────
 const LeadsPage = lazy(() => import('../features/crm/leads/LeadsPage'));
+const LostLeadsPage = lazy(() => import('../features/crm/leads/LostLeadsPage'));
 const LeadDetailPage = lazy(() => import('../features/crm/leads/LeadDetailPage'));
 const LeadFormBuilderPage = lazy(() => import('../features/crm/leads/LeadFormBuilderPage'));
 const LeadFormsPage = lazy(() => import('../features/crm/leads/LeadFormsPage'));
@@ -260,6 +261,7 @@ const router = createBrowserRouter([
       // ── CRM ───────────────────────────────────────────────
       { path: 'crm', element: <Navigate to="/crm/leads" replace /> },
       { path: 'crm/leads', element: <Page component={LeadsPage} /> },
+      { path: 'crm/leads/lost', element: <Page component={LostLeadsPage} /> },
       { path: 'crm/leads/:id', element: <Page component={LeadDetailPage} /> },
       { path: 'crm/leads/forms', element: <Page component={LeadFormsPage} /> },
       { path: 'crm/leads/tasks-master', element: <Page component={MasterTasksPage} /> },

@@ -56,6 +56,7 @@ import {
   Link2,
   X,
   Users,
+  XCircle,
 } from 'lucide-react';
 import LeadAvatar from './LeadAvatar';
 import LeadFormBuilder from './LeadFormBuilder';
@@ -420,14 +421,6 @@ function SourcesAndEmailsTab({ lead, onCountsChange, onActivity }) {
 
   React.useEffect(() => {
     updateStoredLeadDetail(lead?.id, { sources: sources.map((s) => ({ ...s, icon: sourceIconName(s.icon) })), emails, timeline });
-  }, [lead?.id, sources, emails, timeline]);
-
-  React.useEffect(() => {
-    onCountsChange?.({ sources: sources.length });
-  }, [sources.length, onCountsChange]);
-
-  React.useEffect(() => {
-    updateStoredLeadDetail(lead?.id, { sources, emails, timeline });
   }, [lead?.id, sources, emails, timeline]);
 
   React.useEffect(() => {
@@ -824,33 +817,43 @@ function SourcesAndEmailsTab({ lead, onCountsChange, onActivity }) {
       {/* Bottom Card: Email Activity Timeline */}
       <div className="card p-5 space-y-4">
         <h3 className="font-bold text-sm" style={{ color: 'var(--text)' }}>Email Activity Timeline</h3>
-        <div className="relative pl-6 space-y-6 before:absolute before:left-2 before:top-2 before:bottom-2 before:w-0.5 before:bg-slate-200 dark:before:bg-slate-700">
-          {timeline.map((item) => (
-            <div key={item.id} className="relative flex items-start justify-between gap-4">
-              <span
-                className="absolute -left-6 top-1 w-4 h-4 rounded-full border-2 border-white dark:border-slate-800 flex items-center justify-center"
-                style={{ background: item.dotColor }}
-              />
-              <div className="space-y-1 max-w-2xl">
-                <div className="flex items-center gap-2">
+        {(() => {
+          const emailEntries = timeline.filter((item) => item.type === 'email' || item.type === 'sent');
+          if (emailEntries.length === 0) {
+            return (
+              <p className="text-xs py-4 text-center" style={{ color: 'var(--muted)' }}>No email activity recorded.</p>
+            );
+          }
+          return (
+            <div className="relative pl-6 space-y-6 before:absolute before:left-2 before:top-2 before:bottom-2 before:w-0.5 before:bg-slate-200 dark:before:bg-slate-700">
+              {emailEntries.map((item) => (
+                <div key={item.id} className="relative flex items-start justify-between gap-4">
                   <span
-                    className={`px-1.5 py-0.5 rounded text-[10px] font-bold uppercase ${
-                      item.type === 'sent' ? 'bg-emerald-50 text-emerald-700' : 'bg-slate-100 text-slate-700'
-                    }`}
-                  >
-                    Email {item.type}
-                  </span>
-                  <strong className="text-xs font-bold" style={{ color: 'var(--text)' }}>{item.title}</strong>
+                    className="absolute -left-6 top-1 w-4 h-4 rounded-full border-2 border-white dark:border-slate-800 flex items-center justify-center"
+                    style={{ background: item.dotColor }}
+                  />
+                  <div className="space-y-1 max-w-2xl">
+                    <div className="flex items-center gap-2">
+                      <span
+                        className={`px-1.5 py-0.5 rounded text-[10px] font-bold uppercase ${
+                          item.type === 'sent' ? 'bg-emerald-50 text-emerald-700' : 'bg-blue-50 text-blue-700'
+                        }`}
+                      >
+                        {item.type === 'sent' ? 'Sent' : 'Email'}
+                      </span>
+                      <strong className="text-xs font-bold" style={{ color: 'var(--text)' }}>{item.title}</strong>
+                    </div>
+                    <p className="text-xs leading-relaxed" style={{ color: 'var(--muted)' }}>{item.preview}</p>
+                  </div>
+                  <div className="text-right shrink-0">
+                    <time className="text-[11px] font-mono block" style={{ color: 'var(--muted)' }}>{item.date}</time>
+                    <span className="text-[11px] font-medium" style={{ color: 'var(--text-secondary)' }}>by {item.author}</span>
+                  </div>
                 </div>
-                <p className="text-xs leading-relaxed" style={{ color: 'var(--muted)' }}>{item.preview}</p>
-              </div>
-              <div className="text-right shrink-0">
-                <time className="text-[11px] font-mono block" style={{ color: 'var(--muted)' }}>{item.date}</time>
-                <span className="text-[11px] font-medium" style={{ color: 'var(--text-secondary)' }}>by {item.author}</span>
-              </div>
+              ))}
             </div>
-          ))}
-        </div>
+          );
+        })()}
       </div>
     </div>
   );
@@ -2583,81 +2586,22 @@ function ActivityTab({ lead, items }) {
 
 // ── Discussion & Notes Tab ────────────────────────────────────
 function DiscussionNotesTab({ lead, onActivity }) {
-  const storedThreads = useLeadDetailState(lead).threads;
-  // Frontend-only: when the server has no threads (or the lead is a local
-  // `lead-local-…` row with no server record), seed a default thread from
-  // the lead so the tab never renders blank.
-  const initialThreads = useMemo(() => {
-    if (Array.isArray(storedThreads) && storedThreads.length > 0) return storedThreads;
-    return [
-      {
-        id: `thread-${lead?.id || 'local'}`,
-        name: lead?.name || 'Lead Discussion',
-        note: lead?.company || 'General discussion',
-        kind: 'lead',
-        color: '#2F6FED',
-        messages: [],
-      },
-    ];
-  }, [storedThreads, lead?.id, lead?.name, lead?.company]);
-  const [threads, setThreads] = useState(initialThreads);
-  const [selectedThreadId, setSelectedThreadId] = useState(initialThreads[0]?.id ?? null);
-  const [messageDraft, setMessageDraft] = useState('');
   const [noteDraft, setNoteDraft] = useState('');
   const [pendingAttachments, setPendingAttachments] = useState([]);
   const [notesList, setNotesList] = useState([]);
 
-  const selectedThread = threads.find((t) => t.id === selectedThreadId) ?? threads[0];
-
-  // Server threads may arrive after first render — adopt them, and keep a
-  // selection when the seeded fallback is replaced.
-  useEffect(() => {
-    setThreads(initialThreads);
-    setSelectedThreadId((prev) => prev ?? initialThreads[0]?.id ?? null);
-  }, [initialThreads]);
-
-  function updateThreadMessages(threadId, updater) {
-    setThreads((current) => current.map((t) => (t.id === threadId ? { ...t, messages: updater(t.messages) } : t)));
-  }
-
-  function appendSystemMessage(threadId, body) {
-    updateThreadMessages(threadId, (messages) => [...messages, { id: `sys-${Date.now()}`, side: 'out', sender: 'System', body, time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) }]);
-  }
-
-  function handleSendMessage(event) {
-    event?.preventDefault();
-    if (!messageDraft.trim() || !selectedThread) return;
-    const body = messageDraft.trim();
-    updateThreadMessages(selectedThread.id, (messages) => [...messages, { id: `msg-${Date.now()}`, side: 'out', sender: 'You', body, time: 'Now' }]);
-    setMessageDraft('');
-    onActivity?.('Message sent in discussion', '#3b82f6');
-  }
-
-  function handleCallAction() {
-    if (!selectedThread) return;
-    appendSystemMessage(selectedThread.id, `Call logged with ${selectedThread.name}.`);
-    onActivity?.(`Call logged with ${selectedThread.name}`, '#3b82f6');
-  }
-
-  function handleMailAction() {
-    if (!selectedThread) return;
-    appendSystemMessage(selectedThread.id, `Email sent to ${selectedThread.name}.`);
-    onActivity?.(`Email sent to ${selectedThread.name}`, '#3b82f6');
-  }
-
-  function handleUserAction() {
-    if (!selectedThread) return;
-    appendSystemMessage(selectedThread.id, `Mentioned ${selectedThread.name} in a note.`);
-  }
-
   function handleSaveNote(event) {
     event?.preventDefault();
     const text = noteDraft.trim();
-    if ((!text && pendingAttachments.length === 0) || !selectedThread) return;
-    const entry = { id: `note-${Date.now()}`, body: text, attachments: [...pendingAttachments], time: new Date().toLocaleString([], { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' }), author: 'You' };
+    if (!text && pendingAttachments.length === 0) return;
+    const entry = {
+      id: `note-${Date.now()}`,
+      body: text,
+      attachments: [...pendingAttachments],
+      time: new Date().toLocaleString([], { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' }),
+      author: 'You',
+    };
     setNotesList((current) => [entry, ...current]);
-    if (text) appendSystemMessage(selectedThread.id, `Note: ${text}`);
-    else appendSystemMessage(selectedThread.id, `Note with ${pendingAttachments.length} attachment(s) added.`);
     setNoteDraft('');
     setPendingAttachments([]);
     onActivity?.('Note saved in discussion', '#8b5cf6');
@@ -2673,71 +2617,41 @@ function DiscussionNotesTab({ lead, onActivity }) {
     setPendingAttachments((current) => current.filter((a) => a.name !== name));
   }
 
-  function handleNoteFormatting(prefix, suffix) {
-    setNoteDraft((current) => formatNoteValue(current, null, prefix, suffix).nextValue);
-  }
-
-  function applyNoteCommand(command) {
-    if (command === 'bold') handleNoteFormatting('**');
-    if (command === 'italic') handleNoteFormatting('*');
-    if (command === 'call') handleCallAction();
-    if (command === 'mail') handleMailAction();
-  }
-
-  if (!selectedThread) {
-    return (
-      <div className="card p-8 text-center">
-        <p className="text-sm font-semibold text-slate-700">No discussions yet</p>
-        <p className="text-xs text-slate-500 mt-1">Start a conversation or save a note for this lead.</p>
-      </div>
-    );
-  }
-
   return (
     <div className="space-y-4">
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-        <div className="card p-3 space-y-2">
-          {threads.map((thread) => (
-            <button key={thread.id} type="button" onClick={() => setSelectedThreadId(thread.id)} className={`w-full text-left p-2 rounded-lg flex items-center gap-2 ${thread.id === selectedThread.id ? 'bg-blue-50' : 'hover:bg-slate-50'}`}>
-              <DiscussionAvatar thread={thread} lead={lead} />
-              <span className="min-w-0"><strong className="block text-xs truncate">{thread.name}</strong><span className="block text-[11px] text-slate-400 truncate">{thread.note}</span></span>
-            </button>
-          ))}
-        </div>
-        <div className="card p-4 space-y-3 lg:col-span-2">
-          <div className="space-y-2">
-            {(selectedThread.messages || []).length === 0 && (
-              <p className="text-[11px] text-slate-400">No messages yet. Write the first message below.</p>
-            )}
-            {(selectedThread.messages || []).map((m) => (
-              <div key={m.id} className={`text-xs p-2 rounded-lg ${m.side === 'out' ? 'bg-blue-50 ml-8' : 'bg-slate-100 mr-8'}`}>
-                <strong>{m.sender}</strong><p>{m.body}</p><span className="text-[10px] text-slate-400">{m.time}</span>
-              </div>
-            ))}
-          </div>
-          <form onSubmit={handleSendMessage} className="flex gap-2">
-            <input type="text" value={messageDraft} onChange={(e) => setMessageDraft(e.target.value)} placeholder="Write a message..." className="form-input text-xs flex-1" />
-            <button type="submit" className="btn-primary btn-sm flex items-center gap-1"><Send size={12} /> Send</button>
-          </form>
-        </div>
-      </div>
       <div className="card p-4">
         <h3 className="font-bold text-sm text-slate-900 mb-3">Notes</h3>
         <form onSubmit={handleSaveNote} className="space-y-2">
-          <textarea rows={3} value={noteDraft} onChange={(e) => setNoteDraft(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) handleSaveNote(e); }} placeholder="Write a note..." className="form-textarea text-xs w-full" />
+          <textarea
+            rows={3}
+            value={noteDraft}
+            onChange={(e) => setNoteDraft(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) handleSaveNote(e);
+            }}
+            placeholder="Write a note..."
+            className="form-textarea text-xs w-full"
+          />
           {pendingAttachments.length > 0 && (
             <div className="flex gap-1 flex-wrap">
               {pendingAttachments.map((a) => (
                 <span key={a.name} className="text-[11px] bg-slate-100 rounded-full px-2 py-0.5 flex items-center gap-1">
                   <Paperclip size={11} /> {a.name}
-                  <button type="button" onClick={() => removePendingAttachment(a.name)} aria-label={`Remove ${a.name}`}>×</button>
+                  <button type="button" onClick={() => removePendingAttachment(a.name)} aria-label={`Remove ${a.name}`}>
+                    ×
+                  </button>
                 </span>
               ))}
             </div>
           )}
           <div className="flex justify-between items-center">
-            <label className="btn-ghost btn-sm cursor-pointer flex items-center gap-1"><Paperclip size={12} /> Attach<input type="file" multiple hidden onChange={handleAttachmentSelect} /></label>
-            <button type="submit" disabled={!noteDraft.trim() && pendingAttachments.length === 0} className="btn-outline btn-sm disabled:opacity-50">Save Note</button>
+            <label className="btn-ghost btn-sm cursor-pointer flex items-center gap-1">
+              <Paperclip size={12} /> Attach
+              <input type="file" multiple hidden onChange={handleAttachmentSelect} />
+            </label>
+            <button type="submit" disabled={!noteDraft.trim() && pendingAttachments.length === 0} className="btn-outline btn-sm disabled:opacity-50">
+              Save Note
+            </button>
           </div>
         </form>
         {notesList.length > 0 && (
@@ -2754,7 +2668,9 @@ function DiscussionNotesTab({ lead, onActivity }) {
                     ))}
                   </div>
                 )}
-                <p className="text-[10px] text-slate-400 mt-1.5">{n.author} · {n.time}</p>
+                <p className="text-[10px] text-slate-400 mt-1.5">
+                  {n.author} · {n.time}
+                </p>
               </div>
             ))}
           </div>
@@ -3477,16 +3393,34 @@ export default function LeadDetailView({ lead, onBackToLeads }) {
   const [isEditOpen, setIsEditOpen] = useState(false);
   const [editForm, setEditForm] = useState(null);
   const storedDetailState = useLeadDetailState(lead);
-  const storeLeads = useCrmStore((s) => s.leads);
   const [activeTab, setActiveTab] = useState('Users & Products');
-  const { addCustomer, showToast } = useERP() || {};
-  const [isConverted, setIsConverted] = useState(lead?.status === 'Converted');
+  const { addCustomer, showToast, customers } = useERP() || {};
+  const isLeadConverted = Boolean(
+    lead?.isConverted ||
+    lead?.customValues?.isConverted ||
+    viewLead?.isConverted ||
+    viewLead?.customValues?.isConverted ||
+    lead?.status === 'Converted' ||
+    viewLead?.status === 'Converted' ||
+    lead?.party ||
+    lead?.partyId ||
+    viewLead?.party ||
+    viewLead?.partyId ||
+    customers?.some((c) => (
+      (lead?.company && c.name?.toLowerCase() === lead?.company?.toLowerCase()) ||
+      (lead?.name && c.name?.toLowerCase() === lead?.name?.toLowerCase()) ||
+      (lead?.email && c.email && c.email?.toLowerCase() === lead?.email?.toLowerCase())
+    ))
+  );
+  const [isConverted, setIsConverted] = useState(() => isLeadConverted);
+  const [isLost, setIsLost] = useState(/lost|closed/i.test(String(lead?.status || '')));
   const [isExportOpen, setIsExportOpen] = useState(false);
 
   useEffect(() => {
     setViewLead(lead);
-    setIsConverted(lead?.status === 'Converted');
-  }, [lead]);
+    setIsConverted((prev) => prev || isLeadConverted);
+    setIsLost(/lost|closed/i.test(String(lead?.status || '')));
+  }, [lead, isLeadConverted]);
   const [detailCounts, setDetailCounts] = useState(() => ({
     users: storedDetailState.users.length,
     products: storedDetailState.products.length,
@@ -3509,34 +3443,24 @@ export default function LeadDetailView({ lead, onBackToLeads }) {
   }, [viewLead?.id, lead?.id]);
 
   const updateDetailCounts = React.useCallback((counts) => {
-    setDetailCounts((current) => ({ ...current, ...counts }));
+    if (!counts) return;
+    setDetailCounts((current) => {
+      let changed = false;
+      for (const [k, v] of Object.entries(counts)) {
+        if (current[k] !== v) {
+          changed = true;
+          break;
+        }
+      }
+      return changed ? { ...current, ...counts } : current;
+    });
   }, []);
 
+  // Sync converted deal, activities, and task counts when lead or detail state updates
   React.useEffect(() => {
-    updateStoredLead(viewLead?.id ?? lead?.id, {
-      status: isConverted ? 'Converted' : (viewLead?.status ?? lead?.status),
-      productsCount: detailCounts.products,
-      sourcesCount: detailCounts.sources,
-      filesCount: detailCounts.files,
-      openTasksCount: detailCounts.openTasks,
-      callsCount: detailCounts.calls,
-      estimatesCount: detailCounts.estimates,
-      deliveryChallansCount: detailCounts.challans,
-    });
-  }, [viewLead?.id, lead?.id, viewLead?.status, lead?.status, isConverted, detailCounts]);
-
-  // The lead row and its sections both live in the CRM stores now, so this only
-  // has to react to them rather than re-reading a browser cache.
-  React.useEffect(() => {
-    const target = viewLead ?? lead;
-    if (!target?.id) return;
-    const freshLead = storeLeads.find((row) => String(row.id) === String(target.id));
-    if (freshLead) {
-      setViewLead((current) => (
-        JSON.stringify(current) === JSON.stringify(freshLead) ? current : freshLead
-      ));
-    }
-    setConvertedDeal(findDealForLead(target.id));
+    const targetId = lead?.id || viewLead?.id;
+    if (!targetId) return;
+    setConvertedDeal(findDealForLead(targetId));
 
     const incoming = storedDetailState.activities || [];
     setActivities((current) => {
@@ -3548,7 +3472,7 @@ export default function LeadDetailView({ lead, onBackToLeads }) {
 
     const openTasks = (storedDetailState.tasks || []).filter((t) => t.status !== 'Completed').length;
     setDetailCounts((current) => (current.openTasks === openTasks ? current : { ...current, openTasks }));
-  }, [viewLead, lead, storeLeads, storedDetailState]);
+  }, [lead?.id, viewLead?.id, storedDetailState]);
 
   function openEditLead() {
     const source = viewLead ?? lead;
@@ -3655,20 +3579,91 @@ export default function LeadDetailView({ lead, onBackToLeads }) {
   ];
 
   const handleConvert = () => {
-    if (isConverted) {
+    if (isConverted || isLeadConverted) {
       showToast?.('Lead is already converted to an active Customer.');
       return;
     }
-    addCustomer?.({
-      name: activeLeadData.company || activeLeadData.name,
-      contactPerson: activeLeadData.name,
-      email: activeLeadData.email,
-      phone: `+91 ${activeLeadData.phone}`,
-      balance: 0,
-      status: 'Active',
-    });
+    if (isLost) {
+      showToast?.('Lead is marked as Lost — reopen it before converting.');
+      return;
+    }
+    const customerName = activeLeadData.company || activeLeadData.name;
+    const customerEmail = activeLeadData.email;
+    const alreadyExists = customers?.some((c) => (
+      (customerName && c.name?.toLowerCase() === customerName.toLowerCase()) ||
+      (customerEmail && c.email && c.email.toLowerCase() === customerEmail.toLowerCase())
+    ));
+    if (!alreadyExists) {
+      addCustomer?.({
+        name: customerName,
+        contactPerson: activeLeadData.name,
+        email: customerEmail,
+        phone: `+91 ${activeLeadData.phone}`,
+        balance: 0,
+        status: 'Active',
+      });
+    }
+    const targetId = viewLead?.id ?? lead?.id;
+    const prevStatus = viewLead?.status ?? lead?.status ?? '';
+    const crmState = useCrmStore.getState();
+    const wonStage = [...(crmState.stages || [])].find(
+      (stage) => stage.isActive !== false && (stage.isWon || stage.is_won || /won|convert/i.test(String(stage.name || ''))),
+    );
+    const convertedStatus = wonStage?.name || 'Converted';
+    const nextCustomValues = {
+      ...((viewLead ?? lead)?.customValues || {}),
+      isConverted: true,
+      convertedAt: new Date().toISOString(),
+    };
+    const updates = {
+      status: convertedStatus,
+      isConverted: true,
+      customValues: nextCustomValues,
+      ...(wonStage?.id ? { stageId: wonStage.id } : {}),
+    };
+    updateStoredLead(targetId, updates);
+    setViewLead((current) => ({ ...(current ?? lead), ...updates }));
     setIsConverted(true);
+    try {
+      runLeadStageAutomation({ ...(viewLead ?? lead), ...updates }, convertedStatus, { previousStage: prevStatus });
+    } catch (e) {
+      console.error('[CRM Automation] Error in convert automation:', e);
+    }
+    logActivity('Lead converted to Customer', '#10b981');
     showToast?.(`Lead "${activeLeadData.name}" converted to Customer.`);
+  };
+
+  const handleLost = () => {
+    if (isLost) {
+      showToast?.('Lead is already marked as Lost.');
+      return;
+    }
+    if (isConverted) {
+      showToast?.('Lead is already converted — cannot mark it as Lost.');
+      return;
+    }
+    const targetId = viewLead?.id ?? lead?.id;
+    const prevStatus = viewLead?.status ?? lead?.status ?? '';
+    // Find the workspace's Lost stage when one exists, so the Lost lead
+    // lands in the right pipeline column everywhere.
+    const crmState = useCrmStore.getState();
+    const lostStage = [...(crmState.stages || [])].find(
+      (stage) => stage.isActive !== false && /lost|closed/i.test(String(stage.name || '')),
+    );
+    const lostStatus = lostStage?.name || 'Lost';
+    updateStoredLead(targetId, {
+      status: lostStatus,
+      ...(lostStage?.id ? { stageId: lostStage.id } : {}),
+    });
+    setViewLead((current) => ({ ...(current ?? lead), status: lostStatus }));
+    setIsLost(true);
+    try {
+      runLeadStageAutomation({ ...(viewLead ?? lead), status: lostStatus }, lostStatus, { previousStage: prevStatus });
+    } catch (e) {
+      console.error('[CRM Automation] Error in lost-stage automation:', e);
+    }
+    logActivity('Lead marked as Lost', '#ef4444');
+    showToast?.(`Lead "${activeLeadData.name}" marked as Lost.`);
   };
 
   const displayName = activeLeadData.name?.replace(/\s*\(Sample\)/i, '') || 'Untitled Lead';
@@ -3676,7 +3671,7 @@ export default function LeadDetailView({ lead, onBackToLeads }) {
   return (
     <div className="space-y-4">
       <div className="card p-3 text-xs text-slate-600">
-        {convertedDeal ? <>Converted to Deal: {convertedDeal.id} <Link className="ml-2 text-blue-600 hover:underline" to={`/crm/deals?deal=${encodeURIComponent(convertedDeal.id)}`}>View Deal</Link></> : 'Not converted / No Deal'}
+        {convertedDeal ? <>Converted to Deal: {convertedDeal.id} <Link className="ml-2 text-blue-600 hover:underline" to={`/crm/deals?deal=${encodeURIComponent(convertedDeal.id)}`}>View Deal</Link></> : (isConverted ? <span className="text-emerald-600 font-semibold">Converted to Customer</span> : (isLost ? <span className="text-rose-600 font-semibold">Lost — not converted / no deal</span> : 'Not converted / No Deal'))}
       </div>
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pt-0.5">
         <div className="flex flex-wrap lg:flex-nowrap items-center gap-2 min-w-0 lg:min-w-auto text-xs font-medium text-slate-500">
@@ -3705,13 +3700,28 @@ export default function LeadDetailView({ lead, onBackToLeads }) {
           <button
             type="button"
             onClick={handleConvert}
-            className={`inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-xs font-semibold shadow-xs transition cursor-pointer ${
+            disabled={isConverted || isLost}
+            className={`inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-xs font-semibold shadow-xs transition ${
               isConverted
-                ? 'bg-emerald-600 text-white hover:bg-emerald-700'
-                : 'bg-white hover:bg-blue-50 text-blue-600 border border-blue-200'
+                ? 'bg-emerald-600 text-white cursor-not-allowed opacity-90'
+                : 'bg-white hover:bg-blue-50 text-blue-600 border border-blue-200 cursor-pointer'
             }`}
           >
             <CheckCircle size={13} /> {isConverted ? 'Converted' : 'Convert'}
+          </button>
+          <button
+            type="button"
+            onClick={handleLost}
+            disabled={isConverted || isLost}
+            className={`inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-xs font-semibold shadow-xs transition ${
+              isLost
+                ? 'bg-rose-600 text-white cursor-not-allowed'
+                : isConverted
+                  ? 'bg-slate-100 text-slate-400 border border-slate-200 cursor-not-allowed'
+                  : 'bg-white hover:bg-rose-50 text-rose-600 border border-rose-200 cursor-pointer'
+            }`}
+          >
+            <XCircle size={13} /> {isLost ? 'Lost' : 'Mark Lost'}
           </button>
           <button
             type="button"
@@ -3766,8 +3776,8 @@ export default function LeadDetailView({ lead, onBackToLeads }) {
             <div className="space-y-1 min-w-0 lg:min-w-auto">
               <div className="flex flex-wrap lg:flex-nowrap items-center gap-2.5">
                 <h1 className="text-xl font-bold text-slate-900 tracking-tight break-words">{displayName}</h1>
-                <span className="px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200">
-                  {isConverted ? 'Converted' : (activeLeadData.status || '—')}
+                <span className={`px-2.5 py-0.5 rounded-full text-[11px] font-semibold border ${isConverted ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : (isLost ? 'bg-rose-50 text-rose-700 border-rose-200' : 'bg-blue-50 text-blue-700 border-blue-200')}`}>
+                  {isConverted ? 'Converted' : (isLost ? (activeLeadData.status || 'Lost') : (activeLeadData.status || '—'))}
                 </span>
               </div>
               <p className="text-xs text-slate-500 font-medium">{activeLeadData.company || '—'}</p>
