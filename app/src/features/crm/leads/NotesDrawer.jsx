@@ -3,6 +3,8 @@ import { X, Crosshair, Clock3, Pencil, Trash2 } from "lucide-react";
 import LeadAvatar from "./LeadAvatar";
 import { useLeadDetailStore } from "../../../stores/leadDetailStore";
 import { deleteLeadNote, updateLeadNote } from "../../../services/crmSync";
+import { useAppStore } from "../../../stores/appStore";
+import { describeLeadApiError } from "../../../services/leadDetailMap";
 
 
 
@@ -29,6 +31,11 @@ export default function NotesDrawer({ lead, isOpen, onClose }) {
   const [sortMode, setSortMode] = useState("last");
   const [editId, setEditId] = useState(null);
   const [editText, setEditText] = useState("");
+  // Duplicate-submission guards for the async note writes.
+  const [isSaving, setIsSaving] = useState(false);
+  const [deletingId, setDeletingId] = useState(null);
+  const showToast = useAppStore((s) => s.showToast);
+  const loading = useLeadDetailStore((s) => s.loading[String(leadId || "")]);
 
   useEffect(() => {
     if (isOpen && leadId) loadDetail(leadId);
@@ -55,40 +62,55 @@ export default function NotesDrawer({ lead, isOpen, onClose }) {
 
   async function saveNote() {
     const text = draft.trim();
-    if (!text) return;
+    if (!text || isSaving) return;
+    // The `LeadNote` serializer accepts `body` (author is set server-side).
+    setIsSaving(true);
     try {
-      await addDetail(lead.id, "notes", { text, body: text });
+      await addDetail(lead.id, "notes", { body: text });
+      showToast?.("Note saved.");
     } catch (err) {
-      console.warn("[CRM] note not saved:", err?.message || err);
+      showToast?.(`Note not saved — ${describeLeadApiError(err)}`);
       return;
+    } finally {
+      setIsSaving(false);
     }
     setDraft("");
     setEditing(false);
   }
 
   async function removeNote(id) {
+    if (deletingId) return;
+    setDeletingId(id);
     try {
       await deleteLeadNote(lead.id, id);
       await refreshSection(lead.id, "notes");
+      showToast?.("Note deleted.");
     } catch (err) {
-      console.warn("[CRM] note not deleted:", err?.message || err);
+      showToast?.(`Note not deleted — ${describeLeadApiError(err)}`);
+    } finally {
+      setDeletingId(null);
     }
   }
 
   function startEdit(note) {
     setEditId(note.id);
-    setEditText(note.text);
+    setEditText(note.text ?? note.body ?? "");
   }
 
   async function saveEdit() {
     const text = editText.trim();
-    if (!text) return;
+    if (!text || isSaving) return;
+    setIsSaving(true);
     try {
-      await updateLeadNote(lead.id, editId, { text, body: text });
+      await updateLeadNote(lead.id, editId, { body: text });
       await refreshSection(lead.id, "notes");
+      showToast?.("Note updated.");
     } catch (err) {
-      console.warn("[CRM] note not saved:", err?.message || err);
+      showToast?.(`Note not saved — ${describeLeadApiError(err)}`);
+      setIsSaving(false);
+      return;
     }
+    setIsSaving(false);
     setEditId(null);
     setEditText("");
   }
@@ -158,14 +180,15 @@ export default function NotesDrawer({ lead, isOpen, onClose }) {
                       <button
                         type="button"
                         onClick={saveEdit}
-                        className="h-8 px-4 rounded-md bg-blue-600 text-white text-xs font-semibold"
+                        disabled={isSaving}
+                        className="h-8 px-4 rounded-md bg-blue-600 text-white text-xs font-semibold disabled:opacity-50"
                       >
-                        Save
+                        {isSaving ? 'Saving…' : 'Save'}
                       </button>
                     </div>
                   </div>
                 ) : (
-                  <p className="text-[13px] text-slate-800 leading-snug break-words">{n.text}</p>
+                  <p className="text-[13px] text-slate-800 leading-snug break-words">{n.text ?? n.body}</p>
                 )}
                 <p className="text-[11px] text-slate-500 mt-1 flex items-center gap-1.5 flex-wrap">
                   <span>Lead</span>
@@ -175,7 +198,7 @@ export default function NotesDrawer({ lead, isOpen, onClose }) {
                   <span>Add Note</span>
                   <span className="text-slate-300">•</span>
                   <Clock3 size={11} className="text-slate-500" />
-                  <span>{formatDay(n.createdAt)} by {n.by}</span>
+                  <span>{formatDay(n.createdAt || n.created_at)} by {n.by || n.authorName || '—'}</span>
                 </p>
                 {editId !== n.id && (
                   <div className="hidden group-hover:flex items-center gap-1 mt-1.5">
@@ -189,9 +212,10 @@ export default function NotesDrawer({ lead, isOpen, onClose }) {
                     <button
                       type="button"
                       onClick={() => removeNote(n.id)}
-                      className="h-7 px-2 rounded-md text-[11px] font-semibold text-red-500 hover:bg-red-50 flex items-center gap-1"
+                      disabled={deletingId === n.id}
+                      className="h-7 px-2 rounded-md text-[11px] font-semibold text-red-500 hover:bg-red-50 flex items-center gap-1 disabled:opacity-50"
                     >
-                      <Trash2 size={11} /> Delete
+                      <Trash2 size={11} /> {deletingId === n.id ? 'Deleting…' : 'Delete'}
                     </button>
                   </div>
                 )}
@@ -200,7 +224,9 @@ export default function NotesDrawer({ lead, isOpen, onClose }) {
           ))}
 
           {notes.length === 0 && !editing && (
-            <p className="text-xs text-slate-400 text-center py-6">No notes yet. Add the first note below.</p>
+            <p className="text-xs text-slate-400 text-center py-6">
+              {loading ? 'Loading notes…' : 'No notes yet. Add the first note below.'}
+            </p>
           )}
 
           <div className="border border-slate-300 rounded-lg overflow-hidden focus-within:border-blue-500 focus-within:ring-2 focus-within:ring-blue-100">
@@ -233,10 +259,10 @@ export default function NotesDrawer({ lead, isOpen, onClose }) {
                   <button
                     type="button"
                     onClick={saveNote}
-                    disabled={!draft.trim()}
+                    disabled={!draft.trim() || isSaving}
                     className="h-8 px-4 rounded-md bg-blue-600 text-white text-xs font-semibold disabled:opacity-50"
                   >
-                    Save
+                    {isSaving ? 'Saving…' : 'Save'}
                   </button>
                 </div>
               </div>

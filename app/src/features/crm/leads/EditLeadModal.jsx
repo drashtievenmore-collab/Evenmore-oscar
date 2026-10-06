@@ -78,11 +78,14 @@ export default function EditLeadModal({ lead, isOpen, onClose, onSave }) {
 
   const [values, setValues] = useState({});
   const [error, setError] = useState('');
+  // Duplicate-submission guard + backend error surface for the async save.
+  const [saving, setSaving] = useState(false);
 
   useEffect(() => {
     if (isOpen && lead) {
       setValues(buildInitialValues(lead, sections, sources, team));
       setError('');
+      setSaving(false);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isOpen, lead?.id]);
@@ -100,7 +103,8 @@ export default function EditLeadModal({ lead, isOpen, onClose, onSave }) {
     setValues((prev) => ({ ...prev, [fieldId]: val }));
   }
 
-  function handleSave() {
+  async function handleSave() {
+    if (saving) return;
     const get = (id) => values[id] ?? '';
     const getValue = (id, re) => {
       const f = fieldBy(id, re);
@@ -123,31 +127,42 @@ export default function EditLeadModal({ lead, isOpen, onClose, onSave }) {
     const fieldValues = { ...values };
     if (photoField?.id) delete fieldValues[photoField.id];
 
-    onSave?.(lead.id, {
-      name: trimmedName,
-      company: String(getValue('company', /comp/)).trim(),
-      email: String(getValue('email', /^\s*e-?mail\s*$/i)).trim(),
-      phone: String(getValue('phone', /^\s*phone\s*$/i)).trim(),
-      sourceId: storeSource ? storeSource.id : undefined,
-      source: sourceField ? (storeSource ? storeSource.name : rawSource) : lead.source,
-      ownerId: ownerId || undefined,
-      owner: ownerField
-        ? ((team || []).find((m) => String(m.id) === String(ownerId))?.name ?? String(ownerId))
-        : lead.owner,
-      jobTitle: String(getValue('title', /^\s*title\s*$/i)).trim(),
-      industry: String(getValue('industry', /^\s*industry\s*$/i)).trim(),
-      createdOn: String(getValue('created-on', /creat\w*\s*on/)).trim(),
-      photo: photoField ? get(photoField.id) : lead.photo,
-      customValues: {
-        ...(lead.customValues || {}),
-        products: (productsField ? get(productsField.id) : '') || [],
-        leadUsers: (usersField ? get(usersField.id) : '') || [],
-        taskDate: String(getValue('task-date', /task\s*date/)),
-        taskTime: String(getValue('task-time', /task\s*time/)),
-        photo: photoField ? get(photoField.id) : lead.customValues?.photo,
-        fields: fieldValues,
-      },
-    });
+    // The parent save is async (PATCH `/crm/leads/{id}/`) and reports backend
+    // validation failures by throwing. Stay open on failure so the user can
+    // fix the field; close only when the save resolves.
+    setSaving(true);
+    setError('');
+    try {
+      await onSave?.(lead.id, {
+        name: trimmedName,
+        company: String(getValue('company', /comp/)).trim(),
+        email: String(getValue('email', /^\s*e-?mail\s*$/i)).trim(),
+        phone: String(getValue('phone', /^\s*phone\s*$/i)).trim(),
+        sourceId: storeSource ? storeSource.id : undefined,
+        source: sourceField ? (storeSource ? storeSource.name : rawSource) : lead.source,
+        ownerId: ownerId || undefined,
+        owner: ownerField
+          ? ((team || []).find((m) => String(m.id) === String(ownerId))?.name ?? String(ownerId))
+          : lead.owner,
+        jobTitle: String(getValue('title', /^\s*title\s*$/i)).trim(),
+        industry: String(getValue('industry', /^\s*industry\s*$/i)).trim(),
+        createdOn: String(getValue('created-on', /creat\w*\s*on/)).trim(),
+        photo: photoField ? get(photoField.id) : lead.photo,
+        customValues: {
+          ...(lead.customValues || {}),
+          products: (productsField ? get(productsField.id) : '') || [],
+          leadUsers: (usersField ? get(usersField.id) : '') || [],
+          taskDate: String(getValue('task-date', /task\s*date/)),
+          taskTime: String(getValue('task-time', /task\s*time/)),
+          photo: photoField ? get(photoField.id) : lead.customValues?.photo,
+          fields: fieldValues,
+        },
+      });
+    } catch (err) {
+      setError(err?.message || 'Lead not saved. Please try again.');
+    } finally {
+      setSaving(false);
+    }
   }
 
   return (
@@ -215,9 +230,9 @@ export default function EditLeadModal({ lead, isOpen, onClose, onSave }) {
             type="button"
             className="px-4 py-2 rounded-lg text-xs font-semibold text-white bg-blue-600 hover:bg-blue-700 disabled:opacity-50"
             onClick={handleSave}
-            disabled={!isValid}
+            disabled={!isValid || saving}
           >
-            Save Changes
+            {saving ? 'Saving…' : 'Save Changes'}
           </button>
         </div>
       </div>

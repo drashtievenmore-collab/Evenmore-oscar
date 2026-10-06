@@ -41,6 +41,7 @@ import {
   User,
   ShieldCheck,
   PackageCheck, // [PHASE-2B] Goods Receipt (GRN) nav icon
+  GitCompare, // Bill Matching nav icon
   Calendar,
   Sliders,
   Search,
@@ -155,6 +156,8 @@ const NAV = [
       { label: 'Purchase Orders', icon: ClipboardList, to: '/purchase/orders' },
       // ── [PHASE-2B] New standalone Goods Receipt (GRN) nav entry ──
       { label: 'Goods Receipt', icon: PackageCheck, to: '/purchase/receipts' },
+      { label: 'Vendor Bills', icon: Receipt, to: '/purchase/vendor-bills' },
+      { label: 'Bill Matching', icon: GitCompare, to: '/purchase/bill-matching' },
       { label: 'Purchase Bills', icon: Receipt, to: '/purchase/bills' },
       { label: 'Purchase Returns', icon: RotateCcw, to: '/purchase/returns' },
       { label: 'Payment Out', icon: ArrowDownLeft, to: '/purchase/payments' },
@@ -396,6 +399,15 @@ function NavBadge({ count, color }) {
   );
 }
 
+function NavPill({ pill }) {
+  if (!pill) return null;
+  return (
+    <span className="ml-1.5 px-1 py-px text-[9px] font-bold rounded bg-rose-500/20 text-rose-300 border border-rose-400/40 leading-none">
+      {pill}
+    </span>
+  );
+}
+
 function SubItem({ item, depth = 1, badges = {} }) {
   const location = useLocation();
   const currentPath = location.pathname;
@@ -465,6 +477,7 @@ function SubItem({ item, depth = 1, badges = {} }) {
       >
         <Icon size={16} strokeWidth={2} className="nav-ico" />
         <span className="nav-txt">{item.label}</span>
+        <NavPill pill={item.pill} />
         <NavBadge count={count} color={item.badgeColor} />
       </NavLink>
     );
@@ -481,6 +494,7 @@ function SubItem({ item, depth = 1, badges = {} }) {
     >
       <span className="sub-dot" />
       <span className="sub-label">{item.label}</span>
+      <NavPill pill={item.pill} />
       <NavBadge count={count} color={item.badgeColor} />
     </NavLink>
   );

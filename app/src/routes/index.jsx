@@ -116,6 +116,8 @@ const WarrantyListPage = lazy(() => import('../features/sales/WarrantyListPage')
 // ── ERP — Purchase (Lazy Loaded) ──────────────────────────────
 const PurchaseOrdersPage = lazy(() => import('../features/purchase/PurchaseOrdersPage').then(m => ({ default: m.PurchaseOrdersPage })));
 const PurchaseBillsPage = lazy(() => import('../features/purchase/PurchaseBillsPage').then(m => ({ default: m.PurchaseBillsPage })));
+const VendorBillsPage = lazy(() => import('../features/purchase/VendorBillsPage').then(m => ({ default: m.VendorBillsPage })));
+const BillMatchingPage = lazy(() => import('../features/purchase/BillMatchingPage').then(m => ({ default: m.BillMatchingPage })));
 const PurchaseReturnsPage = lazy(() => import('../features/purchase/PurchaseReturnsPage').then(m => ({ default: m.PurchaseReturnsPage })));
 const PaymentOutPage = lazy(() => import('../features/purchase/PaymentOutPage').then(m => ({ default: m.PaymentOutPage })));
 const ExpensesPage = lazy(() => import('../features/purchase/ExpensesPage').then(m => ({ default: m.ExpensesPage })));
@@ -324,6 +326,8 @@ const router = createBrowserRouter([
       { path: 'purchase/orders', element: <Page component={PurchaseOrdersPage} /> },
       { path: 'purchase/receipts', element: <Page component={GoodsReceiptPage} /> },
       { path: 'purchase/bills', element: <Page component={PurchaseBillsPage} /> },
+      { path: 'purchase/vendor-bills', element: <Page component={VendorBillsPage} /> },
+      { path: 'purchase/bill-matching', element: <Page component={BillMatchingPage} /> },
       { path: 'purchase/returns', element: <Page component={PurchaseReturnsPage} /> },
       { path: 'purchase/payments', element: <Page component={PaymentOutPage} /> },
       { path: 'purchase/expenses', element: <Page component={ExpensesPage} /> },

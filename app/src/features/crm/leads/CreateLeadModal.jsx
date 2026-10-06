@@ -1,6 +1,5 @@
 import { useEffect, useRef, useState } from "react";
 import { useCrmStore } from '../../../stores/crmStore';
-import { withSampleTeam } from '../common/sampleTeam';
 import { loadForms, findForm, getActiveFormId, LEAD_FORM } from '../../../services/crmForms';
 import { defaultLeadFormSections, TEXTILE_FABRIC_OPTIONS, LEGACY_FABRIC_OPTIONS } from '../../../data/crm/leadFormSchema';
 import { matchKnownLeadField } from './leadColumns';
@@ -516,7 +515,7 @@ export function leadFormValuesToPayload(values, sections, { sources = [], userOp
 // ---------------------------------------------------------------------------
 // Main modal
 // ---------------------------------------------------------------------------
-export default function CreateLeadModal({ isOpen, onClose, onCreate, onEditLayout, showTour }) {
+export default function CreateLeadModal({ isOpen, onClose, onCreate, onEditLayout, showTour, submitting = false, serverError = '' }) {
   const sections = useFormSections();
   const userOptions = useUserOptions();
   const sources = useSources();
@@ -552,6 +551,9 @@ export default function CreateLeadModal({ isOpen, onClose, onCreate, onEditLayou
   }
 
   function handleCreate() {
+    // Duplicate-submission guard: the parent owns the async save and reports
+    // `submitting` while it is in flight; a second click is a no-op.
+    if (submitting) return;
     onCreate(leadFormValuesToPayload(values, sections, { sources, userOptions }));
   }
 
@@ -613,6 +615,9 @@ export default function CreateLeadModal({ isOpen, onClose, onCreate, onEditLayou
         </div>
 
         {/* Footer */}
+        {serverError && (
+          <p className="px-5 pb-1 text-xs font-semibold text-rose-600" role="alert">{serverError}</p>
+        )}
         <div className="lead-create-modal-actions">
           <div className="relative inline-block">
             {showTour && isFormComplete && (
@@ -651,10 +656,10 @@ export default function CreateLeadModal({ isOpen, onClose, onCreate, onEditLayou
                 type="button"
                 className="btn-primary"
                 onClick={handleCreate}
-                disabled={!isFormComplete}
-                style={!isFormComplete ? { opacity: 0.5, cursor: "not-allowed" } : undefined}
+                disabled={!isFormComplete || submitting}
+                style={!isFormComplete || submitting ? { opacity: 0.5, cursor: "not-allowed" } : undefined}
               >
-                Create
+                {submitting ? 'Creating…' : 'Create'}
               </button>
             </div>
           </div>

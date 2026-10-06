@@ -120,6 +120,11 @@ function updateStoredLead(leadId, updates) {
  * Persist rows a tab just produced. Each key is a sub-collection, and only the
  * rows the server has not seen are posted — the rest are already its own.
  *
+ * Sections without a write endpoint (`timeline`, `tasks`, `activities`) are
+ * skipped: there is no `POST /crm/leads/{id}/timeline/` to receive them.
+ * Rows with no server representation (file previews without a file record)
+ * are left local by the mapping layer instead of 400ing.
+ *
  * Each local row is posted at most once per page lifetime. Without this, every
  * re-run of a tab's persist effect (StrictMode double-effect, parent
  * re-render, tab remount) re-posts all unsynced rows, so one click becomes
@@ -131,6 +136,7 @@ function updateStoredLeadDetail(leadId, updates) {
   const { add } = useLeadDetailStore.getState();
   Object.entries(updates).forEach(([section, rows]) => {
     if (!Array.isArray(rows)) return;
+    if (!WRITABLE_LEAD_SECTIONS.has(section)) return;
     rows
       .filter((row) => row && !row._synced && !isServerId(row.id) && row.id && !sentDetailRowIds.has(row.id))
       .forEach((row) => {

@@ -109,7 +109,7 @@ const STATUS_PILL = {
 
 export const PurchaseOrdersPage = () => {
     const navigate = useNavigate();
-    const { purchaseOrders, vendors, items: inventoryItems, addPurchaseOrder, updatePurchaseOrderStatus, cancelPurchaseOrder, deletePurchaseOrder, getPoBilledStatus, convertPurchaseOrderToBill, purchaseBills, paymentOuts, formatCurrency, formatDateDDMMYYYY, getCurrentDateFormatted, getCurrentISODate, addDaysISO } = useERP();
+    const { purchaseOrders, vendors, items: inventoryItems, fabrics: fabricMasters, addPurchaseOrder, updatePurchaseOrderStatus, cancelPurchaseOrder, deletePurchaseOrder, getPoBilledStatus, convertPurchaseOrderToBill, purchaseBills, paymentOuts, formatCurrency, formatDateDDMMYYYY, getCurrentDateFormatted, getCurrentISODate, addDaysISO } = useERP();
     const [showAddModal, setShowAddModal] = useState(false);
     const [isFullscreen, setIsFullscreen] = useState(false);
     const [selectedPo, setSelectedPo] = useState(null);
@@ -275,9 +275,30 @@ export const PurchaseOrdersPage = () => {
     };
 
     // ── Oscar workflow helpers (meter-based fabric procurement) ──────────────
+    // Dropdown merges Fabric-kind items + Fabric master, so 12 fabrics show
+    // even if one source is empty. Backend seeds both permanently.
     const fabricItems = useMemo(
-      () => (inventoryItems || []).filter((i) => i.itemKind === 'Fabric'),
-      [inventoryItems],
+      () => {
+        const fromItems = (inventoryItems || []).filter((i) => i.itemKind === 'Fabric');
+        const merged = [...fromItems];
+        const seen = new Set(fromItems.map((i) => (i.fabricQuality || i.name || '').toLowerCase()));
+        (Array.isArray(fabricMasters) ? fabricMasters : []).forEach((f) => {
+          const key = (f.name || '').toLowerCase();
+          if (!key || seen.has(key)) return;
+          seen.add(key);
+          merged.push({
+            id: f.id,
+            sku: f.code || `FAB-${key.toUpperCase()}`,
+            name: `${f.name} Grey Fabric`,
+            fabricQuality: f.name,
+            itemKind: 'Fabric',
+            uom: 'Mtr',
+            _fromMaster: true,
+          });
+        });
+        return merged;
+      },
+      [inventoryItems, fabricMasters],
     );
 
     const getPoLines = (po) => po.items || po.lineItems || [];

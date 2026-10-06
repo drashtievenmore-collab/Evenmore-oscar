@@ -4,6 +4,7 @@ import { formatDateDDMMYYYY, getCurrentDateFormatted, getCurrentISODate, addDays
 import { formatCurrency as formatCurrencyUtil, getCurrencySymbol, getCurrencyConfig, CURRENCY_CONFIGS, fetchLiveExchangeRates, DEFAULT_RATES, setBaseCurrency } from '../utils/currencyUtils';
 import { calculateWarrantyCoverageStatus } from '../utils/warrantyUtils';
 import { emitCrmEvent, CRM_EVENT_TYPES } from '../services/crmEventNotifications';
+import { api } from '../services/api';
 import {
     isBackendEnabled,
     pullAll,
@@ -99,6 +100,7 @@ export const ERPProvider = ({ children, }) => {
     const [itemParts, setItemParts] = useState([]);
     const [items, setItems] = useState([]);
     const [categories, setCategories] = useState([]);
+    const [fabrics, setFabrics] = useState([]);
     const [quotations, setQuotations] = useState([]);
     const [salesOrders, setSalesOrders] = useState([]);
     const [deliveryChallans, setDeliveryChallans] = useState([]);
@@ -113,6 +115,7 @@ export const ERPProvider = ({ children, }) => {
         }
     });
     const [purchaseBills, setPurchaseBills] = useState([]);
+    const [vendorBills, setVendorBills] = useState([]);
     const [paymentOuts, setPaymentOuts] = useState([]);
     const [purchaseReturns, setPurchaseReturns] = useState([]);
     const [expenses, setExpenses] = useState([]);
@@ -174,6 +177,7 @@ export const ERPProvider = ({ children, }) => {
         categories: setCategories,
         units: setUnits,
         locations: setLocations,
+        fabrics: setFabrics,
         items: setItems,
         parties: setParties,
         customers: setCustomers,
@@ -188,6 +192,7 @@ export const ERPProvider = ({ children, }) => {
         salesReturns: setSalesReturns,
         purchaseOrders: setPurchaseOrders,
         purchaseBills: setPurchaseBills,
+        vendorBills: setVendorBills,
         paymentOuts: setPaymentOuts,
         purchaseReturns: setPurchaseReturns,
         expenses: setExpenses,
@@ -3622,6 +3627,279 @@ export const ERPProvider = ({ children, }) => {
         setPurchaseBills((prev) => prev.map((b) => (b.id === id ? { ...b, status } : b)));
         showToast(`Vendor bill marked as ${status}.`);
     };
+    // ── Vendor Bills (manual entry, backend contract: /purchase/vendor-bills/) ──
+    // Mirrors addPurchaseBill: synchronous optimistic local write, server owns
+    // ids/numbers/totals so its reply replaces the optimistic row via persist*.
+    const addVendorBill = (bill) => {
+        const rawLines = bill.lineItems || bill.items || [];
+        const normLines = rawLines.map((line, idx) => {
+            const qty = Number(line.qty ?? line.quantity ?? 0) || 0;
+            const rate = Number(line.rate ?? line.price ?? 0) || 0;
+            return {
+                id: line.id || `vb-item-${Date.now()}-${idx}`,
+                itemId: line.itemId || '',
+                sku: line.sku || line.itemSku || '',
+                itemSku: line.sku || line.itemSku || '',
+                itemName: line.itemName || line.name || line.description || '',
+                name: line.itemName || line.name || line.description || '',
+                description: line.itemName || line.name || line.description || '',
+                qty,
+                quantity: qty,
+                rate,
+                price: rate,
+                amount: Math.round(qty * rate * 100) / 100,
+            };
+        });
+        const subtotal = bill.subtotal !== undefined
+            ? Number(bill.subtotal)
+            : Math.round(normLines.reduce((s, l) => s + (l.qty * l.rate), 0) * 100) / 100;
+        const gstPct = bill.gstPct !== undefined ? Number(bill.gstPct) : 5;
+        const gstAmount = bill.gstAmount !== undefined
+            ? Number(bill.gstAmount)
+            : Math.round(subtotal * (gstPct / 100) * 100) / 100;
+        const total = bill.total !== undefined
+            ? Number(bill.total)
+            : Math.round((subtotal + gstAmount) * 100) / 100;
+        const vend = vendors.find((v) => v.id === bill.vendorId)
+            || vendors.find((v) => v.name?.toLowerCase() === String(bill.vendor || bill.vendorName || '').toLowerCase());
+        const linkedPo = bill.purchaseOrderId
+            ? purchaseOrders.find((p) => p.id === bill.purchaseOrderId || p.poNumber === bill.purchaseOrderId)
+            : null;
+        const newBill = {
+            id: bill.id || `vb-${Date.now()}`,
+            vendorBillNumber: bill.vendorBillNumber || bill.billNumber || `VB-2026-${String(vendorBills.length + 1).padStart(3, '0')}`,
+            billDate: formatDateDDMMYYYY(bill.billDate || bill.date || 'Today'),
+            date: formatDateDDMMYYYY(bill.billDate || bill.date || 'Today'),
+            vendorId: bill.vendorId || vend?.id,
+            vendor: bill.vendor || bill.vendorName || vend?.name || '',
+            vendorName: bill.vendorName || bill.vendor || vend?.name || '',
+            purchaseOrderId: bill.purchaseOrderId || linkedPo?.id || null,
+            poNumber: linkedPo?.poNumber || bill.poNumber || '',
+            grnId: bill.grnId || null,
+            attachmentFileId: bill.attachmentFileId || null,
+            fileName: bill.fileName || '',
+            subtotal,
+            gstPct,
+            gstAmount,
+            total,
+            amount: total,
+            remarks: bill.remarks || bill.notes || '',
+            notes: bill.remarks || bill.notes || '',
+            status: bill.status || 'Pending',
+            matchStatus: bill.matchStatus || 'Pending Matching',
+            purchaseBillId: bill.purchaseBillId || null,
+            items: normLines,
+            lineItems: normLines,
+        };
+        setVendorBills((prev) => [newBill, ...prev]);
+        showToast(`Vendor bill ${newBill.vendorBillNumber} saved.`);
+        persistCreate('vendorBills', newBill, setVendorBills);
+        return newBill;
+    };
+    const updateVendorBill = (id, updates) => {
+        let merged = null;
+        setVendorBills((prev) => prev.map((b) => {
+            if (b.id !== id) return b;
+            const nextLines = (updates.lineItems || updates.items)
+                ? (updates.lineItems || updates.items).map((line, idx) => {
+                    const qty = Number(line.qty ?? line.quantity ?? 0) || 0;
+                    const rate = Number(line.rate ?? line.price ?? 0) || 0;
+                    return {
+                        ...line,
+                        id: line.id || `vb-item-${Date.now()}-${idx}`,
+                        qty,
+                        quantity: qty,
+                        rate,
+                        amount: Math.round(qty * rate * 100) / 100,
+                    };
+                })
+                : (b.lineItems || b.items || []);
+            const subtotal = updates.subtotal !== undefined ? Number(updates.subtotal)
+                : (updates.lineItems || updates.items)
+                    ? Math.round(nextLines.reduce((s, l) => s + (Number(l.qty) * Number(l.rate)), 0) * 100) / 100
+                    : b.subtotal;
+            const gstPct = updates.gstPct !== undefined ? Number(updates.gstPct) : b.gstPct;
+            const gstAmount = updates.gstAmount !== undefined ? Number(updates.gstAmount)
+                : Math.round(Number(subtotal) * (Number(gstPct) / 100) * 100) / 100;
+            const total = updates.total !== undefined ? Number(updates.total)
+                : Math.round((Number(subtotal) + gstAmount) * 100) / 100;
+            merged = {
+                ...b,
+                ...updates,
+                ...(updates.billDate || updates.date
+                    ? { billDate: formatDateDDMMYYYY(updates.billDate || updates.date), date: formatDateDDMMYYYY(updates.billDate || updates.date) }
+                    : {}),
+                subtotal,
+                gstPct,
+                gstAmount,
+                total,
+                amount: total,
+                items: nextLines,
+                lineItems: nextLines,
+            };
+            return merged;
+        }));
+        if (merged) {
+            persistUpdate('vendorBills', id, merged, setVendorBills);
+            showToast(`Vendor bill ${merged.vendorBillNumber} updated.`);
+        }
+        return merged;
+    };
+    const cancelVendorBill = (id) => {
+        const target = vendorBills.find((b) => b.id === id);
+        if (!target) return { success: false, message: 'Vendor bill not found.' };
+        setVendorBills((prev) => prev.filter((b) => b.id !== id));
+        persistDelete('vendorBills', id);
+        showToast(`Vendor bill ${target.vendorBillNumber} deleted.`);
+        return { success: true, message: `Vendor bill ${target.vendorBillNumber} deleted.` };
+    };
+    const sendVendorBillForMatching = async (id) => {
+        const target = vendorBills.find((b) => b.id === id);
+        if (!target) return null;
+        if (!isBackendEnabled() || !isServerId(id)) {
+            setVendorBills((prev) => prev.map((b) => (b.id === id ? { ...b, matchStatus: 'Pending Matching' } : b)));
+            showToast(`Vendor bill ${target.vendorBillNumber} queued for matching (will send on sync).`);
+            return { ...target, matchStatus: 'Pending Matching' };
+        }
+        try {
+            const res = await api.post(`/purchase/vendor-bills/${id}/send-for-matching/`, {});
+            // Backend wraps the bill: {vendorBill, purchaseBillId, billNumber}.
+            // Merge the wrapped bill so status/match/link actually update.
+            const vb = res?.vendorBill || res || {};
+            const linked = vb.purchaseBillId || vb.purchase_bill_id
+                || res.purchaseBillId || res.purchase_bill_id || null;
+            const linkedNo = vb.purchaseBillNumber || vb.purchase_bill_number
+                || res.billNumber || res.bill_number || null;
+            setVendorBills((prev) => prev.map((b) => (b.id === id ? {
+                ...b,
+                status: vb.status || b.status,
+                matchStatus: vb.matchStatus || vb.match_status || 'Matched',
+                matchResult: vb.matchResult ?? vb.match_result ?? b.matchResult,
+                purchaseBillId: linked || b.purchaseBillId,
+                purchaseBillNumber: linkedNo || b.purchaseBillNumber,
+            } : b)));
+            showToast(linked
+                ? `Vendor bill matched — purchase bill ${linkedNo || ''} created.`
+                : `Vendor bill ${target.vendorBillNumber} sent for matching.`);
+            // Force-refresh the Purchase Bills list so step-6 / the Bills page
+            // shows the new bill. (requestCollection would skip it because the
+            // collection is already loaded — loadKeys always refetches.)
+            loadKeys(['purchaseBills']);
+            return { ...(typeof res === 'object' ? res : {}), purchaseBillId: linked, billNumber: linkedNo };
+        } catch (err) {
+            console.warn('[ERP] could not send vendor bill for matching:', err);
+            // 409 BILL_MISMATCH carries payload.matching — stash it so the
+            // Bill Matching page can render the mismatch without another fetch.
+            const payloadMatching = err?.payload?.matching || err?.payload?.payload?.matching;
+            if (payloadMatching) {
+                setVendorBills((prev) => prev.map((b) => (b.id === id ? { ...b, matchResult: payloadMatching } : b)));
+            }
+            const isMismatch = err?.payload?.code === 'BILL_MISMATCH';
+            showToast(isMismatch
+                ? 'Quantities, rates or amounts do not match the PO/GRN. Approve the bill first, then resend for matching.'
+                : `Could not send for matching — ${describeError(err)}`);
+            return null;
+        }
+    };
+    const getVendorBillMatching = async (id) => {
+        if (!id) return null;
+        if (!isBackendEnabled()) return null;
+        try {
+            const data = await api.get(`/purchase/vendor-bills/${id}/matching/`);
+            return data;
+        } catch (err) {
+            console.warn('[ERP] could not fetch vendor bill matching:', err);
+            showToast(`Could not load matching — ${describeError(err)}`);
+            return null;
+        }
+    };
+    const recheckVendorBillMatching = async (id) => {
+        if (!id) return null;
+        if (!isBackendEnabled() || !isServerId(id)) {
+            showToast('Matching needs backend connection.');
+            return null;
+        }
+        try {
+            const data = await api.post(`/purchase/vendor-bills/${id}/recheck-matching/`, {});
+            if (data) {
+                setVendorBills((prev) => prev.map((b) => (b.id === id ? { ...b, matchResult: data } : b)));
+            }
+            showToast('Matching rechecked.');
+            return data;
+        } catch (err) {
+            console.warn('[ERP] could not recheck vendor bill matching:', err);
+            showToast(`Could not recheck matching — ${describeError(err)}`);
+            return null;
+        }
+    };
+    const applyApprovalRow = (id, row, fallbackStatus) => {
+        setVendorBills((prev) => prev.map((b) => {
+            if (b.id !== id) return b;
+            const historyEntry = row.history || row.approvalHistory || (row.action ? [{
+                at: row.at || row.approvedAt || new Date().toISOString(),
+                by: row.by || row.approvedByName || row.approvedBy || '',
+                action: row.action || fallbackStatus,
+                remarks: row.remarks || row.approvalRemarks || '',
+            }] : null);
+            return {
+                ...b,
+                status: row.status || fallbackStatus,
+                approvalRemarks: row.approvalRemarks ?? row.remarks ?? b.approvalRemarks,
+                approvedAt: row.approvedAt ?? row.at ?? b.approvedAt,
+                approvedByName: row.approvedByName ?? row.by ?? row.approvedBy ?? b.approvedByName,
+                approvalHistory: historyEntry || b.approvalHistory,
+                matchResult: row.matchResult ?? row.matching ?? b.matchResult,
+            };
+        }));
+    };
+    const getVendorBillApprovalHistory = async (id) => {
+        if (!id || !isBackendEnabled()) return [];
+        try {
+            const data = await api.get(`/purchase/vendor-bills/${id}/approval-history/`);
+            return data?.history || data || [];
+        } catch (err) {
+            console.warn('[ERP] could not fetch vendor bill approval history:', err);
+            return [];
+        }
+    };
+    const approveVendorBill = async (id, remarks) => {        const target = vendorBills.find((b) => b.id === id);
+        if (!target) return null;
+        if (!isBackendEnabled() || !isServerId(id)) {
+            showToast('Approval needs backend connection.');
+            return null;
+        }
+        try {
+            const row = await api.post(`/purchase/vendor-bills/${id}/approve/`, { remarks: remarks || '' });
+            applyApprovalRow(id, row || {}, 'Approved');
+            showToast(`Vendor bill ${target.vendorBillNumber} approved.`);
+            return row;
+        } catch (err) {
+            console.warn('[ERP] could not approve vendor bill:', err);
+            const mismatchHint = err?.payload?.code === 'BILL_MISMATCH' || err?.code === 'BILL_MISMATCH'
+                ? ' — quantities, rates or amounts do not match the PO/GRN'
+                : '';
+            showToast(`Could not approve — ${describeError(err)}${mismatchHint}`);
+            return null;
+        }
+    };
+    const rejectVendorBill = async (id, remarks) => {
+        const target = vendorBills.find((b) => b.id === id);
+        if (!target) return null;
+        if (!isBackendEnabled() || !isServerId(id)) {
+            showToast('Rejection needs backend connection.');
+            return null;
+        }
+        try {
+            const row = await api.post(`/purchase/vendor-bills/${id}/reject/`, { remarks: remarks || '' });
+            applyApprovalRow(id, row || {}, 'Rejected');
+            showToast(`Vendor bill ${target.vendorBillNumber} rejected.`);
+            return row;
+        } catch (err) {
+            console.warn('[ERP] could not reject vendor bill:', err);
+            showToast(`Could not reject — ${describeError(err)}`);
+            return null;
+        }
+    };
     const addPaymentOut = (pay) => {
         const payAmt = Number(pay.amount) || 1000;
         // ── [PHASE-2D] Payment classification: Advance (against PO, no bill yet) vs Final/Bill ──
@@ -4419,6 +4697,7 @@ export const ERPProvider = ({ children, }) => {
                     salesReturns: all('salesReturns', salesReturns),
                     purchaseOrders: all('purchaseOrders', purchaseOrders),
                     purchaseBills: all('purchaseBills', purchaseBills),
+                    vendorBills: all('vendorBills', vendorBills),
                     purchaseReturns: all('purchaseReturns', purchaseReturns),
                     paymentOuts: all('paymentOuts', paymentOuts),
                     expenses: all('expenses', expenses),
@@ -4480,6 +4759,7 @@ export const ERPProvider = ({ children, }) => {
             if (Array.isArray(payload.salesReturns)) setSalesReturns(payload.salesReturns);
             if (Array.isArray(payload.purchaseOrders)) setPurchaseOrders(payload.purchaseOrders);
             if (Array.isArray(payload.purchaseBills)) setPurchaseBills(payload.purchaseBills);
+            if (Array.isArray(payload.vendorBills)) setVendorBills(payload.vendorBills);
             if (Array.isArray(payload.purchaseReturns)) setPurchaseReturns(payload.purchaseReturns);
             if (Array.isArray(payload.paymentOuts)) setPaymentOuts(payload.paymentOuts);
             if (Array.isArray(payload.expenses)) setExpenses(payload.expenses);
@@ -4557,6 +4837,7 @@ export const ERPProvider = ({ children, }) => {
             removeSerialNumbers,
             items,
             categories,
+            fabrics,
             estimates,
             addEstimate,
             updateEstimate,
@@ -4576,6 +4857,7 @@ export const ERPProvider = ({ children, }) => {
             purchaseOrders,
             productionInstructions,
             purchaseBills,
+            vendorBills,
             paymentOuts,
             purchaseReturns,
             expenses,
@@ -4660,6 +4942,15 @@ export const ERPProvider = ({ children, }) => {
             addPurchaseBill,
             cancelPurchaseBill,
             updatePurchaseBillStatus,
+            addVendorBill,
+            updateVendorBill,
+            cancelVendorBill,
+            sendVendorBillForMatching,
+            getVendorBillMatching,
+            recheckVendorBillMatching,
+            getVendorBillApprovalHistory,
+            approveVendorBill,
+            rejectVendorBill,
             receivePurchaseBillGoods,
             addPaymentOut,
             // [PHASE-2D] advance-vs-final payment support, PO-linked advances & advance adjustment
