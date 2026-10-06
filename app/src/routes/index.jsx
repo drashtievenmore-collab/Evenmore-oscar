@@ -52,6 +52,9 @@ const PMSDelayDashboardPage = lazy(() => import('../features/pms/delays/DelayDas
 const PMSReportsPage = lazy(() => import('../features/pms/reports/PMSReportsPage'));
 const PMSSettingsPage = lazy(() => import('../features/pms/settings/PMSSettingsPage'));
 const PMSClientProofApprovalPage = lazy(() => import('../features/pms/approval/ClientProofApprovalPage'));
+const PMSProductionInstructionsPage = lazy(() => import('../features/pms/production/ProductionInstructionsPage'));
+const PMSDailyProductionPage = lazy(() => import('../features/pms/production/DailyProductionPage'));
+const PMSProductionCompletionPage = lazy(() => import('../features/pms/production/ProductionCompletionVerificationPage'));
 
 // ── HRMS (Lazy Loaded) ───────────────────────────────────────
 const HRMSDashboard = lazy(() => import('../features/hrms/dashboard/Dashboard'));
@@ -296,6 +299,9 @@ const router = createBrowserRouter([
       { path: 'pms/delays', element: <Page component={PMSDelayDashboardPage} /> },
       { path: 'pms/reports', element: <Page component={PMSReportsPage} /> },
       { path: 'pms/settings', element: <Page component={PMSSettingsPage} /> },
+      { path: 'pms/production-instructions', element: <Page component={PMSProductionInstructionsPage} /> },
+      { path: 'pms/daily-production', element: <Page component={PMSDailyProductionPage} /> },
+      { path: 'pms/production-completion', element: <Page component={PMSProductionCompletionPage} /> },
 
       // ── Sales ─────────────────────────────────────────────
       { path: 'sales', element: <Navigate to="/sales/quotations" replace /> },
@@ -328,6 +334,7 @@ const router = createBrowserRouter([
       // ── Inventory ─────────────────────────────────────────
       { path: 'inventory', element: <Navigate to="/inventory/items" replace /> },
       { path: 'inventory/items', element: <Page component={ItemsMasterPage} /> },
+      { path: 'inventory/items/fabric', element: <Page component={ItemsMasterPage} /> },
       { path: 'inventory/items/machines', element: <Page component={ItemsMasterPage} /> },
       { path: 'inventory/items/stock', element: <Page component={ItemsMasterPage} /> },
       { path: 'inventory/machines', element: <Navigate to="/inventory/items/machines" replace /> },

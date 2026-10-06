@@ -168,6 +168,17 @@ function partyToApi(party) {
     // `code` is deliberately omitted: the server allocates CUST-/VEND- numbers
     // (api.md §1.7) and a client-invented one would collide.
     type: party.type || party.partyType || 'Customer',
+    // Nullable on the server; `null` clears a stale classification when the
+    // role is edited away from Vendor.
+    vendorType: party.vendorType || null,
+    // Transporter fleet details — same clear-on-role-change contract.
+    vehicleNumber: party.vehicleNumber || null,
+    vehicleType: party.vehicleType || null,
+    vehicleCapacity:
+      party.vehicleCapacity !== undefined && party.vehicleCapacity !== '' && party.vehicleCapacity !== null
+        ? num(party.vehicleCapacity)
+        : null,
+    vehicleCapacityUnit: party.vehicleCapacityUnit || null,
     name: party.name,
     phone: party.phone || undefined,
     email: party.email || undefined,
@@ -335,6 +346,16 @@ export const RESOURCES = {
       sheetLength: item.sheetLength ? num(item.sheetLength) : undefined,
       sheetLengthUnit: item.sheetLengthUnit || undefined,
       sheetWeightKg: item.sheetWeightKg ? num(item.sheetWeightKg) : undefined,
+      // Fabric spec — only meaningful for Fabric items; cleared otherwise.
+      fabricQuality: item.fabricQuality || null,
+      fabricDesign: item.fabricDesign || null,
+      fabricColor: item.fabricColor || null,
+      fabricWidth:
+        item.fabricWidth !== undefined && item.fabricWidth !== '' && item.fabricWidth !== null
+          ? num(item.fabricWidth) : null,
+      fabricGsm:
+        item.fabricGsm !== undefined && item.fabricGsm !== '' && item.fabricGsm !== null
+          ? num(item.fabricGsm) : null,
       customFieldValues: item.customFieldValues || undefined,
     }),
     // `availableQty` / `status` come off the movement ledger, so the row the

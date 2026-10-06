@@ -105,6 +105,13 @@ export const ERPProvider = ({ children, }) => {
     const [paymentIns, setPaymentIns] = useState([]);
     const [salesReturns, setSalesReturns] = useState([]);
     const [purchaseOrders, setPurchaseOrders] = useState([]);
+    const [productionInstructions, setProductionInstructions] = useState(() => {
+        try {
+            return JSON.parse(localStorage.getItem('oscar_productionInstructions') || '[]');
+        } catch {
+            return [];
+        }
+    });
     const [purchaseBills, setPurchaseBills] = useState([]);
     const [paymentOuts, setPaymentOuts] = useState([]);
     const [purchaseReturns, setPurchaseReturns] = useState([]);
@@ -1517,6 +1524,12 @@ export const ERPProvider = ({ children, }) => {
             sellingPrice: item.sellingPrice ?? 90,
             location: item.location || 'Main Central Warehouse',
             status: isService ? 'Optimal' : (calculatedQty <= (item.reorderLevel ?? 5) / 2 ? 'Critical' : calculatedQty <= (item.reorderLevel ?? 5) ? 'Low Stock' : 'Optimal'),
+            // Fabric spec (textile catalogue)
+            fabricQuality: item.fabricQuality || '',
+            fabricDesign: item.fabricDesign || '',
+            fabricColor: item.fabricColor || '',
+            fabricWidth: item.fabricWidth ?? '',
+            fabricGsm: item.fabricGsm ?? '',
             customFieldValues: item.customFieldValues || {},
         };
         setItems((prev) => [newItem, ...prev]);
@@ -1640,12 +1653,17 @@ export const ERPProvider = ({ children, }) => {
             gstin: p.gstin || '',
             placeOfSupply: p.placeOfSupply || 'Maharashtra (27)',
             gstNotes: p.gstNotes || '',
+            vendorType: p.vendorType || '',
+            vehicleNumber: p.vehicleNumber || '',
+            vehicleType: p.vehicleType || '',
+            vehicleCapacity: p.vehicleCapacity ?? '',
+            vehicleCapacityUnit: p.vehicleCapacityUnit || 'Tons',
             tdsApplicable: p.tdsApplicable ?? false,
             tdsSection: p.tdsSection || '',
             tdsRate: p.tdsRate ?? 0,
             tcsApplicable: p.tcsApplicable ?? false,
             tcsRate: p.tcsRate ?? 0,
-            ledgerAccount: p.ledgerAccount || (p.type === 'Vendor' ? '2010 - Accounts Payable' : '1210 - Accounts Receivable'),
+            ledgerAccount: p.ledgerAccount || ((p.type === 'Vendor' || p.type === 'Transporter') ? '2010 - Accounts Payable' : '1210 - Accounts Receivable'),
             creditLimit: p.creditLimit ?? (p.type === 'Vendor' ? 0 : 50000),
             paymentTerms: p.paymentTerms || 'Net 30',
             bankAccountNumber: p.bankAccountNumber || '',
@@ -3073,6 +3091,57 @@ export const ERPProvider = ({ children, }) => {
         setPurchaseOrders((prev) => prev.filter((p) => p.id !== id));
         persistDelete('purchaseOrders', id);
         showToast(`Draft Purchase Order ${po.poNumber || ''} deleted.`);
+    };
+    const persistProductionInstructions = (next) => {
+        try { localStorage.setItem('oscar_productionInstructions', JSON.stringify(next)); } catch { }
+        return next;
+    };
+    const addProductionInstruction = (pi) => {
+        const newPi = {
+            id: pi.id || `pi-${Date.now()}`,
+            piNumber: pi.piNumber || `PI-${String(productionInstructions.length + 2001).padStart(4, '0')}`,
+            poId: pi.poId,
+            poNumber: pi.poNumber,
+            vendorId: pi.vendorId,
+            vendor: pi.vendor,
+            fabric: pi.fabric,
+            fabricSku: pi.fabricSku,
+            assignedQty: Number(pi.assignedQty) || 0,
+            uom: 'Meter',
+            producedQty: Number(pi.producedQty) || 0,
+            date: pi.date || getCurrentDateFormatted(),
+            startDate: pi.startDate,
+            expectedCompletionDate: pi.expectedCompletionDate,
+            status: pi.status || 'In Progress',
+            remarks: pi.remarks || '',
+        };
+        setProductionInstructions((prev) => {
+            const next = [newPi, ...prev];
+            return persistProductionInstructions(next);
+        });
+        showToast(`Production Instruction ${newPi.piNumber} saved.`);
+        return newPi;
+    };
+    const updateProductionInstructionStatus = (id, status) => {
+        setProductionInstructions((prev) => {
+            const next = prev.map((p) => (p.id === id ? { ...p, status } : p));
+            return persistProductionInstructions(next);
+        });
+        showToast(`Production Instruction updated to ${status}.`);
+    };
+    const updateProductionInstruction = (id, patch) => {
+        setProductionInstructions((prev) => {
+            const next = prev.map((p) => (p.id === id ? { ...p, ...patch, assignedQty: patch.assignedQty !== undefined ? Number(patch.assignedQty) || 0 : p.assignedQty } : p));
+            return persistProductionInstructions(next);
+        });
+        showToast('Production Instruction updated.');
+    };
+    const deleteProductionInstruction = (id) => {
+        setProductionInstructions((prev) => {
+            const next = prev.filter((p) => p.id !== id);
+            return persistProductionInstructions(next);
+        });
+        showToast('Production Instruction deleted.');
     };
     const convertPurchaseOrderToBill = (poId) => {
         const po = purchaseOrders.find((p) => p.id === poId);
@@ -4505,6 +4574,7 @@ export const ERPProvider = ({ children, }) => {
             paymentIns,
             salesReturns,
             purchaseOrders,
+            productionInstructions,
             purchaseBills,
             paymentOuts,
             purchaseReturns,
@@ -4583,6 +4653,10 @@ export const ERPProvider = ({ children, }) => {
             deletePurchaseOrder,
             getPoBilledStatus,
             convertPurchaseOrderToBill,
+            addProductionInstruction,
+            updateProductionInstructionStatus,
+            updateProductionInstruction,
+            deleteProductionInstruction,
             addPurchaseBill,
             cancelPurchaseBill,
             updatePurchaseBillStatus,

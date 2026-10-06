@@ -52,6 +52,7 @@ import {
   Waves,
   BookOpen,
   Check,
+  CheckCircle2,
   LogOut,
   Lock,
 } from 'lucide-react';
@@ -120,6 +121,9 @@ const NAV = [
       { label: 'All Projects', icon: Layers, to: '/pms/projects' },
       { label: 'My Projects', icon: UserCheck, to: '/pms/my-projects' },
       { label: 'My Tasks', icon: ListChecks, to: '/pms/my-tasks', badgeKey: 'pmsMyTasksPending' },
+      { label: 'Production Instructions', icon: ClipboardList, to: '/pms/production-instructions' },
+      { label: 'Daily Production', icon: CalendarCheck, to: '/pms/daily-production' },
+      { label: 'Production Completion & Verification', icon: CheckCircle2, to: '/pms/production-completion' },
       { label: 'Dynamic Stages', icon: Sliders, to: '/pms/stages' },
       { label: 'Timeline & Gantt', icon: Calendar, to: '/pms/timeline' },
       { label: 'Delay Center', icon: AlertTriangle, to: '/pms/delays', badgeKey: 'pmsDelayedCount', badgeColor: '#ef4444' },
@@ -174,6 +178,7 @@ const NAV = [
         defaultOpen: false,
         children: [
           { label: 'All Items', to: '/inventory/items', dot: true },
+          { label: 'Fabric Items', to: '/inventory/items/fabric' },
           { label: 'Machine Master', to: '/inventory/items/machines' },
           { label: 'Stock Inventory', to: '/inventory/items/stock' },
         ],
