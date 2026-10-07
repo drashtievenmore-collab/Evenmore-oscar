@@ -5,17 +5,23 @@ import { StatusBadge } from '../../../components/ui/StatusBadge';
 import { Button } from '../../../components/ui/Button';
 import {
   Plus, ClipboardList, X, Search, Clock, CheckCircle2, Package, Layers,
-  Maximize2, Minimize2, Trash2, ChevronDown, Info, Eye, Pencil,
+  Maximize2, Minimize2, ChevronDown, Eye, Pencil,
 } from 'lucide-react';
 import { toISODate } from '../../../utils/dateUtils';
+import PageHeader from '../../../components/ui/PageHeader';
 
 const STATUS_PILL = {
   'In Progress': 'bg-blue-50 text-blue-600 border-blue-200',
+  Running: 'bg-emerald-50 text-emerald-600 border-emerald-200',
   Completed: 'bg-emerald-50 text-emerald-600 border-emerald-200',
+  'Partially Completed': 'bg-amber-50 text-amber-600 border-amber-200',
   Pending: 'bg-amber-50 text-amber-600 border-amber-200',
   Draft: 'bg-amber-50 text-amber-600 border-amber-200',
   Cancelled: 'bg-rose-50 text-rose-600 border-rose-200',
 };
+
+const PROCESS_TYPES = ['Dyeing', 'Processing', 'Printing'];
+const PI_STATUSES = ['Pending', 'In Progress', 'Running', 'Partially Completed', 'Completed', 'Cancelled'];
 
 export default function ProductionInstructionsPage() {
   const {
@@ -30,7 +36,6 @@ export default function ProductionInstructionsPage() {
   const [query, setQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState('All');
   const [vendorFilter, setVendorFilter] = useState('All');
-  const [fabricFilter, setFabricFilter] = useState('All');
   const [dateFrom, setDateFrom] = useState('');
   const [dateTo, setDateTo] = useState('');
 
@@ -41,7 +46,10 @@ export default function ProductionInstructionsPage() {
   const [assignedQty, setAssignedQty] = useState('');
   const [startDate, setStartDate] = useState(() => getCurrentISODate());
   const [piStatus, setPiStatus] = useState('In Progress');
+  const [processType, setProcessType] = useState('Dyeing');
+  const [assignedEmployee, setAssignedEmployee] = useState('');
   const [remarks, setRemarks] = useState('');
+  const [openMenuId, setOpenMenuId] = useState(null);
 
   // View / Edit state
   const [viewingPi, setViewingPi] = useState(null);
@@ -50,6 +58,8 @@ export default function ProductionInstructionsPage() {
   const [editStart, setEditStart] = useState('');
   const [editExpected, setEditExpected] = useState('');
   const [editStatus, setEditStatus] = useState('In Progress');
+  const [editProcessType, setEditProcessType] = useState('Dyeing');
+  const [editEmployee, setEditEmployee] = useState('');
   const [editRemarks, setEditRemarks] = useState('');
 
   const openEdit = (pi) => {
@@ -58,7 +68,10 @@ export default function ProductionInstructionsPage() {
     setEditStart(toISODate(pi.startDate) || '');
     setEditExpected(toISODate(pi.expectedCompletionDate) || '');
     setEditStatus(pi.status || 'In Progress');
+    setEditProcessType(pi.processType || 'Dyeing');
+    setEditEmployee(pi.assignedEmployee || '');
     setEditRemarks(pi.remarks || '');
+    setOpenMenuId(null);
   };
 
   const handleUpdate = (e) => {
@@ -71,6 +84,8 @@ export default function ProductionInstructionsPage() {
       startDate: formatDateDDMMYYYY(editStart),
       expectedCompletionDate: formatDateDDMMYYYY(editExpected),
       status: editStatus,
+      processType: editProcessType,
+      assignedEmployee: editEmployee,
       remarks: editRemarks,
     });
     setEditingPi(null);
@@ -90,7 +105,6 @@ export default function ProductionInstructionsPage() {
   const pendingCount = productionInstructions.filter((p) => p.status === 'Pending' || p.status === 'Draft').length;
 
   const vendors = useMemo(() => [...new Set(productionInstructions.map((p) => p.vendor).filter(Boolean))], [productionInstructions]);
-  const fabrics = useMemo(() => [...new Set(productionInstructions.map((p) => p.fabric).filter(Boolean))], [productionInstructions]);
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -98,7 +112,6 @@ export default function ProductionInstructionsPage() {
       if (q && !`${p.piNumber} ${p.poNumber} ${p.vendor} ${p.fabric}`.toLowerCase().includes(q)) return false;
       if (statusFilter !== 'All' && p.status !== statusFilter) return false;
       if (vendorFilter !== 'All' && p.vendor !== vendorFilter) return false;
-      if (fabricFilter !== 'All' && p.fabric !== fabricFilter) return false;
       if (dateFrom || dateTo) {
         const parts = String(p.date || '').split('-');
         const iso = parts.length === 3 ? `${parts[2]}-${parts[1]}-${parts[0]}` : null;
@@ -107,7 +120,7 @@ export default function ProductionInstructionsPage() {
       }
       return true;
     });
-  }, [productionInstructions, query, statusFilter, vendorFilter, fabricFilter, dateFrom, dateTo]);
+  }, [productionInstructions, query, statusFilter, vendorFilter, dateFrom, dateTo]);
 
   const handleSelectPo = (id) => {
     setPoId(id);
@@ -129,6 +142,8 @@ export default function ProductionInstructionsPage() {
       vendor: selectedPo.vendor,
       fabric: poFabric(selectedPo),
       fabricSku: poLines(selectedPo)[0]?.sku || '',
+      processType,
+      assignedEmployee,
       assignedQty,
       date: formatDateDDMMYYYY(piDate),
       startDate: formatDateDDMMYYYY(startDate),
@@ -138,29 +153,23 @@ export default function ProductionInstructionsPage() {
     });
     setPoId(''); setPiDate(getCurrentISODate());
     setExpectedCompletion(addDaysISO(getCurrentISODate(), 14));
-    setAssignedQty(''); setStartDate(getCurrentISODate()); setPiStatus('In Progress'); setRemarks('');
+    setAssignedQty(''); setStartDate(getCurrentISODate()); setPiStatus('In Progress');
+    setProcessType('Dyeing'); setAssignedEmployee(''); setRemarks('');
     setShowAddModal(false); setIsFullscreen(false);
   };
 
 
   return (
     <div className="-m-3 md:-m-5 bg-[#edf3fc] p-3 md:p-5 space-y-4 min-h-[calc(100vh-62px)]">
-      <p className="text-[11px] font-medium text-slate-400">Dashboard <span className="mx-1">›</span> PMS <span className="mx-1">›</span> <span className="text-slate-600 font-semibold">Production Instructions</span></p>
-
-      <div className="relative overflow-hidden rounded-xl border border-[#e2eaf5] bg-white shadow-[0_1px_2px_rgba(16,42,82,0.05)]">
-        <div className="relative flex flex-wrap items-start justify-between gap-3 p-5">
-          <div className="min-w-0 max-w-[640px]">
-            <h1 className="flex items-center gap-1.5 text-[20px] font-extrabold tracking-tight text-[#17294e]">
-              Production Instructions
-              <Info size={15} className="text-blue-500" />
-            </h1>
-            <p className="mt-1 text-[12px] leading-relaxed text-slate-500">Create and manage production instructions (job work) from Purchase Orders for Vendor A.</p>
-          </div>
+      <PageHeader
+        title="Production Instructions"
+        subtitle="Create and manage production instructions for external agencies."
+        actions={
           <Button icon={Plus} onClick={() => { setShowAddModal(true); setIsFullscreen(false); }} className="!rounded-lg !bg-[#2563eb] hover:!bg-[#1d4ed8]">
-            Create Instruction
+            Create Production Instruction
           </Button>
-        </div>
-      </div>
+        }
+      />
 
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
         {[
@@ -182,56 +191,59 @@ export default function ProductionInstructionsPage() {
       </div>
 
       <div className="overflow-hidden rounded-xl border border-[#e2eaf5] bg-white shadow-[0_1px_2px_rgba(16,42,82,0.05)]">
-        <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 p-3.5">
-          <h3 className="text-[13.5px] font-extrabold text-[#17294e]">Production Instructions</h3>
-          <div className="flex flex-wrap items-center gap-2">
-            <div className="relative">
-              <Search size={14} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
-              <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search PI No, PO No, vendor, fabric..." className="w-56 rounded-lg border border-slate-200 bg-white py-2 pl-9 pr-3 text-[12px] outline-none placeholder:text-slate-400 focus:border-blue-400" />
-            </div>
-            <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} className="rounded-lg border border-slate-200 bg-white py-2 px-2 text-[12px] font-medium text-slate-600 outline-none">
-              <option value="All">All Status</option>
-              {['Pending', 'In Progress', 'Completed', 'Cancelled'].map((s) => <option key={s}>{s}</option>)}
-            </select>
-            <select value={vendorFilter} onChange={(e) => setVendorFilter(e.target.value)} className="rounded-lg border border-slate-200 bg-white py-2 px-2 text-[12px] font-medium text-slate-600 outline-none">
-              <option value="All">All Vendors</option>
-              {vendors.map((v) => <option key={v}>{v}</option>)}
-            </select>
-            <select value={fabricFilter} onChange={(e) => setFabricFilter(e.target.value)} className="rounded-lg border border-slate-200 bg-white py-2 px-2 text-[12px] font-medium text-slate-600 outline-none">
-              <option value="All">All Fabrics</option>
-              {fabrics.map((f) => <option key={f}>{f}</option>)}
-            </select>
-            <input type="date" value={dateFrom} onChange={(e) => setDateFrom(e.target.value)} className="rounded-lg border border-slate-200 bg-white py-2 px-2 text-[12px] text-slate-600 outline-none" title="Date from" />
-            <span className="text-slate-400 text-[11px]">to</span>
-            <input type="date" value={dateTo} onChange={(e) => setDateTo(e.target.value)} className="rounded-lg border border-slate-200 bg-white py-2 px-2 text-[12px] text-slate-600 outline-none" title="Date to" />
+        <div className="flex flex-wrap items-center gap-2 border-b border-slate-100 p-3.5">
+          <div className="relative">
+            <Search size={14} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+            <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search PI No., vendor, fabric..." className="w-56 rounded-lg border border-slate-200 bg-white py-2 pl-9 pr-3 text-[12px] outline-none placeholder:text-slate-400 focus:border-blue-400" />
+          </div>
+          <select value={vendorFilter} onChange={(e) => setVendorFilter(e.target.value)} className="rounded-lg border border-slate-200 bg-white py-2 px-2 text-[12px] font-medium text-slate-600 outline-none">
+            <option value="All">All Agencies</option>
+            {vendors.map((v) => <option key={v}>{v}</option>)}
+          </select>
+          <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} className="rounded-lg border border-slate-200 bg-white py-2 px-2 text-[12px] font-medium text-slate-600 outline-none">
+            <option value="All">All Status</option>
+            {PI_STATUSES.map((s) => <option key={s}>{s}</option>)}
+          </select>
+          <div className="flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white py-2 px-2">
+            <span className="text-[12px] text-slate-400">Start Date</span>
+            <input type="date" value={dateFrom} onChange={(e) => setDateFrom(e.target.value)} className="text-[12px] text-slate-600 outline-none" title="Start date from" />
+          </div>
+          <span className="text-slate-400 text-[11px]">to</span>
+          <div className="flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white py-2 px-2">
+            <span className="text-[12px] text-slate-400">End Date</span>
+            <input type="date" value={dateTo} onChange={(e) => setDateTo(e.target.value)} className="text-[12px] text-slate-600 outline-none" title="End date to" />
           </div>
         </div>
         <div className="overflow-x-auto">
-          <table className="w-full min-w-[1100px] border-collapse text-left text-[12px]">
+          <table className="w-full min-w-[1280px] border-collapse text-left text-[12px]">
             <thead>
               <tr className="border-b border-slate-100 text-[10.5px] font-bold uppercase tracking-wide text-slate-400">
-                {['PI No.', 'PO No.', 'Date', 'Vendor', 'Fabric', 'Assigned Qty (M)', 'Produced (M)', 'Balance (M)', 'Start Date', 'Expected Completion', 'Status', 'Actions'].map((h, i) => (
-                  <th key={h} className={`px-4 py-2.5 ${i >= 5 && i <= 7 ? 'text-right' : ''} ${i === 10 ? 'text-center' : ''}`}>{h}</th>
+                <th className="px-3 py-2.5 w-10 text-center">#</th>
+                {['PI No.', 'PI Date', 'Agency/Vendor', 'Fabric', 'Process Type', 'Order Qty (M)', 'Produced Qty (M)', 'Balance Qty (M)', 'Start Date', 'Expected Completion', 'Assigned Employee', 'Status'].map((h, i) => (
+                  <th key={h} className={`px-3 py-2.5 whitespace-nowrap ${i >= 5 && i <= 7 ? 'text-right' : ''} ${i === 11 ? 'text-center' : ''}`}>{h}</th>
                 ))}
+                <th className="px-3 py-2.5 text-right">Actions</th>
               </tr>
             </thead>
             <tbody>
-              {filtered.map((pi) => (
+              {filtered.map((pi, idx) => (
                 <tr key={pi.id} className="border-b border-slate-50 hover:bg-slate-50/60">
-                  <td className="px-4 py-2.5 whitespace-nowrap">
+                  <td className="px-3 py-2.5 text-center text-slate-400 font-mono">{idx + 1}</td>
+                  <td className="px-3 py-2.5 whitespace-nowrap">
                     <button onClick={() => navigate(`/pms/production-completion?pi=${encodeURIComponent(pi.id)}`)} className="font-mono font-bold text-blue-600 hover:underline" title="Open Production Completion & Verification">{pi.piNumber}</button>
                   </td>
-                  <td className="px-4 py-2.5 font-mono text-slate-600 whitespace-nowrap">{pi.poNumber}</td>
-                  <td className="px-4 py-2.5 font-mono text-[11px] text-slate-500 whitespace-nowrap">{pi.date}</td>
-                  <td className="px-4 py-2.5 font-bold text-slate-700">{pi.vendor}</td>
-                  <td className="px-4 py-2.5 text-slate-600 font-medium whitespace-nowrap">{pi.fabric}</td>
-                  <td className="px-4 py-2.5 text-right font-mono font-semibold text-slate-800 whitespace-nowrap">{Number(pi.assignedQty).toLocaleString('en-IN')}</td>
-                  <td className="px-4 py-2.5 text-right font-mono text-slate-700 whitespace-nowrap">{getProduced(pi).toLocaleString('en-IN')}</td>
-                  <td className="px-4 py-2.5 text-right font-mono text-slate-700 whitespace-nowrap">{getBalance(pi).toLocaleString('en-IN')}</td>
-                  <td className="px-4 py-2.5 font-mono text-[11px] text-slate-500 whitespace-nowrap">{pi.startDate}</td>
-                  <td className="px-4 py-2.5 font-mono text-[11px] text-slate-500 whitespace-nowrap">{pi.expectedCompletionDate}</td>
-                  <td className="px-4 py-2.5 text-center"><span className={`inline-block rounded-md border px-2 py-0.5 text-[10.5px] font-bold ${STATUS_PILL[pi.status] || STATUS_PILL.Draft}`}>{pi.status}</span></td>
-                  <td className="px-4 py-2.5">
+                  <td className="px-3 py-2.5 font-mono text-[11px] text-slate-500 whitespace-nowrap">{pi.date}</td>
+                  <td className="px-3 py-2.5 font-bold text-slate-700 whitespace-nowrap">{pi.vendor}</td>
+                  <td className="px-3 py-2.5 text-slate-600 font-medium whitespace-nowrap">{pi.fabric}</td>
+                  <td className="px-3 py-2.5 font-medium text-slate-600 whitespace-nowrap">{pi.processType || '—'}</td>
+                  <td className="px-3 py-2.5 text-right font-mono font-semibold text-slate-800 whitespace-nowrap">{Number(pi.assignedQty).toLocaleString('en-IN')}</td>
+                  <td className="px-3 py-2.5 text-right font-mono text-slate-700 whitespace-nowrap">{getProduced(pi).toLocaleString('en-IN')}</td>
+                  <td className="px-3 py-2.5 text-right font-mono text-slate-700 whitespace-nowrap">{getBalance(pi).toLocaleString('en-IN')}</td>
+                  <td className="px-3 py-2.5 font-mono text-[11px] text-slate-500 whitespace-nowrap">{pi.startDate}</td>
+                  <td className="px-3 py-2.5 font-mono text-[11px] text-slate-500 whitespace-nowrap">{pi.expectedCompletionDate}</td>
+                  <td className="px-3 py-2.5 font-semibold text-slate-700 whitespace-nowrap">{pi.assignedEmployee || '—'}</td>
+                  <td className="px-3 py-2.5 text-center"><span className={`inline-block rounded-md border px-2 py-0.5 text-[10.5px] font-bold whitespace-nowrap ${STATUS_PILL[pi.status] || STATUS_PILL.Draft}`}>{pi.status}</span></td>
+                  <td className="px-3 py-2.5">
                     <div className="flex items-center justify-end gap-1.5 whitespace-nowrap">
                       <button onClick={() => setViewingPi(pi)} className="p-2 rounded-lg border border-slate-200 text-blue-600 hover:bg-blue-50 transition-colors" title="View">
                         <Eye size={14} />
@@ -239,16 +251,29 @@ export default function ProductionInstructionsPage() {
                       <button onClick={() => openEdit(pi)} className="p-2 rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-100 transition-colors" title="Edit">
                         <Pencil size={14} />
                       </button>
-                      <button onClick={() => deleteProductionInstruction(pi.id)} className="p-2 rounded-lg border border-rose-200 text-rose-600 hover:bg-rose-50 transition-colors" title="Delete">
-                        <Trash2 size={14} />
-                      </button>
+                      <div className="relative">
+                        <button onClick={() => setOpenMenuId(openMenuId === pi.id ? null : pi.id)} className="p-2 rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-100 transition-colors" title="More actions">
+                          <span className="text-[14px] font-bold leading-none tracking-widest">...</span>
+                        </button>
+                        {openMenuId === pi.id && (
+                          <>
+                            <div className="fixed inset-0 z-10" onClick={() => setOpenMenuId(null)} />
+                            <div className="absolute right-0 z-20 w-48 overflow-hidden rounded-xl border border-slate-200 bg-white py-1 shadow-xl">
+                              <button onClick={() => { setOpenMenuId(null); setViewingPi(pi); }} className="block w-full px-3 py-2 text-left text-[12px] font-medium text-slate-700 hover:bg-slate-50">View details</button>
+                              <button onClick={() => openEdit(pi)} className="block w-full px-3 py-2 text-left text-[12px] font-medium text-slate-700 hover:bg-slate-50">Edit</button>
+                              <button onClick={() => { setOpenMenuId(null); navigate(`/pms/production-completion?pi=${encodeURIComponent(pi.id)}`); }} className="block w-full px-3 py-2 text-left text-[12px] font-medium text-slate-700 hover:bg-slate-50">Open completion</button>
+                              <button onClick={() => { setOpenMenuId(null); deleteProductionInstruction(pi.id); }} className="block w-full px-3 py-2 text-left text-[12px] font-semibold text-rose-600 hover:bg-rose-50">Delete</button>
+                            </div>
+                          </>
+                        )}
+                      </div>
                     </div>
                   </td>
                 </tr>
               ))}
               {filtered.length === 0 && (
                 <tr>
-                  <td colSpan={12} className="px-4 py-12 text-center">
+                  <td colSpan={14} className="px-4 py-12 text-center">
                     <div className="mx-auto flex h-11 w-11 items-center justify-center rounded-xl bg-blue-50 text-blue-500"><ClipboardList size={20} /></div>
                     <p className="mt-3 text-[13px] font-extrabold text-[#17294e]">No records found</p>
                     <p className="mt-1 text-[11.5px] text-slate-400">Create a production instruction from a Purchase Order.</p>
@@ -332,6 +357,16 @@ export default function ProductionInstructionsPage() {
                     <input type="number" min="0" required value={assignedQty} onChange={(e) => setAssignedQty(e.target.value)} placeholder="40000" className="w-full border border-slate-300 rounded-lg p-2 bg-white text-slate-800 font-mono" />
                   </div>
                   <div>
+                    <label className="block font-semibold text-slate-700 mb-1">Process Type *</label>
+                    <select required value={processType} onChange={(e) => setProcessType(e.target.value)} className="w-full border border-slate-300 rounded-lg p-2 bg-white text-slate-800 font-medium">
+                      {PROCESS_TYPES.map((t) => <option key={t}>{t}</option>)}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block font-semibold text-slate-700 mb-1">Assigned Employee</label>
+                    <input type="text" value={assignedEmployee} onChange={(e) => setAssignedEmployee(e.target.value)} placeholder="e.g. Rahul" maxLength={100} className="w-full border border-slate-300 rounded-lg p-2 bg-white text-slate-800" />
+                  </div>
+                  <div>
                     <label className="block font-semibold text-slate-700 mb-1">UOM</label>
                     <input type="text" readOnly value="Meter" className="w-full border border-slate-200 rounded-lg p-2 bg-slate-50 text-slate-500 font-medium" />
                   </div>
@@ -377,6 +412,8 @@ export default function ProductionInstructionsPage() {
                 ['Date', viewingPi.date],
                 ['Vendor', viewingPi.vendor],
                 ['Fabric', viewingPi.fabric],
+                ['Process Type', viewingPi.processType || '—'],
+                ['Assigned Employee', viewingPi.assignedEmployee || '—'],
                 ['Assigned Qty (M)', Number(viewingPi.assignedQty).toLocaleString('en-IN')],
                 ['Produced (M)', getProduced(viewingPi).toLocaleString('en-IN')],
                 ['Balance (M)', getBalance(viewingPi).toLocaleString('en-IN')],
@@ -419,8 +456,18 @@ export default function ProductionInstructionsPage() {
                 <div>
                   <label className="block font-semibold text-slate-700 mb-1">Status *</label>
                   <select value={editStatus} onChange={(e) => setEditStatus(e.target.value)} className="w-full border border-slate-300 rounded-lg p-2 bg-white text-slate-800 font-medium">
-                    {['Pending', 'In Progress', 'Completed', 'Cancelled'].map((s) => <option key={s}>{s}</option>)}
+                    {PI_STATUSES.map((s) => <option key={s}>{s}</option>)}
                   </select>
+                </div>
+                <div>
+                  <label className="block font-semibold text-slate-700 mb-1">Process Type</label>
+                  <select value={editProcessType} onChange={(e) => setEditProcessType(e.target.value)} className="w-full border border-slate-300 rounded-lg p-2 bg-white text-slate-800 font-medium">
+                    {PROCESS_TYPES.map((t) => <option key={t}>{t}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <label className="block font-semibold text-slate-700 mb-1">Assigned Employee</label>
+                  <input type="text" value={editEmployee} onChange={(e) => setEditEmployee(e.target.value)} placeholder="e.g. Rahul" maxLength={100} className="w-full border border-slate-300 rounded-lg p-2 bg-white text-slate-800" />
                 </div>
                 <div>
                   <label className="block font-semibold text-slate-700 mb-1">Start Date *</label>

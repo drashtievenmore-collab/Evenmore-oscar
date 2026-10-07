@@ -1,10 +1,10 @@
 import { useState, useMemo } from "react";
-import { ChevronRight, ChevronDown, Search, Calendar as CalendarIcon, X } from "lucide-react";
+import { ChevronDown, Search, Calendar as CalendarIcon, X } from "lucide-react";
 import { useAppStore } from "../../../stores/appStore";
 import { useAttendanceStore } from "../../../stores/attendanceStore";
 import Modal from "../../../components/ui/Modal";
 import { ConfirmModal } from "../../../components/hrms/Shared";
-import { PageInfoButton } from "../../../components/common/PageInfoButton";
+import PageHeader from "../../../components/ui/PageHeader";
 import { hrmsGuides } from "../../../data/hrms/hrmsGuides";
 
 const SAMPLE_REQUESTS = [];
@@ -192,31 +192,21 @@ export default function Requests() {
 
   return (
     <div className="req-page">
-      {/* Breadcrumbs */}
-      <nav className="req-crumb">
-        <span style={{ cursor: "pointer" }}>Home</span>
-        <ChevronRight size={13} style={{ color: "#9aa7bd" }} />
-        <span style={{ color: "#111f36", fontWeight: 600 }}>Attendance / Attendance Requests</span>
-      </nav>
-
-      {/* Header Row */}
-      <div className="req-title-row">
-        <div>
-          <div className="flex items-center gap-2.5">
-            <h1 className="req-title">Attendance Requests</h1>
-            <PageInfoButton guide={hrmsGuides.attendanceRequests} />
-          </div>
-          <p className="req-sub">Single request management for regularization &amp; early clock-out.</p>
-        </div>
-        <div className="flex-wrap lg:flex-nowrap" style={{ display: "flex", alignItems: "center", gap: 10 }}>
-          <button type="button" onClick={() => setShowRegModal(true)} className="req-btn-outline">
-            Regularize
-          </button>
-          <button type="button" onClick={() => setShowEarlyModal(true)} className="req-btn-primary">
-            Early Clock-Out Request
-          </button>
-        </div>
-      </div>
+      <PageHeader
+        title="Attendance Requests"
+        subtitle="Single request management for regularization & early clock-out."
+        guide={hrmsGuides.attendanceRequests}
+        actions={
+          <>
+            <button type="button" onClick={() => setShowRegModal(true)} className="req-btn-outline">
+              Regularize
+            </button>
+            <button type="button" onClick={() => setShowEarlyModal(true)} className="req-btn-primary">
+              Early Clock-Out Request
+            </button>
+          </>
+        }
+      />
 
       {/* Filter Tabs Pills */}
       <div className="req-tabs">

@@ -1,9 +1,9 @@
 import { useState, useMemo } from "react";
-import { ChevronRight, X } from "lucide-react";
+import { X } from "lucide-react";
 import { useAppStore } from "../../../stores/appStore";
 import { useAttendanceStore } from "../../../stores/attendanceStore";
 import Modal from "../../../components/ui/Modal";
-import { PageInfoButton } from "../../../components/common/PageInfoButton";
+import PageHeader from "../../../components/ui/PageHeader";
 import { hrmsGuides } from "../../../data/hrms/hrmsGuides";
 
 const DEFAULT_EMPLOYEES = [];
@@ -87,23 +87,11 @@ export default function IndividualAttendance() {
 
   return (
     <div className="ind-att-page">
-      {/* Breadcrumb */}
-      <nav className="ind-crumb">
-        <span style={{ cursor: "pointer" }}>Home</span>
-        <ChevronRight size={13} style={{ color: "#9aa7bd" }} />
-        <span style={{ color: "#111f36", fontWeight: 600 }}>Attendance / Individual Attendance</span>
-      </nav>
-
-      {/* Header Row */}
-      <div className="ind-title-row">
-        <div>
-          <div className="flex items-center gap-2.5">
-            <h1 className="ind-title">Individual Attendance</h1>
-            <PageInfoButton guide={hrmsGuides.attendanceIndividual} />
-          </div>
-          <p className="ind-sub">View and manage per-employee attendance history.</p>
-        </div>
-      </div>
+      <PageHeader
+        title="Individual Attendance"
+        subtitle="View and manage per-employee attendance history."
+        guide={hrmsGuides.attendanceIndividual}
+      />
 
       {/* Filter Bar */}
       <div className="ind-card ind-filter-card">

@@ -3,6 +3,7 @@ import { useERP } from '../../context/ERPContext';
 import { DataTable } from '../../components/ui/DataTable';
 import { Button } from '../../components/ui/Button';
 import { Plus, MapPin, User } from 'lucide-react';
+import PageHeader from '../../components/ui/PageHeader';
 export const LocationsPage = () => {
     const { locations, addLocation } = useERP();
     const [showAddModal, setShowAddModal] = useState(false);
@@ -78,19 +79,15 @@ export const LocationsPage = () => {
         },
     ];
     return (<div className="space-y-6">
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-        <div>
-          <h2 className="text-xl font-bold text-[#1F2E4A] tracking-tight">
-            Locations Management
-          </h2>
-          <p className="text-xs text-slate-500 mt-1">
-            Physical and logical warehouse zones, assembly bays, quarantine containment, and storage racks.
-          </p>
-        </div>
-        <Button icon={Plus} onClick={() => setShowAddModal(true)}>
-          Add Warehouse Location
-        </Button>
-      </div>
+      <PageHeader
+        title="Locations Management"
+        subtitle="Physical and logical warehouse zones, assembly bays, quarantine containment, and storage racks."
+        actions={
+          <Button icon={Plus} onClick={() => setShowAddModal(true)}>
+            Add Warehouse Location
+          </Button>
+        }
+      />
 
       <DataTable title="Warehouse Facilities & Zones" columns={columns} data={locations} keyExtractor={(l) => l.id} searchPlaceholder="Search location code, zone name, or manager..." searchFilter={(l, term) => String(l.code ?? '').toLowerCase().includes(term) ||
             String(l.name ?? '').toLowerCase().includes(term) ||

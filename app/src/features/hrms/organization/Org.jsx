@@ -3,6 +3,7 @@ import { useEffect } from "react";
 import { useAppStore } from "../../../stores/appStore";
 import { hrmsSync } from "../../../services/hrmsSync";
 import { Badge } from "../../../components/hrms/Badge";
+import PageHeader from "../../../components/ui/PageHeader";
 export { OrgChart } from "./OrgChartPage";
 export function Departments() {
   const showToast = useAppStore((s) => s.showToast);
@@ -21,7 +22,13 @@ export function Departments() {
 
   const filtered = departments.filter((d) => String(d.name ?? '').toLowerCase().includes(q.toLowerCase()));
   return <div className="flex flex-col gap-6">
-      <div className="flex flex-wrap justify-between gap-4"><div><h1 className="text-[24px] font-bold">Departments</h1><p className="text-[13px] text-muted">Manage organizational structure</p></div><button onClick={() => showToast("Add department")} className="px-5 py-2.5 bg-navy text-white rounded-xl text-[13.5px] font-medium">Add Department</button></div>
+      <PageHeader
+        title="Departments"
+        subtitle="Manage organizational structure"
+        actions={
+          <button onClick={() => showToast("Add department")} className="px-5 py-2.5 bg-navy text-white rounded-xl text-[13.5px] font-medium">Add Department</button>
+        }
+      />
       <div className="bg-white border border-bdr rounded-xl p-4 shadow-sm flex flex-wrap justify-between gap-3">
         <div className="relative w-full sm:w-auto"><span className="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-muted text-[18px]">search</span><input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search department" className="pl-10 pr-4 h-9 w-full sm:w-64 bg-off border border-bdr rounded-xl text-[13px]" /></div>
         <div className="flex p-1 bg-off border border-bdr rounded-xl"><button onClick={() => setView("table")} className={`px-3 py-1.5 rounded-lg text-[12px] ${view === "table" ? "bg-white border border-bdr shadow-sm font-medium" : ""}`}>List</button><button onClick={() => setView("grid")} className={`px-3 py-1.5 rounded-lg text-[12px] ${view === "grid" ? "bg-white border border-bdr shadow-sm font-medium" : ""}`}>Grid</button></div>

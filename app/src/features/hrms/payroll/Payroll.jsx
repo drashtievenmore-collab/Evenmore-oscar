@@ -40,7 +40,7 @@ import {
   formatINR,
 } from "./salaryCalculations";
 import { Badge } from "../../../components/hrms/Badge";
-import PageInfoButton from "../../../components/common/PageInfoButton";
+import PageHeader from "../../../components/ui/PageHeader";
 import { hrmsGuides } from "../../../data/hrms/hrmsGuides";
 
 // Clean browser PDF payslip generator with full formula breakdown
@@ -704,91 +704,83 @@ export default function Payroll() {
 
   return (
     <div className="flex flex-col gap-6">
-      {/* ── Top Header ── */}
-      <div className="flex flex-wrap items-center justify-between gap-4">
-        <div>
-          <div className="flex items-center gap-2.5">
-            <h1 className="text-[24px] font-bold tracking-tight text-slate-900">
-              Payroll Management
-            </h1>
-            <PageInfoButton guide={hrmsGuides.payroll} />
-          </div>
-          <p className="text-[13px] text-muted">
-            Attendance &amp; Advance Formula: <span className="font-semibold text-slate-700">Remaining Payable = Standard CTC - Attendance LOP (Remaining Days Removed) + Earnings - Deductions - Advance Recovered</span>
-          </p>
-        </div>
+      <PageHeader
+        title="Payroll Management"
+        subtitle={<>Attendance & Advance Formula: <span className="font-semibold text-slate-700">Remaining Payable = Standard CTC - Attendance LOP (Remaining Days Removed) + Earnings - Deductions - Advance Recovered</span></>}
+        guide={hrmsGuides.payroll}
+        actions={
+          <>
+            {/* Department Working Days Schedule Dropdown (Pure Dropdown - No Up/Down Arrows) */}
+            <div className="flex items-center gap-2 px-3 h-10 w-full sm:w-auto max-w-full lg:max-w-none min-w-0 lg:min-w-auto bg-white border border-bdr rounded-xl text-[13px] font-medium text-slate-700 shadow-xs">
+              <Building2 size={14} className="text-navy shrink-0" />
+              <span className="text-muted text-[12px] whitespace-nowrap">Dept Schedule:</span>
+              <select
+                value={deptFilter}
+                onChange={(e) => {
+                  setDeptFilter(e.target.value);
+                  if (e.target.value !== "All") {
+                    const days = getDepartmentDays(departmentWorkingDays, e.target.value);
+                    const hours = getDepartmentHours(departmentWorkingHours, e.target.value);
+                    showToast(`${e.target.value}: ${days} Working Days • ${hours}h/day (${days * hours}h target)`);
+                  }
+                }}
+                className="min-w-0 lg:min-w-auto flex-1 w-0 sm:flex-initial sm:w-auto font-semibold text-slate-900 bg-transparent outline-none cursor-pointer text-[13px]"
+              >
+                <option value="All">All Departments (HR Admin Schedule)</option>
+                {Object.entries(departmentWorkingDays).map(([dept, days]) => {
+                  const hours = getDepartmentHours(departmentWorkingHours, dept);
+                  return (
+                    <option key={dept} value={dept}>
+                      {dept} — {days} Days ({hours}h/d • {days * hours}h)
+                    </option>
+                  );
+                })}
+              </select>
+            </div>
 
-        <div className="flex flex-wrap lg:flex-nowrap items-center gap-2.5">
-          {/* Department Working Days Schedule Dropdown (Pure Dropdown - No Up/Down Arrows) */}
-          <div className="flex items-center gap-2 px-3 h-10 w-full sm:w-auto max-w-full lg:max-w-none min-w-0 lg:min-w-auto bg-white border border-bdr rounded-xl text-[13px] font-medium text-slate-700 shadow-xs">
-            <Building2 size={14} className="text-navy shrink-0" />
-            <span className="text-muted text-[12px] whitespace-nowrap">Dept Schedule:</span>
-            <select
-              value={deptFilter}
-              onChange={(e) => {
-                setDeptFilter(e.target.value);
-                if (e.target.value !== "All") {
-                  const days = getDepartmentDays(departmentWorkingDays, e.target.value);
-                  const hours = getDepartmentHours(departmentWorkingHours, e.target.value);
-                  showToast(`${e.target.value}: ${days} Working Days • ${hours}h/day (${days * hours}h target)`);
-                }
-              }}
-              className="min-w-0 lg:min-w-auto flex-1 w-0 sm:flex-initial sm:w-auto font-semibold text-slate-900 bg-transparent outline-none cursor-pointer text-[13px]"
+            <Link
+              to="/hrms/hr-admin?tab=working-days"
+              className="inline-flex items-center gap-1.5 px-3 h-10 bg-white border border-bdr rounded-xl text-[12.5px] font-semibold text-slate-700 hover:bg-slate-50 transition shadow-xs cursor-pointer"
+              title="Configure working days by department in HR Admin"
             >
-              <option value="All">All Departments (HR Admin Schedule)</option>
-              {Object.entries(departmentWorkingDays).map(([dept, days]) => {
-                const hours = getDepartmentHours(departmentWorkingHours, dept);
-                return (
-                  <option key={dept} value={dept}>
-                    {dept} — {days} Days ({hours}h/d • {days * hours}h)
-                  </option>
-                );
-              })}
+              <ShieldCheck size={15} className="text-emerald-700" />
+              <span>HR Admin Setup</span>
+            </Link>
+
+            <select
+              value={currentPeriod}
+              onChange={(e) => {
+                setCurrentPeriod(e.target.value);
+                showToast(`Switched cycle to ${e.target.value}`);
+              }}
+              className="h-10 px-3 bg-white border border-bdr rounded-xl text-[13px] font-medium text-slate-700 shadow-xs focus:outline-none focus:border-navy cursor-pointer"
+            >
+              <option value="October 2024">October 2024</option>
+              <option value="September 2024">September 2024</option>
+              <option value="August 2024">August 2024</option>
             </select>
-          </div>
 
-          <Link
-            to="/hrms/hr-admin?tab=working-days"
-            className="inline-flex items-center gap-1.5 px-3 h-10 bg-white border border-bdr rounded-xl text-[12.5px] font-semibold text-slate-700 hover:bg-slate-50 transition shadow-xs cursor-pointer"
-            title="Configure working days by department in HR Admin"
-          >
-            <ShieldCheck size={15} className="text-emerald-700" />
-            <span>HR Admin Setup</span>
-          </Link>
+            <button
+              type="button"
+              onClick={() => setShowGenerateSlipModal(true)}
+              className="inline-flex items-center gap-1.5 px-4 py-2.5 bg-white border border-slate-300 text-slate-800 rounded-xl text-[13px] font-semibold shadow-xs hover:bg-slate-50 transition-colors cursor-pointer"
+              title="Generate and download employee PDF salary slip"
+            >
+              <FileText size={15} className="text-emerald-700" />
+              <span>Generate Payslip (PDF)</span>
+            </button>
 
-          <select
-            value={currentPeriod}
-            onChange={(e) => {
-              setCurrentPeriod(e.target.value);
-              showToast(`Switched cycle to ${e.target.value}`);
-            }}
-            className="h-10 px-3 bg-white border border-bdr rounded-xl text-[13px] font-medium text-slate-700 shadow-xs focus:outline-none focus:border-navy cursor-pointer"
-          >
-            <option value="October 2024">October 2024</option>
-            <option value="September 2024">September 2024</option>
-            <option value="August 2024">August 2024</option>
-          </select>
-
-          <button
-            type="button"
-            onClick={() => setShowGenerateSlipModal(true)}
-            className="inline-flex items-center gap-1.5 px-4 py-2.5 bg-white border border-slate-300 text-slate-800 rounded-xl text-[13px] font-semibold shadow-xs hover:bg-slate-50 transition-colors cursor-pointer"
-            title="Generate and download employee PDF salary slip"
-          >
-            <FileText size={15} className="text-emerald-700" />
-            <span>Generate Payslip (PDF)</span>
-          </button>
-
-          <button
-            type="button"
-            onClick={() => setShowRunModal(true)}
-            className="inline-flex items-center gap-1.5 px-4.5 py-2.5 bg-navy text-white rounded-xl text-[13px] font-medium shadow-xs hover:bg-navy/90 transition-colors cursor-pointer"
-          >
-            <Receipt size={15} />
-            <span>Process Month-End Payroll</span>
-          </button>
-        </div>
-      </div>
+            <button
+              type="button"
+              onClick={() => setShowRunModal(true)}
+              className="inline-flex items-center gap-1.5 px-4.5 py-2.5 bg-navy text-white rounded-xl text-[13px] font-medium shadow-xs hover:bg-navy/90 transition-colors cursor-pointer"
+            >
+              <Receipt size={15} />
+              <span>Process Month-End Payroll</span>
+            </button>
+          </>
+        }
+      />
 
       {/* ── Minimal 4-Tab Navigation Bar ── */}
       <div className="flex border-b border-bdr gap-1 bg-white px-3 pt-2.5 rounded-2xl border shadow-xs overflow-x-auto lg:overflow-visible scrollbar-none">

@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { useAppStore } from '../../../stores/appStore';
 import { Badge } from '../../../components/hrms/Badge';
 import Modal from '../../../components/ui/Modal';
-import PageInfoButton from '../../../components/common/PageInfoButton';
+import PageHeader from '../../../components/ui/PageHeader';
 import { hrmsGuides } from '../../../data/hrms/hrmsGuides';
 import { hrmsSync, isBackendEnabled } from '../../../services/hrmsSync';
 import {
@@ -85,25 +85,20 @@ export function DepartmentsPage() {
 
   return (
     <div className="flex flex-col gap-6">
-      {/* Header */}
-      <div className="flex flex-wrap justify-between items-center gap-4">
-        <div>
-          <div className="flex items-center gap-2.5">
-            <h1 className="text-[24px] font-bold tracking-tight">Departments</h1>
-            <PageInfoButton guide={hrmsGuides.departments} />
-          </div>
-          <p className="text-[13px] text-muted">
-            Manage organizational structure, operational units, and leadership
-          </p>
-        </div>
-        <button
-          type="button"
-          onClick={() => setIsModalOpen(true)}
-          className="px-5 py-2.5 bg-navy hover:bg-navy/90 text-white rounded-xl text-[13.5px] font-medium flex items-center gap-2 shadow-xs transition-colors cursor-pointer"
-        >
-          <Plus size={16} /> Add Department
-        </button>
-      </div>
+      <PageHeader
+        title="Departments"
+        subtitle="Manage organizational structure, operational units, and leadership"
+        guide={hrmsGuides.departments}
+        actions={
+          <button
+            type="button"
+            onClick={() => setIsModalOpen(true)}
+            className="px-5 py-2.5 bg-navy hover:bg-navy/90 text-white rounded-xl text-[13.5px] font-medium flex items-center gap-2 shadow-xs transition-colors cursor-pointer"
+          >
+            <Plus size={16} /> Add Department
+          </button>
+        }
+      />
 
       {/* Filter / View Control Bar */}
       <div className="bg-white border border-bdr rounded-xl p-4 shadow-xs flex flex-wrap justify-between items-center gap-3">

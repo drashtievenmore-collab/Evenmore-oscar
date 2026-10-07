@@ -1096,16 +1096,6 @@ export default function LeadsPage() {
               <p className="text-xs text-slate-500">{crmError}</p>
             </div>
           )}
-          {!crmLoading && !crmError && rows.length === 0 && (
-            <div className="card p-8 text-center space-y-2">
-              <p className="text-sm font-bold text-slate-900">No leads found</p>
-              <p className="text-xs text-slate-500">
-                {appliedFilters.search || appliedFilters.statuses.length > 0 || appliedFilters.sources.length > 0
-                  ? 'Try clearing the search or filters.'
-                  : 'Create your first lead to get started.'}
-              </p>
-            </div>
-          )}
           {leadView === 'list' ? (
             <>
               <LeadsTable

@@ -19,7 +19,7 @@ import {
   Printer,
 } from 'lucide-react';
 import Modal from '../../../components/ui/Modal';
-import PageInfoButton from '../../../components/common/PageInfoButton';
+import PageHeader from '../../../components/ui/PageHeader';
 import { hrmsGuides } from '../../../data/hrms/hrmsGuides';
 
 const INITIAL_TREE = {
@@ -276,63 +276,57 @@ export function OrgChartPage() {
 
   return (
     <div className="flex flex-col gap-6 p-2 sm:p-6 max-w-[1600px] mx-auto w-full printable-document">
-      {/* ── Page Header ─────────────────────────────────────────── */}
-      <div className="flex flex-wrap justify-between items-start gap-4">
-        <div>
-          <div className="flex items-center gap-2.5">
-            <h1 className="text-[24px] font-bold text-slate-900 tracking-tight">Org Chart</h1>
-            <PageInfoButton guide={hrmsGuides.orgChart} />
-          </div>
-          <p className="text-[13px] text-muted mt-1">
-            {departmentCount} Departments • 1,248 Employees • Last updated Oct 11, 2024
-          </p>
-        </div>
+      <PageHeader
+        title="Org Chart"
+        subtitle={`${departmentCount} Departments • 1,248 Employees • Last updated Oct 11, 2024`}
+        guide={hrmsGuides.orgChart}
+        actions={
+          <>
+            {/* Export Dropdown / Button */}
+            <div className="relative">
+              <button
+                type="button"
+                onClick={() => setIsExportOpen(!isExportOpen)}
+                className="px-4 py-2.5 border border-bdr bg-white hover:bg-slate-50 text-slate-700 rounded-xl text-[13.5px] font-medium flex items-center gap-2 shadow-xs transition-colors cursor-pointer"
+              >
+                <Download size={16} />
+                <span>Export</span>
+                <ChevronDown size={14} className="text-muted" />
+              </button>
 
-        <div className="flex flex-wrap lg:flex-nowrap items-center gap-2.5">
-          {/* Export Dropdown / Button */}
-          <div className="relative">
+              {isExportOpen && (
+                <div className="absolute left-0 lg:left-auto lg:right-0 mt-2 w-48 bg-white border border-bdr rounded-xl shadow-lg py-1.5 z-30 animate-in fade-in slide-in-from-top-2 duration-150">
+                  <button
+                    type="button"
+                    onClick={exportCSV}
+                    className="w-full px-3.5 py-2 text-left text-[13px] text-slate-700 hover:bg-slate-50 flex items-center gap-2.5 cursor-pointer"
+                  >
+                    <FileSpreadsheet size={16} className="text-emerald-600" />
+                    <span>Export as CSV</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={exportPrint}
+                    className="w-full px-3.5 py-2 text-left text-[13px] text-slate-700 hover:bg-slate-50 flex items-center gap-2.5 cursor-pointer"
+                  >
+                    <Printer size={16} className="text-blue-600" />
+                    <span>Print / Save as PDF</span>
+                  </button>
+                </div>
+              )}
+            </div>
+
+            {/* Add Department Button */}
             <button
               type="button"
-              onClick={() => setIsExportOpen(!isExportOpen)}
-              className="px-4 py-2.5 border border-bdr bg-white hover:bg-slate-50 text-slate-700 rounded-xl text-[13.5px] font-medium flex items-center gap-2 shadow-xs transition-colors cursor-pointer"
+              onClick={() => setIsAddDeptOpen(true)}
+              className="px-5 py-2.5 bg-navy hover:bg-navy/90 text-white rounded-xl text-[13.5px] font-medium shadow-xs transition-colors cursor-pointer"
             >
-              <Download size={16} />
-              <span>Export</span>
-              <ChevronDown size={14} className="text-muted" />
+              Add Department
             </button>
-
-            {isExportOpen && (
-              <div className="absolute left-0 lg:left-auto lg:right-0 mt-2 w-48 bg-white border border-bdr rounded-xl shadow-lg py-1.5 z-30 animate-in fade-in slide-in-from-top-2 duration-150">
-                <button
-                  type="button"
-                  onClick={exportCSV}
-                  className="w-full px-3.5 py-2 text-left text-[13px] text-slate-700 hover:bg-slate-50 flex items-center gap-2.5 cursor-pointer"
-                >
-                  <FileSpreadsheet size={16} className="text-emerald-600" />
-                  <span>Export as CSV</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={exportPrint}
-                  className="w-full px-3.5 py-2 text-left text-[13px] text-slate-700 hover:bg-slate-50 flex items-center gap-2.5 cursor-pointer"
-                >
-                  <Printer size={16} className="text-blue-600" />
-                  <span>Print / Save as PDF</span>
-                </button>
-              </div>
-            )}
-          </div>
-
-          {/* Add Department Button */}
-          <button
-            type="button"
-            onClick={() => setIsAddDeptOpen(true)}
-            className="px-5 py-2.5 bg-navy hover:bg-navy/90 text-white rounded-xl text-[13.5px] font-medium shadow-xs transition-colors cursor-pointer"
-          >
-            Add Department
-          </button>
-        </div>
-      </div>
+          </>
+        }
+      />
 
       {/* ── Control Bar ─────────────────────────────────────────── */}
       <div className="bg-white border border-bdr rounded-xl p-4 shadow-xs flex flex-wrap items-center justify-between gap-3 no-print">

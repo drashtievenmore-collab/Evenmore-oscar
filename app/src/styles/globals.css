@@ -683,6 +683,17 @@ html.dark,
 /* ── Reset ──────────────────────────────────────────────── */
 *, *::before, *::after { box-sizing: border-box; }
 
+/* ── Caret visibility ───────────────────────────────────────
+   Read-only text (titles, headers, KPIs, table cells) must never render a
+   text-insertion caret when clicked (e.g. when the browser's caret-browsing
+   mode is on). Editable surfaces keep their normal caret. */
+*:not(input):not(textarea):not(select):not([contenteditable]) {
+  caret-color: transparent;
+}
+input, textarea, [contenteditable] {
+  caret-color: auto;
+}
+
 html, body, #root {
   min-height: 100%;
 }

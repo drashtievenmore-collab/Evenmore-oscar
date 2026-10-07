@@ -8,7 +8,7 @@ import { Modal } from "../../../components/hrms/Modal";
 import { Drawer } from "../../../components/hrms/Drawer";
 import { Button } from "../../../components/hrms/Button";
 import { Eye, Pencil, Trash2, Star, Target, Sliders, Layers } from "lucide-react";
-import PageInfoButton from "../../../components/common/PageInfoButton";
+import PageHeader from "../../../components/ui/PageHeader";
 import { hrmsGuides } from "../../../data/hrms/hrmsGuides";
 
 export default function Indicators() {
@@ -407,18 +407,12 @@ export default function Indicators() {
   return (
     <div className="flex flex-col gap-5">
       {/* Header */}
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <div className="flex items-center gap-2.5">
-            <h1 className="text-[22px] font-bold text-slate-800">Performance Indicators</h1>
-            <PageInfoButton guide={hrmsGuides.indicators} />
-          </div>
-          <p className="text-[13px] text-slate-500 mt-0.5">
-            Technical and organizational indicators with benchmarks, measurement types, and weightages.
-          </p>
-        </div>
-        <Button onClick={openAdd}>+ Add Indicator</Button>
-      </div>
+      <PageHeader
+        title="Performance Indicators"
+        subtitle="Technical and organizational indicators with benchmarks, measurement types, and weightages."
+        guide={hrmsGuides.indicators}
+        actions={<Button onClick={openAdd}>+ Add Indicator</Button>}
+      />
 
       {/* Filter Bar */}
       <FilterBar

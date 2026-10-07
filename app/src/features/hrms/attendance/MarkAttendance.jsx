@@ -1,9 +1,9 @@
 import { useState, useMemo, useEffect } from "react";
-import { ChevronRight, Calendar as CalendarIcon } from "lucide-react";
+import { Calendar as CalendarIcon } from "lucide-react";
 import { useAppStore } from "../../../stores/appStore";
 import { useAttendanceStore } from "../../../stores/attendanceStore";
 import { ConfirmModal } from "../../../components/hrms/Shared";
-import { PageInfoButton } from "../../../components/common/PageInfoButton";
+import PageHeader from "../../../components/ui/PageHeader";
 import { hrmsGuides } from "../../../data/hrms/hrmsGuides";
 
 const INITIAL_EMPLOYEES = [];
@@ -115,23 +115,11 @@ export default function MarkAttendance() {
 
   return (
     <div className="mark-att-page">
-      {/* Breadcrumb */}
-      <nav className="mark-crumb">
-        <span style={{ cursor: "pointer" }}>Home</span>
-        <ChevronRight size={13} style={{ color: "#9aa7bd" }} />
-        <span style={{ color: "#111f36", fontWeight: 600 }}>Attendance / Mark Attendance</span>
-      </nav>
-
-      {/* Header Row */}
-      <div className="mark-title-row">
-        <div>
-          <div className="flex items-center gap-2.5">
-            <h1 className="mark-title">Mark Attendance</h1>
-            <PageInfoButton guide={hrmsGuides.attendanceMark} />
-          </div>
-          <p className="mark-sub">Record daily employee attendance.</p>
-        </div>
-      </div>
+      <PageHeader
+        title="Mark Attendance"
+        subtitle="Record daily employee attendance."
+        guide={hrmsGuides.attendanceMark}
+      />
 
       {/* Filter Control Bar */}
       <div className="mark-card mark-filter-card">

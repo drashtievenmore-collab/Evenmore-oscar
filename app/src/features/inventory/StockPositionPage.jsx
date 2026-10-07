@@ -7,6 +7,7 @@ import { Button } from '../../components/ui/Button';
 import { Boxes, MapPin, Eye, ArrowLeftRight, ShoppingCart } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { ItemStockDetailModal } from '../../components/common/ItemStockDetailModal';
+import PageHeader from '../../components/ui/PageHeader';
 export const StockPositionPage = () => {
     const { items, calculateItemStock, formatCurrency } = useERP();
     const navigate = useNavigate();
@@ -142,31 +143,27 @@ export const StockPositionPage = () => {
         },
     ];
     return (<div className="space-y-6">
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-        <div>
-          <h2 className="text-xl font-bold text-[#1F2E4A] tracking-tight">
-            Stock Position & Movement Engine
-          </h2>
-          <p className="text-xs text-slate-500 mt-1">
-            Dynamic inventory balance computed from verified physical movements, sales reservations, and RMA deductions.
-          </p>
-        </div>
-        <div className="flex flex-wrap lg:flex-nowrap items-center gap-2">
-          <Button
-            variant="outline"
-            icon={ArrowLeftRight}
-            onClick={() => navigate('/inventory/transfers')}
-          >
-            Stock Transfers
-          </Button>
-          <Button
-            icon={ShoppingCart}
-            onClick={() => navigate('/purchase/orders')}
-          >
-            Procure Replenishment
-          </Button>
-        </div>
-      </div>
+      <PageHeader
+        title="Stock Position & Movement Engine"
+        subtitle="Dynamic inventory balance computed from verified physical movements, sales reservations, and RMA deductions."
+        actions={
+          <>
+            <Button
+              variant="outline"
+              icon={ArrowLeftRight}
+              onClick={() => navigate('/inventory/transfers')}
+            >
+              Stock Transfers
+            </Button>
+            <Button
+              icon={ShoppingCart}
+              onClick={() => navigate('/purchase/orders')}
+            >
+              Procure Replenishment
+            </Button>
+          </>
+        }
+      />
 
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         <StatCard label="Total Tracked SKUs" value={items.length} icon={Boxes}/>

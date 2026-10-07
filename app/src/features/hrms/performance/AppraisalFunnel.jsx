@@ -2,7 +2,7 @@ import { useMemo } from "react";
 import { usePerformanceStore } from "../../../stores/performanceStore";
 import { AlertTriangle, CheckCircle, ArrowRight, Clock, Users } from "lucide-react";
 import { useNavigate } from "react-router-dom";
-import PageInfoButton from "../../../components/common/PageInfoButton";
+import PageHeader from "../../../components/ui/PageHeader";
 import { hrmsGuides } from "../../../data/hrms/hrmsGuides";
 
 export default function AppraisalFunnel() {
@@ -45,31 +45,20 @@ export default function AppraisalFunnel() {
 
   return (
     <div className="flex flex-col gap-5">
-      {/* Breadcrumb & Header */}
-      <div className="flex flex-col gap-0.5">
-        <div className="text-[12px] font-medium text-slate-400 flex items-center gap-1">
-          <span>Home</span>
-          <span>&gt;</span>
-          <span className="text-slate-600">Performance / Appraisal Funnel</span>
-        </div>
-        <div className="mt-1 flex flex-wrap items-center justify-between gap-3">
-          <div>
-            <div className="flex items-center gap-2.5">
-              <h1 className="text-[22px] font-bold text-slate-800">Appraisal Funnel</h1>
-              <PageInfoButton guide={hrmsGuides.appraisalFunnel} />
-            </div>
-            <p className="text-[13px] text-slate-500 mt-0.5">
-              Live workflow progression from initiation to finalized rating sync.
-            </p>
-          </div>
+      {/* Header */}
+      <PageHeader
+        title="Appraisal Funnel"
+        subtitle="Live workflow progression from initiation to finalized rating sync."
+        guide={hrmsGuides.appraisalFunnel}
+        actions={
           <button
             onClick={() => navigate("/hrms/performance/appraisal")}
             className="px-3.5 py-1.5 bg-[#16233a] text-white rounded-xl text-[12.5px] font-medium hover:bg-[#0f172a] transition shadow-2xs flex items-center gap-1.5"
           >
             Manage Appraisals <ArrowRight size={14} />
           </button>
-        </div>
-      </div>
+        }
+      />
 
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-5">
         {/* Main Chart */}

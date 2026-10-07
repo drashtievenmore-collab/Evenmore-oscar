@@ -1,0 +1,1015 @@
+import React, { useEffect, useMemo, useState } from 'react';
+import { useNavigate, useLocation } from 'react-router-dom';
+import {
+  Plus,
+  Eye,
+  Pencil,
+  MoreHorizontal,
+  Calendar,
+  Trash2,
+  Copy,
+  Printer,
+  ChevronDown,
+  X,
+} from 'lucide-react';
+import { numIN, toDDMMYYYY } from './jobWorkOrdersStore';
+import PageHeader from '../../components/ui/PageHeader';
+
+export { toDDMMYYYY, numIN };
+
+export const PROCESS_PLAN_KEY = 'oscar_processPlans_v2';
+const LEGACY_KEY = 'oscar_processPlans';
+
+export const PROCESS_OPTIONS = ['Dyeing', 'Printing', 'Bleaching', 'Finishing', 'Washing', 'Coating'];
+export const PROCESS_CATEGORY_OPTIONS = ['Colouring', 'Bleaching', 'Pre-treatment', 'Post-treatment', 'Printing', 'Finishing'];
+export const PLAN_STATUSES = ['Active', 'Pending', 'Completed'];
+
+export const VENDOR_OPTIONS = ['Vendor A', 'Vendor B', 'Vendor C', 'Vendor D'];
+export const VENDOR_CONTACTS = {
+  'Vendor A': { contact: 'Amit Shah', phone: '+91 98250 11223', email: 'amit@vendora.com', address: 'Ahmedabad, Gujarat, India' },
+  'Vendor B': { contact: 'Raj Patel', phone: '+91 98785 43210', email: 'raj@vendorb.com', address: 'Surat, Gujarat, India' },
+  'Vendor C': { contact: 'Vikram Singh', phone: '+91 98980 44556', email: 'vikram@vendorc.com', address: 'Ludhiana, Punjab, India' },
+  'Vendor D': { contact: 'Chetan Mehta', phone: '+91 97240 77889', email: 'chetan@vendord.com', address: 'Mumbai, Maharashtra, India' },
+};
+
+export const FABRIC_ITEM_OPTIONS = ['Cotton Fabric', 'Polyester', 'Rayon', 'Silk', 'Denim'];
+export const FABRIC_QUALITY_OPTIONS = ['GSM 120', 'GSM 80', 'GSM 100', 'GSM 90', 'GSM 140'];
+export const SHADE_OPTIONS = ['Navy Blue', 'Black', 'White', 'Red', 'Royal Blue', 'Olive Green'];
+export const EMPLOYEE_OPTIONS = ['Admin', 'Rajesh Kumar', 'Suresh Sharma', 'Pooja Verma'];
+export const APPROVER_OPTIONS = ['Manager', 'Production Head', 'General Manager'];
+
+export const loadPlans = () => {
+  try {
+    try { localStorage.removeItem(LEGACY_KEY); } catch { /* ignore */ }
+    const raw = localStorage.getItem(PROCESS_PLAN_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+};
+
+export const savePlans = (next) => {
+  try {
+    localStorage.setItem(PROCESS_PLAN_KEY, JSON.stringify(next));
+  } catch {
+    /* ignore */
+  }
+};
+
+export const todayISO = () => new Date().toISOString().slice(0, 10);
+
+export const addDaysISO = (iso, days) => {
+  const base = /^\d{4}-\d{2}-\d{2}/.test(iso || '') ? new Date(`${iso}T00:00:00`) : new Date();
+  if (Number.isNaN(base.getTime())) return todayISO();
+  base.setDate(base.getDate() + days);
+  return base.toISOString().slice(0, 10);
+};
+
+export const nextPlanNumber = (plans = []) => {
+  const currentYear = new Date().getFullYear();
+  const max = (plans || []).reduce((m, p) => {
+    const raw = String(p.planNo || '');
+    const num = Number(raw.replace(/\D/g, '').slice(-3)) || 0;
+    return Math.max(m, num);
+  }, 0);
+  return `PP-${currentYear}-${String(max + 1).padStart(3, '0')}`;
+};
+
+export const statusPill = (s) => {
+  if (s === 'Active') return 'bg-[#ecfdf5] text-[#059669] border-[#a7f3d0]';
+  if (s === 'Pending') return 'bg-[#fffbeb] text-[#d97706] border-[#fde68a]';
+  if (s === 'Completed') return 'bg-[#eff6ff] text-[#2563eb] border-[#bfdbfe]';
+  return 'bg-slate-50 text-slate-600 border-slate-200';
+};
+
+export const calculateReturnQty = (qty, loss) => {
+  const q = Number(qty) || 0;
+  const l = Number(loss) || 0;
+  if (!q) return '';
+  const calculated = q * (1 - l / 100);
+  return String(Math.round(calculated * 100) / 100);
+};
+
+// ─────────────────────────────────────────────────────────────
+// REUSABLE PROCESS PLAN FORM (matching Screenshot 2)
+// ─────────────────────────────────────────────────────────────
+export function ProcessPlanForm({
+  title,
+  initial = {},
+  isEdit = false,
+  plans = [],
+  onSave,
+  onClose,
+  isModal = false,
+}) {
+  const navigate = useNavigate();
+
+  const [form, setForm] = useState(() => ({
+    planNo: initial.planNo || nextPlanNumber(plans),
+    date: initial.date || todayISO(),
+    process: initial.process || PROCESS_OPTIONS[0] || 'Dyeing',
+    processCategory: initial.processCategory || PROCESS_CATEGORY_OPTIONS[0] || 'Colouring',
+    vendor: initial.vendor || 'Vendor B',
+    contactPerson: initial.contactPerson || (VENDOR_CONTACTS[initial.vendor || 'Vendor B']?.contact || 'Raj Patel'),
+    phone: initial.phone || (VENDOR_CONTACTS[initial.vendor || 'Vendor B']?.phone || '+91 98785 43210'),
+    email: initial.email || (VENDOR_CONTACTS[initial.vendor || 'Vendor B']?.email || ''),
+    address: initial.address || (VENDOR_CONTACTS[initial.vendor || 'Vendor B']?.address || ''),
+    fabricItem: initial.fabricItem || 'Cotton Fabric',
+    greyLotNo: initial.greyLotNo || '',
+    fabricQuality: initial.fabricQuality || 'GSM 120',
+    takaRollNo: initial.takaRollNo || initial.takaRoll || '',
+    shade: initial.shade || 'Navy Blue',
+    plannedQty: String(initial.plannedQty ?? initial.expectedQty ?? ''),
+    expectedLoss: String(initial.expectedLoss ?? '2.00'),
+    expectedReturnQty: String(initial.expectedReturnQty ?? ''),
+    takaRoll: initial.takaRoll || initial.takaRollNo || '',
+    weight: String(initial.weight ?? ''),
+    finishedWeight: String(initial.finishedWeight ?? ''),
+    noOfRolls: String(initial.noOfRolls ?? ''),
+    startDate: initial.startDate || initial.date || todayISO(),
+    expectedCompletionDate: initial.expectedCompletionDate || initial.targetDate || addDaysISO(initial.startDate || initial.date || todayISO(), 20),
+    assignedEmployee: initial.assignedEmployee || 'Admin',
+    approver: initial.approver || 'Manager',
+    status: initial.status || 'Active',
+    remarks: initial.remarks || '',
+  }));
+
+  const handleVendorChange = (e) => {
+    const v = e.target.value;
+    const defaults = VENDOR_CONTACTS[v] || { contact: '', phone: '', email: '', address: '' };
+    setForm((prev) => ({
+      ...prev,
+      vendor: v,
+      contactPerson: defaults.contact || prev.contactPerson,
+      phone: defaults.phone || prev.phone,
+      email: defaults.email || prev.email,
+      address: defaults.address || prev.address,
+    }));
+  };
+
+  const handleQtyChange = (e) => {
+    const q = e.target.value;
+    setForm((prev) => ({
+      ...prev,
+      plannedQty: q,
+      expectedReturnQty: calculateReturnQty(q, prev.expectedLoss),
+    }));
+  };
+
+  const handleLossChange = (e) => {
+    const l = e.target.value;
+    setForm((prev) => ({
+      ...prev,
+      expectedLoss: l,
+      expectedReturnQty: calculateReturnQty(prev.plannedQty, l),
+    }));
+  };
+
+  const handleSubmit = (e) => {
+    e.preventDefault();
+    const plannedQtyNum = Number(form.plannedQty) || 0;
+    if (!(plannedQtyNum > 0)) {
+      window.alert('Planned Quantity (M) must be greater than 0.');
+      return;
+    }
+    const lossNum = Number(form.expectedLoss) || 0;
+    const returnNum = Number(form.expectedReturnQty) || (plannedQtyNum * (1 - lossNum / 100));
+
+    const payload = {
+      planNo: form.planNo || nextPlanNumber(plans),
+      date: form.date,
+      process: form.process,
+      processCategory: form.processCategory,
+      vendor: form.vendor,
+      contactPerson: form.contactPerson,
+      phone: form.phone,
+      fabricItem: form.fabricItem,
+      greyLotNo: form.greyLotNo,
+      fabricQuality: form.fabricQuality,
+      takaRollNo: form.takaRollNo,
+      shade: form.shade,
+      plannedQty: plannedQtyNum,
+      expectedQty: plannedQtyNum,
+      expectedLoss: lossNum,
+      expectedReturnQty: returnNum,
+      takaRoll: form.takaRoll,
+      weight: Number(form.weight) || 0,
+      finishedWeight: Number(form.finishedWeight) || 0,
+      noOfRolls: Number(form.noOfRolls) || 0,
+      startDate: form.startDate,
+      expectedCompletionDate: form.expectedCompletionDate,
+      targetDate: form.expectedCompletionDate,
+      assignedEmployee: form.assignedEmployee,
+      approver: form.approver,
+      status: form.status,
+      remarks: form.remarks,
+    };
+
+    if (onSave) {
+      onSave(payload);
+    }
+  };
+
+  const formBody = (
+    <form onSubmit={handleSubmit} className="space-y-4">
+      {/* ── ROW 1: Basic Info, Processor/Vendor, Material Details ── */}
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
+        {/* Card 1: Basic Information */}
+        <div className="rounded-xl border border-[#e2eaf5] bg-white p-4 shadow-[0_1px_2px_rgba(16,42,82,0.06)]">
+          <h3 className="mb-3 text-[13px] font-bold text-[#2563eb]">Basic Information</h3>
+          <div className="space-y-3 text-[12px]">
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="block font-semibold text-slate-600 mb-1">
+                  Process Plan No. <span className="text-rose-500">*</span>
+                </label>
+                <input
+                  readOnly
+                  value={form.planNo}
+                  className="w-full rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 font-mono font-medium text-slate-700 outline-none"
+                />
+              </div>
+              <div>
+                <label className="block font-semibold text-slate-600 mb-1">
+                  Plan Date <span className="text-rose-500">*</span>
+                </label>
+                <input
+                  type="date"
+                  required
+                  value={form.date}
+                  onChange={(e) => setForm({ ...form, date: e.target.value })}
+                  className="w-full rounded-lg border border-slate-200 px-3 py-2 text-slate-800 outline-none focus:border-blue-400"
+                />
+              </div>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="block font-semibold text-slate-600 mb-1">
+                  Process <span className="text-rose-500">*</span>
+                </label>
+                <select
+                  required
+                  value={form.process}
+                  onChange={(e) => setForm({ ...form, process: e.target.value })}
+                  className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-slate-800 outline-none focus:border-blue-400"
+                >
+                  {PROCESS_OPTIONS.map((o) => (
+                    <option key={o} value={o}>{o}</option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="block font-semibold text-slate-600 mb-1">Process Category</label>
+                <select
+                  value={form.processCategory}
+                  onChange={(e) => setForm({ ...form, processCategory: e.target.value })}
+                  className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-slate-800 outline-none focus:border-blue-400"
+                >
+                  {PROCESS_CATEGORY_OPTIONS.map((o) => (
+                    <option key={o} value={o}>{o}</option>
+                  ))}
+                </select>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Card 2: Processor / Vendor */}
+        <div className="rounded-xl border border-[#e2eaf5] bg-white p-4 shadow-[0_1px_2px_rgba(16,42,82,0.06)]">
+          <h3 className="mb-3 text-[13px] font-bold text-[#2563eb]">Processor / Vendor</h3>
+          <div className="space-y-3 text-[12px]">
+            <div>
+              <label className="block font-semibold text-slate-600 mb-1">
+                Vendor / Processor <span className="text-rose-500">*</span>
+              </label>
+              <select
+                required
+                value={form.vendor}
+                onChange={handleVendorChange}
+                className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-slate-800 outline-none focus:border-blue-400"
+              >
+                {VENDOR_OPTIONS.map((v) => (
+                  <option key={v} value={v}>{v}</option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className="block font-semibold text-slate-600 mb-1">Contact Person</label>
+              <input
+                value={form.contactPerson}
+                onChange={(e) => setForm({ ...form, contactPerson: e.target.value })}
+                placeholder="e.g. Raj Patel"
+                className="w-full rounded-lg border border-slate-200 px-3 py-2 text-slate-800 outline-none focus:border-blue-400"
+              />
+            </div>
+            <div>
+              <label className="block font-semibold text-slate-600 mb-1">Phone</label>
+              <input
+                value={form.phone}
+                onChange={(e) => setForm({ ...form, phone: e.target.value })}
+                placeholder="e.g. +91 98785 43210"
+                className="w-full rounded-lg border border-slate-200 px-3 py-2 font-mono text-slate-800 outline-none focus:border-blue-400"
+              />
+            </div>
+          </div>
+        </div>
+
+        {/* Card 3: Material Details */}
+        <div className="rounded-xl border border-[#e2eaf5] bg-white p-4 shadow-[0_1px_2px_rgba(16,42,82,0.06)]">
+          <h3 className="mb-3 text-[13px] font-bold text-[#2563eb]">Material Details</h3>
+          <div className="space-y-3 text-[12px]">
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="block font-semibold text-slate-600 mb-1">
+                  Fabric Item <span className="text-rose-500">*</span>
+                </label>
+                <select
+                  required
+                  value={form.fabricItem}
+                  onChange={(e) => setForm({ ...form, fabricItem: e.target.value })}
+                  className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-slate-800 outline-none focus:border-blue-400"
+                >
+                  {FABRIC_ITEM_OPTIONS.map((f) => (
+                    <option key={f} value={f}>{f}</option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="block font-semibold text-slate-600 mb-1">Grey Lot No.</label>
+                <input
+                  value={form.greyLotNo}
+                  onChange={(e) => setForm({ ...form, greyLotNo: e.target.value })}
+                  placeholder="e.g. LOT-001"
+                  className="w-full rounded-lg border border-slate-200 px-3 py-2 font-mono text-slate-800 outline-none focus:border-blue-400"
+                />
+              </div>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="block font-semibold text-slate-600 mb-1">
+                  Fabric Quality <span className="text-rose-500">*</span>
+                </label>
+                <select
+                  required
+                  value={form.fabricQuality}
+                  onChange={(e) => setForm({ ...form, fabricQuality: e.target.value })}
+                  className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-slate-800 outline-none focus:border-blue-400"
+                >
+                  {FABRIC_QUALITY_OPTIONS.map((q) => (
+                    <option key={q} value={q}>{q}</option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="block font-semibold text-slate-600 mb-1">Taka / Roll No.</label>
+                <input
+                  value={form.takaRollNo}
+                  onChange={(e) => setForm({ ...form, takaRollNo: e.target.value })}
+                  placeholder="e.g. T-001"
+                  className="w-full rounded-lg border border-slate-200 px-3 py-2 font-mono text-slate-800 outline-none focus:border-blue-400"
+                />
+              </div>
+            </div>
+            <div>
+              <label className="block font-semibold text-slate-600 mb-1">Shade / Colour</label>
+              <select
+                value={form.shade}
+                onChange={(e) => setForm({ ...form, shade: e.target.value })}
+                className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-slate-800 outline-none focus:border-blue-400"
+              >
+                {SHADE_OPTIONS.map((s) => (
+                  <option key={s} value={s}>{s}</option>
+                ))}
+              </select>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* ── ROW 2: Quantity Details, Timeline, Responsibility ── */}
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-12">
+        {/* Card 4: Quantity Details (lg:col-span-6) */}
+        <div className="lg:col-span-6 rounded-xl border border-[#e2eaf5] bg-white p-4 shadow-[0_1px_2px_rgba(16,42,82,0.06)]">
+          <h3 className="mb-3 text-[13px] font-bold text-[#2563eb]">Quantity Details</h3>
+          <div className="space-y-3 text-[12px]">
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+              <div>
+                <label className="block font-semibold text-slate-600 mb-1 leading-tight">
+                  Planned Quantity (M) <span className="text-rose-500">*</span>
+                </label>
+                <input
+                  type="number"
+                  required
+                  min="1"
+                  value={form.plannedQty}
+                  onChange={handleQtyChange}
+                  placeholder="e.g. 25000"
+                  className="w-full rounded-lg border border-slate-200 px-3 py-2 font-mono text-slate-800 outline-none focus:border-blue-400"
+                />
+              </div>
+              <div>
+                <label className="block font-semibold text-slate-600 mb-1 leading-tight">
+                  Expected Loss (%) <span className="text-rose-500">*</span>
+                </label>
+                <input
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  max="100"
+                  value={form.expectedLoss}
+                  onChange={handleLossChange}
+                  placeholder="e.g. 2.00"
+                  className="w-full rounded-lg border border-slate-200 px-3 py-2 font-mono text-slate-800 outline-none focus:border-blue-400"
+                />
+              </div>
+              <div>
+                <label className="block font-semibold text-slate-600 mb-1 leading-tight">
+                  Expected Return Qty (M)
+                </label>
+                <input
+                  readOnly
+                  value={form.expectedReturnQty}
+                  placeholder="Auto"
+                  className="w-full rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 font-mono font-bold text-slate-900 outline-none"
+                />
+              </div>
+              <div>
+                <label className="block font-semibold text-slate-600 mb-1 leading-tight">Taka / Roll</label>
+                <input
+                  value={form.takaRoll}
+                  onChange={(e) => setForm({ ...form, takaRoll: e.target.value })}
+                  placeholder="e.g. T-001"
+                  className="w-full rounded-lg border border-slate-200 px-3 py-2 font-mono text-slate-800 outline-none focus:border-blue-400"
+                />
+              </div>
+            </div>
+
+            <div className="grid grid-cols-3 gap-3">
+              <div>
+                <label className="block font-semibold text-slate-600 mb-1">Weight (KG)</label>
+                <input
+                  type="number"
+                  value={form.weight}
+                  onChange={(e) => setForm({ ...form, weight: e.target.value })}
+                  placeholder="e.g. 12500"
+                  className="w-full rounded-lg border border-slate-200 px-3 py-2 font-mono text-slate-800 outline-none focus:border-blue-400"
+                />
+              </div>
+              <div>
+                <label className="block font-semibold text-slate-600 mb-1">Finished Weight (KG)</label>
+                <input
+                  type="number"
+                  value={form.finishedWeight}
+                  onChange={(e) => setForm({ ...form, finishedWeight: e.target.value })}
+                  placeholder="e.g. 38500"
+                  className="w-full rounded-lg border border-slate-200 px-3 py-2 font-mono text-slate-800 outline-none focus:border-blue-400"
+                />
+              </div>
+              <div>
+                <label className="block font-semibold text-slate-600 mb-1">No. of Rolls</label>
+                <input
+                  type="number"
+                  value={form.noOfRolls}
+                  onChange={(e) => setForm({ ...form, noOfRolls: e.target.value })}
+                  placeholder="e.g. 250"
+                  className="w-full rounded-lg border border-slate-200 px-3 py-2 font-mono text-slate-800 outline-none focus:border-blue-400"
+                />
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Card 5: Timeline (lg:col-span-3) */}
+        <div className="lg:col-span-3 rounded-xl border border-[#e2eaf5] bg-white p-4 shadow-[0_1px_2px_rgba(16,42,82,0.06)]">
+          <h3 className="mb-3 text-[13px] font-bold text-[#2563eb]">Timeline</h3>
+          <div className="space-y-3 text-[12px]">
+            <div>
+              <label className="block font-semibold text-slate-600 mb-1">Expected Start Date</label>
+              <input
+                type="date"
+                value={form.startDate}
+                onChange={(e) => setForm({ ...form, startDate: e.target.value })}
+                className="w-full rounded-lg border border-slate-200 px-3 py-2 text-slate-800 outline-none focus:border-blue-400"
+              />
+            </div>
+            <div>
+              <label className="block font-semibold text-slate-600 mb-1">Expected Completion Date</label>
+              <input
+                type="date"
+                value={form.expectedCompletionDate}
+                onChange={(e) => setForm({ ...form, expectedCompletionDate: e.target.value })}
+                className="w-full rounded-lg border border-slate-200 px-3 py-2 text-slate-800 outline-none focus:border-blue-400"
+              />
+            </div>
+          </div>
+        </div>
+
+        {/* Card 6: Responsibility (lg:col-span-3) */}
+        <div className="lg:col-span-3 rounded-xl border border-[#e2eaf5] bg-white p-4 shadow-[0_1px_2px_rgba(16,42,82,0.06)]">
+          <h3 className="mb-3 text-[13px] font-bold text-[#2563eb]">Responsibility</h3>
+          <div className="space-y-3 text-[12px]">
+            <div>
+              <label className="block font-semibold text-slate-600 mb-1">Assigned Employee</label>
+              <select
+                value={form.assignedEmployee}
+                onChange={(e) => setForm({ ...form, assignedEmployee: e.target.value })}
+                className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-slate-800 outline-none focus:border-blue-400"
+              >
+                {EMPLOYEE_OPTIONS.map((emp) => (
+                  <option key={emp} value={emp}>{emp}</option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className="block font-semibold text-slate-600 mb-1">Approver</label>
+              <select
+                value={form.approver}
+                onChange={(e) => setForm({ ...form, approver: e.target.value })}
+                className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-slate-800 outline-none focus:border-blue-400"
+              >
+                {APPROVER_OPTIONS.map((app) => (
+                  <option key={app} value={app}>{app}</option>
+                ))}
+              </select>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* ── ROW 3: Remarks ── */}
+      <div className="rounded-xl border border-[#e2eaf5] bg-white p-4 shadow-[0_1px_2px_rgba(16,42,82,0.06)]">
+        <h3 className="mb-2 text-[13px] font-bold text-[#2563eb]">Remarks</h3>
+        <textarea
+          rows={2}
+          value={form.remarks}
+          onChange={(e) => setForm({ ...form, remarks: e.target.value })}
+          placeholder="Dyeing process for export order."
+          className="w-full rounded-lg border border-slate-200 p-3 text-[12.5px] text-slate-800 outline-none focus:border-blue-400"
+        />
+      </div>
+
+      {/* ── Bottom Buttons ── */}
+      <div className="flex items-center justify-end gap-3 pt-2">
+        <button
+          type="button"
+          onClick={onClose}
+          className="rounded-lg border border-slate-300 bg-white px-5 py-2 text-[12.5px] font-bold text-slate-700 hover:bg-slate-50 transition-colors shadow-2xs"
+        >
+          Cancel
+        </button>
+        <button
+          type="submit"
+          className="rounded-lg bg-[#2563eb] px-6 py-2 text-[12.5px] font-bold text-white hover:bg-[#1d4ed8] transition-colors shadow-2xs"
+        >
+          Save Process Plan
+        </button>
+      </div>
+    </form>
+  );
+
+  if (isModal) {
+    return (
+      <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 backdrop-blur-xs overflow-y-auto">
+        <div className="relative my-8 w-full max-w-5xl rounded-2xl bg-[#f4f7fb] p-5 shadow-2xl border border-slate-200 max-h-[90vh] overflow-y-auto">
+          <div className="mb-4 flex items-center justify-between border-b border-slate-200 pb-3">
+            <h2 className="text-[18px] font-bold text-[#17294e]">
+              {title || (isEdit ? `Edit Process Plan — ${form.planNo}` : 'Create Process Plan')}
+            </h2>
+            <button
+              onClick={onClose}
+              className="rounded-lg p-1 text-slate-400 hover:bg-slate-200 hover:text-slate-600 transition-colors"
+            >
+              <X size={18} />
+            </button>
+          </div>
+          {formBody}
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="min-h-[calc(100vh-62px)] bg-[#f4f7fb] p-4 md:p-6 space-y-4">
+      {/* Page Title */}
+      <PageHeader
+        title={title || (isEdit ? `Edit Process Plan — ${form.planNo}` : 'Create Process Plan')}
+        breadcrumb={[
+          { label: 'Dashboard', path: '/dashboard' },
+          { label: 'Job Work / Processing' },
+          { label: 'Process Plan', path: '/job-work/process-plan' },
+          { label: isEdit ? 'Edit Process Plan' : 'Create Process Plan' },
+        ]}
+      />
+
+      {formBody}
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────
+// PROCESS PLAN LIST PAGE (matching Screenshot 1)
+// ─────────────────────────────────────────────────────────────
+export default function ProcessPlanListPage() {
+  const navigate = useNavigate();
+  const location = useLocation();
+
+  const [plans, setPlans] = useState(loadPlans);
+  const [processFilter, setProcessFilter] = useState('All');
+  const [fabricFilter, setFabricFilter] = useState('All');
+  const [vendorFilter, setVendorFilter] = useState('All');
+  const [statusFilter, setStatusFilter] = useState('All');
+  const [fromDate, setFromDate] = useState('');
+  const [toDate, setToDate] = useState('');
+
+  // Mode: list vs create/edit
+  const isCreateRoute = location.pathname.endsWith('/create');
+  const [isFormOpen, setIsFormOpen] = useState(isCreateRoute);
+  const [editingPlan, setEditingPlan] = useState(null);
+  const [menuId, setMenuId] = useState(null);
+
+  const persist = (next) => {
+    setPlans(next);
+    savePlans(next);
+  };
+
+  // Backend-first loader: pull from GET /jobwork/process-plans/
+  useEffect(() => {
+    let live = true;
+    import('../../services/jobWorkSync').then(({ pullPlans, isJobWorkBackendEnabled }) => {
+      if (!isJobWorkBackendEnabled()) return;
+      pullPlans().then((rows) => {
+        if (live && Array.isArray(rows) && rows.length > 0) {
+          setPlans(rows);
+          savePlans(rows);
+        }
+      });
+    });
+    return () => {
+      live = false;
+    };
+  }, []);
+
+  // Sync form open state with route if directly accessed via /create or ?edit=
+  useEffect(() => {
+    const params = new URLSearchParams(location.search);
+    const editId = params.get('edit');
+    if (editId) {
+      const p = plans.find((x) => String(x.id) === String(editId));
+      if (p) {
+        setEditingPlan(p);
+        setIsFormOpen(true);
+      }
+    } else if (isCreateRoute && !isFormOpen) {
+      setEditingPlan(null);
+      setIsFormOpen(true);
+    }
+  }, [location.search, isCreateRoute, plans]);
+
+  const processes = useMemo(() => ['All', ...new Set([...PROCESS_OPTIONS, ...plans.map((p) => p.process)].filter(Boolean))], [plans]);
+  const fabrics = useMemo(() => ['All', ...new Set([...FABRIC_ITEM_OPTIONS, ...plans.map((p) => p.fabricItem)].filter(Boolean))], [plans]);
+  const vendors = useMemo(() => ['All', ...new Set([...VENDOR_OPTIONS, ...plans.map((p) => p.vendor)].filter(Boolean))], [plans]);
+
+  const filteredRows = useMemo(() => {
+    return plans.filter((p) => {
+      if (processFilter !== 'All' && p.process !== processFilter) return false;
+      if (fabricFilter !== 'All' && p.fabricItem !== fabricFilter) return false;
+      if (vendorFilter !== 'All' && p.vendor !== vendorFilter) return false;
+      if (statusFilter !== 'All' && p.status !== statusFilter) return false;
+      if ((fromDate || toDate) && /^\d{4}-\d{2}-\d{2}/.test(p.date || '')) {
+        if (fromDate && p.date < fromDate) return false;
+        if (toDate && p.date > toDate) return false;
+      }
+      return true;
+    });
+  }, [plans, processFilter, fabricFilter, vendorFilter, statusFilter, fromDate, toDate]);
+
+  const handleOpenCreate = () => {
+    setEditingPlan(null);
+    setIsFormOpen(true);
+  };
+
+  const handleOpenEdit = (p) => {
+    setEditingPlan(p);
+    setIsFormOpen(true);
+    setMenuId(null);
+  };
+
+  const handleCancelForm = () => {
+    setIsFormOpen(false);
+    setEditingPlan(null);
+    if (isCreateRoute) {
+      navigate('/job-work/process-plan');
+    }
+  };
+
+  const handleSaveForm = async (payload) => {
+    if (editingPlan) {
+      const updated = { ...editingPlan, ...payload };
+      const nextList = plans.map((p) => (p.id === editingPlan.id ? updated : p));
+      persist(nextList);
+      try {
+        const { pushUpdatePlan, isJobWorkBackendEnabled } = await import('../../services/jobWorkSync');
+        if (isJobWorkBackendEnabled()) {
+          await pushUpdatePlan(editingPlan.id, updated);
+        }
+      } catch (err) {
+        console.warn('Backend update failed:', err);
+      }
+    } else {
+      const newPlan = {
+        id: `pp-${Date.now()}`,
+        ...payload,
+      };
+      const nextList = [newPlan, ...plans];
+      persist(nextList);
+      try {
+        const { pushCreatePlan, isJobWorkBackendEnabled } = await import('../../services/jobWorkSync');
+        if (isJobWorkBackendEnabled()) {
+          const saved = await pushCreatePlan(newPlan);
+          if (saved) {
+            persist([saved, ...plans]);
+          }
+        }
+      } catch (err) {
+        console.warn('Backend create failed:', err);
+      }
+    }
+
+    setIsFormOpen(false);
+    setEditingPlan(null);
+    if (isCreateRoute) {
+      navigate('/job-work/process-plan');
+    }
+  };
+
+  const handleDuplicate = async (p) => {
+    setMenuId(null);
+    const newPlan = {
+      ...p,
+      id: `pp-${Date.now()}`,
+      planNo: nextPlanNumber(plans),
+      status: 'Active',
+      date: todayISO(),
+    };
+    const nextList = [newPlan, ...plans];
+    persist(nextList);
+    try {
+      const { pushCreatePlan, isJobWorkBackendEnabled } = await import('../../services/jobWorkSync');
+      if (isJobWorkBackendEnabled()) {
+        await pushCreatePlan(newPlan);
+      }
+    } catch {}
+  };
+
+  const handleDelete = async (id) => {
+    if (!window.confirm('Delete this process plan?')) return;
+    const remaining = plans.filter((p) => p.id !== id);
+    persist(remaining);
+    setMenuId(null);
+    try {
+      const { pushDeletePlan, isJobWorkBackendEnabled } = await import('../../services/jobWorkSync');
+      if (isJobWorkBackendEnabled()) {
+        await pushDeletePlan(id);
+      }
+    } catch {}
+  };
+
+  // ─────────────────────────────────────────────────────────────
+  // VIEW 1: Create / Edit Process Plan Screen (matching Screenshot 2)
+  // ─────────────────────────────────────────────────────────────
+  if (isFormOpen) {
+    return (
+      <ProcessPlanForm
+        plans={plans}
+        isEdit={!!editingPlan}
+        initial={editingPlan || { planNo: nextPlanNumber(plans), date: todayISO() }}
+        onSave={handleSaveForm}
+        onClose={handleCancelForm}
+      />
+    );
+  }
+
+  // ─────────────────────────────────────────────────────────────
+  // VIEW 2: Process Plan List Screen (matching Screenshot 1)
+  // ─────────────────────────────────────────────────────────────
+  return (
+    <div className="min-h-[calc(100vh-62px)] bg-[#f4f7fb] p-3 md:p-5 space-y-3.5">
+      {/* Top Header */}
+      <PageHeader
+        title="Process Plan"
+        subtitle="Plan and manage external job work processing."
+        actions={
+          <button
+            onClick={handleOpenCreate}
+            className="inline-flex items-center gap-1.5 rounded-lg bg-[#2563eb] px-4 py-2 text-[12px] font-bold text-white shadow-xs hover:bg-[#1d4ed8] transition-colors"
+          >
+            <Plus size={14} className="stroke-[2.5]" /> Create Process Plan
+          </button>
+        }
+      />
+
+      {/* Main Container Card */}
+      <div className="rounded-xl border border-[#e2eaf5] bg-white shadow-[0_1px_2px_rgba(16,42,82,0.06)]">
+        {/* Filters Bar (matching Screenshot 1) */}
+        <div className="grid grid-cols-2 gap-3 border-b border-slate-100 p-3.5 sm:grid-cols-3 lg:grid-cols-6 bg-[#ffffff]">
+          <div>
+            <label className="block text-[11px] font-semibold text-slate-500 mb-1">Process</label>
+            <select
+              value={processFilter}
+              onChange={(e) => setProcessFilter(e.target.value)}
+              className="w-full rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-[12px] font-medium text-slate-700 outline-none focus:border-blue-400"
+            >
+              {processes.map((o) => (
+                <option key={o} value={o}>{o === 'All' ? 'All Processes' : o}</option>
+              ))}
+            </select>
+          </div>
+
+          <div>
+            <label className="block text-[11px] font-semibold text-slate-500 mb-1">Fabric Item</label>
+            <select
+              value={fabricFilter}
+              onChange={(e) => setFabricFilter(e.target.value)}
+              className="w-full rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-[12px] font-medium text-slate-700 outline-none focus:border-blue-400"
+            >
+              {fabrics.map((o) => (
+                <option key={o} value={o}>{o === 'All' ? 'All Fabric Items' : o}</option>
+              ))}
+            </select>
+          </div>
+
+          <div>
+            <label className="block text-[11px] font-semibold text-slate-500 mb-1">Vendor</label>
+            <select
+              value={vendorFilter}
+              onChange={(e) => setVendorFilter(e.target.value)}
+              className="w-full rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-[12px] font-medium text-slate-700 outline-none focus:border-blue-400"
+            >
+              {vendors.map((o) => (
+                <option key={o} value={o}>{o === 'All' ? 'All Vendors' : o}</option>
+              ))}
+            </select>
+          </div>
+
+          <div>
+            <label className="block text-[11px] font-semibold text-slate-500 mb-1">Status</label>
+            <select
+              value={statusFilter}
+              onChange={(e) => setStatusFilter(e.target.value)}
+              className="w-full rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-[12px] font-medium text-slate-700 outline-none focus:border-blue-400"
+            >
+              {['All', ...PLAN_STATUSES].map((o) => (
+                <option key={o} value={o}>{o === 'All' ? 'All Status' : o}</option>
+              ))}
+            </select>
+          </div>
+
+          <div>
+            <label className="block text-[11px] font-semibold text-slate-500 mb-1">From Date</label>
+            <input
+              type="date"
+              value={fromDate}
+              onChange={(e) => setFromDate(e.target.value)}
+              className="w-full rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-[12px] text-slate-700 outline-none focus:border-blue-400"
+            />
+          </div>
+
+          <div>
+            <label className="block text-[11px] font-semibold text-slate-500 mb-1">To Date</label>
+            <input
+              type="date"
+              value={toDate}
+              onChange={(e) => setToDate(e.target.value)}
+              className="w-full rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-[12px] text-slate-700 outline-none focus:border-blue-400"
+            />
+          </div>
+        </div>
+
+        {/* Table (matching Screenshot 1) */}
+        <div className="overflow-x-auto">
+          <table className="w-full min-w-[1100px] text-left text-[12px]">
+            <thead>
+              <tr className="border-b border-slate-200/80 bg-[#f8fafc] text-[11px] font-bold text-slate-700">
+                <th className="px-3.5 py-2.5 w-10 text-center">#</th>
+                <th className="px-3.5 py-2.5">Plan No.</th>
+                <th className="px-3.5 py-2.5">Date</th>
+                <th className="px-3.5 py-2.5">Process</th>
+                <th className="px-3.5 py-2.5">Fabric Item</th>
+                <th className="px-3.5 py-2.5">Fabric Quality</th>
+                <th className="px-3.5 py-2.5">Shade / Colour</th>
+                <th className="px-3.5 py-2.5">Vendor</th>
+                <th className="px-3.5 py-2.5 text-center">Planned Qty (M)</th>
+                <th className="px-3.5 py-2.5 text-center">Expected Loss (%)</th>
+                <th className="px-3.5 py-2.5 text-center">Expected Return (M)</th>
+                <th className="px-3.5 py-2.5 text-center">Status</th>
+                <th className="px-3.5 py-2.5 text-center w-28">Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {filteredRows.length === 0 ? (
+                <tr>
+                  <td colSpan={13} className="px-4 py-12 text-center text-[12.5px] text-slate-400">
+                    No process plans recorded yet. Click "+ Create Process Plan" above to create one.
+                  </td>
+                </tr>
+              ) : (
+                filteredRows.map((p, idx) => {
+                  const pQty = Number(p.plannedQty || p.expectedQty) || 0;
+                  const pLoss = Number(p.expectedLoss) || 0;
+                  const pRet = Number(p.expectedReturnQty) || Math.round(pQty * (1 - pLoss / 100));
+                  return (
+                    <tr key={p.id || idx} className="border-b border-slate-100 hover:bg-slate-50/50">
+                      <td className="px-3.5 py-3 text-center text-slate-500 font-medium">{idx + 1}</td>
+                      <td className="px-3.5 py-3">
+                        <button
+                          onClick={() => navigate(`/job-work/process-plan/${p.id}`)}
+                          className="font-mono font-semibold text-[#2563eb] underline hover:text-[#1d4ed8]"
+                        >
+                          {p.planNo}
+                        </button>
+                      </td>
+                      <td className="px-3.5 py-3 text-slate-700 whitespace-nowrap">{toDDMMYYYY(p.date)}</td>
+                      <td className="px-3.5 py-3 font-semibold text-slate-800">{p.process}</td>
+                      <td className="px-3.5 py-3 text-slate-700">{p.fabricItem}</td>
+                      <td className="px-3.5 py-3 text-slate-700">{p.fabricQuality}</td>
+                      <td className="px-3.5 py-3 text-slate-700">{p.shade || '—'}</td>
+                      <td className="px-3.5 py-3 text-slate-800 font-medium">{p.vendor}</td>
+                      <td className="px-3.5 py-3 text-center font-mono font-semibold text-slate-800">
+                        {numIN(pQty)}
+                      </td>
+                      <td className="px-3.5 py-3 text-center font-mono text-slate-700">
+                        {pLoss.toFixed(2)}
+                      </td>
+                      <td className="px-3.5 py-3 text-center font-mono font-semibold text-slate-800">
+                        {numIN(pRet)}
+                      </td>
+                      <td className="px-3.5 py-3 text-center">
+                        <span className={`inline-block rounded-md border px-2.5 py-0.5 text-[10.5px] font-bold ${statusPill(p.status)}`}>
+                          {p.status || 'Active'}
+                        </span>
+                      </td>
+                      <td className="px-3.5 py-3 text-center">
+                        <div className="inline-flex items-center gap-1.5">
+                          <button
+                            title="View Plan"
+                            onClick={() => navigate(`/job-work/process-plan/${p.id}`)}
+                            className="grid h-7 w-7 place-items-center rounded-md border border-slate-200 bg-white text-slate-500 hover:bg-slate-50 hover:text-slate-800 shadow-xs"
+                          >
+                            <Eye size={13} />
+                          </button>
+                          <button
+                            title="Edit Plan"
+                            onClick={() => handleOpenEdit(p)}
+                            className="grid h-7 w-7 place-items-center rounded-md border border-slate-200 bg-white text-slate-500 hover:bg-slate-50 hover:text-slate-800 shadow-xs"
+                          >
+                            <Pencil size={13} />
+                          </button>
+                          <div className="relative">
+                            <button
+                              title="More options"
+                              onClick={() => setMenuId(menuId === p.id ? null : p.id)}
+                              className="grid h-7 w-7 place-items-center rounded-md border border-slate-200 bg-white text-slate-500 hover:bg-slate-50 hover:text-slate-800 shadow-xs"
+                            >
+                              <MoreHorizontal size={13} />
+                            </button>
+                            {menuId === p.id && (
+                              <div className="absolute right-0 top-8 z-20 w-32 rounded-lg border border-slate-200 bg-white py-1 shadow-lg text-left">
+                                <button
+                                  onClick={() => handleDuplicate(p)}
+                                  className="w-full px-3 py-1.5 text-[11.5px] font-semibold text-slate-700 hover:bg-slate-50 flex items-center gap-1.5"
+                                >
+                                  <Copy size={12} /> Duplicate
+                                </button>
+                                <button
+                                  onClick={() => {
+                                    setMenuId(null);
+                                    window.print();
+                                  }}
+                                  className="w-full px-3 py-1.5 text-[11.5px] font-semibold text-slate-700 hover:bg-slate-50 flex items-center gap-1.5"
+                                >
+                                  <Printer size={12} /> Print
+                                </button>
+                                <button
+                                  onClick={() => handleDelete(p.id)}
+                                  className="w-full px-3 py-1.5 text-[11.5px] font-semibold text-rose-600 hover:bg-rose-50 flex items-center gap-1.5"
+                                >
+                                  <Trash2 size={12} /> Delete
+                                </button>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })
+              )}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  );
+}

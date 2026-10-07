@@ -6,7 +6,7 @@ import { DataTable } from "../../../components/hrms/DataTable";
 import { StatusBadge } from "../../../components/hrms/StatusBadge";
 import { Modal } from "../../../components/hrms/Modal";
 import { Button } from "../../../components/hrms/Button";
-import PageInfoButton from "../../../components/common/PageInfoButton";
+import PageHeader from "../../../components/ui/PageHeader";
 import { hrmsGuides } from "../../../data/hrms/hrmsGuides";
 import {
   CalendarCheck,
@@ -244,17 +244,11 @@ export default function Dashboard() {
   return (
     <div className="flex flex-col gap-6">
       {/* Header & New Cycle Action */}
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <div className="flex items-center gap-2.5">
-            <h1 className="text-[22px] font-bold text-slate-800">Performance Management</h1>
-            <PageInfoButton guide={hrmsGuides.performanceDashboard} />
-          </div>
-          <p className="text-[13px] text-slate-500 mt-0.5">
-            Overview of review cycles, appraisal workflows, indicators, and department ratings.
-          </p>
-        </div>
-        <div className="flex flex-wrap lg:flex-nowrap items-center gap-2.5">
+      <PageHeader
+        title="Performance Management"
+        subtitle="Overview of review cycles, appraisal workflows, indicators, and department ratings."
+        guide={hrmsGuides.performanceDashboard}
+        actions={
           <button
             onClick={handleOpenNewCycle}
             className="bg-[#16233a] text-white px-4 py-2 rounded-xl text-[13px] font-medium hover:bg-[#0f172a] transition shadow-2xs flex items-center gap-1.5"
@@ -262,8 +256,8 @@ export default function Dashboard() {
             <Plus size={15} />
             New Review Cycle
           </button>
-        </div>
-      </div>
+        }
+      />
 
       {/* Role Simulation Toolbar */}
       <div className="bg-white border border-[#e2e8f0] rounded-2xl p-3.5 shadow-2xs flex flex-wrap items-center justify-between gap-3">

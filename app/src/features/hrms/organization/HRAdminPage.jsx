@@ -57,7 +57,7 @@ import {
 import TerminationLetterModal from "./TerminationLetterModal";
 import OfferLetterModal from "./OfferLetterModal";
 import GenerateOfferModal from "./GenerateOfferModal";
-import PageInfoButton from "../../../components/common/PageInfoButton";
+import PageHeader from "../../../components/ui/PageHeader";
 import { hrmsGuides } from "../../../data/hrms/hrmsGuides";
 
 export default function HRAdminPage({ defaultTab }) {
@@ -729,212 +729,207 @@ export default function HRAdminPage({ defaultTab }) {
 
   return (
     <div className="flex flex-col gap-6 w-full pb-12">
-      {/* ── Top Header ── */}
-      <div className="flex flex-wrap items-center justify-between gap-4">
-        <div>
-          <div className="flex items-center gap-2.5">
-            <h1 className="text-[24px] font-bold text-slate-900">HR Admin Setup &amp; Governance</h1>
-            <PageInfoButton guide={hrmsGuides.hrAdmin} />
-            <span className="px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-blue-50 text-blue-800 border border-blue-200">
-              Live Governance Hub
-            </span>
-          </div>
-          <p className="text-[13px] text-muted mt-0.5">
-            Configure organization settings, approval chains, offer letters, exits, grievances, and holiday calendars.
-          </p>
-        </div>
-
-        {/* Top Action Buttons */}
-        <div className="flex flex-wrap lg:flex-nowrap items-center gap-2.5">
-          {/* Quick Action Dropdown */}
-          <div className="relative" ref={quickActionRef}>
-            <button
-              type="button"
-              onClick={() => setIsQuickActionOpen(!isQuickActionOpen)}
-              className="inline-flex items-center gap-1.5 px-4 py-2.5 bg-white border border-bdr rounded-xl text-[13px] font-semibold text-slate-800 hover:bg-slate-50 transition shadow-2xs cursor-pointer"
-            >
-              <Plus size={15} className="text-primary" />
-              <span>Quick Action</span>
-              <ChevronDown size={14} className="text-muted" />
-            </button>
-
-            {isQuickActionOpen && (
-              <div className="absolute left-0 lg:left-auto lg:right-0 mt-2 w-56 bg-white border border-bdr rounded-2xl shadow-xl z-30 py-2 animate-in fade-in zoom-in-95">
-                <div className="px-3 py-1.5 text-[11px] font-bold text-muted uppercase tracking-wider">
-                  Create / Initiate
-                </div>
-                <button
-                  type="button"
-                  onClick={() => {
-                    handleOpenAddTeam();
-                    setIsQuickActionOpen(false);
-                  }}
-                  className="w-full text-left px-4 py-2 text-[13px] hover:bg-slate-50 text-slate-700 flex items-center gap-2 cursor-pointer"
-                >
-                  <Users size={14} className="text-blue-700" /> New Team / Squad
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    handleOpenAddChain();
-                    setIsQuickActionOpen(false);
-                  }}
-                  className="w-full text-left px-4 py-2 text-[13px] hover:bg-slate-50 text-slate-700 flex items-center gap-2 cursor-pointer"
-                >
-                  <ShieldCheck size={14} className="text-emerald-700" /> Approval Workflow
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setIsGenerateOfferModalOpen(true);
-                    setIsQuickActionOpen(false);
-                  }}
-                  className="w-full text-left px-4 py-2 text-[13px] hover:bg-slate-50 text-slate-700 flex items-center gap-2 cursor-pointer"
-                >
-                  <FileCheck2 size={14} className="text-teal-700" /> Generate Offer Letter
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setIsTerminationModalOpen(true);
-                    setIsQuickActionOpen(false);
-                  }}
-                  className="w-full text-left px-4 py-2 text-[13px] hover:bg-slate-50 text-slate-700 flex items-center gap-2 cursor-pointer"
-                >
-                  <UserX size={14} className="text-red-700" /> Record Termination
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setIsResignationModalOpen(true);
-                    setIsQuickActionOpen(false);
-                  }}
-                  className="w-full text-left px-4 py-2 text-[13px] hover:bg-slate-50 text-slate-700 flex items-center gap-2 cursor-pointer"
-                >
-                  <UserMinus size={14} className="text-amber-700" /> Log Resignation
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setIsComplaintModalOpen(true);
-                    setIsQuickActionOpen(false);
-                  }}
-                  className="w-full text-left px-4 py-2 text-[13px] hover:bg-slate-50 text-slate-700 flex items-center gap-2 cursor-pointer"
-                >
-                  <MessageSquareWarning size={14} className="text-purple-700" /> Register Grievance
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    handleOpenAddHoliday();
-                    setIsQuickActionOpen(false);
-                  }}
-                  className="w-full text-left px-4 py-2 text-[13px] hover:bg-slate-50 text-slate-700 flex items-center gap-2 cursor-pointer"
-                >
-                  <Calendar size={14} className="text-indigo-700" /> Add Holiday
-                </button>
-              </div>
-            )}
-          </div>
-
-          {/* Contextual Primary Action Button */}
-          {activeTab === "teams" && (
-            <button
-              type="button"
-              onClick={handleOpenAddTeam}
-              className="inline-flex items-center gap-2 px-5 py-2.5 bg-navy text-white rounded-xl text-[13.5px] font-medium hover:bg-navy/90 transition shadow-xs cursor-pointer"
-            >
-              <Plus size={16} /> Create Team
-            </button>
-          )}
-          {activeTab === "working-days" && (
-            <div className="flex items-center gap-2">
+      <PageHeader
+        title="HR Admin Setup & Governance"
+        titleExtra={
+          <span className="px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-blue-50 text-blue-800 border border-blue-200">
+            Live Governance Hub
+          </span>
+        }
+        subtitle="Configure organization settings, approval chains, offer letters, exits, grievances, and holiday calendars."
+        guide={hrmsGuides.hrAdmin}
+        actions={
+          <>
+            {/* Quick Action Dropdown */}
+            <div className="relative" ref={quickActionRef}>
               <button
                 type="button"
-                onClick={() => {
-                  resetDepartmentWorkingDays();
-                  showToast("Reset all departments to standard 24 working days");
-                }}
-                className="inline-flex items-center gap-1.5 px-3.5 py-2.5 bg-white border border-slate-300 text-slate-700 rounded-xl text-[13px] font-medium hover:bg-slate-50 transition shadow-xs cursor-pointer"
+                onClick={() => setIsQuickActionOpen(!isQuickActionOpen)}
+                className="inline-flex items-center gap-1.5 px-4 py-2.5 bg-white border border-bdr rounded-xl text-[13px] font-semibold text-slate-800 hover:bg-slate-50 transition shadow-2xs cursor-pointer"
               >
-                <RotateCcw size={14} /> Reset (24 Days)
+                <Plus size={15} className="text-primary" />
+                <span>Quick Action</span>
+                <ChevronDown size={14} className="text-muted" />
               </button>
-              <Link
-                to="/hrms/payroll"
-                style={{ color: '#ffffff', backgroundColor: '#1F2E4A' }}
-                className="inline-flex items-center gap-1.5 px-4 py-2.5 bg-navy text-white !text-white rounded-xl text-[13px] font-semibold hover:bg-navy/90 transition shadow-xs cursor-pointer"
-              >
-                <Receipt size={15} className="text-white" style={{ color: '#ffffff' }} />
-                <span className="text-white font-semibold" style={{ color: '#ffffff' }}>View Live Payroll</span>
-                <ArrowRight size={14} className="text-white" style={{ color: '#ffffff' }} />
-              </Link>
+
+              {isQuickActionOpen && (
+                <div className="absolute left-0 lg:left-auto lg:right-0 mt-2 w-56 bg-white border border-bdr rounded-2xl shadow-xl z-30 py-2 animate-in fade-in zoom-in-95">
+                  <div className="px-3 py-1.5 text-[11px] font-bold text-muted uppercase tracking-wider">
+                    Create / Initiate
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      handleOpenAddTeam();
+                      setIsQuickActionOpen(false);
+                    }}
+                    className="w-full text-left px-4 py-2 text-[13px] hover:bg-slate-50 text-slate-700 flex items-center gap-2 cursor-pointer"
+                  >
+                    <Users size={14} className="text-blue-700" /> New Team / Squad
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      handleOpenAddChain();
+                      setIsQuickActionOpen(false);
+                    }}
+                    className="w-full text-left px-4 py-2 text-[13px] hover:bg-slate-50 text-slate-700 flex items-center gap-2 cursor-pointer"
+                  >
+                    <ShieldCheck size={14} className="text-emerald-700" /> Approval Workflow
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsGenerateOfferModalOpen(true);
+                      setIsQuickActionOpen(false);
+                    }}
+                    className="w-full text-left px-4 py-2 text-[13px] hover:bg-slate-50 text-slate-700 flex items-center gap-2 cursor-pointer"
+                  >
+                    <FileCheck2 size={14} className="text-teal-700" /> Generate Offer Letter
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsTerminationModalOpen(true);
+                      setIsQuickActionOpen(false);
+                    }}
+                    className="w-full text-left px-4 py-2 text-[13px] hover:bg-slate-50 text-slate-700 flex items-center gap-2 cursor-pointer"
+                  >
+                    <UserX size={14} className="text-red-700" /> Record Termination
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsResignationModalOpen(true);
+                      setIsQuickActionOpen(false);
+                    }}
+                    className="w-full text-left px-4 py-2 text-[13px] hover:bg-slate-50 text-slate-700 flex items-center gap-2 cursor-pointer"
+                  >
+                    <UserMinus size={14} className="text-amber-700" /> Log Resignation
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsComplaintModalOpen(true);
+                      setIsQuickActionOpen(false);
+                    }}
+                    className="w-full text-left px-4 py-2 text-[13px] hover:bg-slate-50 text-slate-700 flex items-center gap-2 cursor-pointer"
+                  >
+                    <MessageSquareWarning size={14} className="text-purple-700" /> Register Grievance
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      handleOpenAddHoliday();
+                      setIsQuickActionOpen(false);
+                    }}
+                    className="w-full text-left px-4 py-2 text-[13px] hover:bg-slate-50 text-slate-700 flex items-center gap-2 cursor-pointer"
+                  >
+                    <Calendar size={14} className="text-indigo-700" /> Add Holiday
+                  </button>
+                </div>
+              )}
             </div>
-          )}
-          {activeTab === "approvals" && (
-            <button
-              type="button"
-              onClick={handleOpenAddChain}
-              className="inline-flex items-center gap-2 px-5 py-2.5 bg-navy text-white rounded-xl text-[13.5px] font-medium hover:bg-navy/90 transition shadow-xs cursor-pointer"
-            >
-              <Plus size={16} /> New Approval Chain
-            </button>
-          )}
-          {activeTab === "offers" && (
-            <button
-              type="button"
-              onClick={() => setIsGenerateOfferModalOpen(true)}
-              className="inline-flex items-center gap-2 px-5 py-2.5 bg-navy text-white rounded-xl text-[13.5px] font-medium hover:bg-navy/90 transition shadow-xs cursor-pointer"
-            >
-              <Plus size={16} /> Generate Offer Letter
-            </button>
-          )}
-          {activeTab === "terminations" && (
-            <button
-              type="button"
-              onClick={() => setIsTerminationModalOpen(true)}
-              className="inline-flex items-center gap-2 px-5 py-2.5 bg-red-700 text-white rounded-xl text-[13.5px] font-medium hover:bg-red-800 transition shadow-xs cursor-pointer"
-            >
-              <UserX size={16} /> Record Termination
-            </button>
-          )}
-          {activeTab === "resignations" && (
-            <button
-              type="button"
-              onClick={() => setIsResignationModalOpen(true)}
-              className="inline-flex items-center gap-2 px-5 py-2.5 bg-navy text-white rounded-xl text-[13.5px] font-medium hover:bg-navy/90 transition shadow-xs cursor-pointer"
-            >
-              <UserMinus size={16} /> Submit Resignation
-            </button>
-          )}
-          {activeTab === "complaints" && (
-            <button
-              type="button"
-              onClick={() => setIsComplaintModalOpen(true)}
-              className="inline-flex items-center gap-2 px-5 py-2.5 bg-amber-700 text-white rounded-xl text-[13.5px] font-medium hover:bg-amber-800 transition shadow-xs cursor-pointer"
-            >
-              <MessageSquareWarning size={16} /> File Grievance / Complaint
-            </button>
-          )}
-          {activeTab === "holidays" && (
-            <button
-              type="button"
-              onClick={handleOpenAddHoliday}
-              className="inline-flex items-center gap-2 px-5 py-2.5 bg-navy text-white rounded-xl text-[13.5px] font-medium hover:bg-navy/90 transition shadow-xs cursor-pointer"
-            >
-              <Calendar size={16} /> Add Holiday
-            </button>
-          )}
-          {activeTab === "settings" && (
-            <button
-              type="button"
-              onClick={handleSaveOrgSettings}
-              className="inline-flex items-center gap-2 px-5 py-2.5 bg-navy text-white rounded-xl text-[13.5px] font-medium hover:bg-navy/90 transition shadow-xs cursor-pointer"
-            >
-              <CheckCircle2 size={16} /> Save Configuration
-            </button>
-          )}
-        </div>
-      </div>
+
+            {/* Contextual Primary Action Button */}
+            {activeTab === "teams" && (
+              <button
+                type="button"
+                onClick={handleOpenAddTeam}
+                className="inline-flex items-center gap-2 px-5 py-2.5 bg-navy text-white rounded-xl text-[13.5px] font-medium hover:bg-navy/90 transition shadow-xs cursor-pointer"
+              >
+                <Plus size={16} /> Create Team
+              </button>
+            )}
+            {activeTab === "working-days" && (
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    resetDepartmentWorkingDays();
+                    showToast("Reset all departments to standard 24 working days");
+                  }}
+                  className="inline-flex items-center gap-1.5 px-3.5 py-2.5 bg-white border border-slate-300 text-slate-700 rounded-xl text-[13px] font-medium hover:bg-slate-50 transition shadow-xs cursor-pointer"
+                >
+                  <RotateCcw size={14} /> Reset (24 Days)
+                </button>
+                <Link
+                  to="/hrms/payroll"
+                  style={{ color: '#ffffff', backgroundColor: '#1F2E4A' }}
+                  className="inline-flex items-center gap-1.5 px-4 py-2.5 bg-navy text-white !text-white rounded-xl text-[13px] font-semibold hover:bg-navy/90 transition shadow-xs cursor-pointer"
+                >
+                  <Receipt size={15} className="text-white" style={{ color: '#ffffff' }} />
+                  <span className="text-white font-semibold" style={{ color: '#ffffff' }}>View Live Payroll</span>
+                  <ArrowRight size={14} className="text-white" style={{ color: '#ffffff' }} />
+                </Link>
+              </div>
+            )}
+            {activeTab === "approvals" && (
+              <button
+                type="button"
+                onClick={handleOpenAddChain}
+                className="inline-flex items-center gap-2 px-5 py-2.5 bg-navy text-white rounded-xl text-[13.5px] font-medium hover:bg-navy/90 transition shadow-xs cursor-pointer"
+              >
+                <Plus size={16} /> New Approval Chain
+              </button>
+            )}
+            {activeTab === "offers" && (
+              <button
+                type="button"
+                onClick={() => setIsGenerateOfferModalOpen(true)}
+                className="inline-flex items-center gap-2 px-5 py-2.5 bg-navy text-white rounded-xl text-[13.5px] font-medium hover:bg-navy/90 transition shadow-xs cursor-pointer"
+              >
+                <Plus size={16} /> Generate Offer Letter
+              </button>
+            )}
+            {activeTab === "terminations" && (
+              <button
+                type="button"
+                onClick={() => setIsTerminationModalOpen(true)}
+                className="inline-flex items-center gap-2 px-5 py-2.5 bg-red-700 text-white rounded-xl text-[13.5px] font-medium hover:bg-red-800 transition shadow-xs cursor-pointer"
+              >
+                <UserX size={16} /> Record Termination
+              </button>
+            )}
+            {activeTab === "resignations" && (
+              <button
+                type="button"
+                onClick={() => setIsResignationModalOpen(true)}
+                className="inline-flex items-center gap-2 px-5 py-2.5 bg-navy text-white rounded-xl text-[13.5px] font-medium hover:bg-navy/90 transition shadow-xs cursor-pointer"
+              >
+                <UserMinus size={16} /> Submit Resignation
+              </button>
+            )}
+            {activeTab === "complaints" && (
+              <button
+                type="button"
+                onClick={() => setIsComplaintModalOpen(true)}
+                className="inline-flex items-center gap-2 px-5 py-2.5 bg-amber-700 text-white rounded-xl text-[13.5px] font-medium hover:bg-amber-800 transition shadow-xs cursor-pointer"
+              >
+                <MessageSquareWarning size={16} /> File Grievance / Complaint
+              </button>
+            )}
+            {activeTab === "holidays" && (
+              <button
+                type="button"
+                onClick={handleOpenAddHoliday}
+                className="inline-flex items-center gap-2 px-5 py-2.5 bg-navy text-white rounded-xl text-[13.5px] font-medium hover:bg-navy/90 transition shadow-xs cursor-pointer"
+              >
+                <Calendar size={16} /> Add Holiday
+              </button>
+            )}
+            {activeTab === "settings" && (
+              <button
+                type="button"
+                onClick={handleSaveOrgSettings}
+                className="inline-flex items-center gap-2 px-5 py-2.5 bg-navy text-white rounded-xl text-[13.5px] font-medium hover:bg-navy/90 transition shadow-xs cursor-pointer"
+              >
+                <CheckCircle2 size={16} /> Save Configuration
+              </button>
+            )}
+          </>
+        }
+      />
 
       {/* ── TOP BUTTONS: Interactive 9 KPI Buttons ── */}
       {/* Clicking any button immediately switches the view */}

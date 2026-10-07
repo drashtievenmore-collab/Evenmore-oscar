@@ -21,7 +21,7 @@ import {
 import TrainingList from "./TrainingList";
 import TrainingFunnel from "./TrainingFunnel";
 import Trainers from "./Trainers";
-import PageInfoButton from "../../../components/common/PageInfoButton";
+import PageHeader from "../../../components/ui/PageHeader";
 import { hrmsGuides } from "../../../data/hrms/hrmsGuides";
 
 export default function TrainingDashboard({ initialTab }) {
@@ -103,26 +103,12 @@ export default function TrainingDashboard({ initialTab }) {
   return (
     <div className="flex flex-col gap-5 w-full">
       {/* Header */}
-      <div className="flex flex-wrap items-center justify-between gap-4">
-        <div>
-          <div className="text-[12px] font-medium text-slate-400 flex items-center gap-1">
-            <span>Home</span>
-            <span>&gt;</span>
-            <span className="text-slate-600">Training</span>
-          </div>
-          <div className="mt-1">
-            <div className="flex items-center gap-2.5">
-              <h1 className="text-[24px] font-extrabold text-slate-900 tracking-tight">Training Management</h1>
-              <PageInfoButton guide={hrmsGuides.trainingDashboard} />
-            </div>
-            <p className="text-[13px] text-slate-500 mt-0.5">
-              Unified training setup: overview, programs list, funnel progression & trainers directory
-            </p>
-          </div>
-        </div>
-
-        <div className="flex flex-wrap lg:flex-nowrap items-center gap-2">
-          {activeTab === "overview" && (
+      <PageHeader
+        title="Training Management"
+        subtitle="Unified training setup: overview, programs list, funnel progression & trainers directory"
+        guide={hrmsGuides.trainingDashboard}
+        actions={
+          activeTab === "overview" && (
             <button
               type="button"
               onClick={() => handleTabChange("funnel")}
@@ -131,9 +117,9 @@ export default function TrainingDashboard({ initialTab }) {
               <Plus size={16} />
               Create Program
             </button>
-          )}
-        </div>
-      </div>
+          )
+        }
+      />
 
       {/* Unified Tab Bar */}
       <div className="flex items-center gap-1.5 border-b border-[#e2e8f0] pb-1 overflow-x-auto scrollbar-none">

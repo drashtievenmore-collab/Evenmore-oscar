@@ -25,10 +25,13 @@ import {
 import MasterTasksGuideModal from './MasterTasksGuideModal';
 import InfoBanner from '../common/InfoBanner';
 import PageHeader from '../../../components/ui/PageHeader';
+import { useCrmStore } from '../../../stores/crmStore';
+import { isBackendEnabled } from '../../../services/crmSync';
 
-// ── Frontend-only mode ──────────────────────────────────────────────
-// No backend / store / API. All rows live in local component state so
-// create / edit / duplicate / status / delete work instantly in the UI.
+// ── Backend-first mode ──────────────────────────────────────────────
+// Master tasks live in Postgres (/crm/master-tasks/) when logged in.
+// localStorage seed is only the offline fallback so the table still works
+// with no session.
 
 
 const ROLES = ['Tele Caller Executive', 'Sales Support Executive', 'BDE', 'Area Sales Manager'];
@@ -122,9 +125,20 @@ function loadInitialTasks() {
 
 export default function MasterTasksPage() {
   const navigate = useNavigate();
-  // Pure local state — every mutation below is a synchronous setTasks,
-  // so delete/edit/create apply immediately with no server round-trip.
-  const [tasks, setTasks] = useState(loadInitialTasks);
+  // Backend source of truth; local seed only when offline / server empty.
+  const storeTasks = useCrmStore((s) => s.masterTasks);
+  const hydrate = useCrmStore((s) => s.hydrate);
+  const createRecord = useCrmStore((s) => s.createRecord);
+  const updateRecord = useCrmStore((s) => s.updateRecord);
+  const deleteRecord = useCrmStore((s) => s.deleteRecord);
+  const [localTasks, setLocalTasks] = useState(loadInitialTasks);
+  const backendOn = isBackendEnabled();
+  const tasks = backendOn && Array.isArray(storeTasks) && storeTasks.length > 0 ? storeTasks : localTasks;
+  const applyLocal = (updater) => setLocalTasks((prev) => {
+    const next = typeof updater === 'function' ? updater(prev) : updater;
+    try { localStorage.setItem(STORAGE_KEY, JSON.stringify(next)); } catch { /* ignore */ }
+    return next;
+  });
   const [search, setSearch] = useState('');
   const [roleFilter, setRoleFilter] = useState('All');
   const [deptFilter, setDeptFilter] = useState('All');
@@ -143,14 +157,11 @@ export default function MasterTasksPage() {
   const [menuId, setMenuId] = useState(null);
   const [isGuideOpen, setIsGuideOpen] = useState(false);
 
-  // Persist frontend-only list so delete/edit survive a page refresh.
+  // Pull from GET /crm/master-tasks/ when logged in; offline keeps seed/cache.
   useEffect(() => {
-    try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(tasks));
-    } catch {
-      // Storage full / blocked — table still works in memory.
-    }
-  }, [tasks]);
+    hydrate().catch(() => {});
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   useEffect(() => {
     setPage(1);
@@ -265,13 +276,21 @@ export default function MasterTasksPage() {
     };
     setFormError('');
     if (editingId) {
-      setTasks((prev) => prev.map((t) => (t.id === editingId ? { ...t, ...clean } : t)));
+      if (backendOn) {
+        updateRecord('masterTasks', editingId, clean).catch(() => {
+          applyLocal((prev) => prev.map((t) => (t.id === editingId ? { ...t, ...clean } : t)));
+        });
+      } else {
+        applyLocal((prev) => prev.map((t) => (t.id === editingId ? { ...t, ...clean } : t)));
+      }
     } else {
       const maxOrder = tasks.reduce((m, t) => Math.max(m, t.order || 0), 0);
-      setTasks((prev) => [
-        ...prev,
-        { id: `mt-${Date.now()}`, order: maxOrder + 1, ...clean },
-      ]);
+      const row = { id: `mt-${Date.now()}`, order: maxOrder + 1, ...clean };
+      if (backendOn) {
+        createRecord('masterTasks', row).catch(() => applyLocal((prev) => [...prev, row]));
+      } else {
+        applyLocal((prev) => [...prev, row]);
+      }
     }
     setModalOpen(false);
     setEditingId(null);
@@ -290,19 +309,42 @@ export default function MasterTasksPage() {
       title: `${src.name} Copy`,
       stages: [...(src.stages || [])],
     };
-    setTasks((prev) => [...prev, copy]);
+    delete copy._synced;
+    delete copy._pending;
+    delete copy._local;
+    if (backendOn) {
+      createRecord('masterTasks', copy).catch(() => applyLocal((prev) => [...prev, copy]));
+    } else {
+      applyLocal((prev) => [...prev, copy]);
+    }
   }
 
   function toggleStatus(id) {
-    setTasks((prev) =>
-      prev.map((t) => (t.id === id ? { ...t, status: t.status === 'Active' ? 'Inactive' : 'Active' } : t)),
-    );
+    const row = tasks.find((t) => t.id === id);
+    const next = row?.status === 'Active' ? 'Inactive' : 'Active';
+    if (backendOn) {
+      updateRecord('masterTasks', id, { status: next }).catch(() => {
+        applyLocal((prev) =>
+          prev.map((t) => (t.id === id ? { ...t, status: next } : t)),
+        );
+      });
+    } else {
+      applyLocal((prev) =>
+        prev.map((t) => (t.id === id ? { ...t, status: next } : t)),
+      );
+    }
     setMenuId(null);
   }
 
   function confirmDelete() {
     if (!deleteId) return;
-    setTasks((prev) => prev.filter((t) => t.id !== deleteId));
+    if (backendOn) {
+      deleteRecord('masterTasks', deleteId).catch(() => {
+        applyLocal((prev) => prev.filter((t) => t.id !== deleteId));
+      });
+    } else {
+      applyLocal((prev) => prev.filter((t) => t.id !== deleteId));
+    }
     setSelected((prev) => prev.filter((id) => id !== deleteId));
     setDeleteId(null);
     setMenuId(null);
@@ -313,7 +355,13 @@ export default function MasterTasksPage() {
       setBulkDelete(false);
       return;
     }
-    setTasks((prev) => prev.filter((t) => !selected.includes(t.id)));
+    if (backendOn) {
+      Promise.all(selected.map((id) => deleteRecord('masterTasks', id).catch(() => {}))).then(() => {
+        applyLocal((prev) => prev.filter((t) => !selected.includes(t.id)));
+      });
+    } else {
+      applyLocal((prev) => prev.filter((t) => !selected.includes(t.id)));
+    }
     setSelected([]);
     setBulkDelete(false);
     setMenuId(null);

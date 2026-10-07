@@ -27,7 +27,7 @@ import { CalendarWeekView } from "./CalendarWeekView";
 import { CalendarListView } from "./CalendarListView";
 import { CalendarAgendaSidebar } from "./CalendarAgendaSidebar";
 import { AddEditEventModal } from "./AddEditEventModal";
-import PageInfoButton from "../../../components/common/PageInfoButton";
+import PageHeader from "../../../components/ui/PageHeader";
 import { hrmsGuides } from "../../../data/hrms/hrmsGuides";
 
 export function CalendarPage() {
@@ -214,59 +214,51 @@ export function CalendarPage() {
 
   return (
     <div className="flex flex-col gap-6 w-full pb-16">
-      {/* Top Header */}
-      <div className="flex flex-wrap items-center justify-between gap-4">
-        <div>
-          <div className="flex items-center gap-2.5">
-            <h1 className="text-[24px] font-bold text-slate-900 tracking-tight">
-              Personal &amp; Team Calendar
-            </h1>
-            <PageInfoButton guide={hrmsGuides.calendar} />
-          </div>
-          <p className="text-[13px] text-muted mt-0.5">
-            Track leaves, company public holidays, scheduled training sessions, and key milestones.
-          </p>
-        </div>
+      <PageHeader
+        title="Personal & Team Calendar"
+        subtitle="Track leaves, company public holidays, scheduled training sessions, and key milestones."
+        guide={hrmsGuides.calendar}
+        actions={
+          <>
+            {/* View Switcher */}
+            <div className="flex p-1 bg-white border border-bdr rounded-xl shadow-xs">
+              {["Month", "Week", "Schedule List"].map((v) => (
+                <button
+                  key={v}
+                  type="button"
+                  onClick={() => setView(v)}
+                  className={`px-3.5 py-1.5 rounded-lg text-[12.5px] font-medium transition cursor-pointer ${
+                    view === v ? "bg-navy text-white shadow-xs" : "text-muted hover:text-slate-900"
+                  }`}
+                >
+                  {v}
+                </button>
+              ))}
+            </div>
 
-        <div className="flex flex-wrap items-center gap-2.5">
-          {/* View Switcher */}
-          <div className="flex p-1 bg-white border border-bdr rounded-xl shadow-xs">
-            {["Month", "Week", "Schedule List"].map((v) => (
-              <button
-                key={v}
-                type="button"
-                onClick={() => setView(v)}
-                className={`px-3.5 py-1.5 rounded-lg text-[12.5px] font-medium transition cursor-pointer ${
-                  view === v ? "bg-navy text-white shadow-xs" : "text-muted hover:text-slate-900"
-                }`}
-              >
-                {v}
-              </button>
-            ))}
-          </div>
+            {/* Export to ICS button */}
+            <button
+              type="button"
+              onClick={handleExport}
+              className="inline-flex items-center gap-1.5 px-3.5 py-2 bg-white border border-bdr text-slate-700 rounded-xl text-[13px] font-medium hover:bg-off transition shadow-xs cursor-pointer"
+              title="Export calendar to iCal (.ics) for Google/Outlook Calendar"
+            >
+              <Download size={15} />
+              Export (.ics)
+            </button>
 
-          {/* Export to ICS button */}
-          <button
-            type="button"
-            onClick={handleExport}
-            className="inline-flex items-center gap-1.5 px-3.5 py-2 bg-white border border-bdr text-slate-700 rounded-xl text-[13px] font-medium hover:bg-off transition shadow-xs cursor-pointer"
-            title="Export calendar to iCal (.ics) for Google/Outlook Calendar"
-          >
-            <Download size={15} />
-            Export (.ics)
-          </button>
-
-          {/* Add Event Button */}
-          <button
-            type="button"
-            onClick={() => handleOpenCreateModal()}
-            className="inline-flex items-center gap-2 px-5 py-2 bg-navy text-white rounded-xl text-[13.5px] font-medium hover:bg-navy/90 transition shadow-xs cursor-pointer"
-          >
-            <Plus size={16} />
-            Add Event
-          </button>
-        </div>
-      </div>
+            {/* Add Event Button */}
+            <button
+              type="button"
+              onClick={() => handleOpenCreateModal()}
+              className="inline-flex items-center gap-2 px-5 py-2 bg-navy text-white rounded-xl text-[13.5px] font-medium hover:bg-navy/90 transition shadow-xs cursor-pointer"
+            >
+              <Plus size={16} />
+              Add Event
+            </button>
+          </>
+        }
+      />
 
       {/* Filter & Search Bar */}
       <div className="bg-white border border-bdr rounded-2xl p-4 shadow-xs flex flex-col md:flex-row items-center justify-between gap-3.5">

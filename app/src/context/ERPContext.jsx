@@ -3101,6 +3101,36 @@ export const ERPProvider = ({ children, }) => {
         try { localStorage.setItem('oscar_productionInstructions', JSON.stringify(next)); } catch { }
         return next;
     };
+    // Backend-first: vendor process instructions live in Postgres
+    // (GET /jobwork/process-instructions/) when logged in; localStorage is only the offline cache.
+    useEffect(() => {
+        let live = true;
+        import('../services/jobWorkSync').then(({ pullVPIs, isJobWorkBackendEnabled }) => {
+            if (!isJobWorkBackendEnabled()) return;
+            pullVPIs().then((rows) => {
+                if (live && Array.isArray(rows)) {
+                    setProductionInstructions(rows);
+                    persistProductionInstructions(rows);
+                }
+            });
+        });
+        const onSession = () => {
+            import('../services/jobWorkSync').then(({ pullVPIs, isJobWorkBackendEnabled }) => {
+                if (!isJobWorkBackendEnabled()) return;
+                pullVPIs().then((rows) => {
+                    if (live && Array.isArray(rows)) {
+                        setProductionInstructions(rows);
+                        persistProductionInstructions(rows);
+                    }
+                });
+            });
+        };
+        window.addEventListener('evenmore:authorized', onSession);
+        return () => {
+            live = false;
+            window.removeEventListener('evenmore:authorized', onSession);
+        };
+    }, []);
     const addProductionInstruction = (pi) => {
         const newPi = {
             id: pi.id || `pi-${Date.now()}`,
@@ -3111,6 +3141,8 @@ export const ERPProvider = ({ children, }) => {
             vendor: pi.vendor,
             fabric: pi.fabric,
             fabricSku: pi.fabricSku,
+            processType: pi.processType || '',
+            assignedEmployee: pi.assignedEmployee || '',
             assignedQty: Number(pi.assignedQty) || 0,
             uom: 'Meter',
             producedQty: Number(pi.producedQty) || 0,
@@ -3124,6 +3156,17 @@ export const ERPProvider = ({ children, }) => {
             const next = [newPi, ...prev];
             return persistProductionInstructions(next);
         });
+        // Push to backend; server owns piNumber — reconcile when it answers.
+        import('../services/jobWorkSync').then(({ pushCreateVPI, isJobWorkBackendEnabled }) => {
+            if (!isJobWorkBackendEnabled()) return;
+            pushCreateVPI(newPi).then((saved) => {
+                if (saved) {
+                    setProductionInstructions((prev) => persistProductionInstructions(
+                        prev.map((p) => (p.id === newPi.id ? { ...saved, uom: 'Meter' } : p)),
+                    ));
+                }
+            }).catch(() => {});
+        });
         showToast(`Production Instruction ${newPi.piNumber} saved.`);
         return newPi;
     };
@@ -3132,6 +3175,10 @@ export const ERPProvider = ({ children, }) => {
             const next = prev.map((p) => (p.id === id ? { ...p, status } : p));
             return persistProductionInstructions(next);
         });
+        import('../services/jobWorkSync').then(({ pushUpdateVPI, isJobWorkBackendEnabled }) => {
+            if (!isJobWorkBackendEnabled()) return;
+            pushUpdateVPI(id, { status }).catch(() => {});
+        });
         showToast(`Production Instruction updated to ${status}.`);
     };
     const updateProductionInstruction = (id, patch) => {
@@ -3139,12 +3186,20 @@ export const ERPProvider = ({ children, }) => {
             const next = prev.map((p) => (p.id === id ? { ...p, ...patch, assignedQty: patch.assignedQty !== undefined ? Number(patch.assignedQty) || 0 : p.assignedQty } : p));
             return persistProductionInstructions(next);
         });
+        import('../services/jobWorkSync').then(({ pushUpdateVPI, isJobWorkBackendEnabled }) => {
+            if (!isJobWorkBackendEnabled()) return;
+            pushUpdateVPI(id, patch).catch(() => {});
+        });
         showToast('Production Instruction updated.');
     };
     const deleteProductionInstruction = (id) => {
         setProductionInstructions((prev) => {
             const next = prev.filter((p) => p.id !== id);
             return persistProductionInstructions(next);
+        });
+        import('../services/jobWorkSync').then(({ pushDeleteVPI, isJobWorkBackendEnabled }) => {
+            if (!isJobWorkBackendEnabled()) return;
+            pushDeleteVPI(id).catch(() => {});
         });
         showToast('Production Instruction deleted.');
     };
@@ -4440,6 +4495,7 @@ export const ERPProvider = ({ children, }) => {
             itemsCount: tr.itemsCount ?? 1,
             status: tr.status || 'In Transit',
             shippedBy: tr.shippedBy || 'Logistics Clerk',
+            vehicleNo: tr.vehicleNo || '',
             items: tr.items || [],
         };
         setTransfers((prev) => [newTr, ...prev]);

@@ -11,7 +11,6 @@ import {
   Calendar as CalendarIcon,
   X,
   Zap,
-  ChevronRight,
   ChevronDown,
   Plus,
   Check,
@@ -37,7 +36,7 @@ import Modal from "../../../components/ui/Modal";
 import { useAppStore } from "../../../stores/appStore";
 import { useAssetStore } from "../../../stores/assetStore";
 import AnalyticsVolumeChart from "./AnalyticsVolumeChart";
-import { PageInfoButton } from "../../../components/common/PageInfoButton";
+import PageHeader from "../../../components/ui/PageHeader";
 import { hrmsGuides } from "../../../data/hrms/hrmsGuides";
 
 const MODULE_META = {
@@ -368,20 +367,10 @@ export default function HRMSDashboard() {
 
   return (
     <div className="hrms-dash">
-      {/* Breadcrumb */}
-      <nav className="hrms-crumb">
-        <span style={{ cursor: "pointer" }}>Home</span>
-        <ChevronRight size={13} style={{ color: "#9aa7bd" }} />
-        <span style={{ color: "#111f36", fontWeight: 600 }}>Dashboard</span>
-      </nav>
-
-      {/* Title row */}
-      <div className="hrms-title-row">
-        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-          <h1 className="hrms-title">Dashboard Overview</h1>
-          <PageInfoButton guide={hrmsGuides.dashboard} />
-        </div>
-        <div className="flex-wrap lg:flex-nowrap" style={{ display: "flex", alignItems: "center", gap: 10 }}>
+      <PageHeader
+        title="Dashboard Overview"
+        guide={hrmsGuides.dashboard}
+        actions={
           <button
             type="button"
             onClick={() => setShowDateModal(true)}
@@ -391,8 +380,8 @@ export default function HRMSDashboard() {
             <CalendarIcon size={15} style={{ color: "#475569" }} />
             {dateRangeLabel}
           </button>
-        </div>
-      </div>
+        }
+      />
 
       {/* Delegation notice */}
       {showNotice && (

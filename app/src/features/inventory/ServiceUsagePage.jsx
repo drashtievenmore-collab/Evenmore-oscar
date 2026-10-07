@@ -3,6 +3,7 @@ import { useERP } from '../../context/ERPContext';
 import { DataTable } from '../../components/ui/DataTable';
 import { Button } from '../../components/ui/Button';
 import { Plus, Wrench, User } from 'lucide-react';
+import PageHeader from '../../components/ui/PageHeader';
 export const ServiceUsagePage = () => {
     const { serviceUsages, items, addServiceUsage, getCurrentISODate } = useERP();
     const [showAddModal, setShowAddModal] = useState(false);
@@ -68,19 +69,15 @@ export const ServiceUsagePage = () => {
         },
     ];
     return (<div className="space-y-6">
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-        <div>
-          <h2 className="text-xl font-bold text-[#1F2E4A] tracking-tight">
-            Service & Maintenance Part Usage
-          </h2>
-          <p className="text-xs text-slate-500 mt-1">
-            Track spare parts and components consumed by field technicians during on-site maintenance and repairs.
-          </p>
-        </div>
-        <Button icon={Plus} onClick={() => setShowAddModal(true)}>
-          Log Part Consumption
-        </Button>
-      </div>
+      <PageHeader
+        title="Service & Maintenance Part Usage"
+        subtitle="Track spare parts and components consumed by field technicians during on-site maintenance and repairs."
+        actions={
+          <Button icon={Plus} onClick={() => setShowAddModal(true)}>
+            Log Part Consumption
+          </Button>
+        }
+      />
 
       <DataTable title="Field Service Part Logs" columns={columns} data={serviceUsages} keyExtractor={(s) => s.id} searchPlaceholder="Search ticket #, tech, or SKU..." searchFilter={(s, term) => String(s.ticketNumber ?? '').toLowerCase().includes(term) ||
             String(s.technician ?? '').toLowerCase().includes(term) ||

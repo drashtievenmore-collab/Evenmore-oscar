@@ -5,13 +5,14 @@ import { Button } from '../../components/ui/Button';
 import {
   Plus, ClipboardList, Send, ArrowRight, X, Copy, Printer, DollarSign,
   Clock, CheckCircle2, Package, Maximize2, Minimize2, Trash2, Ban, MapPin,
-  ShoppingCart, FileText, Search, Filter, MoreVertical, Info, ChevronDown,
+  ShoppingCart, FileText, Search, Filter, MoreVertical, ChevronDown,
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { toISODate } from '../../utils/dateUtils';
 import { DocumentTimeline } from '../../components/common/DocumentTimeline';
 import { RelatedDocumentsCard } from '../../components/common/RelatedDocumentsCard';
 import { PrintPurchaseOrderModal } from '../../components/common/PrintPurchaseOrderModal';
+import PageHeader from '../../components/ui/PageHeader';
 
 const purchaseOrderGuide = {
     title: 'Purchase Orders',
@@ -459,31 +460,16 @@ export const PurchaseOrdersPage = () => {
 
     return (
     <div className="-m-3 md:-m-5 bg-[#edf3fc] p-3 md:p-5 space-y-4 min-h-[calc(100vh-62px)]">
-      {/* breadcrumb */}
-      <p className="text-[11px] font-medium text-slate-400">Dashboard <span className="mx-1">›</span> Purchase <span className="mx-1">›</span> <span className="text-slate-600 font-semibold">Orders</span></p>
-
-      {/* header — same clean bar type as dashboard, perfectly blended fabric */}
-      <div className="relative overflow-hidden rounded-xl border border-[#e2eaf5] bg-white shadow-[0_1px_2px_rgba(16,42,82,0.05)]">
-        <img
-          src="/guide/febric.png"
-          alt=""
-          aria-hidden="true"
-          className="pointer-events-none absolute inset-y-0 right-0 hidden h-full w-[300px] object-cover object-center sm:block md:w-[380px]"
-        />
-        <div className="pointer-events-none absolute inset-y-0 right-0 hidden w-[300px] bg-gradient-to-r from-white via-white/55 to-transparent sm:block md:w-[380px]" />
-        <div className="relative flex flex-wrap items-start justify-between gap-3 p-5">
-          <div className="min-w-0 max-w-[640px]">
-            <h1 className="flex items-center gap-1.5 text-[20px] font-extrabold tracking-tight text-[#17294e]">
-              Purchase Orders Management
-              <Info size={15} className="text-blue-500" />
-            </h1>
-            <p className="mt-1 text-[12px] leading-relaxed text-slate-500">Create and manage grey fabric purchase orders from Vendor A, with meter-based quantity and ₹/meter costing.</p>
-          </div>
+      <PageHeader
+        title="Purchase Orders"
+        subtitle="Manage purchase orders and track vendor purchasing."
+        guide={purchaseOrderGuide}
+        actions={
           <Button icon={Plus} onClick={handleOpenCreateModal} className="!rounded-lg !bg-[#2563eb] hover:!bg-[#1d4ed8]">
             Create Purchase Order
           </Button>
-        </div>
-      </div>
+        }
+      />
 
       {/* KPI cards */}
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">

@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { useERP } from '../../context/ERPContext';
 import { Button } from '../../components/ui/Button';
+import PageHeader from '../../components/ui/PageHeader';
 import { Building, Bell, Database, Save, Check, RotateCcw, AlertTriangle, MapPin, Phone, Hash } from 'lucide-react';
 export const SettingsPage = () => {
     const {
@@ -44,14 +45,10 @@ export const SettingsPage = () => {
         setShowConfirmReset(false);
     };
     return (<div className="space-y-6 max-w-4xl">
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-        <div>
-          <h2 className="text-2xl font-bold text-[#1F2E4A] tracking-tight">System & Organization Settings</h2>
-          <p className="text-xs text-[#5a6062] mt-1">
-            Configure company legal entity parameters, fiscal calendars, threshold alerts, and inventory rules.
-          </p>
-        </div>
-      </div>
+      <PageHeader
+        title="System & Organization Settings"
+        subtitle="Configure company legal entity parameters, fiscal calendars, threshold alerts, and inventory rules."
+      />
 
       <form onSubmit={handleSave} className="space-y-6">
         <div className="bg-white border border-[#CED4DA] rounded-lg p-5">

@@ -8,7 +8,7 @@ import { StatusBadge } from "../../../components/hrms/StatusBadge";
 import { Modal } from "../../../components/hrms/Modal";
 import { Drawer } from "../../../components/hrms/Drawer";
 import { Button } from "../../../components/hrms/Button";
-import PageInfoButton from "../../../components/common/PageInfoButton";
+import PageHeader from "../../../components/ui/PageHeader";
 import { hrmsGuides } from "../../../data/hrms/hrmsGuides";
 import {
   Eye,
@@ -460,78 +460,75 @@ export default function Appraisal() {
   return (
     <div className="flex flex-col gap-5">
       {/* Header & Role Switcher */}
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <div className="flex flex-wrap lg:flex-nowrap items-center gap-2.5">
-            <h1 className="text-[22px] font-bold text-slate-800">Performance Appraisal</h1>
-            <PageInfoButton guide={hrmsGuides.appraisal} />
-            <button
-              onClick={() => setScaleGuideOpen(true)}
-              className="px-2 py-0.5 rounded-full text-[11px] bg-slate-100 text-slate-600 hover:bg-slate-200 transition font-medium flex items-center gap-1"
-              title="View 5-tier rating scale criteria"
-            >
-              <HelpCircle size={12} /> Rating Scale
-            </button>
-          </div>
-          <p className="text-[13px] text-slate-500 mt-0.5">
-            4-Stage Workflow: Self Review → Manager Review → HR Review → Finalization.
-          </p>
-        </div>
+      <PageHeader
+        title="Performance Appraisal"
+        subtitle="4-Stage Workflow: Self Review → Manager Review → HR Review → Finalization."
+        guide={hrmsGuides.appraisal}
+        titleExtra={
+          <button
+            onClick={() => setScaleGuideOpen(true)}
+            className="px-2 py-0.5 rounded-full text-[11px] bg-slate-100 text-slate-600 hover:bg-slate-200 transition font-medium flex items-center gap-1"
+            title="View 5-tier rating scale criteria"
+          >
+            <HelpCircle size={12} /> Rating Scale
+          </button>
+        }
+        actions={
+          <>
+            {/* Simulated Role Selector */}
+            <div className="flex items-center gap-1 bg-white p-1 rounded-xl border border-[#e2e8f0] shadow-2xs">
+              <span className="text-[11px] font-semibold text-slate-400 px-2">Role:</span>
+              <button
+                onClick={() => setRole("HR")}
+                className={`px-2.5 py-1 rounded-lg text-[12px] font-medium transition ${
+                  role === "HR" ? "bg-[#16233a] text-white shadow-2xs" : "text-slate-600 hover:text-slate-900"
+                }`}
+              >
+                HR / Admin
+              </button>
+              <button
+                onClick={() => setRole("Manager")}
+                className={`px-2.5 py-1 rounded-lg text-[12px] font-medium transition ${
+                  role === "Manager" ? "bg-[#16233a] text-white shadow-2xs" : "text-slate-600 hover:text-slate-900"
+                }`}
+              >
+                Manager
+              </button>
+              <button
+                onClick={() => setRole("Employee")}
+                className={`px-2.5 py-1 rounded-lg text-[12px] font-medium transition ${
+                  role === "Employee" ? "bg-[#16233a] text-white shadow-2xs" : "text-slate-600 hover:text-slate-900"
+                }`}
+              >
+                Employee
+              </button>
+            </div>
 
-        <div className="flex flex-wrap lg:flex-nowrap items-center gap-2.5">
-          {/* Simulated Role Selector */}
-          <div className="flex items-center gap-1 bg-white p-1 rounded-xl border border-[#e2e8f0] shadow-2xs">
-            <span className="text-[11px] font-semibold text-slate-400 px-2">Role:</span>
-            <button
-              onClick={() => setRole("HR")}
-              className={`px-2.5 py-1 rounded-lg text-[12px] font-medium transition ${
-                role === "HR" ? "bg-[#16233a] text-white shadow-2xs" : "text-slate-600 hover:text-slate-900"
-              }`}
-            >
-              HR / Admin
-            </button>
-            <button
-              onClick={() => setRole("Manager")}
-              className={`px-2.5 py-1 rounded-lg text-[12px] font-medium transition ${
-                role === "Manager" ? "bg-[#16233a] text-white shadow-2xs" : "text-slate-600 hover:text-slate-900"
-              }`}
-            >
-              Manager
-            </button>
-            <button
-              onClick={() => setRole("Employee")}
-              className={`px-2.5 py-1 rounded-lg text-[12px] font-medium transition ${
-                role === "Employee" ? "bg-[#16233a] text-white shadow-2xs" : "text-slate-600 hover:text-slate-900"
-              }`}
-            >
-              Employee
-            </button>
-          </div>
-
-          {/* Add Appraisal Button (Available to HR/Admin) */}
-          {role === "HR" && (
-            <Button
-              onClick={() => {
-                setForm({
-                  employee: employees[0]?.name || "Priya Patel",
-                  cycle: cycles.find((c) => c.status === "Active")?.name.replace("Performance Cycle", "").trim() || "Q4 2024",
-                  reviewer: "David Park",
-                  rating: 4.0,
-                  status: "Draft",
-                  stage: "Self Review",
-                  due: "15 Nov 2024",
-                  department: "Engineering",
-                  designation: "Senior Engineer",
-                });
-                setFormErrors({});
-                setAddOpen(true);
-              }}
-            >
-              + Add Appraisal
-            </Button>
-          )}
-        </div>
-      </div>
+            {/* Add Appraisal Button (Available to HR/Admin) */}
+            {role === "HR" && (
+              <Button
+                onClick={() => {
+                  setForm({
+                    employee: employees[0]?.name || "Priya Patel",
+                    cycle: cycles.find((c) => c.status === "Active")?.name.replace("Performance Cycle", "").trim() || "Q4 2024",
+                    reviewer: "David Park",
+                    rating: 4.0,
+                    status: "Draft",
+                    stage: "Self Review",
+                    due: "15 Nov 2024",
+                    department: "Engineering",
+                    designation: "Senior Engineer",
+                  });
+                  setFormErrors({});
+                  setAddOpen(true);
+                }}
+              >
+                + Add Appraisal
+              </Button>
+            )}
+          </>
+        }
+      />
 
       {/* Tabs: Active Appraisals vs Performance History */}
       <div className="flex items-center justify-between border-b border-[#e2e8f0]">

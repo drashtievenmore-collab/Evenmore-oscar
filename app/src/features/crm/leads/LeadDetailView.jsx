@@ -67,6 +67,7 @@ import { useCrmStore } from '../../../stores/crmStore';
 import { withSampleTeam } from '../common/sampleTeam';
 import { useLeadDetailStore, EMPTY_DETAIL } from '../../../stores/leadDetailStore';
 import { isServerId, isBackendEnabled } from '../../../services/resourceSync';
+import { WRITABLE_LEAD_SECTIONS } from '../../../services/leadDetailMap';
 import { loadForms, saveForms, TASK_FORM } from '../../../services/crmForms';
 import { LineItemEditor } from '../../../components/common/LineItemEditor';
 import { loadCrmTasks, saveCrmTasks, runLeadStageAutomation, TASK_SOURCE_AUTOMATION } from '../../../services/leadStageAutomation';
@@ -2821,8 +2822,8 @@ function GeneralTab({ lead }) {
 // ── 3. Users | Products Tab ──────────────────────────────────
 function UsersProductsTab({ lead, onCountsChange, onActivity }) {
   const initialState = useLeadDetailState(lead);
-  const [users, setUsers] = useState(() => initialState.users);
-  const [products, setProducts] = useState(() => initialState.products);
+  const [users, setUsers] = useState(() => (Array.isArray(initialState.users) ? initialState.users : []));
+  const [products, setProducts] = useState(() => (Array.isArray(initialState.products) ? initialState.products : []));
   const [isAddUserOpen, setIsAddUserOpen] = useState(false);
   const [selectedEmployeeId, setSelectedEmployeeId] = useState('');
   const [isAddProductOpen, setIsAddProductOpen] = useState(false);
@@ -2833,20 +2834,22 @@ function UsersProductsTab({ lead, onCountsChange, onActivity }) {
   const [productSearch, setProductSearch] = useState('');
   const [productFilter, setProductFilter] = useState('All Products');
 
-  const filteredUsers = useMemo(() => users.filter((u) => {
+  const filteredUsers = useMemo(() => (Array.isArray(users) ? users : []).filter((u) => {
+    if (!u) return false;
     if (userFilter !== 'All Users' && u.status !== userFilter) return false;
-    if (userSearch && !`${u.name} ${u.email} ${u.role}`.toLowerCase().includes(userSearch.toLowerCase())) return false;
+    if (userSearch && !`${u.name || ''} ${u.email || ''} ${u.role || ''}`.toLowerCase().includes(userSearch.toLowerCase())) return false;
     return true;
   }), [users, userSearch, userFilter]);
 
-  const filteredProducts = useMemo(() => products.filter((p) => {
+  const filteredProducts = useMemo(() => (Array.isArray(products) ? products : []).filter((p) => {
+    if (!p) return false;
     if (productFilter !== 'All Products' && p.status !== productFilter) return false;
-    if (productSearch && !`${p.name} ${p.sku}`.toLowerCase().includes(productSearch.toLowerCase())) return false;
+    if (productSearch && !`${p.name || ''} ${p.sku || ''}`.toLowerCase().includes(productSearch.toLowerCase())) return false;
     return true;
   }), [products, productSearch, productFilter]);
 
   const availableEmployees = useMemo(
-    () => withSampleTeam(useCrmStore.getState().teamMembers).filter((member) => !users.some((user) => user.name === member.name)),
+    () => withSampleTeam(useCrmStore.getState().teamMembers).filter((member) => !(Array.isArray(users) ? users : []).some((user) => user && user.name === member.name)),
     [users],
   );
 
@@ -3823,13 +3826,13 @@ export default function LeadDetailView({ lead, onBackToLeads }) {
             </div>
             <div className="space-y-1 min-w-0 lg:min-w-auto">
               <div className="flex flex-wrap lg:flex-nowrap items-center gap-2.5">
-                <h1 className="text-xl font-bold text-slate-900 tracking-tight break-words">{displayName}</h1>
+                <h1 className="text-[20px] font-extrabold tracking-tight text-slate-900 break-words">{displayName}</h1>
                 <span className={`px-2.5 py-0.5 rounded-full text-[11px] font-semibold border ${isConverted ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : (isLost ? 'bg-rose-50 text-rose-700 border-rose-200' : 'bg-blue-50 text-blue-700 border-blue-200')}`}>
                   {isConverted ? 'Converted' : (isLost ? (activeLeadData.status || 'Lost') : (activeLeadData.status || '—'))}
                 </span>
               </div>
-              <p className="text-xs text-slate-500 font-medium">{activeLeadData.company || '—'}</p>
-              <div className="flex flex-wrap items-center gap-4 text-xs text-slate-500 pt-0.5">
+              <p className="text-[13px] text-slate-500 font-medium">{activeLeadData.company || '—'}</p>
+              <div className="flex flex-wrap items-center gap-4 text-[13px] text-slate-500 pt-0.5">
                 <span className="flex items-center gap-1.5"><Phone size={13} className="text-slate-400" /> {activeLeadData.phone ? `+91 ${activeLeadData.phone}` : '—'}</span>
                 <span className="flex items-center gap-1.5 min-w-0 lg:min-w-auto break-all"><Mail size={13} className="text-slate-400 shrink-0 lg:shrink" /> {activeLeadData.email || '—'}</span>
                 <span className="flex items-center gap-1.5"><MapPin size={13} className="text-slate-400" /> {[activeLeadData.city, activeLeadData.state, activeLeadData.country].filter(Boolean).join(', ') || '—'}</span>

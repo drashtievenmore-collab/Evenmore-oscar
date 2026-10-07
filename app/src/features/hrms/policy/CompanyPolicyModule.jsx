@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useEffect } from "react";
-import { useLocation, useNavigate, Link } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router-dom";
 import {
   FileText,
   Shield,
@@ -47,7 +47,7 @@ import { useAppStore } from "../../../stores/appStore";
 import { usePolicyStore } from "../../../stores/policyStore";
 import { Badge } from "../../../components/hrms/Badge";
 import Modal from "../../../components/ui/Modal";
-import PageInfoButton from "../../../components/common/PageInfoButton";
+import PageHeader from "../../../components/ui/PageHeader";
 import { hrmsGuides } from "../../../data/hrms/hrmsGuides";
 
 // Category icon helper
@@ -397,29 +397,24 @@ export function CompanyPolicyModule({ forcedSection }) {
 
   return (
     <div className="flex flex-col gap-6 w-full pb-16">
-      {/* ── Breadcrumb & Top Bar ─────────────────────────────── */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-        <div>
-          <nav className="flex items-center gap-1.5 text-[12.5px] text-muted mb-1">
-            <Link to="/hrms/dashboard" className="hover:text-navy transition">Home</Link>
-            <ChevronRight size={13} className="text-slate-400" />
-            <Link to="/company-policy" className="hover:text-navy transition">Company Policy</Link>
-            {activeSection !== "dashboard" && (
-              <>
-                <ChevronRight size={13} className="text-slate-400" />
-                <span className="font-semibold text-slate-900 capitalize">
-                  {activeSection.replace("-", " ")}
-                </span>
-              </>
-            )}
-          </nav>
-          <div className="flex items-center gap-3 flex-wrap">
-            <div className="flex flex-wrap lg:flex-nowrap items-center gap-2.5">
-              <h1 className="text-[24px] font-extrabold text-slate-900 tracking-tight">
-                Company Policy
-              </h1>
-              <PageInfoButton guide={hrmsGuides.companyPolicy} />
-            </div>
+      <PageHeader
+        title="Company Policy"
+        subtitle="Enterprise compliance repository, version lifecycle, staff acknowledgements, and regulatory governance."
+        guide={hrmsGuides.companyPolicy}
+        breadcrumb={[
+          { label: "Dashboard", path: "/hrms/dashboard" },
+          { label: "Company Policy", path: "/company-policy" },
+          ...(activeSection !== "dashboard"
+            ? [{
+                label: activeSection
+                  .split("-")
+                  .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
+                  .join(" "),
+              }]
+            : []),
+        ]}
+        titleExtra={
+          <>
             <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-slate-100 border border-bdr text-[11px] font-semibold text-slate-700">
               <Shield size={12} className="text-navy" /> Enterprise Governance
             </span>
@@ -428,40 +423,37 @@ export function CompanyPolicyModule({ forcedSection }) {
                 <UserCheck size={12} /> Employee Portal Mode
               </span>
             )}
-          </div>
-          <p className="text-[13px] text-muted mt-0.5">
-            Enterprise compliance repository, version lifecycle, staff acknowledgements, and regulatory governance.
-          </p>
-        </div>
-
-        {/* Top Actions: Employee View Toggle & + Create Policy */}
-        <div className="flex items-center gap-2.5 flex-wrap">
-          <button
-            type="button"
-            onClick={() => setIsEmployeeView(!isEmployeeView)}
-            className={`inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-[12.5px] font-semibold border transition cursor-pointer ${
-              isEmployeeView
-                ? "bg-amber-50 text-amber-800 border-amber-300 shadow-xs"
-                : "bg-white text-slate-700 border-bdr hover:bg-off"
-            }`}
-            title="Toggle between HR Admin management mode and Staff Employee reading mode"
-          >
-            <UserCheck size={15} />
-            <span>{isEmployeeView ? "Switch to Admin Mode" : "Employee View"}</span>
-          </button>
-
-          {!isEmployeeView && (
+          </>
+        }
+        actions={
+          <>
             <button
               type="button"
-              onClick={openCreateModal}
-              className="inline-flex items-center gap-1.5 px-4.5 py-2 bg-navy text-white rounded-xl text-[13px] font-bold hover:bg-navy/90 transition shadow-xs cursor-pointer"
+              onClick={() => setIsEmployeeView(!isEmployeeView)}
+              className={`inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-[12.5px] font-semibold border transition cursor-pointer ${
+                isEmployeeView
+                  ? "bg-amber-50 text-amber-800 border-amber-300 shadow-xs"
+                  : "bg-white text-slate-700 border-bdr hover:bg-off"
+              }`}
+              title="Toggle between HR Admin management mode and Staff Employee reading mode"
             >
-              <Plus size={16} />
-              <span>Create Policy</span>
+              <UserCheck size={15} />
+              <span>{isEmployeeView ? "Switch to Admin Mode" : "Employee View"}</span>
             </button>
-          )}
-        </div>
-      </div>
+
+            {!isEmployeeView && (
+              <button
+                type="button"
+                onClick={openCreateModal}
+                className="inline-flex items-center gap-1.5 px-4.5 py-2 bg-navy text-white rounded-xl text-[13px] font-bold hover:bg-navy/90 transition shadow-xs cursor-pointer"
+              >
+                <Plus size={16} />
+                <span>Create Policy</span>
+              </button>
+            )}
+          </>
+        }
+      />
 
       {/* ── Sub-Navigation Tabs ─────────────────────────────────── */}
       <div className="flex items-center gap-2 border-b border-bdr overflow-x-auto scrollbar-none pb-0 -mb-1">

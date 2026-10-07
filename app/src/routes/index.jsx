@@ -102,6 +102,18 @@ const CalendarPage = lazy(() => import('../features/hrms/organization/SimplePage
 const HrmsSetup = lazy(() => import('../features/hrms/organization/SimplePages').then(m => ({ default: m.HrmsSetup })));
 const HRAdminPage = lazy(() => import('../features/hrms/organization/SimplePages').then(m => ({ default: m.HRAdminPage })));
 
+// ── ERP — Job Work / Processing (Lazy Loaded) ───────────────────
+const JobWorkSectionPage = lazy(() => import('../features/jobwork/JobWorkSectionPage'));
+const JobWorkOrdersPage = lazy(() => import('../features/jobwork/JobWorkOrdersPage'));
+const JobWorkOrderDetailPage = lazy(() => import('../features/jobwork/JobWorkOrderDetailPage'));
+const JobWorkOutwardPage = lazy(() => import('../features/jobwork/JobWorkOutwardPage'));
+const JobWorkInwardPage = lazy(() => import('../features/jobwork/JobWorkInwardPage'));
+const PendingRegisterPage = lazy(() => import('../features/jobwork/PendingRegisterPage'));
+const VendorReconciliationPage = lazy(() => import('../features/jobwork/VendorReconciliationPage'));
+const ReprocessPage = lazy(() => import('../features/jobwork/ReprocessPage'));
+const ProcessPlanListPage = lazy(() => import('../features/jobwork/ProcessPlanListPage'));
+const ProcessPlanDetailPage = lazy(() => import('../features/jobwork/ProcessPlanDetailPage'));
+
 // ── ERP — Sales (Lazy Loaded) ─────────────────────────────────
 const EstimatesPage = lazy(() => import('../features/sales/EstimatesPage').then(m => ({ default: m.EstimatesPage })));
 const QuotationsPage = lazy(() => import('../features/sales/QuotationsPage').then(m => ({ default: m.QuotationsPage })));
@@ -130,6 +142,7 @@ const AddEditItemPage = lazy(() => import('../features/inventory/AddEditItemPage
 const CategoriesPage = lazy(() => import('../features/inventory/CategoriesPage').then(m => ({ default: m.CategoriesPage })));
 const StockPositionPage = lazy(() => import('../features/inventory/StockPositionPage').then(m => ({ default: m.StockPositionPage })));
 const TransfersPage = lazy(() => import('../features/inventory/TransfersPage').then(m => ({ default: m.TransfersPage })));
+const TransportPage = lazy(() => import('../features/inventory/TransportPage').then(m => ({ default: m.TransportPage })));
 const ERPLocationsPage = lazy(() => import('../features/inventory/LocationsPage').then(m => ({ default: m.LocationsPage })));
 const FaultyPartsPage = lazy(() => import('../features/inventory/FaultyPartsPage').then(m => ({ default: m.FaultyPartsPage })));
 const ServiceUsagePage = lazy(() => import('../features/inventory/ServiceUsagePage').then(m => ({ default: m.ServiceUsagePage })));
@@ -305,6 +318,18 @@ const router = createBrowserRouter([
       { path: 'pms/daily-production', element: <Page component={PMSDailyProductionPage} /> },
       { path: 'pms/production-completion', element: <Page component={PMSProductionCompletionPage} /> },
 
+      // ── Job Work / Processing ─────────────────────────
+      { path: 'job-work/process-plan', element: <Page component={ProcessPlanListPage} /> },
+      { path: 'job-work/process-plan/create', element: <Page component={ProcessPlanListPage} /> },
+      { path: 'job-work/process-plan/:id', element: <Page component={ProcessPlanDetailPage} /> },
+      { path: 'job-work/orders', element: <Page component={JobWorkOrdersPage} /> },
+      { path: 'job-work/orders/:id', element: <Page component={JobWorkOrderDetailPage} /> },
+      { path: 'job-work/outward', element: <Page component={JobWorkOutwardPage} /> },
+      { path: 'job-work/inward', element: <Page component={JobWorkInwardPage} /> },
+      { path: 'job-work/pending-register', element: <Page component={PendingRegisterPage} /> },
+      { path: 'job-work/vendor-reconciliation', element: <Page component={VendorReconciliationPage} /> },
+      { path: 'job-work/reprocess', element: <Page component={ReprocessPage} /> },
+
       // ── Sales ─────────────────────────────────────────────
       { path: 'sales', element: <Navigate to="/sales/quotations" replace /> },
       { path: 'sales/estimates', element: <Page component={EstimatesPage} /> },
@@ -351,6 +376,7 @@ const router = createBrowserRouter([
       { path: 'inventory/stock-position', element: <Page component={StockPositionPage} /> },
       { path: 'inventory/stock', element: <Navigate to="/inventory/stock-position" replace /> },
       { path: 'inventory/transfers', element: <Page component={TransfersPage} /> },
+      { path: 'inventory/transport', element: <Page component={TransportPage} /> },
       { path: 'inventory/locations', element: <Page component={ERPLocationsPage} /> },
       { path: 'inventory/faulty-parts', element: <Page component={FaultyPartsPage} /> },
       { path: 'inventory/service-usage', element: <Page component={ServiceUsagePage} /> },
