@@ -1,7 +1,7 @@
 import React, { useMemo } from 'react';
 import { Link } from 'react-router-dom';
-import { XCircle } from 'lucide-react';
 import { useCrmStore } from '../../../stores/crmStore';
+import PageHeader from '../../../components/ui/PageHeader';
 
 const isLostLead = (lead) => /lost|closed/i.test(String(lead?.status || ''));
 
@@ -11,14 +11,10 @@ export default function LostLeadsPage() {
 
   return (
     <div className="space-y-4">
-      <div>
-        <h1 className="text-lg font-bold text-slate-900 flex items-center gap-2">
-          <XCircle size={18} className="text-rose-500" /> Lost Leads
-        </h1>
-        <p className="text-xs text-slate-500 mt-0.5">
-          Leads that were marked as Lost / Closed and never converted to a customer.
-        </p>
-      </div>
+      <PageHeader
+        title="Lost Leads"
+        subtitle="Leads that were marked as Lost / Closed and never converted to a customer."
+      />
 
       <div className="bg-white rounded-2xl border border-slate-200/90 shadow-xs overflow-hidden">
         <table className="w-full text-xs">

@@ -32,6 +32,10 @@ import {
   Eye,
   Check,
   ShieldCheck,
+  Shirt,
+  Palette,
+  Lock,
+  Wrench,
 } from 'lucide-react';
 
 export const AddEditItemPage = () => {
@@ -57,7 +61,8 @@ export const AddEditItemPage = () => {
     itemParts = [],
     addItemPart,
     removeItemPart,
-    updateCategory
+    updateCategory,
+    addCategory
   } = useERP();
 
   const isEditMode = Boolean(id);
@@ -67,7 +72,9 @@ export const AddEditItemPage = () => {
   const [sku, setSku] = useState('');
   const [status, setStatus] = useState('Optimal');
   const [itemLifecycle, setItemLifecycle] = useState('Active');
-  const [itemKind, setItemKind] = useState(queryKind === 'Machine' ? 'Machine' : (queryKind === 'Part' ? 'Part' : 'Standalone'));
+  const [itemKind, setItemKind] = useState(
+    ['Machine', 'Part', 'Fabric', 'Service', 'Consumable'].includes(queryKind) ? queryKind : 'Standalone'
+  );
   const [name, setName] = useState('');
   const [category, setCategory] = useState(categories[0]?.name || 'Networking Hardware');
   const [vendor, setVendor] = useState(vendors[0]?.name || 'Cisco Direct');
@@ -84,6 +91,23 @@ export const AddEditItemPage = () => {
   const [isWeightItem, setIsWeightItem] = useState(false);
   const [theoreticalWeight, setTheoreticalWeight] = useState('');
   const [tolerancePct, setTolerancePct] = useState('2');
+
+  // Fabric spec — shown when itemKind === 'Fabric'
+  const [fabricQuality, setFabricQuality] = useState('');
+  const [fabricDesign, setFabricDesign] = useState('');
+  const [fabricColor, setFabricColor] = useState('');
+  const [fabricWidth, setFabricWidth] = useState('');
+  const [fabricGsm, setFabricGsm] = useState('');
+
+  // Fabric trades by the Meter — lock units of measure for Fabric items
+  useEffect(() => {
+    if (itemKind === 'Fabric') {
+      setPurchaseUnit('Meter');
+      setSalesUnit('Meter');
+      setUom('Meter');
+      setUnitConversionFactor(1);
+    }
+  }, [itemKind]);
 
   // Tracking Mode & Serial / Batch numbers
   const [trackingMode, setTrackingMode] = useState('Quantity'); // 'Quantity' | 'Serial' | 'Batch'
@@ -155,6 +179,11 @@ export const AddEditItemPage = () => {
   // Active category object and its schema
   const activeCategoryObj = categories.find((c) => c.name?.toLowerCase() === category?.toLowerCase() || c.id === category);
   const categoryCustomFields = activeCategoryObj?.customFields || [];
+
+  // For Fabric items, custom parameters belong to the Fabric category (fallback: active category)
+  const fabricCategoryObj = categories.find((c) => /fabric/i.test(c.name || ''));
+  const activeFabricCategoryObj = itemKind === 'Fabric' ? (fabricCategoryObj || activeCategoryObj) : activeCategoryObj;
+  const fabricCustomFields = activeFabricCategoryObj?.customFields || [];
 
   // Helper to get linked default parts template for a given category name or id
   const getPartsForCategory = (catNameOrId) => {
@@ -228,6 +257,11 @@ export const AddEditItemPage = () => {
       setItemLifecycle(existingItem.lifecycleStatus || 'Active');
       setStatus(existingItem.status || 'Optimal');
       setCustomFieldValues(existingItem.customFieldValues || {});
+      setFabricQuality(existingItem.fabricQuality || '');
+      setFabricDesign(existingItem.fabricDesign || '');
+      setFabricColor(existingItem.fabricColor || '');
+      setFabricWidth(existingItem.fabricWidth !== undefined && existingItem.fabricWidth !== '' && existingItem.fabricWidth !== null ? String(existingItem.fabricWidth) : '');
+      setFabricGsm(existingItem.fabricGsm !== undefined && existingItem.fabricGsm !== '' && existingItem.fabricGsm !== null ? String(existingItem.fabricGsm) : '');
       setWarrantyApplicable(Boolean(existingItem.warrantyApplicable));
       setWarrantyPeriod(existingItem.warrantyPeriod !== undefined ? existingItem.warrantyPeriod : 1);
       setWarrantyUnit(existingItem.warrantyUnit || 'Years');
@@ -254,13 +288,19 @@ export const AddEditItemPage = () => {
       }
     }
     else if (!isEditMode) {
-      const prefix = queryKind === 'Machine' ? 'MACH' : queryKind === 'Part' ? 'PART' : 'PRD';
+      const prefix = queryKind === 'Machine' ? 'MACH' : queryKind === 'Part' ? 'PART' : queryKind === 'Fabric' ? 'FAB' : 'PRD';
       const generatedSku = `${prefix}-${Math.floor(1000 + Math.random() * 9000)}`;
       setSku(generatedSku);
       setBatchPrefix(`SN-${generatedSku}-`);
       const targetKind = queryKind || itemKind;
       if (queryKind) {
         setItemKind(queryKind);
+      }
+      if ((queryKind || itemKind) === 'Fabric') {
+        // Fabric trades by length, not by pieces.
+        setUom('Meter');
+        setSalesUnit('Meter');
+        setPurchaseUnit('Meter');
       }
       const defaultCat = (categories.length > 0 && !category) ? categories[0].name : category;
       if (categories.length > 0 && !category) {
@@ -447,8 +487,18 @@ export const AddEditItemPage = () => {
 
   const handleCreateCustomFieldInline = (e) => {
     e.preventDefault();
-    if (!activeCategoryObj || !newFieldName.trim()) return;
-    const currentFields = activeCategoryObj.customFields || [];
+    let targetCategory = itemKind === 'Fabric' ? activeFabricCategoryObj : activeCategoryObj;
+    if (!targetCategory && itemKind === 'Fabric' && addCategory) {
+      // Auto-create a Fabric category on first custom field so the feature always works
+      targetCategory = addCategory({ name: 'Fabric', code: 'FAB', description: 'Fabric catalog items' });
+      setCategory(targetCategory.name);
+    }
+    if (!targetCategory) {
+      alert('No item category is configured yet. Please create a category (e.g. Fabric) first, then add custom fields.');
+      return;
+    }
+    if (!newFieldName.trim()) return;
+    const currentFields = targetCategory.customFields || [];
     const optionsList = newFieldType === 'dropdown'
       ? newFieldOptions.split(',').map((s) => s.trim()).filter(Boolean)
       : undefined;
@@ -461,7 +511,7 @@ export const AddEditItemPage = () => {
     };
 
     const updatedFields = [...currentFields, newField];
-    updateCategory(activeCategoryObj.id, { customFields: updatedFields });
+    updateCategory(targetCategory.id, { customFields: updatedFields });
     setShowNewFieldModal(false);
     setNewFieldName('');
     setNewFieldType('text');
@@ -559,7 +609,9 @@ export const AddEditItemPage = () => {
     const payload = {
       sku,
       code: sku,
-      name: name || 'Unnamed Item',
+      name: name || (itemKind === 'Fabric'
+        ? ([fabricQuality, fabricDesign, fabricColor, fabricWidth ? `${fabricWidth}"` : ''].filter(Boolean).join(' ') || 'Unnamed Fabric')
+        : 'Unnamed Item'),
       itemKind,
       category,
       categoryId: activeCategoryObj?.id || undefined,
@@ -598,6 +650,12 @@ export const AddEditItemPage = () => {
       reorderLevel: parsedReorder,
       location,
       status: computedStatus,
+      // Fabric spec — only persisted for Fabric items
+      fabricQuality: itemKind === 'Fabric' ? fabricQuality : undefined,
+      fabricDesign: itemKind === 'Fabric' ? fabricDesign : undefined,
+      fabricColor: itemKind === 'Fabric' ? fabricColor : undefined,
+      fabricWidth: itemKind === 'Fabric' && fabricWidth !== '' ? parseFloat(fabricWidth) : undefined,
+      fabricGsm: itemKind === 'Fabric' && fabricGsm !== '' ? parseFloat(fabricGsm) : undefined,
       image: imagePreview,
       imageUrl: imagePreview,
       customFieldValues,
@@ -632,7 +690,7 @@ export const AddEditItemPage = () => {
 
     setSavedAlert(true);
     setTimeout(() => {
-      navigate(itemKind === 'Machine' ? '/items/machines' : '/items/stock');
+      navigate(itemKind === 'Fabric' ? '/inventory/items/fabric' : itemKind === 'Machine' ? '/items/machines' : '/items/stock');
     }, 500);
   };
 
@@ -651,11 +709,15 @@ export const AddEditItemPage = () => {
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
           <div className="flex items-center gap-2 text-xs text-slate-400 mb-1">
+            <span>Inventory</span>
+            <ChevronRight size={14} className="text-slate-300" />
+            <span>Items Master</span>
+            <ChevronRight size={14} className="text-slate-300" />
             <Link
-              to={itemKind === 'Machine' ? '/items/machines' : '/items/stock'}
+              to={itemKind === 'Fabric' ? '/inventory/items/fabric' : itemKind === 'Machine' ? '/items/machines' : '/items/stock'}
               className="text-blue-600 hover:underline font-semibold"
             >
-              {itemKind === 'Machine' ? 'Machine Master' : 'Stock Inventory'}
+              {itemKind === 'Fabric' ? 'Fabric Items' : itemKind === 'Machine' ? 'Machine Master' : 'Stock Inventory'}
             </Link>
             <ChevronRight size={14} className="text-slate-300" />
             <span className="font-semibold text-slate-700">
@@ -665,20 +727,24 @@ export const AddEditItemPage = () => {
           <h2 className="text-2xl font-black text-slate-800 tracking-tight flex items-center gap-2.5">
             {itemKind === 'Machine' ? (
               <Cpu className="w-6 h-6 text-blue-600" />
+            ) : itemKind === 'Fabric' ? (
+              <Shirt className="w-6 h-6 text-blue-600" />
             ) : (
               <Package className="w-6 h-6 text-blue-600" />
             )}
-            {isEditMode ? `Edit ${itemKind}: ${existingItem?.name || sku}` : `Create New ${itemKind} SKU`}
+            {isEditMode ? `Edit ${itemKind === 'Fabric' ? 'Fabric' : itemKind}: ${existingItem?.name || sku}` : itemKind === 'Fabric' ? 'Create New Fabric' : `Create New ${itemKind} SKU`}
           </h2>
           <p className="text-xs text-slate-500 mt-0.5">
-            Configure catalog item parameters, item kind, required BOM components, serial tracking, and conversion rules.
+            {itemKind === 'Fabric'
+              ? 'Add fabric with specifications and default rate. All quantities and calculations are in Meter.'
+              : 'Configure catalog item parameters, item kind, required BOM components, serial tracking, and conversion rules.'}
           </p>
         </div>
 
         <div className="flex flex-wrap lg:flex-nowrap items-center gap-2">
-          <Link to={itemKind === 'Machine' ? '/items/machines' : '/items/stock'}>
+          <Link to={itemKind === 'Fabric' ? '/inventory/items/fabric' : itemKind === 'Machine' ? '/items/machines' : '/items/stock'}>
             <Button variant="outline" icon={ArrowLeft}>
-              Back to {itemKind === 'Machine' ? 'Machines' : 'Stock'}
+              Back to {itemKind === 'Fabric' ? 'Fabrics' : itemKind === 'Machine' ? 'Machines' : 'Stock'}
             </Button>
           </Link>
         </div>
@@ -691,7 +757,7 @@ export const AddEditItemPage = () => {
         </div>
       )}
 
-      {/* Main Form Container */}
+      {itemKind !== 'Fabric' && (
       <div className="bg-white border border-slate-200/80 rounded-2xl shadow-xs overflow-hidden">
         <form onSubmit={handleSubmit} className="p-4 sm:p-6 space-y-8">
 
@@ -787,6 +853,23 @@ export const AddEditItemPage = () => {
                   className="sr-only"
                 />
                 🧱 Raw Material
+              </label>
+
+              <label
+                className={`px-3 py-1.5 rounded-xl text-xs font-bold border cursor-pointer transition-all shadow-2xs ${itemKind === 'Fabric'
+                    ? 'bg-cyan-600 text-white border-cyan-600 shadow-sm shadow-cyan-500/20'
+                    : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-100'
+                  }`}
+              >
+                <input
+                  type="radio"
+                  name="itemKind"
+                  value="Fabric"
+                  checked={itemKind === 'Fabric'}
+                  onChange={() => handleItemKindChange('Fabric')}
+                  className="sr-only"
+                />
+                👕 Fabric
               </label>
 
               <label
@@ -903,6 +986,100 @@ export const AddEditItemPage = () => {
                   </select>
                 </div>
               </div>
+
+              {/* Fabric Specifications — only for Fabric items */}
+              {itemKind === 'Fabric' && (
+                <div className="p-4 bg-cyan-50/60 border border-cyan-200/70 rounded-xl space-y-4 animate-in fade-in duration-150">
+                  <span className="text-xs font-bold text-slate-800 flex items-center gap-1.5">
+                    <Shirt size={14} className="text-cyan-600" />
+                    Fabric Specifications
+                  </span>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-xs font-semibold text-slate-700 mb-1">
+                        Fabric Quality *
+                      </label>
+                      <select
+                        required
+                        value={fabricQuality}
+                        onChange={(e) => setFabricQuality(e.target.value)}
+                        className="w-full h-10 border border-slate-200 rounded-xl px-3 bg-white text-slate-800 text-xs focus:outline-none focus:border-blue-600 focus:ring-2 focus:ring-blue-500/20"
+                      >
+                        <option value="">Select quality…</option>
+                        {['Cotton', 'Polyester', 'Viscose', 'Silk', 'Linen', 'Rayon', 'Nylon', 'Blend', 'Denim', 'Other'].map((q) => (
+                          <option key={q} value={q}>{q}</option>
+                        ))}
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block text-xs font-semibold text-slate-700 mb-1">
+                        Design
+                      </label>
+                      <select
+                        value={fabricDesign}
+                        onChange={(e) => setFabricDesign(e.target.value)}
+                        className="w-full h-10 border border-slate-200 rounded-xl px-3 bg-white text-slate-800 text-xs focus:outline-none focus:border-blue-600 focus:ring-2 focus:ring-blue-500/20"
+                      >
+                        <option value="">Select design…</option>
+                        {['Plain', 'Solid', 'Printed', 'Dyed', 'Jacquard', 'Checks', 'Stripes', 'Dobby', 'Twill', 'Satin'].map((d) => (
+                          <option key={d} value={d}>{d}</option>
+                        ))}
+                      </select>
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                    <div>
+                      <label className="block text-xs font-semibold text-slate-700 mb-1">
+                        Color
+                      </label>
+                      <div className="relative">
+                        <input
+                          type="text"
+                          list="fabric-color-options"
+                          value={fabricColor}
+                          onChange={(e) => setFabricColor(e.target.value)}
+                          className="w-full h-10 border border-slate-200 rounded-xl px-3 bg-white text-slate-800 text-xs focus:outline-none focus:border-blue-600 focus:ring-2 focus:ring-blue-500/20"
+                          placeholder="e.g. White, Black, Blue"
+                        />
+                        <datalist id="fabric-color-options">
+                          {['White', 'Black', 'Blue', 'Red', 'Grey', 'Green', 'Yellow', 'Pink', 'Orange', 'Purple', 'Brown', 'Beige', 'Navy', 'Maroon', 'Cream'].map((c) => (
+                            <option key={c} value={c} />
+                          ))}
+                        </datalist>
+                        <Palette size={14} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
+                      </div>
+                    </div>
+                    <div>
+                      <label className="block text-xs font-semibold text-slate-700 mb-1">
+                        Width (inches)
+                      </label>
+                      <input
+                        type="number"
+                        min="0"
+                        step="any"
+                        value={fabricWidth}
+                        onChange={(e) => setFabricWidth(e.target.value)}
+                        className="w-full h-10 border border-slate-200 rounded-xl px-3 bg-white text-slate-800 text-xs focus:outline-none focus:border-blue-600 focus:ring-2 focus:ring-blue-500/20"
+                        placeholder='e.g. 58'
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-semibold text-slate-700 mb-1">
+                        GSM
+                      </label>
+                      <input
+                        type="number"
+                        min="0"
+                        step="any"
+                        value={fabricGsm}
+                        onChange={(e) => setFabricGsm(e.target.value)}
+                        className="w-full h-10 border border-slate-200 rounded-xl px-3 bg-white text-slate-800 text-xs focus:outline-none focus:border-blue-600 focus:ring-2 focus:ring-blue-500/20"
+                        placeholder="e.g. 120"
+                      />
+                    </div>
+                  </div>
+                </div>
+              )}
 
               {/* Units of Measure & Conversion Factors */}
               <div className="p-4 bg-slate-50/70 border border-slate-200/80 rounded-xl space-y-3">
@@ -2013,7 +2190,7 @@ export const AddEditItemPage = () => {
             <Button
               type="button"
               variant="outline"
-              onClick={() => navigate(itemKind === 'Machine' ? '/items/machines' : '/items/stock')}
+              onClick={() => navigate(itemKind === 'Fabric' ? '/inventory/items/fabric' : itemKind === 'Machine' ? '/items/machines' : '/items/stock')}
             >
               Cancel
             </Button>
@@ -2023,6 +2200,468 @@ export const AddEditItemPage = () => {
           </div>
         </form>
       </div>
+      )}
+
+      {/* ── Fabric-specific creation/edit layout ── */}
+      {itemKind === 'Fabric' && (
+        <form onSubmit={handleSubmit} className="space-y-5">
+          {/* Item Classification */}
+          <div className="bg-white border border-slate-200/80 rounded-2xl shadow-xs p-5 space-y-3">
+            <div className="flex items-start gap-3">
+              <div className="w-9 h-9 rounded-lg bg-blue-50 text-blue-600 flex items-center justify-center shrink-0">
+                <Sliders size={16} />
+              </div>
+              <div>
+                <h3 className="text-sm font-bold text-slate-800">Item Classification</h3>
+                <p className="text-xs text-slate-500">Select item type for proper categorying.</p>
+              </div>
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              {[
+                { value: 'Machine', label: 'Machine', icon: Cpu },
+                { value: 'Part', label: 'Component Part', icon: Boxes },
+                { value: 'Standalone', label: 'Finished Product', icon: CheckCircle2 },
+                { value: 'Consumable', label: 'Consumable', icon: Layers },
+                { value: 'Raw Material', label: 'Raw Material', icon: AlertTriangle },
+                { value: 'Fabric', label: 'Fabric', icon: Shirt },
+                { value: 'Service', label: 'Service', icon: Wrench },
+              ].map((t) => {
+                const Icon = t.icon;
+                const active = itemKind === t.value || (t.value === 'Standalone' && itemKind === 'Finished Product');
+                return (
+                  <label
+                    key={t.value}
+                    className={`px-3 py-1.5 rounded-xl text-xs font-bold border cursor-pointer transition-all shadow-2xs flex items-center gap-1.5 ${active
+                      ? 'bg-blue-600 text-white border-blue-600 shadow-sm shadow-blue-500/20'
+                      : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-100'
+                      }`}
+                  >
+                    <input
+                      type="radio"
+                      name="itemKind"
+                      value={t.value}
+                      checked={active}
+                      onChange={() => handleItemKindChange(t.value)}
+                      className="sr-only"
+                    />
+                    <Icon size={14} /> {t.label}
+                  </label>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* Two-column grid: Basic Details + Fabric Image */}
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
+            <div className="lg:col-span-2 bg-white border border-slate-200/80 rounded-2xl shadow-xs p-5 space-y-4">
+              <div className="flex items-start gap-3">
+                <div className="w-9 h-9 rounded-lg bg-blue-50 text-blue-600 flex items-center justify-center shrink-0">
+                  <ImageIcon size={16} />
+                </div>
+                <div>
+                  <h3 className="text-sm font-bold text-slate-800">Basic Details</h3>
+                  <p className="text-xs text-slate-500">Enter the main details of the fabric.</p>
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">
+                  Fabric Code <span className="ml-1 px-1.5 py-0.5 rounded bg-emerald-50 text-emerald-600 text-[10px] font-bold">Auto Generate</span>
+                </label>
+                <input
+                  readOnly
+                  value={sku || 'Auto (e.g. FAB-001)'}
+                  className="w-full h-10 border border-slate-200 rounded-xl px-3 bg-slate-50 text-slate-500 text-xs font-mono"
+                />
+                <p className="text-[11px] text-slate-400 mt-1">Code will be generated automatically after save.</p>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">Fabric Quality <span className="text-rose-500">*</span></label>
+                  <select
+                    required
+                    value={fabricQuality}
+                    onChange={(e) => setFabricQuality(e.target.value)}
+                    className="w-full h-10 border border-slate-200 rounded-xl px-3 bg-white text-slate-800 text-xs focus:outline-none focus:border-blue-600 focus:ring-2 focus:ring-blue-500/20"
+                  >
+                    <option value="">Select fabric quality</option>
+                    {['Cotton', 'Polyester', 'Viscose', 'Silk', 'Linen', 'Rayon', 'Nylon', 'Blend', 'Denim', 'Other'].map((q) => (
+                      <option key={q} value={q}>{q}</option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">Design</label>
+                  <select
+                    value={fabricDesign}
+                    onChange={(e) => setFabricDesign(e.target.value)}
+                    className="w-full h-10 border border-slate-200 rounded-xl px-3 bg-white text-slate-800 text-xs focus:outline-none focus:border-blue-600 focus:ring-2 focus:ring-blue-500/20"
+                  >
+                    <option value="">Select design (Plain, Printed, Solid, etc..)</option>
+                    {['Plain', 'Solid', 'Printed', 'Dyed', 'Jacquard', 'Checks', 'Stripes', 'Dobby', 'Twill', 'Satin'].map((d) => (
+                      <option key={d} value={d}>{d}</option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">Colour</label>
+                  <select
+                    value={fabricColor}
+                    onChange={(e) => setFabricColor(e.target.value)}
+                    className="w-full h-10 border border-slate-200 rounded-xl px-3 bg-white text-slate-800 text-xs focus:outline-none focus:border-blue-600 focus:ring-2 focus:ring-blue-500/20"
+                  >
+                    <option value="">Select colour</option>
+                    {['White', 'Black', 'Blue', 'Red', 'Grey', 'Green', 'Yellow', 'Pink', 'Orange', 'Purple', 'Brown', 'Beige', 'Navy', 'Maroon', 'Cream'].map((c) => (
+                      <option key={c} value={c}>{c}</option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">Width (inches)</label>
+                  <input
+                    type="number"
+                    min="0"
+                    step="any"
+                    value={fabricWidth}
+                    onChange={(e) => setFabricWidth(e.target.value)}
+                    className="w-full h-10 border border-slate-200 rounded-xl px-3 bg-white text-slate-800 text-xs focus:outline-none focus:border-blue-600 focus:ring-2 focus:ring-blue-500/20"
+                    placeholder="e.g. 58, 60"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">GSM</label>
+                  <input
+                    type="number"
+                    min="0"
+                    step="any"
+                    value={fabricGsm}
+                    onChange={(e) => setFabricGsm(e.target.value)}
+                    className="w-full h-10 border border-slate-200 rounded-xl px-3 bg-white text-slate-800 text-xs focus:outline-none focus:border-blue-600 focus:ring-2 focus:ring-blue-500/20"
+                    placeholder="e.g. 120"
+                  />
+                </div>
+              </div>
+            </div>
+
+            <div className="bg-white border border-slate-200/80 rounded-2xl shadow-xs p-5 space-y-4">
+              <div className="flex items-start gap-3">
+                <div className="w-9 h-9 rounded-lg bg-blue-50 text-blue-600 flex items-center justify-center shrink-0">
+                  <UploadCloud size={16} />
+                </div>
+                <div>
+                  <h3 className="text-sm font-bold text-slate-800">Fabric Image</h3>
+                  <p className="text-xs text-slate-500">Upload fabric photo(s) (optional).</p>
+                </div>
+              </div>
+              {imagePreview ? (
+                <div className="relative border border-slate-200 rounded-xl overflow-hidden">
+                  <img src={imagePreview} alt="Fabric" className="w-full h-40 object-cover" />
+                  <button
+                    type="button"
+                    onClick={handleRemoveImage}
+                    className="absolute top-2 right-2 w-6 h-6 rounded-full bg-white/90 border border-slate-200 text-slate-500 hover:text-rose-600 flex items-center justify-center shadow-sm"
+                  >
+                    <X size={13} />
+                  </button>
+                </div>
+              ) : (
+                <div
+                  onDragOver={(e) => { e.preventDefault(); setIsDraggingFile(true); }}
+                  onDragLeave={() => setIsDraggingFile(false)}
+                  onDrop={handleDropFile}
+                  onClick={() => fileInputRef.current?.click()}
+                  className={`border-2 border-dashed rounded-xl p-6 flex flex-col items-center justify-center text-center cursor-pointer transition-all ${isDraggingFile ? 'border-blue-500 bg-blue-50/60' : 'border-slate-300 bg-slate-50/50 hover:bg-slate-100/70 hover:border-blue-400'}`}
+                >
+                  <div className="w-10 h-10 rounded-xl bg-blue-50 text-blue-600 flex items-center justify-center mb-2">
+                    <UploadCloud size={20} />
+                  </div>
+                  <p className="text-xs font-semibold text-slate-700">
+                    <span className="text-blue-600">Click to upload</span> or drag and drop
+                  </p>
+                  <p className="text-[11px] text-slate-400 mt-1">PNG, JPG, JPEG, WEBP up to 15MB</p>
+                </div>
+              )}
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept="image/*"
+                className="hidden"
+                onChange={(e) => e.target.files && handleFileSelect(e.target.files[0])}
+              />
+            </div>
+          </div>
+
+          {/* Two-column grid: Unit & Pricing + Additional Codes */}
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
+            <div className="lg:col-span-2 bg-white border border-slate-200/80 rounded-2xl shadow-xs p-5 space-y-4">
+              <div className="flex items-start gap-3">
+                <div className="w-9 h-9 rounded-lg bg-blue-50 text-blue-600 flex items-center justify-center shrink-0">
+                  <Scale size={16} />
+                </div>
+                <div>
+                  <h3 className="text-sm font-bold text-slate-800">Unit &amp; Pricing</h3>
+                  <p className="text-xs text-slate-500">Unit is fixed as Meter. Set the default rate for this fabric.</p>
+                </div>
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">UOM</label>
+                  <div className="w-full h-10 border border-slate-200 rounded-xl px-3 bg-slate-50 text-slate-600 text-xs flex items-center justify-between">
+                    <span className="font-semibold">Meter</span>
+                    <Lock size={13} className="text-slate-400" />
+                  </div>
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">Default Rate (₹ per Meter) <span className="text-rose-500">*</span></label>
+                  <input
+                    required
+                    type="number"
+                    step="0.01"
+                    min="0"
+                    value={costPrice}
+                    onChange={(e) => { setCostPrice(e.target.value); setSellingPrice(e.target.value); }}
+                    className="w-full h-10 border border-slate-200 rounded-xl px-3 bg-white text-slate-800 font-mono text-xs focus:outline-none focus:border-blue-600 focus:ring-2 focus:ring-blue-500/20"
+                    placeholder="e.g. 50.00"
+                  />
+                </div>
+              </div>
+              <div className="flex items-start gap-2 bg-blue-50/70 border border-blue-100 text-blue-700 rounded-xl p-3 text-xs">
+                <Info size={14} className="shrink-0 mt-0.5" />
+                <span>UOM is fixed as <strong>Meter</strong>. All calculations (purchase, production, dying, stock, costing, sales) will be in Meter.</span>
+              </div>
+            </div>
+
+            <div className="bg-white border border-slate-200/80 rounded-2xl shadow-xs p-5 space-y-4">
+              <div className="flex items-start gap-3">
+                <div className="w-9 h-9 rounded-lg bg-blue-50 text-blue-600 flex items-center justify-center shrink-0">
+                  <Barcode size={16} />
+                </div>
+                <div>
+                  <h3 className="text-sm font-bold text-slate-800">Additional Codes <span className="text-slate-400 font-normal text-xs">(Optional)</span></h3>
+                  <p className="text-xs text-slate-500">Enter standard codes if required.</p>
+                </div>
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">HSN Code (Goods)</label>
+                <input
+                  value={hsnCode}
+                  onChange={(e) => setHsnCode(e.target.value)}
+                  placeholder="e.g. 5208"
+                  className="w-full h-10 border border-slate-200 rounded-xl px-3 bg-white text-slate-800 font-mono text-xs focus:outline-none focus:border-blue-600 focus:ring-2 focus:ring-blue-500/20"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">SAC Code (Services)</label>
+                <input
+                  value={sacCode}
+                  onChange={(e) => setSacCode(e.target.value)}
+                  placeholder="e.g. 998599"
+                  className="w-full h-10 border border-slate-200 rounded-xl px-3 bg-white text-slate-800 font-mono text-xs focus:outline-none focus:border-blue-600 focus:ring-2 focus:ring-blue-500/20"
+                />
+              </div>
+            </div>
+          </div>
+
+          {/* Two-column grid: Inventory Settings + Stock Tracking */}
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
+            <div className="bg-white border border-slate-200/80 rounded-2xl shadow-xs p-5 space-y-4">
+              <div className="flex items-start gap-3">
+                <div className="w-9 h-9 rounded-lg bg-blue-50 text-blue-600 flex items-center justify-center shrink-0">
+                  <Boxes size={16} />
+                </div>
+                <div>
+                  <h3 className="text-sm font-bold text-slate-800">Inventory Settings</h3>
+                  <p className="text-xs text-slate-500">Set the fabric's status and stock tracking levels.</p>
+                </div>
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-2">Status</label>
+                <div className="flex items-center gap-6">
+                  <label className="flex items-center gap-2 cursor-pointer">
+                    <input
+                      type="radio"
+                      name="lifecycle"
+                      checked={itemLifecycle === 'Active'}
+                      onChange={() => setItemLifecycle('Active')}
+                      className="text-emerald-600 h-4 w-4"
+                    />
+                    <span className={`text-xs font-bold ${itemLifecycle === 'Active' ? 'text-emerald-600' : 'text-slate-500'}`}>Active</span>
+                  </label>
+                  <label className="flex items-center gap-2 cursor-pointer">
+                    <input
+                      type="radio"
+                      name="lifecycle"
+                      checked={itemLifecycle === 'Inactive'}
+                      onChange={() => setItemLifecycle('Inactive')}
+                      className="text-slate-400 h-4 w-4"
+                    />
+                    <span className={`text-xs font-bold ${itemLifecycle === 'Inactive' ? 'text-slate-700' : 'text-slate-500'}`}>Inactive</span>
+                  </label>
+                </div>
+              </div>
+            </div>
+
+            <div className="lg:col-span-2 bg-amber-50/70 border border-amber-200/80 rounded-2xl shadow-xs p-5 space-y-4">
+              <div className="flex items-start gap-3">
+                <div className="w-9 h-9 rounded-lg bg-amber-100 text-amber-600 flex items-center justify-center shrink-0">
+                  <Package size={16} />
+                </div>
+                <div>
+                  <h3 className="text-sm font-bold text-amber-800">Stock Tracking <span className="text-amber-600 font-normal text-xs">(Optional)</span></h3>
+                </div>
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-xs font-semibold text-amber-800 mb-1">Initial Stock Level (Meter)</label>
+                  <input
+                    type="number"
+                    min="0"
+                    value={availableQty}
+                    onChange={(e) => setAvailableQty(e.target.value)}
+                    className="w-full h-10 border border-amber-200 rounded-xl px-3 bg-white text-slate-800 text-xs focus:outline-none focus:border-amber-400"
+                    placeholder="e.g. 0.0"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-amber-800 mb-1">Safety Reorder Level (Meter)</label>
+                  <input
+                    type="number"
+                    min="0"
+                    value={reorderLevel}
+                    onChange={(e) => setReorderLevel(e.target.value)}
+                    className="w-full h-10 border border-amber-200 rounded-xl px-3 bg-white text-slate-800 text-xs focus:outline-none focus:border-amber-400"
+                    placeholder="e.g. 0.0"
+                  />
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Custom Technical Parameters */}
+          <div className="bg-white border border-slate-200/80 rounded-2xl shadow-xs p-5 space-y-4">
+            <div className="flex items-start justify-between gap-3">
+              <div className="flex items-start gap-3">
+                <div className="w-9 h-9 rounded-lg bg-blue-50 text-blue-600 flex items-center justify-center shrink-0">
+                  <Sparkles size={16} />
+                </div>
+                <div>
+                  <h3 className="text-sm font-bold text-slate-800">Custom Technical Parameters: Fabric</h3>
+                  <p className="text-xs text-slate-500">Add additional specifications as per your requirement.</p>
+                </div>
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => { setShowCustomParameters(true); setShowNewFieldModal(true); }}
+                  className="text-xs text-blue-600 hover:text-blue-800 font-semibold px-2.5 py-1 bg-white border border-blue-200 hover:border-blue-300 rounded-lg shadow-2xs cursor-pointer flex items-center gap-1 transition"
+                >
+                  <Plus size={13} /> Add Field
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setShowCustomParameters(false)}
+                  className="text-xs text-slate-500 hover:text-rose-600 font-semibold px-2.5 py-1 bg-white border border-slate-200 hover:border-rose-200 rounded-lg shadow-2xs cursor-pointer flex items-center gap-1 transition"
+                >
+                  <X size={13} /> Hide Section
+                </button>
+              </div>
+            </div>
+
+            {fabricCustomFields.length === 0 ? (
+              <div className="text-center py-5 bg-slate-50/50 border border-dashed border-slate-200 rounded-xl">
+                <p className="text-xs text-slate-500">
+                  No custom attributes configured for <strong>Fabric</strong> yet.
+                </p>
+                <button
+                  type="button"
+                  onClick={() => setShowNewFieldModal(true)}
+                  className="text-xs text-blue-600 hover:underline font-semibold inline-block mt-1 cursor-pointer"
+                >
+                  Click here to add a custom field.
+                </button>
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+                {fabricCustomFields.map((field) => {
+                  const fieldKey = field.id || String(field.name ?? '').toLowerCase().replace(/\s+/g, '_');
+                  const val = customFieldValues[fieldKey] ?? customFieldValues[field.name] ?? '';
+                  return (
+                    <div key={field.id || field.name}>
+                      <label className="block text-xs font-semibold text-slate-700 mb-1">{field.name}</label>
+                      {field.type === 'dropdown' || field.type === 'select' ? (
+                        <select
+                          value={val}
+                          onChange={(e) => handleCustomFieldChange(fieldKey, e.target.value)}
+                          className="w-full h-9 border border-slate-200 rounded-lg px-3 bg-white text-slate-800 text-xs focus:outline-none focus:border-blue-600"
+                        >
+                          <option value="">-- Select {field.name} --</option>
+                          {(field.options || []).map((opt) => <option key={opt} value={opt}>{opt}</option>)}
+                        </select>
+                      ) : field.type === 'boolean' ? (
+                        <input
+                          type="checkbox"
+                          checked={Boolean(val)}
+                          onChange={(e) => handleCustomFieldChange(fieldKey, e.target.checked)}
+                          className="rounded text-blue-600 h-4 w-4 mt-2"
+                        />
+                      ) : (
+                        <input
+                          type={field.type === 'number' ? 'number' : 'text'}
+                          value={val}
+                          onChange={(e) => handleCustomFieldChange(fieldKey, e.target.value)}
+                          placeholder={`Enter ${field.name}`}
+                          className="w-full h-9 border border-slate-200 rounded-lg px-3 bg-white text-slate-800 text-xs focus:outline-none focus:border-blue-600"
+                        />
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+
+          {/* Description / Remarks */}
+          <div className="bg-white border border-slate-200/80 rounded-2xl shadow-xs p-5 space-y-3">
+            <div className="flex items-start gap-3">
+              <div className="w-9 h-9 rounded-lg bg-blue-50 text-blue-600 flex items-center justify-center shrink-0">
+                <FileText size={16} />
+              </div>
+              <div>
+                <h3 className="text-sm font-bold text-slate-800">Description / Remarks <span className="text-slate-400 font-normal text-xs">(Optional)</span></h3>
+                <p className="text-xs text-slate-500">Add any additional information about this fabric.</p>
+              </div>
+            </div>
+            <textarea
+              value={description}
+              onChange={(e) => setDescription(e.target.value)}
+              rows={3}
+              placeholder="e.g. Fabric composition, GSM, usage, supplier notes, etc."
+              className="w-full border border-slate-200 rounded-xl px-3 py-2 bg-white text-slate-800 text-xs focus:outline-none focus:border-blue-600 focus:ring-2 focus:ring-blue-500/20"
+            />
+          </div>
+
+          {/* Footer */}
+          <div className="flex items-center justify-end gap-3 pb-2">
+            <button
+              type="button"
+              onClick={() => navigate('/inventory/items/fabric')}
+              className="px-4 h-10 rounded-xl border border-slate-200 bg-white text-slate-600 text-xs font-bold hover:bg-slate-50 cursor-pointer"
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              className="px-5 h-10 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold flex items-center gap-2 shadow-sm cursor-pointer"
+            >
+              <Check size={15} /> {isEditMode ? 'Update Fabric' : 'Save Fabric'}
+            </button>
+          </div>
+        </form>
+      )}
 
       {/* Stock Part Picker Modal for Machine BOM */}
       {isAddPartModalOpen && (
@@ -2360,7 +2999,7 @@ export const AddEditItemPage = () => {
           <div className="bg-white rounded-2xl border border-slate-200 shadow-2xl max-w-md w-full p-4 sm:p-5 space-y-4 max-h-[95vh] overflow-y-auto">
             <div className="flex items-center justify-between border-b border-slate-100 pb-2">
               <h3 className="font-bold text-sm text-slate-800 flex items-center gap-1.5">
-                <Sliders size={16} className="text-blue-600" /> Add Custom Parameter for {category}
+                <Sliders size={16} className="text-blue-600" /> Add Custom Parameter for {itemKind === 'Fabric' ? (activeFabricCategoryObj?.name || 'Fabric') : category}
               </h3>
               <button
                 onClick={() => setShowNewFieldModal(false)}

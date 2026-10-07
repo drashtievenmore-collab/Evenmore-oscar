@@ -155,7 +155,7 @@ export default function CandidateDetails() {
             />
             <div>
               <div className="flex items-center gap-2.5 flex-wrap">
-                <h1 className="text-xl font-black text-text tracking-tight">{c.name}</h1>
+                <h1 className="text-[20px] font-extrabold tracking-tight text-slate-900">{c.name}</h1>
                 <PageInfoButton guide={hrmsGuides.candidateDetails} />
                 <span className="font-mono text-xs px-2 py-0.5 bg-soft border border-border rounded-md text-muted">
                   {c.id}

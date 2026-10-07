@@ -1,4 +1,5 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { useERP } from '../../context/ERPContext';
 import { DataTable } from '../../components/ui/DataTable';
 import { StatusBadge } from '../../components/ui/StatusBadge';
@@ -33,6 +34,18 @@ export const PurchaseBillsPage = () => {
     const [selectedBill, setSelectedBill] = useState(null);
     const [showPayModal, setShowPayModal] = useState(null);
     const [printBillTarget, setPrintBillTarget] = useState(null);
+    // Deep-link ?bill=<id|billNumber> (Bill Matching redirects here after
+    // approve + auto-send): open that bill's detail once it exists in state.
+    const [searchParams] = useSearchParams();
+    useEffect(() => {
+      const wanted = searchParams.get('bill');
+      if (!wanted || selectedBill) return;
+      const found = (purchaseBills || []).find(
+        (b) => String(b.id) === String(wanted) || b.billNumber === wanted,
+      );
+      if (found) setSelectedBill(found);
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [searchParams, purchaseBills]);
     // Form state
     const [selectedPoId, setSelectedPoId] = useState('manual');
     const [selectedVendorId, setSelectedVendorId] = useState(vendors[0]?.id || '');

@@ -1,9 +1,9 @@
 import { useState, useMemo, useEffect } from "react";
-import { ChevronRight, Calendar as CalendarIcon } from "lucide-react";
+import { Calendar as CalendarIcon } from "lucide-react";
 import { useAppStore } from "../../../stores/appStore";
 import { useAttendanceStore } from "../../../stores/attendanceStore";
 import { ConfirmModal } from "../../../components/hrms/Shared";
-import { PageInfoButton } from "../../../components/common/PageInfoButton";
+import PageHeader from "../../../components/ui/PageHeader";
 import { hrmsGuides } from "../../../data/hrms/hrmsGuides";
 import { bulkAttendance, isBackendEnabled } from "../../../services/hrmsSync";
 
@@ -155,23 +155,11 @@ export default function BulkAttendance() {
 
   return (
     <div className="bulk-att-page">
-      {/* Breadcrumb */}
-      <nav className="bulk-crumb">
-        <span style={{ cursor: "pointer" }}>Home</span>
-        <ChevronRight size={13} style={{ color: "#9aa7bd" }} />
-        <span style={{ color: "#111f36", fontWeight: 600 }}>Attendance / Bulk Attendance</span>
-      </nav>
-
-      {/* Header Row */}
-      <div className="bulk-title-row">
-        <div>
-          <div className="flex items-center gap-2.5">
-            <h1 className="bulk-title">Bulk Attendance</h1>
-            <PageInfoButton guide={hrmsGuides.attendanceBulk} />
-          </div>
-          <p className="bulk-sub">Update attendance for multiple employees at once.</p>
-        </div>
-      </div>
+      <PageHeader
+        title="Bulk Attendance"
+        subtitle="Update attendance for multiple employees at once."
+        guide={hrmsGuides.attendanceBulk}
+      />
 
       {/* Top Filter Card */}
       <div className="bulk-card bulk-filter-card">

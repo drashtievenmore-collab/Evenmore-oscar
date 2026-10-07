@@ -4,7 +4,7 @@ import { useCalendarStore } from "../../../stores/calendarStore";
 import { useAttendanceStore } from "../../../stores/attendanceStore";
 import { Badge } from "../../../components/hrms/Badge";
 import Modal from "../../../components/ui/Modal";
-import PageInfoButton from "../../../components/common/PageInfoButton";
+import PageHeader from "../../../components/ui/PageHeader";
 import { hrmsGuides } from "../../../data/hrms/hrmsGuides";
 import {
   Calendar,
@@ -343,42 +343,39 @@ export default function Leave() {
 
   return (
     <div className="flex flex-col gap-6">
-      {/* ── Top Header Bar ── */}
-      <div className="flex flex-wrap justify-between items-center gap-4">
-        <div>
-          <div className="flex items-center gap-2.5">
-            <h1 className="text-[24px] font-bold tracking-tight text-slate-900">Leave Management</h1>
-            <PageInfoButton guide={hrmsGuides.leave} />
-          </div>
-          <p className="text-[13px] text-muted">Apply, approve, monitor leave quotas, encashment, and comp-off credits</p>
-        </div>
-        <div className="flex items-center gap-2.5 flex-wrap">
-          <button
-            type="button"
-            onClick={() => setCompOffModalOpen(true)}
-            className="inline-flex items-center gap-1.5 px-3.5 py-2.5 bg-white border border-slate-300 text-slate-700 rounded-xl text-[13px] font-medium shadow-2xs hover:bg-slate-50 transition-colors cursor-pointer"
-          >
-            <Clock size={15} className="text-amber-600" />
-            Claim Comp-Off
-          </button>
-          <button
-            type="button"
-            onClick={() => setEncashModalOpen(true)}
-            className="inline-flex items-center gap-1.5 px-3.5 py-2.5 bg-emerald-50 border border-emerald-200 text-emerald-800 rounded-xl text-[13px] font-medium shadow-2xs hover:bg-emerald-100 transition-colors cursor-pointer"
-          >
-            <Coins size={15} className="text-emerald-700" />
-            Encash Leave
-          </button>
-          <button
-            type="button"
-            onClick={() => setApplyModalOpen(true)}
-            className="inline-flex items-center gap-1.5 px-4.5 py-2.5 bg-navy text-white rounded-xl text-[13.5px] font-medium shadow-xs hover:bg-navy/90 transition-colors cursor-pointer"
-          >
-            <Plus size={16} />
-            Apply Leave
-          </button>
-        </div>
-      </div>
+      <PageHeader
+        title="Leave Management"
+        subtitle="Apply, approve, monitor leave quotas, encashment, and comp-off credits"
+        guide={hrmsGuides.leave}
+        actions={
+          <>
+            <button
+              type="button"
+              onClick={() => setCompOffModalOpen(true)}
+              className="inline-flex items-center gap-1.5 px-3.5 py-2.5 bg-white border border-slate-300 text-slate-700 rounded-xl text-[13px] font-medium shadow-2xs hover:bg-slate-50 transition-colors cursor-pointer"
+            >
+              <Clock size={15} className="text-amber-600" />
+              Claim Comp-Off
+            </button>
+            <button
+              type="button"
+              onClick={() => setEncashModalOpen(true)}
+              className="inline-flex items-center gap-1.5 px-3.5 py-2.5 bg-emerald-50 border border-emerald-200 text-emerald-800 rounded-xl text-[13px] font-medium shadow-2xs hover:bg-emerald-100 transition-colors cursor-pointer"
+            >
+              <Coins size={15} className="text-emerald-700" />
+              Encash Leave
+            </button>
+            <button
+              type="button"
+              onClick={() => setApplyModalOpen(true)}
+              className="inline-flex items-center gap-1.5 px-4.5 py-2.5 bg-navy text-white rounded-xl text-[13.5px] font-medium shadow-xs hover:bg-navy/90 transition-colors cursor-pointer"
+            >
+              <Plus size={16} />
+              Apply Leave
+            </button>
+          </>
+        }
+      />
 
       {/* ── Leave Quota Balance Cards Row (5 Categories with Carry-Forward & Comp-Off) ── */}
       <div className="grid grid-cols-2 md:grid-cols-5 gap-3.5">

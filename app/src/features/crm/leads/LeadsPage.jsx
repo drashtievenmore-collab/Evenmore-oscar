@@ -26,7 +26,6 @@ import { useNavigate } from 'react-router-dom';
 import { useAppStore } from '../../../stores/appStore';
 import { Users, UserPlus, Clock, TrendingUp, Plus, Upload } from 'lucide-react';
 import { useCrmStore } from '../../../stores/crmStore';
-import { withSampleTeam } from '../common/sampleTeam';
 import { useLeadDetailStore } from '../../../stores/leadDetailStore';
 import { describeError, isServerId } from '../../../services/crmSync';
 import { partiesService } from '../../../services/domainServices';
@@ -217,7 +216,9 @@ export default function LeadsPage() {
     [leadFormVersion],
   );
   const sourceOptions = useCrmStore((s) => s.sources);
-  const teamOptions = withSampleTeam(useCrmStore((s) => s.teamMembers));
+  // Assignees come from `/crm/team-roster/` — the backend is the source of
+  // truth, so no sample directory is substituted here.
+  const teamOptions = useCrmStore((s) => s.teamMembers);
   const firstStageId = useCrmStore((s) => (
     [...s.stages]
       .filter((stage) => stage.isActive !== false)
@@ -228,7 +229,10 @@ export default function LeadsPage() {
   const [isFilterOpen, setIsFilterOpen] = useState(false);
   const [isSortOpen, setIsSortOpen] = useState(false);
   const [isModalOpen, setIsModalOpen] = useState(false);
-  const isCreateLeadOpen = isModalOpen; 
+  const isCreateLeadOpen = isModalOpen;
+  // Create-while-saving guard + inline backend error for the create modal.
+  const [isCreating, setIsCreating] = useState(false);
+  const [createError, setCreateError] = useState('');
   const [showLeadTour, setShowLeadTour] = useState(false);
   const [isPrintOpen, setIsPrintOpen] = useState(false);
   const [isGuideOpen, setIsGuideOpen] = useState(false);
@@ -330,7 +334,7 @@ export default function LeadsPage() {
     setPage(1);
   }
 
-  async function updateLead(id, updates) {
+  async function updateLead(id, updates, { throwOnError = false } = {}) {
     const oldLead = leadRows.find((l) => l.id === id);
     // Custom builder fields live in customValues — merge so a single edit
     // never wipes the other extras. The server replaces the whole dict, so
@@ -368,6 +372,15 @@ export default function LeadsPage() {
     try {
       const saved = await updateLeadRecord(id, patch);
       const updatedLead = { ...(oldLead || {}), ...patch, ...(saved || {}) };
+      // The server reports what the stage automation generated alongside the
+      // updated lead (`{ lead, createdTasks }`) — surface it so the move is
+      // visible instead of silently adding tasks.
+      const createdTasks = saved?.createdTasks;
+      if (Array.isArray(createdTasks) && createdTasks.length > 0) {
+        showToast?.(
+          `Moved to ${updatedLead.status || 'new stage'} — ${createdTasks.length} follow-up task${createdTasks.length > 1 ? 's' : ''} created.`,
+        );
+      }
       if (oldLead && patch?.status && patch.status !== oldLead.status) {
         try {
           runLeadStageAutomation(updatedLead, patch.status, { previousStage: oldLead.status });
@@ -375,8 +388,12 @@ export default function LeadsPage() {
           console.error('[CRM Automation] Error in updateLead automation:', e);
         }
       }
+      return saved;
     } catch (err) {
-      showToast?.(`Lead not saved — ${describeError(err)}`);
+      const message = `Lead not saved — ${describeError(err)}`;
+      if (throwOnError) throw new Error(message);
+      showToast?.(message);
+      return null;
     }
   }
 
@@ -615,7 +632,9 @@ export default function LeadsPage() {
   }
 
   async function saveEditedLead(id, updates) {
-    await updateLead(id, updates);
+    // Throws with the backend's message on failure — the modal stays open
+    // and renders it inline instead of closing on a failed save.
+    await updateLead(id, updates, { throwOnError: true });
     setEditTarget(null);
     showToast?.('Lead information updated.');
   }
@@ -689,6 +708,7 @@ export default function LeadsPage() {
   }
 
   function openCreateLeadModal() {
+    setCreateError('');
     setIsModalOpen(true);
   }
 
@@ -770,15 +790,27 @@ export default function LeadsPage() {
   }
 
   async function handleCreateLead(formData) {
+    // Duplicate-submission guard: the modal disables its button while this
+    // is in flight, and a second submit here is a no-op.
+    if (isCreating) return;
+    setIsCreating(true);
+    setCreateError('');
+    let created = null;
     try {
-      await saveLead(formData);
+      created = await saveLead(formData);
     } catch (err) {
-      showToast?.(`Lead not created — ${describeError(err)}`);
+      const message = `Lead not created — ${describeError(err)}`;
+      setCreateError(message);
+      showToast?.(message);
+      setIsCreating(false);
       return;
     }
+    setIsCreating(false);
 
     setIsModalOpen(false);
     setShowLeadTour(false);
+    setCreateError('');
+    if (created) showToast?.(`Lead ${created.leadNumber || created.name || ''} created.`.trim());
     setActiveTab('All Leads');
     setAppliedFilters(INITIAL_FILTERS);
     setDraftFilters(INITIAL_FILTERS);
@@ -1053,6 +1085,17 @@ export default function LeadsPage() {
           />
         )}
         <div className="table-col">
+          {crmLoading && leadRows.length === 0 && (
+            <div className="card p-8 text-center text-xs text-slate-500" role="status">
+              Loading leads from the server…
+            </div>
+          )}
+          {crmError && leadRows.length === 0 && !crmLoading && (
+            <div className="card p-8 text-center space-y-2" role="alert">
+              <p className="text-sm font-bold text-slate-900">Could not load leads</p>
+              <p className="text-xs text-slate-500">{crmError}</p>
+            </div>
+          )}
           {leadView === 'list' ? (
             <>
               <LeadsTable
@@ -1170,7 +1213,9 @@ export default function LeadsPage() {
       <CreateLeadModal
         isOpen={isCreateLeadOpen}
         showTour={showLeadTour}
-        onClose={() => { setIsModalOpen(false); setShowLeadTour(false); }}
+        submitting={isCreating}
+        serverError={createError}
+        onClose={() => { if (!isCreating) { setIsModalOpen(false); setShowLeadTour(false); } }}
         onCreate={handleCreateLead}
         onEditLayout={() => { setIsModalOpen(false); setShowLeadTour(false); navigate('/crm/leads/form-builder'); }}
       />

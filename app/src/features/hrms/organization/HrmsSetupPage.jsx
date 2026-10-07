@@ -25,6 +25,7 @@ import {
   AlertTriangle,
 } from "lucide-react";
 import { useAppStore } from "../../../stores/appStore";
+import PageHeader from "../../../components/ui/PageHeader";
 
 const MODULES = [
   "Dashboard Overview",
@@ -136,14 +137,10 @@ function HrmsSetupPageOriginal() {
 
   return (
     <div className="flex flex-col gap-6 w-full pb-12">
-      <div className="flex flex-wrap items-center justify-between gap-4">
-        <div>
-          <h1 className="text-[24px] font-bold text-slate-900">HRMS Setup &amp; Governance</h1>
-          <p className="text-[13px] text-muted">
-            Manage granular role permissions, access control matrix, and system security audit trails.
-          </p>
-        </div>
-        <div className="flex items-center gap-2.5">
+      <PageHeader
+        title="HRMS Setup & Governance"
+        subtitle="Manage granular role permissions, access control matrix, and system security audit trails."
+        actions={
           <button
             type="button"
             onClick={() => setIsRoleModalOpen(true)}
@@ -152,8 +149,8 @@ function HrmsSetupPageOriginal() {
             <Plus size={16} />
             Define Role
           </button>
-        </div>
-      </div>
+        }
+      />
 
       <div className="bg-white border border-bdr rounded-2xl shadow-xs overflow-hidden">
         <div className="p-5 border-b border-bdr flex flex-wrap items-center justify-between gap-3">

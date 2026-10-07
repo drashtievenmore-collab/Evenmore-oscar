@@ -9,13 +9,12 @@ import {
   RotateCcw,
   Check,
   Info,
-  ChevronRight,
   Briefcase,
   Zap,
 } from "lucide-react";
 import { useAttendanceStore } from "../../../stores/attendanceStore";
 import { useAppStore } from "../../../stores/appStore";
-import PageInfoButton from "../../../components/common/PageInfoButton";
+import PageHeader from "../../../components/ui/PageHeader";
 import { hrmsGuides } from "../../../data/hrms/hrmsGuides";
 
 export default function Flexibility() {
@@ -90,32 +89,12 @@ export default function Flexibility() {
 
   return (
     <div className="flex flex-col gap-6 w-full pb-12">
-      {/* ── Breadcrumb & Top Bar ── */}
-      <div className="flex flex-col gap-1">
-        <nav className="flex items-center gap-1.5 text-[12.5px] text-slate-400 font-medium">
-          <span className="hover:text-slate-700 cursor-pointer">Home</span>
-          <ChevronRight size={13} className="text-slate-300" />
-          <span className="hover:text-slate-700 cursor-pointer">HRMS</span>
-          <ChevronRight size={13} className="text-slate-300" />
-          <span className="hover:text-slate-700 cursor-pointer">Attendance</span>
-          <ChevronRight size={13} className="text-slate-300" />
-          <span className="text-slate-800 font-semibold">Flexibility &amp; Policies</span>
-        </nav>
-
-        <div className="flex flex-wrap items-center justify-between gap-4 mt-2">
-          <div>
-            <div className="flex items-center gap-2.5">
-              <h1 className="text-[24px] font-extrabold text-slate-900 tracking-tight">
-                Attendance Flexibility Rules
-              </h1>
-              <PageInfoButton guide={hrmsGuides.attendanceFlexibility} />
-            </div>
-            <p className="text-[13px] text-slate-500 mt-0.5">
-              Set organizational grace periods, work shifts, approval gates, and overtime thresholds.
-            </p>
-          </div>
-
-          <div className="flex flex-wrap lg:flex-nowrap items-center gap-2.5">
+      <PageHeader
+        title="Attendance Flexibility Rules"
+        subtitle="Set organizational grace periods, work shifts, approval gates, and overtime thresholds."
+        guide={hrmsGuides.attendanceFlexibility}
+        actions={
+          <>
             <button
               type="button"
               onClick={reset}
@@ -133,9 +112,9 @@ export default function Flexibility() {
               <Check size={15} />
               Save Changes
             </button>
-          </div>
-        </div>
-      </div>
+          </>
+        }
+      />
 
       {!canEdit && (
         <div className="bg-amber-50 border border-amber-200 rounded-xl p-3.5 text-[13px] text-amber-800 flex items-center gap-2.5">

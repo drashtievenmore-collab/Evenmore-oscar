@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { Pencil } from 'lucide-react';
 import AssignTaskModal from './AssignTaskModal';
+import PageHeader from '../../../../components/ui/PageHeader';
 import { loadAllocationTasks, saveAllocationTasks, formatDeadline, formatAuditDate, STATUSES, EMPLOYEES } from './taskAllocationStore';
 
 export default function TaskAllocationDetailPage() {
@@ -62,30 +63,29 @@ export default function TaskAllocationDetailPage() {
 
   return (
     <section className="w-full space-y-4">
-      <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-3 mb-4">
-        <div className="min-w-0 lg:min-w-auto">
-          <h1 className="text-xl font-bold text-slate-900 tracking-tight break-words">{task.title}</h1>
-          <div className="text-xs mt-1 flex flex-wrap lg:flex-nowrap items-center gap-1.5">
-            <Link to="/dashboard" className="text-blue-600 hover:underline">Dashboard</Link>
-            <span className="text-slate-400">&gt;</span>
-            <Link to="/crm/tasks/allocation" className="text-blue-600 hover:underline">Task Allocation</Link>
-            <span className="text-slate-400">&gt;</span>
-            <span className="text-slate-500">{task.title}</span>
-          </div>
-        </div>
-        <div className="flex items-center gap-3 shrink-0">
-          <button
-            type="button"
-            onClick={() => setIsEditOpen(true)}
-            className="btn-primary"
-          >
-            <Pencil size={16} /> Edit
-          </button>
-          <button type="button" onClick={() => navigate('/crm/tasks/allocation')} className="text-[13px] font-medium text-slate-700 hover:text-slate-900">
-            Back
-          </button>
-        </div>
-      </div>
+      <PageHeader
+        title={task.title}
+        breadcrumb={[
+          { label: 'Dashboard', path: '/dashboard' },
+          { label: 'CRM' },
+          { label: 'Task Allocation', path: '/crm/tasks/allocation' },
+          { label: task.title },
+        ]}
+        actions={
+          <>
+            <button
+              type="button"
+              onClick={() => setIsEditOpen(true)}
+              className="btn-primary"
+            >
+              <Pencil size={16} /> Edit
+            </button>
+            <button type="button" onClick={() => navigate('/crm/tasks/allocation')} className="text-[13px] font-medium text-slate-700 hover:text-slate-900">
+              Back
+            </button>
+          </>
+        }
+      />
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
         <div className="lg:col-span-2 space-y-5">

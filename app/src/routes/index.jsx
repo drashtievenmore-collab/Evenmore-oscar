@@ -52,6 +52,9 @@ const PMSDelayDashboardPage = lazy(() => import('../features/pms/delays/DelayDas
 const PMSReportsPage = lazy(() => import('../features/pms/reports/PMSReportsPage'));
 const PMSSettingsPage = lazy(() => import('../features/pms/settings/PMSSettingsPage'));
 const PMSClientProofApprovalPage = lazy(() => import('../features/pms/approval/ClientProofApprovalPage'));
+const PMSProductionInstructionsPage = lazy(() => import('../features/pms/production/ProductionInstructionsPage'));
+const PMSDailyProductionPage = lazy(() => import('../features/pms/production/DailyProductionPage'));
+const PMSProductionCompletionPage = lazy(() => import('../features/pms/production/ProductionCompletionVerificationPage'));
 
 // ── HRMS (Lazy Loaded) ───────────────────────────────────────
 const HRMSDashboard = lazy(() => import('../features/hrms/dashboard/Dashboard'));
@@ -99,6 +102,18 @@ const CalendarPage = lazy(() => import('../features/hrms/organization/SimplePage
 const HrmsSetup = lazy(() => import('../features/hrms/organization/SimplePages').then(m => ({ default: m.HrmsSetup })));
 const HRAdminPage = lazy(() => import('../features/hrms/organization/SimplePages').then(m => ({ default: m.HRAdminPage })));
 
+// ── ERP — Job Work / Processing (Lazy Loaded) ───────────────────
+const JobWorkSectionPage = lazy(() => import('../features/jobwork/JobWorkSectionPage'));
+const JobWorkOrdersPage = lazy(() => import('../features/jobwork/JobWorkOrdersPage'));
+const JobWorkOrderDetailPage = lazy(() => import('../features/jobwork/JobWorkOrderDetailPage'));
+const JobWorkOutwardPage = lazy(() => import('../features/jobwork/JobWorkOutwardPage'));
+const JobWorkInwardPage = lazy(() => import('../features/jobwork/JobWorkInwardPage'));
+const PendingRegisterPage = lazy(() => import('../features/jobwork/PendingRegisterPage'));
+const VendorReconciliationPage = lazy(() => import('../features/jobwork/VendorReconciliationPage'));
+const ReprocessPage = lazy(() => import('../features/jobwork/ReprocessPage'));
+const ProcessPlanListPage = lazy(() => import('../features/jobwork/ProcessPlanListPage'));
+const ProcessPlanDetailPage = lazy(() => import('../features/jobwork/ProcessPlanDetailPage'));
+
 // ── ERP — Sales (Lazy Loaded) ─────────────────────────────────
 const EstimatesPage = lazy(() => import('../features/sales/EstimatesPage').then(m => ({ default: m.EstimatesPage })));
 const QuotationsPage = lazy(() => import('../features/sales/QuotationsPage').then(m => ({ default: m.QuotationsPage })));
@@ -113,6 +128,8 @@ const WarrantyListPage = lazy(() => import('../features/sales/WarrantyListPage')
 // ── ERP — Purchase (Lazy Loaded) ──────────────────────────────
 const PurchaseOrdersPage = lazy(() => import('../features/purchase/PurchaseOrdersPage').then(m => ({ default: m.PurchaseOrdersPage })));
 const PurchaseBillsPage = lazy(() => import('../features/purchase/PurchaseBillsPage').then(m => ({ default: m.PurchaseBillsPage })));
+const VendorBillsPage = lazy(() => import('../features/purchase/VendorBillsPage').then(m => ({ default: m.VendorBillsPage })));
+const BillMatchingPage = lazy(() => import('../features/purchase/BillMatchingPage').then(m => ({ default: m.BillMatchingPage })));
 const PurchaseReturnsPage = lazy(() => import('../features/purchase/PurchaseReturnsPage').then(m => ({ default: m.PurchaseReturnsPage })));
 const PaymentOutPage = lazy(() => import('../features/purchase/PaymentOutPage').then(m => ({ default: m.PaymentOutPage })));
 const ExpensesPage = lazy(() => import('../features/purchase/ExpensesPage').then(m => ({ default: m.ExpensesPage })));
@@ -125,6 +142,7 @@ const AddEditItemPage = lazy(() => import('../features/inventory/AddEditItemPage
 const CategoriesPage = lazy(() => import('../features/inventory/CategoriesPage').then(m => ({ default: m.CategoriesPage })));
 const StockPositionPage = lazy(() => import('../features/inventory/StockPositionPage').then(m => ({ default: m.StockPositionPage })));
 const TransfersPage = lazy(() => import('../features/inventory/TransfersPage').then(m => ({ default: m.TransfersPage })));
+const TransportPage = lazy(() => import('../features/inventory/TransportPage').then(m => ({ default: m.TransportPage })));
 const ERPLocationsPage = lazy(() => import('../features/inventory/LocationsPage').then(m => ({ default: m.LocationsPage })));
 const FaultyPartsPage = lazy(() => import('../features/inventory/FaultyPartsPage').then(m => ({ default: m.FaultyPartsPage })));
 const ServiceUsagePage = lazy(() => import('../features/inventory/ServiceUsagePage').then(m => ({ default: m.ServiceUsagePage })));
@@ -296,6 +314,21 @@ const router = createBrowserRouter([
       { path: 'pms/delays', element: <Page component={PMSDelayDashboardPage} /> },
       { path: 'pms/reports', element: <Page component={PMSReportsPage} /> },
       { path: 'pms/settings', element: <Page component={PMSSettingsPage} /> },
+      { path: 'pms/production-instructions', element: <Page component={PMSProductionInstructionsPage} /> },
+      { path: 'pms/daily-production', element: <Page component={PMSDailyProductionPage} /> },
+      { path: 'pms/production-completion', element: <Page component={PMSProductionCompletionPage} /> },
+
+      // ── Job Work / Processing ─────────────────────────
+      { path: 'job-work/process-plan', element: <Page component={ProcessPlanListPage} /> },
+      { path: 'job-work/process-plan/create', element: <Page component={ProcessPlanListPage} /> },
+      { path: 'job-work/process-plan/:id', element: <Page component={ProcessPlanDetailPage} /> },
+      { path: 'job-work/orders', element: <Page component={JobWorkOrdersPage} /> },
+      { path: 'job-work/orders/:id', element: <Page component={JobWorkOrderDetailPage} /> },
+      { path: 'job-work/outward', element: <Page component={JobWorkOutwardPage} /> },
+      { path: 'job-work/inward', element: <Page component={JobWorkInwardPage} /> },
+      { path: 'job-work/pending-register', element: <Page component={PendingRegisterPage} /> },
+      { path: 'job-work/vendor-reconciliation', element: <Page component={VendorReconciliationPage} /> },
+      { path: 'job-work/reprocess', element: <Page component={ReprocessPage} /> },
 
       // ── Sales ─────────────────────────────────────────────
       { path: 'sales', element: <Navigate to="/sales/quotations" replace /> },
@@ -318,6 +351,8 @@ const router = createBrowserRouter([
       { path: 'purchase/orders', element: <Page component={PurchaseOrdersPage} /> },
       { path: 'purchase/receipts', element: <Page component={GoodsReceiptPage} /> },
       { path: 'purchase/bills', element: <Page component={PurchaseBillsPage} /> },
+      { path: 'purchase/vendor-bills', element: <Page component={VendorBillsPage} /> },
+      { path: 'purchase/bill-matching', element: <Page component={BillMatchingPage} /> },
       { path: 'purchase/returns', element: <Page component={PurchaseReturnsPage} /> },
       { path: 'purchase/payments', element: <Page component={PaymentOutPage} /> },
       { path: 'purchase/expenses', element: <Page component={ExpensesPage} /> },
@@ -328,6 +363,7 @@ const router = createBrowserRouter([
       // ── Inventory ─────────────────────────────────────────
       { path: 'inventory', element: <Navigate to="/inventory/items" replace /> },
       { path: 'inventory/items', element: <Page component={ItemsMasterPage} /> },
+      { path: 'inventory/items/fabric', element: <Page component={ItemsMasterPage} /> },
       { path: 'inventory/items/machines', element: <Page component={ItemsMasterPage} /> },
       { path: 'inventory/items/stock', element: <Page component={ItemsMasterPage} /> },
       { path: 'inventory/machines', element: <Navigate to="/inventory/items/machines" replace /> },
@@ -340,6 +376,7 @@ const router = createBrowserRouter([
       { path: 'inventory/stock-position', element: <Page component={StockPositionPage} /> },
       { path: 'inventory/stock', element: <Navigate to="/inventory/stock-position" replace /> },
       { path: 'inventory/transfers', element: <Page component={TransfersPage} /> },
+      { path: 'inventory/transport', element: <Page component={TransportPage} /> },
       { path: 'inventory/locations', element: <Page component={ERPLocationsPage} /> },
       { path: 'inventory/faulty-parts', element: <Page component={FaultyPartsPage} /> },
       { path: 'inventory/service-usage', element: <Page component={ServiceUsagePage} /> },

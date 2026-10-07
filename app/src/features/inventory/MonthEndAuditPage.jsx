@@ -4,6 +4,7 @@ import { DataTable } from '../../components/ui/DataTable';
 import { StatusBadge } from '../../components/ui/StatusBadge';
 import { Button } from '../../components/ui/Button';
 import { CheckCircle2, AlertTriangle, UserCheck, ShieldCheck } from 'lucide-react';
+import PageHeader from '../../components/ui/PageHeader';
 export const MonthEndAuditPage = () => {
     const { items, calculateItemStock, formatCurrency } = useERP();
     // Point-in-time audit snapshot seeded from live book quantities
@@ -131,23 +132,17 @@ export const MonthEndAuditPage = () => {
           <ShieldCheck size={16}/> {toastMessage}
         </div>)}
 
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-        <div>
-          <h2 className="text-xl font-bold text-[#1F2E4A] tracking-tight">
-            Month-End Stock Audit & Reconciliation
-          </h2>
-          <p className="text-xs text-slate-500 mt-1">
-            Monthly physical count verification against book balance, variance write-offs, and auditor GL closing.
-          </p>
-        </div>
-        <div className="flex flex-wrap lg:flex-nowrap items-center gap-2">
-          {!auditLocked ? (<Button icon={UserCheck} onClick={handleSignOff}>
-              Lock & Sign-Off Audit
-            </Button>) : (<span className="px-3 py-1.5 bg-emerald-100 text-emerald-800 rounded font-semibold text-xs flex items-center gap-1.5 border border-emerald-300">
-              <ShieldCheck size={14}/> Audit Certified & Closed
-            </span>)}
-        </div>
-      </div>
+      <PageHeader
+        title="Month-End Stock Audit & Reconciliation"
+        subtitle="Monthly physical count verification against book balance, variance write-offs, and auditor GL closing."
+        actions={
+          !auditLocked ? (<Button icon={UserCheck} onClick={handleSignOff}>
+            Lock & Sign-Off Audit
+          </Button>) : (<span className="px-3 py-1.5 bg-emerald-100 text-emerald-800 rounded font-semibold text-xs flex items-center gap-1.5 border border-emerald-300">
+            <ShieldCheck size={14}/> Audit Certified & Closed
+          </span>)
+        }
+      />
 
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
         <div className="bg-white p-4 rounded-lg border border-[#CED4DA]">

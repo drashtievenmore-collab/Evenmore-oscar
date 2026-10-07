@@ -1,9 +1,9 @@
 import { useState, useMemo } from "react";
-import { Download, ChevronRight, ChevronDown, Search, Calendar as CalendarIcon, MoreHorizontal, X, Check, Clock } from "lucide-react";
+import { Download, ChevronDown, Search, Calendar as CalendarIcon, MoreHorizontal, X, Check, Clock } from "lucide-react";
+import PageHeader from "../../../components/ui/PageHeader";
 import Modal from "../../../components/ui/Modal";
 import { useAppStore } from "../../../stores/appStore";
 import { useAttendanceStore } from "../../../stores/attendanceStore";
-import { PageInfoButton } from "../../../components/common/PageInfoButton";
 import { hrmsGuides } from "../../../data/hrms/hrmsGuides";
 
 const LIVE_ATTENDANCE_FALLBACK = [];
@@ -163,31 +163,21 @@ export default function AttendanceOverview() {
 
   return (
     <div className="att-mgmt-page">
-      {/* Breadcrumb */}
-      <nav className="att-crumb">
-        <span style={{ cursor: "pointer" }}>Home</span>
-        <ChevronRight size={13} style={{ color: "#9aa7bd" }} />
-        <span style={{ color: "#111f36", fontWeight: 600 }}>Attendance / Overview</span>
-      </nav>
-
-      {/* Header Row */}
-      <div className="att-title-row">
-        <div>
-          <div className="flex items-center gap-2.5">
-            <h1 className="att-title">Attendance Management</h1>
-            <PageInfoButton guide={hrmsGuides.attendanceOverview} />
-          </div>
-          <p className="att-sub">Daily tracking, attendance status, regularization, shifts and overtime.</p>
-        </div>
-        <div className="flex-wrap lg:flex-nowrap" style={{ display: "flex", alignItems: "center", gap: 10 }}>
-          <button type="button" onClick={handleExport} className="att-export-btn">
-            <Download size={15} /> Export
-          </button>
-          <button type="button" onClick={() => setShowRegModal(true)} className="att-reg-btn">
-            Regularize Attendance
-          </button>
-        </div>
-      </div>
+      <PageHeader
+        title="Attendance Management"
+        subtitle="Daily tracking, attendance status, regularization, shifts and overtime."
+        guide={hrmsGuides.attendanceOverview}
+        actions={
+          <>
+            <button type="button" onClick={handleExport} className="att-export-btn">
+              <Download size={15} /> Export
+            </button>
+            <button type="button" onClick={() => setShowRegModal(true)} className="att-reg-btn">
+              Regularize Attendance
+            </button>
+          </>
+        }
+      />
 
       {/* Stat Cards Row */}
       <div className="att-stats-grid">

@@ -168,6 +168,17 @@ function partyToApi(party) {
     // `code` is deliberately omitted: the server allocates CUST-/VEND- numbers
     // (api.md §1.7) and a client-invented one would collide.
     type: party.type || party.partyType || 'Customer',
+    // Nullable on the server; `null` clears a stale classification when the
+    // role is edited away from Vendor.
+    vendorType: party.vendorType || null,
+    // Transporter fleet details — same clear-on-role-change contract.
+    vehicleNumber: party.vehicleNumber || null,
+    vehicleType: party.vehicleType || null,
+    vehicleCapacity:
+      party.vehicleCapacity !== undefined && party.vehicleCapacity !== '' && party.vehicleCapacity !== null
+        ? num(party.vehicleCapacity)
+        : null,
+    vehicleCapacityUnit: party.vehicleCapacityUnit || null,
     name: party.name,
     phone: party.phone || undefined,
     email: party.email || undefined,
@@ -285,6 +296,16 @@ export const RESOURCES = {
     toApi: (u) => compact({ code: u.code, label: u.label || u.code }),
     fromApi: (row) => ({ ...row, _synced: true }),
   },
+  fabrics: {
+    path: '/inventory/fabrics/',
+    toApi: (f) => compact({
+      name: f.name,
+      code: f.code || undefined,
+      description: f.description || undefined,
+      isActive: f.isActive ?? f.is_active ?? undefined,
+    }),
+    fromApi: (row) => ({ ...row, _synced: true }),
+  },
   locations: {
     path: '/inventory/locations/',
     toApi: (loc) => compact({
@@ -335,6 +356,16 @@ export const RESOURCES = {
       sheetLength: item.sheetLength ? num(item.sheetLength) : undefined,
       sheetLengthUnit: item.sheetLengthUnit || undefined,
       sheetWeightKg: item.sheetWeightKg ? num(item.sheetWeightKg) : undefined,
+      // Fabric spec — only meaningful for Fabric items; cleared otherwise.
+      fabricQuality: item.fabricQuality || null,
+      fabricDesign: item.fabricDesign || null,
+      fabricColor: item.fabricColor || null,
+      fabricWidth:
+        item.fabricWidth !== undefined && item.fabricWidth !== '' && item.fabricWidth !== null
+          ? num(item.fabricWidth) : null,
+      fabricGsm:
+        item.fabricGsm !== undefined && item.fabricGsm !== '' && item.fabricGsm !== null
+          ? num(item.fabricGsm) : null,
       customFieldValues: item.customFieldValues || undefined,
     }),
     // `availableQty` / `status` come off the movement ledger, so the row the
@@ -425,6 +456,41 @@ export const RESOURCES = {
   purchaseBills: documentResource('/purchase/bills/', {
     partyField: 'vendorId', partyLabel: 'vendor', numberField: 'billNumber',
   }),
+  vendorBills: {
+    path: '/purchase/vendor-bills/',
+    toApi: (vb) => compact({
+      vendorId: vb.vendorId || undefined,
+      billDate: isoOut(vb.billDate || vb.date),
+      vendorBillNumber: vb.vendorBillNumber || vb.billNumber || undefined,
+      purchaseOrderId: vb.purchaseOrderId || vb.poId || undefined,
+      grnId: vb.grnId || undefined,
+      attachmentFileId: vb.attachmentFileId || undefined,
+      gstPct: vb.gstPct !== undefined ? num(vb.gstPct) : undefined,
+      remarks: vb.remarks || vb.notes || undefined,
+      lineItems: (vb.lineItems || vb.items || []).map(lineToApi),
+    }),
+    fromApi: (row) => {
+      const lines = (row.lineItems || row.items || []).map(lineFromApi);
+      return {
+        ...row,
+        vendorBillNumber: row.vendorBillNumber || row.billNumber,
+        billDate: displayIn(row.billDate),
+        date: displayIn(row.billDate || row.date),
+        vendor: row.vendorName || row.vendor,
+        vendorName: row.vendorName || row.vendor,
+        subtotal: num(row.subtotal),
+        gstPct: num(row.gstPct),
+        gstAmount: num(row.gstAmount),
+        total: num(row.total),
+        amount: num(row.total),
+        status: row.status,
+        matchStatus: row.matchStatus,
+        items: lines,
+        lineItems: lines,
+        _synced: true,
+      };
+    },
+  },
   purchaseReturns: documentResource('/purchase/returns/', {
     partyField: 'vendorId', partyLabel: 'vendor', numberField: 'returnNumber',
   }),
@@ -602,11 +668,11 @@ export const RESOURCES = {
 
 /** Every key the pull step knows how to load, in dependency order. */
 export const PULL_ORDER = [
-  'categories', 'units', 'locations', 'items',
+  'categories', 'units', 'locations', 'fabrics', 'items',
   'parties', 'customers', 'vendors',
   'estimates', 'quotations', 'salesOrders', 'proformaInvoices',
   'deliveryChallans', 'invoices', 'paymentIns', 'salesReturns', 'warranties',
-  'purchaseOrders', 'purchaseBills', 'paymentOuts', 'purchaseReturns', 'expenses',
+  'purchaseOrders', 'purchaseBills', 'vendorBills', 'paymentOuts', 'purchaseReturns', 'expenses',
   'transfers', 'serviceUsages', 'valuationItems', 'monthEndAudits',
   'inventoryMovements', 'faultyParts', 'zoneRequests',
   'bankAccounts', 'chartOfAccounts', 'journalEntries',

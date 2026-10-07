@@ -4,7 +4,7 @@ import { useAppStore } from "../../../stores/appStore";
 import { useAssetStore } from "../../../stores/assetStore";
 import { Badge } from "../../../components/hrms/Badge";
 import Modal from "../../../components/ui/Modal";
-import PageInfoButton from "../../../components/common/PageInfoButton";
+import PageHeader from "../../../components/ui/PageHeader";
 import { hrmsGuides } from "../../../data/hrms/hrmsGuides";
 import {
   Laptop,
@@ -467,19 +467,12 @@ export function AssetsPage() {
 
   return (
     <div className="w-full flex flex-col gap-5">
-      {/* Header */}
-      <div className="flex flex-wrap items-center justify-between gap-4">
-        <div>
-          <div className="flex items-center gap-2.5">
-            <h1 className="text-[24px] font-bold text-slate-900 tracking-tight">Asset Setup &amp; Inventory</h1>
-            <PageInfoButton guide={hrmsGuides.assets} />
-          </div>
-          <p className="text-[13px] text-muted">
-            Lifecycle management, hardware provisioning, allocations, repairs &amp; return audits.
-          </p>
-        </div>
-        <div className="flex flex-wrap lg:flex-nowrap items-center gap-2.5">
-          {activeTab === "inventory" ? (
+      <PageHeader
+        title="Asset Setup & Inventory"
+        subtitle="Lifecycle management, hardware provisioning, allocations, repairs & return audits."
+        guide={hrmsGuides.assets}
+        actions={
+          activeTab === "inventory" ? (
             <button
               type="button"
               onClick={handleOpenAdd}
@@ -497,9 +490,9 @@ export function AssetsPage() {
               <Plus size={16} />
               New Asset Request
             </button>
-          )}
-        </div>
-      </div>
+          )
+        }
+      />
 
       {/* Tabs Navigation */}
       <div className="flex items-center gap-2 border-b border-bdr overflow-x-auto lg:overflow-visible whitespace-nowrap lg:whitespace-normal scrollbar-none">

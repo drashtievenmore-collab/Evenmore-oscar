@@ -26,7 +26,8 @@ import {
   X,
   Layers,
   FileSpreadsheet,
-  CheckCircle2
+  CheckCircle2,
+  Truck
 } from 'lucide-react';
 
 const partiesGuide = {
@@ -54,7 +55,7 @@ export default function PartiesPage() {
 
   const { parties = [], addParty, updateParty, formatCurrency } = useERP();
   const [selectedType, setSelectedType] = useState(() => {
-    if (typeParam && ['customer', 'vendor', 'both'].includes(typeParam.toLowerCase())) {
+    if (typeParam && ['customer', 'vendor', 'both', 'transporter'].includes(typeParam.toLowerCase())) {
       return typeParam.charAt(0).toUpperCase() + typeParam.slice(1).toLowerCase();
     }
     if (isCustomerContext) return 'Customer';
@@ -66,7 +67,7 @@ export default function PartiesPage() {
   const [viewingParty, setViewingParty] = useState(null);
 
   useEffect(() => {
-    if (typeParam && ['customer', 'vendor', 'both'].includes(typeParam.toLowerCase())) {
+    if (typeParam && ['customer', 'vendor', 'both', 'transporter'].includes(typeParam.toLowerCase())) {
       setSelectedType(typeParam.charAt(0).toUpperCase() + typeParam.slice(1).toLowerCase());
     } else if (isCustomerContext) {
       setSelectedType('Customer');
@@ -78,7 +79,9 @@ export default function PartiesPage() {
   // Filter parties by type
   const filteredParties = useMemo(() => {
     if (selectedType === 'All') return parties;
-    return parties.filter((p) => p.type === selectedType || (selectedType !== 'All' && p.type === 'Both'));
+    // A Dual Partner trades as both, but it is not a transporter fleet.
+    if (selectedType === 'Transporter') return parties.filter((p) => p.type === 'Transporter');
+    return parties.filter((p) => p.type === selectedType || p.type === 'Both');
   }, [parties, selectedType]);
 
   // Counts for tabs & KPIs
@@ -87,13 +90,14 @@ export default function PartiesPage() {
     const customers = parties.filter((p) => p.type === 'Customer' || p.type === 'Both').length;
     const vendors = parties.filter((p) => p.type === 'Vendor' || p.type === 'Both').length;
     const both = parties.filter((p) => p.type === 'Both').length;
+    const transporters = parties.filter((p) => p.type === 'Transporter').length;
     const totalReceivable = parties
       .filter((p) => p.type === 'Customer' || p.type === 'Both')
       .reduce((sum, p) => sum + (p.balance > 0 ? p.balance : 0), 0);
     const totalPayable = parties
       .filter((p) => p.type === 'Vendor' || p.type === 'Both')
       .reduce((sum, p) => sum + (p.balance > 0 ? p.balance : 0), 0);
-    return { total, customers, vendors, both, totalReceivable, totalPayable };
+    return { total, customers, vendors, both, transporters, totalReceivable, totalPayable };
   }, [parties]);
 
   const handleAddNew = () => {
@@ -142,6 +146,15 @@ export default function PartiesPage() {
               </div>
               <div className="text-[11px] text-muted flex items-center gap-2 mt-0.5">
                 <span className="font-mono font-medium">{partyCode}</span>
+                {party?.type === 'Transporter' && party?.vehicleNumber && (
+                  <>
+                    <span>•</span>
+                    <span className="font-mono uppercase inline-flex items-center gap-1">
+                      <Truck className="w-3 h-3" />
+                      {party.vehicleNumber}
+                    </span>
+                  </>
+                )}
                 {gstin && (
                   <>
                     <span>•</span>
@@ -166,12 +179,19 @@ export default function PartiesPage() {
             ? 'bg-blue-50 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400 border-blue-200 dark:border-blue-800'
             : type === 'Vendor'
             ? 'bg-amber-50 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400 border-amber-200 dark:border-amber-800'
+            : type === 'Transporter'
+            ? 'bg-cyan-50 text-cyan-700 dark:bg-cyan-900/30 dark:text-cyan-400 border-cyan-200 dark:border-cyan-800'
             : 'bg-purple-50 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400 border-purple-200 dark:border-purple-800';
 
         return (
-          <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-semibold border ${colorClasses}`}>
-            {type}
-          </span>
+          <div className="inline-flex flex-col items-center gap-0.5">
+            <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-semibold border ${colorClasses}`}>
+              {type}
+            </span>
+            {type === 'Vendor' && party.vendorType && (
+              <span className="text-[10px] text-muted font-medium">{party.vendorType}</span>
+            )}
+          </div>
         );
       },
     },
@@ -322,6 +342,7 @@ export default function PartiesPage() {
           { id: 'Customer', label: 'Customers', count: stats.customers },
           { id: 'Vendor', label: 'Vendors', count: stats.vendors },
           { id: 'Both', label: 'Dual Partners', count: stats.both },
+          { id: 'Transporter', label: 'Transporters', count: stats.transporters },
         ].map((tab) => {
           const isActive = selectedType === tab.id;
           return (
@@ -444,8 +465,45 @@ export default function PartiesPage() {
                     <span className="text-slate-400 block text-[10px] uppercase font-semibold">Ledger Group</span>
                     <span className="font-semibold text-slate-800">{viewingParty.ledgerAccount || '—'}</span>
                   </div>
+                  {viewingParty.vendorType && (
+                    <div>
+                      <span className="text-slate-400 block text-[10px] uppercase font-semibold">Vendor Type</span>
+                      <span className="font-semibold text-slate-800">{viewingParty.vendorType}</span>
+                    </div>
+                  )}
                 </div>
               </div>
+
+              {/* Transport Details — transporters only */}
+              {viewingParty.type === 'Transporter' && (
+                <div className="bg-cyan-50/60 p-4 rounded-xl border border-cyan-200/80 space-y-2.5">
+                  <h4 className="text-[11px] font-bold uppercase tracking-wider text-slate-500 flex items-center gap-1.5">
+                    <Truck className="w-3.5 h-3.5 text-cyan-600" /> Transport Details
+                  </h4>
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
+                    <div>
+                      <span className="text-slate-400 block text-[10px] uppercase font-semibold">Mobile Number</span>
+                      <span className="font-semibold text-slate-800">{viewingParty.phone || '—'}</span>
+                    </div>
+                    <div>
+                      <span className="text-slate-400 block text-[10px] uppercase font-semibold">Vehicle No</span>
+                      <span className="font-mono font-bold text-slate-800 uppercase">{viewingParty.vehicleNumber || '—'}</span>
+                    </div>
+                    <div>
+                      <span className="text-slate-400 block text-[10px] uppercase font-semibold">Vehicle Type</span>
+                      <span className="font-semibold text-slate-800">{viewingParty.vehicleType || '—'}</span>
+                    </div>
+                    <div>
+                      <span className="text-slate-400 block text-[10px] uppercase font-semibold">Capacity</span>
+                      <span className="font-semibold text-slate-800">
+                        {viewingParty.vehicleCapacity
+                          ? `${viewingParty.vehicleCapacity} ${viewingParty.vehicleCapacityUnit || 'Tons'}`
+                          : '—'}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              )}
 
               {/* Financial & Bank */}
               <div className="bg-slate-50 p-4 rounded-xl border border-slate-200/80 space-y-2.5">

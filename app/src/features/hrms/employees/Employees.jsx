@@ -2,7 +2,7 @@ import { useState, useMemo } from "react";
 import { Download, ChevronRight, ChevronLeft, ChevronDown, Trash2 } from "lucide-react";
 import Modal from "../../../components/ui/Modal";
 import { useAppStore } from "../../../stores/appStore";
-import { PageInfoButton } from "../../../components/common/PageInfoButton";
+import PageHeader from "../../../components/ui/PageHeader";
 import { hrmsGuides } from "../../../data/hrms/hrmsGuides";
 
 const MOCK_EMPLOYEES = [
@@ -186,33 +186,26 @@ export default function Employees() {
 
   return (
     <div className="emp-dir-page">
-      {/* Breadcrumb */}
-      <nav className="emp-crumb">
-        <span style={{ cursor: "pointer" }}>Home</span>
-        <ChevronRight size={13} style={{ color: "#9aa7bd" }} />
-        <span style={{ color: "#111f36", fontWeight: 600 }}>Employee Setup</span>
-      </nav>
-
-      {/* Header Row */}
-      <div className="emp-title-row">
-        <div>
-          <div className="flex items-center gap-2.5">
-            <h1 className="emp-title">Employee Directory</h1>
-            <PageInfoButton guide={hrmsGuides.employees} />
-          </div>
-          <p className="emp-sub">
-            {filtered.length} employees • 12 departments
-          </p>
-        </div>
-        <div className="flex-wrap lg:flex-nowrap" style={{ display: "flex", alignItems: "center", gap: 10 }}>
-          <button type="button" onClick={handleExport} className="emp-export-btn">
-            <Download size={15} /> Export
-          </button>
-          <button type="button" onClick={() => setShowForm(true)} className="emp-add-btn">
-            Add Employee
-          </button>
-        </div>
-      </div>
+      <PageHeader
+        title="Employee Directory"
+        subtitle={`${filtered.length} employees • 12 departments`}
+        guide={hrmsGuides.employees}
+        breadcrumb={[
+          { label: 'Dashboard', path: '/dashboard' },
+          { label: 'HRMS' },
+          { label: 'Employee Setup' },
+        ]}
+        actions={
+          <>
+            <button type="button" onClick={handleExport} className="emp-export-btn">
+              <Download size={15} /> Export
+            </button>
+            <button type="button" onClick={() => setShowForm(true)} className="emp-add-btn">
+              Add Employee
+            </button>
+          </>
+        }
+      />
 
       {/* Filter Card */}
       <div className="emp-card emp-filter-card">

@@ -9,7 +9,7 @@ import { useAppStore } from "../../../stores/appStore";
 import { useTrainingStore, TRAINING_FUNNEL_STAGES } from "../../../stores/trainingStore";
 import { useNavigate } from "react-router-dom";
 import { Eye, Pencil, Trash2, ArrowLeft } from "lucide-react";
-import PageInfoButton from "../../../components/common/PageInfoButton";
+import PageHeader from "../../../components/ui/PageHeader";
 import { hrmsGuides } from "../../../data/hrms/hrmsGuides";
 
 export default function TrainingList({ embedded = false, onBack }) {
@@ -161,15 +161,11 @@ export default function TrainingList({ embedded = false, onBack }) {
         </button>
       )}
 
-      <div className="flex flex-wrap justify-between items-center gap-3">
-        <div>
-          <div className="flex items-center gap-2.5">
-            <h1 className="text-[22px] font-bold text-slate-900">Training Programs</h1>
-            <PageInfoButton guide={hrmsGuides.trainingList} />
-          </div>
-          <p className="text-[13px] text-muted">{trainings.length} total programs linked to Funnel and Performance</p>
-        </div>
-        <div className="flex flex-wrap lg:flex-nowrap items-center gap-2">
+      <PageHeader
+        title="Training Programs"
+        subtitle={`${trainings.length} total programs linked to Funnel and Performance`}
+        guide={hrmsGuides.trainingList}
+        actions={<>
           <button
             type="button"
             onClick={() => navigate("/hrms/training/training-funnel")}
@@ -181,8 +177,8 @@ export default function TrainingList({ embedded = false, onBack }) {
             setForm({ name: "", trainer: "Unassigned", department: "Engineering", type: "Technical", participants: 10, cost: 25000, start: "18 Oct 2024", end: "19 Oct 2024", status: "Requested" });
             setAddOpen(true);
           }}>+ Add Training</Button>
-        </div>
-      </div>
+        </>}
+      />
 
       <FilterBar
         search={search}

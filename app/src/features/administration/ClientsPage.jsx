@@ -1,4 +1,5 @@
 import InfoBanner from '../../components/ui/InfoBanner';
+import PageHeader from '../../components/ui/PageHeader';
 import AdministrationGuideButton from './AdministrationGuideButton';
 import KpiCard from '../../components/ui/KpiCard';
 import React, { useState, useMemo, useEffect, useRef } from 'react';
@@ -373,65 +374,55 @@ export function ClientsPage() {
         </div>
       )}
 
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-        <div>
-          <div className="flex items-center gap-2 text-xs text-slate-500 mb-1">
-            <Link to="/dashboard" className="hover:text-blue-600 transition-colors">
-              Dashboard
-            </Link>
-            <span>&gt;</span>
-            <span className="text-slate-700 font-medium">Clients</span>
-          </div>
-          <h1 className="text-2xl font-bold text-[#0f172a] tracking-tight">Clients</h1>
-          <p className="text-xs md:text-sm text-slate-500 mt-0.5">
-            Manage your clients, view details, and track deals, projects, and communication.
-          </p>
-        </div>
+      <PageHeader
+        title="Clients"
+        subtitle="Manage your clients, view details, and track deals, projects, and communication."
+        actions={
+          <>
+            <AdministrationGuideButton entity="client" />
+            <div className="relative export-menu-container">
+              <button
+                onClick={() => setIsExportOpen(!isExportOpen)}
+                className="inline-flex items-center gap-2 bg-white hover:bg-slate-50 text-slate-700 border border-slate-200 font-semibold text-xs md:text-sm px-4 py-2.5 rounded-xl shadow-2xs transition-colors"
+              >
+                <Download size={16} />
+                <span>Export</span>
+                <ChevronDown size={14} className="text-slate-400" />
+              </button>
 
-        <div className="flex flex-wrap items-center gap-2.5">
-          <AdministrationGuideButton entity="client" />
-          <div className="relative export-menu-container">
+              {isExportOpen && (
+                <div className="absolute right-0 top-full mt-1.5 w-48 bg-white border border-slate-200 rounded-xl shadow-xl z-30 py-1.5 animate-in fade-in zoom-in-95 duration-150">
+                  <button
+                    onClick={() => handleExportData('csv')}
+                    className="w-full px-3.5 py-2 text-left text-xs font-semibold text-slate-700 hover:bg-slate-50 flex items-center gap-2.5"
+                  >
+                    <FileSpreadsheet size={15} className="text-emerald-600" />
+                    <span>Export as CSV</span>
+                  </button>
+                  <button
+                    onClick={() => handleExportData('json')}
+                    className="w-full px-3.5 py-2 text-left text-xs font-semibold text-slate-700 hover:bg-slate-50 flex items-center gap-2.5"
+                  >
+                    <FileText size={15} className="text-blue-600" />
+                    <span>Export as JSON</span>
+                  </button>
+                </div>
+              )}
+            </div>
+
             <button
-              onClick={() => setIsExportOpen(!isExportOpen)}
-              className="inline-flex items-center gap-2 bg-white hover:bg-slate-50 text-slate-700 border border-slate-200 font-semibold text-xs md:text-sm px-4 py-2.5 rounded-xl shadow-2xs transition-colors"
+              onClick={() => {
+                setEditingClient(null);
+                setIsCreateModalOpen(true);
+              }}
+              className="inline-flex items-center justify-center gap-2 bg-[#1f6bff] hover:bg-blue-700 text-white font-semibold text-xs md:text-sm px-4 md:px-5 py-2.5 rounded-xl shadow-sm hover:shadow transition-all duration-150 active:scale-95"
             >
-              <Download size={16} />
-              <span>Export</span>
-              <ChevronDown size={14} className="text-slate-400" />
+              <Plus size={18} strokeWidth={2.4} />
+              <span>Create New Client</span>
             </button>
-
-            {isExportOpen && (
-              <div className="absolute right-0 top-full mt-1.5 w-48 bg-white border border-slate-200 rounded-xl shadow-xl z-30 py-1.5 animate-in fade-in zoom-in-95 duration-150">
-                <button
-                  onClick={() => handleExportData('csv')}
-                  className="w-full px-3.5 py-2 text-left text-xs font-semibold text-slate-700 hover:bg-slate-50 flex items-center gap-2.5"
-                >
-                  <FileSpreadsheet size={15} className="text-emerald-600" />
-                  <span>Export as CSV</span>
-                </button>
-                <button
-                  onClick={() => handleExportData('json')}
-                  className="w-full px-3.5 py-2 text-left text-xs font-semibold text-slate-700 hover:bg-slate-50 flex items-center gap-2.5"
-                >
-                  <FileText size={15} className="text-blue-600" />
-                  <span>Export as JSON</span>
-                </button>
-              </div>
-            )}
-          </div>
-
-          <button
-            onClick={() => {
-              setEditingClient(null);
-              setIsCreateModalOpen(true);
-            }}
-            className="inline-flex items-center justify-center gap-2 bg-[#1f6bff] hover:bg-blue-700 text-white font-semibold text-xs md:text-sm px-4 md:px-5 py-2.5 rounded-xl shadow-sm hover:shadow transition-all duration-150 active:scale-95"
-          >
-            <Plus size={18} strokeWidth={2.4} />
-            <span>Create New Client</span>
-          </button>
-        </div>
-      </div>
+          </>
+        }
+      />
 
       <InfoBanner
         storageKey="adminClientsInfoBannerV1"

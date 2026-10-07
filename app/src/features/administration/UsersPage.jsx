@@ -1,4 +1,5 @@
 import InfoBanner from '../../components/ui/InfoBanner';
+import PageHeader from '../../components/ui/PageHeader';
 import AdministrationGuideButton from './AdministrationGuideButton';
 import KpiCard from '../../components/ui/KpiCard';
 import React, { useState, useMemo, useEffect, useRef } from 'react';
@@ -404,32 +405,22 @@ export function UsersPage() {
       )}
 
       {/* ── Breadcrumb & Page Header ───────────────────────────── */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-        <div>
-          <div className="flex items-center gap-2 text-xs text-slate-500 mb-1">
-            <Link to="/dashboard" className="hover:text-blue-600 transition-colors">
-              Dashboard
-            </Link>
-            <span>&gt;</span>
-            <span className="text-slate-700 font-medium">Users</span>
-          </div>
-          <h1 className="text-2xl font-bold text-[#0f172a] tracking-tight">Manage Users</h1>
-          <p className="text-xs md:text-sm text-slate-500 mt-0.5">
-            View, manage and assign roles to your team members.
-          </p>
-        </div>
-
-        <div className="flex flex-wrap items-center gap-2.5">
-          <AdministrationGuideButton entity="user" />
-        <button
-          onClick={openCreateModal}
-          className="inline-flex items-center justify-center gap-2 bg-[#1f6bff] hover:bg-blue-700 text-white font-semibold text-sm px-5 py-2.5 rounded-xl shadow-sm hover:shadow transition-all duration-150 active:scale-95"
-        >
-          <Plus size={18} strokeWidth={2.4} />
-          <span>Create User</span>
-        </button>
-        </div>
-      </div>
+      <PageHeader
+        title="Manage Users"
+        subtitle="View, manage and assign roles to your team members."
+        actions={
+          <>
+            <AdministrationGuideButton entity="user" />
+            <button
+              onClick={openCreateModal}
+              className="inline-flex items-center justify-center gap-2 bg-[#1f6bff] hover:bg-blue-700 text-white font-semibold text-sm px-5 py-2.5 rounded-xl shadow-sm hover:shadow transition-all duration-150 active:scale-95"
+            >
+              <Plus size={18} strokeWidth={2.4} />
+              <span>Create User</span>
+            </button>
+          </>
+        }
+      />
 
       {/* ── Top Metric / Stat Cards (4 Cards) ──────────────────── */}
       <InfoBanner

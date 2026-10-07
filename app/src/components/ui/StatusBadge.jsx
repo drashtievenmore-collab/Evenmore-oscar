@@ -21,9 +21,18 @@ const STATUS_MAP = {
   'Cancelled': 'badge-red',
   'Active': 'badge-green',
   'Inactive': 'badge-gray',
+  'Transporter': 'badge-cyan',
   'Received': 'badge-green',
   'Ordered': 'badge-blue',
   'Returned': 'badge-orange',
+
+  // ERP purchase (Oscar workflow)
+  'Billed': 'badge-purple',
+  'Partially Billed': 'badge-yellow',
+  'Issued': 'badge-blue',
+  'In Production': 'badge-blue',
+  'Partially Received': 'badge-orange',
+  'Fully Received': 'badge-green',
 
   // Stock / Inventory
   'Requested': 'badge-yellow',

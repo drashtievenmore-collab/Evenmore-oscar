@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { CompanyPolicyModule } from "../policy/CompanyPolicyModule";
-import PageInfoButton from "../../../components/common/PageInfoButton";
+import PageHeader from "../../../components/ui/PageHeader";
 import { hrmsGuides } from "../../../data/hrms/hrmsGuides";
 import { usePolicyStore } from "../../../stores/policyStore";
 import {
@@ -162,26 +162,21 @@ export function LegacyCompanyPolicyPage() {
 
   return (
     <div className="flex flex-col gap-6 w-full pb-12">
-      {/* Top Header */}
-      <div className="flex flex-wrap items-center justify-between gap-4">
-        <div>
-          <div className="flex items-center gap-2.5">
-            <h1 className="text-[24px] font-bold text-slate-900">Company Policy</h1>
-            <PageInfoButton guide={hrmsGuides.companyPolicy} />
-          </div>
-          <p className="text-[13px] text-muted">
-            Versioned enterprise policies, compliance terms, and employee acknowledgement tracking.
-          </p>
-        </div>
-        <button
-          type="button"
-          onClick={() => setIsModalOpen(true)}
-          className="inline-flex items-center gap-2 px-5 py-2.5 bg-navy text-white rounded-xl text-[13.5px] font-medium hover:bg-navy/90 transition shadow-xs"
-        >
-          <Upload size={16} />
-          Publish Policy
-        </button>
-      </div>
+      <PageHeader
+        title="Company Policy"
+        subtitle="Versioned enterprise policies, compliance terms, and employee acknowledgement tracking."
+        guide={hrmsGuides.companyPolicy}
+        actions={
+          <button
+            type="button"
+            onClick={() => setIsModalOpen(true)}
+            className="inline-flex items-center gap-2 px-5 py-2.5 bg-navy text-white rounded-xl text-[13.5px] font-medium hover:bg-navy/90 transition shadow-xs"
+          >
+            <Upload size={16} />
+            Publish Policy
+          </button>
+        }
+      />
 
       {/* Featured Policy Card */}
       <div className="bg-white border border-bdr rounded-2xl p-4 sm:p-6 shadow-xs">

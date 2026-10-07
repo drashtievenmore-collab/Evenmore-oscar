@@ -19,7 +19,8 @@ import {
     Mail,
     Check,
     Sparkles,
-    AlertCircle
+    AlertCircle,
+    Truck
 } from 'lucide-react';
 
 const STEPS = [
@@ -56,13 +57,45 @@ const PARTY_TYPES = [
         activeClass: 'bg-purple-500/10 border-purple-500 text-purple-600 dark:text-purple-400 ring-2 ring-purple-500/20',
         activeIconClass: 'bg-purple-600 text-white',
     },
+    {
+        id: 'Transporter',
+        label: 'Transporter',
+        subtext: 'Logistics / Transport Service Provider for Dispatches',
+        icon: Truck,
+        activeClass: 'bg-cyan-500/10 border-cyan-500 text-cyan-600 dark:text-cyan-400 ring-2 ring-cyan-500/20',
+        activeIconClass: 'bg-cyan-600 text-white',
+    },
 ];
+
+/** Supplier classification — shown only when the role is Vendor. */
+const VENDOR_TYPE_OPTIONS = [
+    'Manufacturing',
+    'Dyeing - Other Process',
+];
+
+/** Fleet classification — shown only when the role is Transporter. */
+const VEHICLE_TYPE_OPTIONS = [
+    'Truck',
+    'Mini Truck / LCV',
+    'Trailer',
+    'Container',
+    'Tanker',
+    'Tempo',
+    'Other',
+];
+
+const CAPACITY_UNIT_OPTIONS = ['Tons', 'Kg', 'Litres', 'Taka'];
 
 const getInitialFormData = (party) => {
     if (!party) {
         return {
             code: `PARTY-${Math.floor(100 + Math.random() * 900)}`,
             type: 'Customer',
+            vendorType: '',
+            vehicleNumber: '',
+            vehicleType: '',
+            vehicleCapacity: '',
+            vehicleCapacityUnit: 'Tons',
             name: '',
             phone: '',
             email: '',
@@ -114,6 +147,11 @@ const getInitialFormData = (party) => {
         id: party.id,
         code: party.code || `PARTY-${Math.floor(100 + Math.random() * 900)}`,
         type: party.type || 'Customer',
+        vendorType: party.vendorType || party.vendor_type || '',
+        vehicleNumber: party.vehicleNumber || party.vehicle_number || '',
+        vehicleType: party.vehicleType || party.vehicle_type || '',
+        vehicleCapacity: party.vehicleCapacity ?? party.vehicle_capacity ?? '',
+        vehicleCapacityUnit: party.vehicleCapacityUnit || party.vehicle_capacity_unit || 'Tons',
         name: partyName,
         phone: party.phone || '',
         email: party.email || '',
@@ -200,6 +238,29 @@ export const PartyWizardModal = ({ isOpen, onClose, onSave, existingParty = null
         setErrorMsg('');
     };
 
+    const handleTypeChange = (newType) => {
+        setFormData((prev) => ({
+            ...prev,
+            type: newType,
+            // Vendor Type classifies pure suppliers only — it has no meaning
+            // on a Customer, Dual Partner or Transporter.
+            vendorType: newType === 'Vendor' ? prev.vendorType : '',
+            // Fleet details belong to transporters alone.
+            vehicleNumber: newType === 'Transporter' ? prev.vehicleNumber : '',
+            vehicleType: newType === 'Transporter' ? prev.vehicleType : '',
+            vehicleCapacity: newType === 'Transporter' ? prev.vehicleCapacity : '',
+            vehicleCapacityUnit: newType === 'Transporter' ? prev.vehicleCapacityUnit : 'Tons',
+            // Suppliers and transporters are paid by us; customers pay us.
+            ledgerAccount:
+                (newType === 'Vendor' || newType === 'Transporter') && prev.ledgerAccount === '1210 - Accounts Receivable'
+                    ? '2010 - Accounts Payable'
+                    : (newType === 'Customer' || newType === 'Both') && prev.ledgerAccount === '2010 - Accounts Payable'
+                        ? '1210 - Accounts Receivable'
+                        : prev.ledgerAccount,
+        }));
+        setErrorMsg('');
+    };
+
     const handleGstinChange = (val) => {
         const uppercaseVal = val.toUpperCase();
         const updates = { gstin: uppercaseVal };
@@ -257,8 +318,28 @@ export const PartyWizardModal = ({ isOpen, onClose, onSave, existingParty = null
     const validateStep = (currentStep) => {
         if (currentStep === 1) {
             if (!formData.name.trim()) {
-                setErrorMsg('Legal Company / Entity Name is required to proceed.');
+                setErrorMsg(formData.type === 'Transporter'
+                    ? 'Transporter Name is required to proceed.'
+                    : 'Legal Company / Entity Name is required to proceed.');
                 return false;
+            }
+            if (formData.type === 'Transporter') {
+                if (!String(formData.phone || '').trim()) {
+                    setErrorMsg('Mobile Number is required for a Transporter.');
+                    return false;
+                }
+                if (!String(formData.vehicleNumber || '').trim()) {
+                    setErrorMsg('Vehicle No is required for a Transporter.');
+                    return false;
+                }
+                if (!formData.vehicleType) {
+                    setErrorMsg('Please select the Vehicle Type for a Transporter.');
+                    return false;
+                }
+                if (formData.vehicleCapacity === '' || Number(formData.vehicleCapacity) <= 0) {
+                    setErrorMsg('Vehicle Capacity is required for a Transporter (greater than zero).');
+                    return false;
+                }
             }
         }
         if (currentStep === 2) {
@@ -289,6 +370,13 @@ export const PartyWizardModal = ({ isOpen, onClose, onSave, existingParty = null
 
         const payload = {
             ...formData,
+            // The columns are nullable; a stale classification on the wrong
+            // role is worse than none at all.
+            vendorType: formData.type === 'Vendor' ? formData.vendorType : '',
+            vehicleNumber: formData.type === 'Transporter' ? formData.vehicleNumber : '',
+            vehicleType: formData.type === 'Transporter' ? formData.vehicleType : '',
+            vehicleCapacity: formData.type === 'Transporter' ? formData.vehicleCapacity : '',
+            vehicleCapacityUnit: formData.type === 'Transporter' ? formData.vehicleCapacityUnit : '',
             shippingAddress: sameAsBilling ? { ...formData.billingAddress } : formData.shippingAddress,
         };
         onSave(payload);
@@ -407,14 +495,14 @@ export const PartyWizardModal = ({ isOpen, onClose, onSave, existingParty = null
                                 <label className="block font-bold text-text text-xs mb-2">
                                     Entity Role & Classification <span className="text-rose-500">*</span>
                                 </label>
-                                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
                                     {PARTY_TYPES.map((pt) => {
                                         const Icon = pt.icon;
                                         const isSelected = formData.type === pt.id;
                                         return (
                                             <div
                                                 key={pt.id}
-                                                onClick={() => updateField('type', pt.id)}
+                                                onClick={() => handleTypeChange(pt.id)}
                                                 className={`p-3.5 rounded-xl border transition-all cursor-pointer flex flex-col justify-between ${
                                                     isSelected
                                                         ? pt.activeClass
@@ -440,6 +528,33 @@ export const PartyWizardModal = ({ isOpen, onClose, onSave, existingParty = null
                                     })}
                                 </div>
                             </div>
+
+                            {/* Vendor Type — only meaningful for pure suppliers */}
+                            {formData.type === 'Vendor' && (
+                                <div className="animate-in fade-in duration-150">
+                                    <label className="block font-bold text-text mb-1.5">
+                                        Vendor Type
+                                    </label>
+                                    <div className="relative">
+                                        <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-muted">
+                                            <Building2 size={14} />
+                                        </div>
+                                        <select
+                                            value={formData.vendorType}
+                                            onChange={(e) => updateField('vendorType', e.target.value)}
+                                            className="w-full pl-9 pr-3 py-2.5 bg-soft border border-border rounded-xl text-xs font-semibold text-text focus:bg-card focus:border-primary focus:ring-2 focus:ring-primary/20 transition outline-none"
+                                        >
+                                            <option value="">Select vendor type…</option>
+                                            {VENDOR_TYPE_OPTIONS.map((vt) => (
+                                                <option key={vt} value={vt}>{vt}</option>
+                                            ))}
+                                        </select>
+                                    </div>
+                                    <p className="text-[10px] text-muted mt-1.5">
+                                        Classifies the supplier for purchase &amp; job-work reports.
+                                    </p>
+                                </div>
+                            )}
 
                             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                                 <div>
@@ -478,7 +593,7 @@ export const PartyWizardModal = ({ isOpen, onClose, onSave, existingParty = null
 
                             <div>
                                 <label className="block font-bold text-text mb-1.5">
-                                    Legal Company / Trade Entity Name <span className="text-rose-500">*</span>
+                                    {formData.type === 'Transporter' ? 'Transporter Name' : 'Legal Company / Trade Entity Name'} <span className="text-rose-500">*</span>
                                 </label>
                                 <div className="relative">
                                     <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-muted">
@@ -490,7 +605,7 @@ export const PartyWizardModal = ({ isOpen, onClose, onSave, existingParty = null
                                         value={formData.name}
                                         onChange={(e) => updateField('name', e.target.value)}
                                         className="w-full pl-10 pr-3 py-2.5 bg-soft border border-border rounded-xl text-xs font-medium text-text focus:bg-card focus:border-primary focus:ring-2 focus:ring-primary/20 transition outline-none"
-                                        placeholder="e.g. Acme Corporation Pvt Ltd / Reliance Heavy Engineering"
+                                        placeholder={formData.type === 'Transporter' ? 'e.g. Sharma Roadlines / Ramesh Transport Co.' : 'e.g. Acme Corporation Pvt Ltd / Reliance Heavy Engineering'}
                                     />
                                 </div>
                             </div>
@@ -498,7 +613,8 @@ export const PartyWizardModal = ({ isOpen, onClose, onSave, existingParty = null
                             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                                 <div>
                                     <label className="block font-bold text-text mb-1.5">
-                                        Corporate Phone
+                                        {formData.type === 'Transporter' ? 'Mobile Number' : 'Corporate Phone'}
+                                        {formData.type === 'Transporter' && <span className="text-rose-500"> *</span>}
                                     </label>
                                     <div className="relative">
                                         <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-muted">
@@ -509,7 +625,7 @@ export const PartyWizardModal = ({ isOpen, onClose, onSave, existingParty = null
                                             value={formData.phone}
                                             onChange={(e) => updateField('phone', e.target.value)}
                                             className="w-full pl-9 pr-3 py-2.5 bg-soft border border-border rounded-xl text-xs font-medium text-text focus:bg-card focus:border-primary focus:ring-2 focus:ring-primary/20 transition outline-none"
-                                            placeholder="+1 (555) 000-0000"
+                                            placeholder={formData.type === 'Transporter' ? '+91 98765 43210' : '+1 (555) 000-0000'}
                                         />
                                     </div>
                                 </div>
@@ -532,6 +648,73 @@ export const PartyWizardModal = ({ isOpen, onClose, onSave, existingParty = null
                                     </div>
                                 </div>
                             </div>
+
+                            {/* Transport Details — required for Transporters */}
+                            {formData.type === 'Transporter' && (
+                                <div className="p-4 rounded-xl border border-cyan-200/70 dark:border-cyan-500/20 bg-cyan-50/40 dark:bg-cyan-500/5 space-y-4 animate-in fade-in duration-150">
+                                    <div className="flex items-center gap-2 text-cyan-700 dark:text-cyan-400">
+                                        <Truck size={15} />
+                                        <span className="font-bold text-xs uppercase tracking-wide">Transport Details</span>
+                                    </div>
+                                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                                        <div>
+                                            <label className="block font-bold text-text mb-1.5">
+                                                Vehicle No <span className="text-rose-500">*</span>
+                                            </label>
+                                            <input
+                                                type="text"
+                                                value={formData.vehicleNumber}
+                                                onChange={(e) => updateField('vehicleNumber', e.target.value.toUpperCase())}
+                                                className="w-full px-3 py-2.5 bg-card border border-border rounded-xl font-mono text-xs uppercase font-bold text-text focus:border-primary focus:ring-2 focus:ring-primary/20 transition outline-none"
+                                                placeholder="MH-12-AB-1234"
+                                            />
+                                        </div>
+                                        <div>
+                                            <label className="block font-bold text-text mb-1.5">
+                                                Vehicle Type <span className="text-rose-500">*</span>
+                                            </label>
+                                            <select
+                                                value={formData.vehicleType}
+                                                onChange={(e) => updateField('vehicleType', e.target.value)}
+                                                className="w-full p-2.5 bg-card border border-border rounded-xl text-xs font-semibold text-text focus:border-primary focus:ring-2 focus:ring-primary/20 transition outline-none"
+                                            >
+                                                <option value="">Select vehicle type…</option>
+                                                {VEHICLE_TYPE_OPTIONS.map((vt) => (
+                                                    <option key={vt} value={vt}>{vt}</option>
+                                                ))}
+                                            </select>
+                                        </div>
+                                    </div>
+                                    <div>
+                                        <label className="block font-bold text-text mb-1.5">
+                                            Capacity <span className="text-rose-500">*</span>
+                                        </label>
+                                        <div className="flex gap-2">
+                                            <input
+                                                type="number"
+                                                min="0"
+                                                step="any"
+                                                value={formData.vehicleCapacity}
+                                                onChange={(e) => updateField('vehicleCapacity', e.target.value)}
+                                                className="flex-1 px-3 py-2.5 bg-card border border-border rounded-xl text-xs font-semibold text-text focus:border-primary focus:ring-2 focus:ring-primary/20 transition outline-none"
+                                                placeholder="e.g. 10"
+                                            />
+                                            <select
+                                                value={formData.vehicleCapacityUnit}
+                                                onChange={(e) => updateField('vehicleCapacityUnit', e.target.value)}
+                                                className="w-28 p-2.5 bg-card border border-border rounded-xl text-xs font-semibold text-text focus:border-primary focus:ring-2 focus:ring-primary/20 transition outline-none"
+                                            >
+                                                {CAPACITY_UNIT_OPTIONS.map((unit) => (
+                                                    <option key={unit} value={unit}>{unit}</option>
+                                                ))}
+                                            </select>
+                                        </div>
+                                        <p className="text-[10px] text-muted mt-1.5">
+                                            Maximum load the vehicle can carry — used on dispatch documents.
+                                        </p>
+                                    </div>
+                                </div>
+                            )}
                         </div>
                     )}
 

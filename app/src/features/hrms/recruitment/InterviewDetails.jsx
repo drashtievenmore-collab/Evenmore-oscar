@@ -93,7 +93,7 @@ export default function InterviewDetails() {
             />
             <div>
               <div className="flex flex-wrap items-center gap-2 mb-1">
-                <h1 className="text-xl font-bold text-slate-900 dark:text-white">
+                <h1 className="text-[20px] font-extrabold tracking-tight text-slate-900 dark:text-white">
                   {it.candidateName}
                 </h1>
                 <PageInfoButton guide={hrmsGuides.interviewDetails} />

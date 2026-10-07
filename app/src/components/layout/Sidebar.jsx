@@ -32,15 +32,18 @@ import {
   CalendarCheck,
   ListChecks,
   ClipboardList,
+  Factory,
   UserPlus,
   GraduationCap,
   TrendingUp,
+  Hourglass,
   Shield,
   MessagesSquare,
   Send,
   User,
   ShieldCheck,
   PackageCheck, // [PHASE-2B] Goods Receipt (GRN) nav icon
+  GitCompare, // Bill Matching nav icon
   Calendar,
   Sliders,
   Search,
@@ -52,6 +55,7 @@ import {
   Waves,
   BookOpen,
   Check,
+  CheckCircle2,
   LogOut,
   Lock,
 } from 'lucide-react';
@@ -120,11 +124,35 @@ const NAV = [
       { label: 'All Projects', icon: Layers, to: '/pms/projects' },
       { label: 'My Projects', icon: UserCheck, to: '/pms/my-projects' },
       { label: 'My Tasks', icon: ListChecks, to: '/pms/my-tasks', badgeKey: 'pmsMyTasksPending' },
+      {
+        label: 'Production',
+        icon: Factory,
+        defaultOpen: true,
+        children: [
+          { label: 'Production Instructions', icon: ClipboardList, to: '/pms/production-instructions' },
+          { label: 'Daily Production', icon: CalendarCheck, to: '/pms/daily-production' },
+          { label: 'Production Completion & Verification', icon: CheckCircle2, to: '/pms/production-completion' },
+        ],
+      },
       { label: 'Dynamic Stages', icon: Sliders, to: '/pms/stages' },
       { label: 'Timeline & Gantt', icon: Calendar, to: '/pms/timeline' },
       { label: 'Delay Center', icon: AlertTriangle, to: '/pms/delays', badgeKey: 'pmsDelayedCount', badgeColor: '#ef4444' },
       { label: 'PMS Reports', icon: PieChart, to: '/pms/reports' },
       { label: 'PMS Settings', icon: Settings, to: '/pms/settings' },
+    ],
+  },
+
+  {
+    label: 'Job Work / Processing',
+    icon: Wrench,
+    children: [
+      { label: 'Process Plan', icon: ClipboardList, to: '/job-work/process-plan' },
+      { label: 'Job Work Orders (JWO)', icon: FileText, to: '/job-work/orders' },
+      { label: 'Job Work Outward', icon: Send, to: '/job-work/outward' },
+      { label: 'Job Work Inward', icon: ArrowDownLeft, to: '/job-work/inward' },
+      { label: 'Pending Register', icon: Hourglass, to: '/job-work/pending-register' },
+      { label: 'Vendor Reconciliation', icon: GitCompare, to: '/job-work/vendor-reconciliation' },
+      { label: 'Reprocess', icon: RotateCcw, to: '/job-work/reprocess' },
     ],
   },
 
@@ -146,11 +174,13 @@ const NAV = [
 
   {
     label: 'Purchase',
-    icon: Truck,
+    icon: ShoppingCart,
     children: [
       { label: 'Purchase Orders', icon: ClipboardList, to: '/purchase/orders' },
       // ── [PHASE-2B] New standalone Goods Receipt (GRN) nav entry ──
       { label: 'Goods Receipt', icon: PackageCheck, to: '/purchase/receipts' },
+      { label: 'Vendor Bills', icon: Receipt, to: '/purchase/vendor-bills' },
+      { label: 'Bill Matching', icon: GitCompare, to: '/purchase/bill-matching' },
       { label: 'Purchase Bills', icon: Receipt, to: '/purchase/bills' },
       { label: 'Purchase Returns', icon: RotateCcw, to: '/purchase/returns' },
       { label: 'Payment Out', icon: ArrowDownLeft, to: '/purchase/payments' },
@@ -174,6 +204,7 @@ const NAV = [
         defaultOpen: false,
         children: [
           { label: 'All Items', to: '/inventory/items', dot: true },
+          { label: 'Fabric Items', to: '/inventory/items/fabric' },
           { label: 'Machine Master', to: '/inventory/items/machines' },
           { label: 'Stock Inventory', to: '/inventory/items/stock' },
         ],
@@ -190,8 +221,16 @@ const NAV = [
       },
       { label: 'Stock Position', icon: BarChart3, to: '/inventory/stock-position' },
       { label: 'Transfers', icon: ArrowLeftRight, to: '/inventory/transfers' },
+      {
+        label: 'Logistics',
+        icon: Truck,
+        defaultOpen: true,
+        children: [
+          { label: 'Transport / Material Movement', to: '/inventory/transport' },
+        ],
+      },
       { label: 'Locations', icon: MapPin, to: '/inventory/locations' },
-      { label: 'Faulty Parts', icon: AlertTriangle, to: '/inventory/faulty-parts', badgeKey: 'faulty' },
+      // { label: 'Faulty Parts', icon: AlertTriangle, to: '/inventory/faulty-parts', badgeKey: 'faulty' },
       { label: 'Service Usage', icon: Wrench, to: '/inventory/service-usage' },
       { label: 'Zone Requests', icon: Send, to: '/inventory/zone-requests', badgeKey: 'zone' },
       { label: 'Valuation & Ageing', icon: TrendingUp, to: '/inventory/valuation' },
@@ -391,6 +430,15 @@ function NavBadge({ count, color }) {
   );
 }
 
+function NavPill({ pill }) {
+  if (!pill) return null;
+  return (
+    <span className="ml-1.5 px-1 py-px text-[9px] font-bold rounded bg-rose-500/20 text-rose-300 border border-rose-400/40 leading-none">
+      {pill}
+    </span>
+  );
+}
+
 function SubItem({ item, depth = 1, badges = {} }) {
   const location = useLocation();
   const currentPath = location.pathname;
@@ -423,29 +471,29 @@ function SubItem({ item, depth = 1, badges = {} }) {
   const leafEnabled = isTrainingRow ? trainingEnabled : recruitmentEnabled;
   const setLeafEnabled = isTrainingRow ? setTrainingEnabled : setRecruitmentEnabled;
 
-  // Training (and any module leaf) gets an inline toggle where the chevron sits.
-  if ((isTrainingRow || isRecruitmentLeaf) && Icon && item.to) {
-    return (
-      <div
-        className={`sub-group-row${isActive ? ' active section-active' : ''}${leafEnabled ? '' : ' opacity-60'}`}
-        title={item.label}
-      >
-        <NavLink
-          to={leafEnabled ? item.to : '#'}
-          end
-          onClick={(e) => {
-            if (!leafEnabled) e.preventDefault();
-          }}
-          className={`flex items-center gap-2 flex-1 min-w-0${leafEnabled ? '' : ' pointer-events-none'}`}
-        >
-          <Icon size={16} strokeWidth={2} className="nav-ico" />
-          <span className="nav-txt">{item.label}</span>
-          <NavBadge count={count} color={item.badgeColor} />
-        </NavLink>
-        <ModuleToggle enabled={leafEnabled} onToggle={setLeafEnabled} label={item.label} />
-      </div>
-    );
-  }
+  // Training (and any module leaf) — toggle removed, render as normal link.
+  // if ((isTrainingRow || isRecruitmentLeaf) && Icon && item.to) {
+  //   return (
+  //     <div
+  //       className={`sub-group-row${isActive ? ' active section-active' : ''}${leafEnabled ? '' : ' opacity-60'}`}
+  //       title={item.label}
+  //     >
+  //       <NavLink
+  //         to={leafEnabled ? item.to : '#'}
+  //         end
+  //         onClick={(e) => {
+  //           if (!leafEnabled) e.preventDefault();
+  //         }}
+  //         className={`flex items-center gap-2 flex-1 min-w-0${leafEnabled ? '' : ' pointer-events-none'}`}
+  //       >
+  //         <Icon size={16} strokeWidth={2} className="nav-ico" />
+  //         <span className="nav-txt">{item.label}</span>
+  //         <NavBadge count={count} color={item.badgeColor} />
+  //       </NavLink>
+  //       <ModuleToggle enabled={leafEnabled} onToggle={setLeafEnabled} label={item.label} />
+  //     </div>
+  //   );
+  // }
 
   // Icon leaves (e.g. CRM > Dashboard, Sales > Proforma Invoices, etc.) render like nav row with icon
   if (Icon && item.to) {
@@ -460,6 +508,7 @@ function SubItem({ item, depth = 1, badges = {} }) {
       >
         <Icon size={16} strokeWidth={2} className="nav-ico" />
         <span className="nav-txt">{item.label}</span>
+        <NavPill pill={item.pill} />
         <NavBadge count={count} color={item.badgeColor} />
       </NavLink>
     );
@@ -476,6 +525,7 @@ function SubItem({ item, depth = 1, badges = {} }) {
     >
       <span className="sub-dot" />
       <span className="sub-label">{item.label}</span>
+      <NavPill pill={item.pill} />
       <NavBadge count={count} color={item.badgeColor} />
     </NavLink>
   );
@@ -603,25 +653,25 @@ function ExpandableRow({ item, depth = 0, badges = {} }) {
   const isActive = item.to && (location.pathname === item.to || location.pathname.startsWith(item.to + '/'));
 
   if (item.to && !item.children) {
-    // Training is a direct link — render link + inline toggle in chevron spot.
-    if (item.label === 'Training') {
-      return (
-        <div className={`nav-row group ${moduleEnabled ? '' : 'opacity-60'}`} title={item.label}>
-          <NavLink
-            to={moduleEnabled ? item.to : '#'}
-            end
-            onClick={(e) => {
-              if (!moduleEnabled) e.preventDefault();
-            }}
-            className={`flex items-center gap-2 flex-1 min-w-0 ${moduleEnabled ? '' : 'pointer-events-none'}`}
-          >
-            {Icon && <Icon size={18} strokeWidth={1.9} className="nav-ico" />}
-            <span className="nav-txt">{item.label}</span>
-          </NavLink>
-          <ModuleToggle enabled={moduleEnabled} onToggle={setModuleEnabled} label={item.label} />
-        </div>
-      );
-    }
+    // Training is a direct link — toggle removed, render as normal link.
+    // if (item.label === 'Training') {
+    //   return (
+    //     <div className={`nav-row group ${moduleEnabled ? '' : 'opacity-60'}`} title={item.label}>
+    //       <NavLink
+    //         to={moduleEnabled ? item.to : '#'}
+    //         end
+    //         onClick={(e) => {
+    //           if (!moduleEnabled) e.preventDefault();
+    //         }}
+    //         className={`flex items-center gap-2 flex-1 min-w-0 ${moduleEnabled ? '' : 'pointer-events-none'}`}
+    //       >
+    //         {Icon && <Icon size={18} strokeWidth={1.9} className="nav-ico" />}
+    //         <span className="nav-txt">{item.label}</span>
+    //       </NavLink>
+    //       <ModuleToggle enabled={moduleEnabled} onToggle={setModuleEnabled} label={item.label} />
+    //     </div>
+    //   );
+    // }
     // Simple root nav row (direct link like Parties, Reports)
     return (
       <NavLink
@@ -640,8 +690,8 @@ function ExpandableRow({ item, depth = 0, badges = {} }) {
 
   const isRoot = depth === 0;
   const groupCount = item.badgeKey ? (badges?.[item.badgeKey] ?? 0) : 0;
-  // Recruitment OFF → keep the row (so the toggle stays reachable) but hide children.
-  const showChildren = isModuleRow ? (moduleEnabled && open) : open;
+  // Recruitment / Training — toggle removed, always show as normal expandable group.
+  const showChildren = open;
 
   if (isModuleRow) {
     return (
@@ -650,14 +700,13 @@ function ExpandableRow({ item, depth = 0, badges = {} }) {
           title={item.label}
           className={
             isRoot
-              ? `nav-row${isChildActive ? ' parent-active' : isActive ? ' section-active' : ''}${!moduleEnabled ? ' opacity-60' : ''}`
+              ? `nav-row${isChildActive ? ' parent-active' : isActive ? ' section-active' : ''}`
               : `sub-group-row${isChildActive ? ' parent-active' : ''}`
           }
         >
           <button
             type="button"
             onClick={() => {
-              if (!moduleEnabled) return;
               setOpen((v) => !v);
             }}
             className="flex items-center gap-2 flex-1 min-w-0 bg-transparent border-0 p-0 text-left cursor-pointer"
@@ -666,7 +715,10 @@ function ExpandableRow({ item, depth = 0, badges = {} }) {
             <span className="nav-txt">{item.label}</span>
             <NavBadge count={groupCount} color={item.badgeColor} />
           </button>
-          <ModuleToggle enabled={moduleEnabled} onToggle={setModuleEnabled} label={item.label} />
+          {/* <ModuleToggle enabled={moduleEnabled} onToggle={setModuleEnabled} label={item.label} /> */}
+          <span className="nav-chev">
+            {open ? <ChevronDown size={isRoot ? 14 : 12} /> : <ChevronRight size={isRoot ? 14 : 12} />}
+          </span>
         </div>
         {showChildren && item.children && (
           <SubList items={item.children} depth={depth + 1} badges={badges} />

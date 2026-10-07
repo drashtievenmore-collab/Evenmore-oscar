@@ -1,6 +1,6 @@
 import { findDealForLead } from '../../../services/dealService';
 import CrmKpiCard from '../common/CrmKpiCard';
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { useERP } from '../../../context/ERPContext';
 import { formatCurrency } from '../../../utils/currencyUtils';
@@ -66,7 +66,8 @@ import { useEstimates, estimateMatchesLead, addEstimate } from '../../../service
 import { useCrmStore } from '../../../stores/crmStore';
 import { withSampleTeam } from '../common/sampleTeam';
 import { useLeadDetailStore, EMPTY_DETAIL } from '../../../stores/leadDetailStore';
-import { isServerId } from '../../../services/resourceSync';
+import { isServerId, isBackendEnabled } from '../../../services/resourceSync';
+import { WRITABLE_LEAD_SECTIONS } from '../../../services/leadDetailMap';
 import { loadForms, saveForms, TASK_FORM } from '../../../services/crmForms';
 import { LineItemEditor } from '../../../components/common/LineItemEditor';
 import { loadCrmTasks, saveCrmTasks, runLeadStageAutomation, TASK_SOURCE_AUTOMATION } from '../../../services/leadStageAutomation';
@@ -120,6 +121,11 @@ function updateStoredLead(leadId, updates) {
  * Persist rows a tab just produced. Each key is a sub-collection, and only the
  * rows the server has not seen are posted — the rest are already its own.
  *
+ * Sections without a write endpoint (`timeline`, `tasks`, `activities`) are
+ * skipped: there is no `POST /crm/leads/{id}/timeline/` to receive them.
+ * Rows with no server representation (file previews without a file record)
+ * are left local by the mapping layer instead of 400ing.
+ *
  * Each local row is posted at most once per page lifetime. Without this, every
  * re-run of a tab's persist effect (StrictMode double-effect, parent
  * re-render, tab remount) re-posts all unsynced rows, so one click becomes
@@ -131,6 +137,7 @@ function updateStoredLeadDetail(leadId, updates) {
   const { add } = useLeadDetailStore.getState();
   Object.entries(updates).forEach(([section, rows]) => {
     if (!Array.isArray(rows)) return;
+    if (!WRITABLE_LEAD_SECTIONS.has(section)) return;
     rows
       .filter((row) => row && !row._synced && !isServerId(row.id) && row.id && !sentDetailRowIds.has(row.id))
       .forEach((row) => {
@@ -2815,8 +2822,8 @@ function GeneralTab({ lead }) {
 // ── 3. Users | Products Tab ──────────────────────────────────
 function UsersProductsTab({ lead, onCountsChange, onActivity }) {
   const initialState = useLeadDetailState(lead);
-  const [users, setUsers] = useState(() => initialState.users);
-  const [products, setProducts] = useState(() => initialState.products);
+  const [users, setUsers] = useState(() => (Array.isArray(initialState.users) ? initialState.users : []));
+  const [products, setProducts] = useState(() => (Array.isArray(initialState.products) ? initialState.products : []));
   const [isAddUserOpen, setIsAddUserOpen] = useState(false);
   const [selectedEmployeeId, setSelectedEmployeeId] = useState('');
   const [isAddProductOpen, setIsAddProductOpen] = useState(false);
@@ -2827,20 +2834,22 @@ function UsersProductsTab({ lead, onCountsChange, onActivity }) {
   const [productSearch, setProductSearch] = useState('');
   const [productFilter, setProductFilter] = useState('All Products');
 
-  const filteredUsers = useMemo(() => users.filter((u) => {
+  const filteredUsers = useMemo(() => (Array.isArray(users) ? users : []).filter((u) => {
+    if (!u) return false;
     if (userFilter !== 'All Users' && u.status !== userFilter) return false;
-    if (userSearch && !`${u.name} ${u.email} ${u.role}`.toLowerCase().includes(userSearch.toLowerCase())) return false;
+    if (userSearch && !`${u.name || ''} ${u.email || ''} ${u.role || ''}`.toLowerCase().includes(userSearch.toLowerCase())) return false;
     return true;
   }), [users, userSearch, userFilter]);
 
-  const filteredProducts = useMemo(() => products.filter((p) => {
+  const filteredProducts = useMemo(() => (Array.isArray(products) ? products : []).filter((p) => {
+    if (!p) return false;
     if (productFilter !== 'All Products' && p.status !== productFilter) return false;
-    if (productSearch && !`${p.name} ${p.sku}`.toLowerCase().includes(productSearch.toLowerCase())) return false;
+    if (productSearch && !`${p.name || ''} ${p.sku || ''}`.toLowerCase().includes(productSearch.toLowerCase())) return false;
     return true;
   }), [products, productSearch, productFilter]);
 
   const availableEmployees = useMemo(
-    () => withSampleTeam(useCrmStore.getState().teamMembers).filter((member) => !users.some((user) => user.name === member.name)),
+    () => withSampleTeam(useCrmStore.getState().teamMembers).filter((member) => !(Array.isArray(users) ? users : []).some((user) => user && user.name === member.name)),
     [users],
   );
 
@@ -3394,7 +3403,7 @@ export default function LeadDetailView({ lead, onBackToLeads }) {
   const [editForm, setEditForm] = useState(null);
   const storedDetailState = useLeadDetailState(lead);
   const [activeTab, setActiveTab] = useState('Users & Products');
-  const { addCustomer, showToast, customers } = useERP() || {};
+  const { addCustomer, showToast, customers, refreshFromBackend } = useERP() || {};
   const isLeadConverted = Boolean(
     lead?.isConverted ||
     lead?.customValues?.isConverted ||
@@ -3413,6 +3422,8 @@ export default function LeadDetailView({ lead, onBackToLeads }) {
     ))
   );
   const [isConverted, setIsConverted] = useState(() => isLeadConverted);
+  const [isConverting, setIsConverting] = useState(false);
+  const convertLockRef = useRef(false);
   const [isLost, setIsLost] = useState(/lost|closed/i.test(String(lead?.status || '')));
   const [isExportOpen, setIsExportOpen] = useState(false);
 
@@ -3578,7 +3589,12 @@ export default function LeadDetailView({ lead, onBackToLeads }) {
     { label: 'Delivery Challans', value: detailCounts.challans, icon: Truck, color: '#f97316', bg: '#fff7ed' },
   ];
 
-  const handleConvert = () => {
+  const handleConvert = async () => {
+    // The ref is the real re-entrancy guard: two clicks inside one render
+    // pass both read `isConverted`/`isConverting` as false, but the second
+    // finds the ref taken. This is what stopped one click becoming many
+    // CUST- rows.
+    if (convertLockRef.current) return;
     if (isConverted || isLeadConverted) {
       showToast?.('Lead is already converted to an active Customer.');
       return;
@@ -3587,23 +3603,53 @@ export default function LeadDetailView({ lead, onBackToLeads }) {
       showToast?.('Lead is marked as Lost — reopen it before converting.');
       return;
     }
-    const customerName = activeLeadData.company || activeLeadData.name;
-    const customerEmail = activeLeadData.email;
-    const alreadyExists = customers?.some((c) => (
-      (customerName && c.name?.toLowerCase() === customerName.toLowerCase()) ||
-      (customerEmail && c.email && c.email.toLowerCase() === customerEmail.toLowerCase())
-    ));
-    if (!alreadyExists) {
-      addCustomer?.({
-        name: customerName,
-        contactPerson: activeLeadData.name,
-        email: customerEmail,
-        phone: `+91 ${activeLeadData.phone}`,
-        balance: 0,
-        status: 'Active',
-      });
-    }
     const targetId = viewLead?.id ?? lead?.id;
+    if (!targetId) return;
+
+    convertLockRef.current = true;
+    setIsConverting(true);
+    try {
+      if (isServerId(targetId) && isBackendEnabled()) {
+        // The server owns conversion (api.md §9.1): it links or creates the
+        // party and opens the deal in one transaction, and a replayed click
+        // gets a 409 — never a duplicate customer.
+        await useCrmStore.getState().convertLead(targetId, { createCustomer: true });
+      } else {
+        // Frontend-design mode (no server session): convert locally, deduped
+        // by name/email so a re-click cannot pile up customer rows either.
+        const customerName = activeLeadData.company || activeLeadData.name;
+        const customerEmail = activeLeadData.email;
+        const alreadyExists = customers?.some((c) => (
+          (customerName && c.name?.toLowerCase() === customerName.toLowerCase()) ||
+          (customerEmail && c.email && c.email.toLowerCase() === customerEmail.toLowerCase())
+        ));
+        if (!alreadyExists) {
+          addCustomer?.({
+            name: customerName,
+            contactPerson: activeLeadData.name,
+            email: customerEmail,
+            phone: `+91 ${activeLeadData.phone}`,
+            balance: 0,
+            status: 'Active',
+          });
+        }
+      }
+    } catch (err) {
+      if (err?.status === 409) {
+        // Already converted on the server — adopt that state, create nothing.
+        setIsConverted(true);
+        useCrmStore.getState().refresh('leads').catch(() => {});
+        showToast?.('This lead was already converted — no duplicate customer was created.');
+      } else {
+        console.error('[CRM] convert failed:', err);
+        showToast?.(`Could not convert lead — ${err?.message || 'server error'}`);
+      }
+      return;
+    } finally {
+      convertLockRef.current = false;
+      setIsConverting(false);
+    }
+
     const prevStatus = viewLead?.status ?? lead?.status ?? '';
     const crmState = useCrmStore.getState();
     const wonStage = [...(crmState.stages || [])].find(
@@ -3629,6 +3675,9 @@ export default function LeadDetailView({ lead, onBackToLeads }) {
     } catch (e) {
       console.error('[CRM Automation] Error in convert automation:', e);
     }
+    // The party the server linked or created belongs on the Parties and
+    // Customers screens too — re-read the ERP collections that show it.
+    refreshFromBackend?.();
     logActivity('Lead converted to Customer', '#10b981');
     showToast?.(`Lead "${activeLeadData.name}" converted to Customer.`);
   };
@@ -3700,19 +3749,21 @@ export default function LeadDetailView({ lead, onBackToLeads }) {
           <button
             type="button"
             onClick={handleConvert}
-            disabled={isConverted || isLost}
+            disabled={isConverted || isLost || isConverting}
             className={`inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-xs font-semibold shadow-xs transition ${
               isConverted
                 ? 'bg-emerald-600 text-white cursor-not-allowed opacity-90'
-                : 'bg-white hover:bg-blue-50 text-blue-600 border border-blue-200 cursor-pointer'
+                : isConverting
+                  ? 'bg-slate-100 text-slate-400 border border-slate-200 cursor-not-allowed'
+                  : 'bg-white hover:bg-blue-50 text-blue-600 border border-blue-200 cursor-pointer'
             }`}
           >
-            <CheckCircle size={13} /> {isConverted ? 'Converted' : 'Convert'}
+            <CheckCircle size={13} /> {isConverting ? 'Converting…' : isConverted ? 'Converted' : 'Convert'}
           </button>
           <button
             type="button"
             onClick={handleLost}
-            disabled={isConverted || isLost}
+            disabled={isConverted || isLost || isConverting}
             className={`inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-xs font-semibold shadow-xs transition ${
               isLost
                 ? 'bg-rose-600 text-white cursor-not-allowed'
@@ -3775,13 +3826,13 @@ export default function LeadDetailView({ lead, onBackToLeads }) {
             </div>
             <div className="space-y-1 min-w-0 lg:min-w-auto">
               <div className="flex flex-wrap lg:flex-nowrap items-center gap-2.5">
-                <h1 className="text-xl font-bold text-slate-900 tracking-tight break-words">{displayName}</h1>
+                <h1 className="text-[20px] font-extrabold tracking-tight text-slate-900 break-words">{displayName}</h1>
                 <span className={`px-2.5 py-0.5 rounded-full text-[11px] font-semibold border ${isConverted ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : (isLost ? 'bg-rose-50 text-rose-700 border-rose-200' : 'bg-blue-50 text-blue-700 border-blue-200')}`}>
                   {isConverted ? 'Converted' : (isLost ? (activeLeadData.status || 'Lost') : (activeLeadData.status || '—'))}
                 </span>
               </div>
-              <p className="text-xs text-slate-500 font-medium">{activeLeadData.company || '—'}</p>
-              <div className="flex flex-wrap items-center gap-4 text-xs text-slate-500 pt-0.5">
+              <p className="text-[13px] text-slate-500 font-medium">{activeLeadData.company || '—'}</p>
+              <div className="flex flex-wrap items-center gap-4 text-[13px] text-slate-500 pt-0.5">
                 <span className="flex items-center gap-1.5"><Phone size={13} className="text-slate-400" /> {activeLeadData.phone ? `+91 ${activeLeadData.phone}` : '—'}</span>
                 <span className="flex items-center gap-1.5 min-w-0 lg:min-w-auto break-all"><Mail size={13} className="text-slate-400 shrink-0 lg:shrink" /> {activeLeadData.email || '—'}</span>
                 <span className="flex items-center gap-1.5"><MapPin size={13} className="text-slate-400" /> {[activeLeadData.city, activeLeadData.state, activeLeadData.country].filter(Boolean).join(', ') || '—'}</span>

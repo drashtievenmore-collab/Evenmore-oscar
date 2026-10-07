@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useAppStore } from '../../../stores/appStore';
 import Modal from '../../../components/ui/Modal';
-import PageInfoButton from '../../../components/common/PageInfoButton';
+import PageHeader from '../../../components/ui/PageHeader';
 import { hrmsGuides } from '../../../data/hrms/hrmsGuides';
 import { hrmsSync, isBackendEnabled } from '../../../services/hrmsSync';
 import { Plus, MapPin, Search, Edit2, Trash2, Globe, Building } from 'lucide-react';
@@ -77,25 +77,20 @@ export function LocationsPage() {
 
   return (
     <div className="flex flex-col gap-6">
-      {/* Header */}
-      <div className="flex flex-wrap justify-between items-center gap-4">
-        <div>
-          <div className="flex items-center gap-2.5">
-            <h1 className="text-[24px] font-bold tracking-tight">Locations</h1>
-            <PageInfoButton guide={hrmsGuides.locations} />
-          </div>
-          <p className="text-[13px] text-muted">
-            {locations.length} global offices and distributed workspaces
-          </p>
-        </div>
-        <button
-          type="button"
-          onClick={() => setIsModalOpen(true)}
-          className="px-5 py-2.5 bg-navy hover:bg-navy/90 text-white rounded-xl text-[13.5px] font-medium flex items-center gap-2 shadow-xs transition-colors cursor-pointer"
-        >
-          <Plus size={16} /> Add Location
-        </button>
-      </div>
+      <PageHeader
+        title="Locations"
+        subtitle={`${locations.length} global offices and distributed workspaces`}
+        guide={hrmsGuides.locations}
+        actions={
+          <button
+            type="button"
+            onClick={() => setIsModalOpen(true)}
+            className="px-5 py-2.5 bg-navy hover:bg-navy/90 text-white rounded-xl text-[13.5px] font-medium flex items-center gap-2 shadow-xs transition-colors cursor-pointer"
+          >
+            <Plus size={16} /> Add Location
+          </button>
+        }
+      />
 
       {/* Search Bar */}
       <div className="bg-white border border-bdr rounded-xl p-4 shadow-xs flex flex-wrap justify-between items-center gap-3">

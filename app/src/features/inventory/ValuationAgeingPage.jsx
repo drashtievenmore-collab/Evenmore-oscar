@@ -3,6 +3,7 @@ import { useERP } from '../../context/ERPContext';
 import { DataTable } from '../../components/ui/DataTable';
 import { StatCard } from '../../components/ui/StatCard';
 import { DollarSign } from 'lucide-react';
+import PageHeader from '../../components/ui/PageHeader';
 // Aging brackets and obsolescence-reserve rates (carrying-value policy).
 const AGE_BRACKETS = [
     { max: 30, label: '0-30 Days', reserveRate: 0 },
@@ -144,16 +145,10 @@ export const ValuationAgeingPage = () => {
         },
     ];
     return (<div className="space-y-6">
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-        <div>
-          <h2 className="text-xl font-bold text-[#1F2E4A] tracking-tight">
-            Valuation & Inventory Aging
-          </h2>
-          <p className="text-xs text-slate-500 mt-1">
-            FIFO/Weighted Average carrying cost analysis, holding duration buckets, and slow-moving obsolescence reserves.
-          </p>
-        </div>
-      </div>
+      <PageHeader
+        title="Valuation & Inventory Aging"
+        subtitle="FIFO/Weighted Average carrying cost analysis, holding duration buckets, and slow-moving obsolescence reserves."
+      />
 
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         <StatCard label="Total Inventory Assets" value={formatCurrency(totalValuation, { noDecimals: true })} icon={DollarSign}/>

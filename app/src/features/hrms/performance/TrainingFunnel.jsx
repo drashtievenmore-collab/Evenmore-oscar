@@ -1,5 +1,5 @@
 import { useState, useMemo } from "react";
-import { useNavigate, Link } from "react-router-dom";
+import { useNavigate } from "react-router-dom";
 import {
   Plus,
   LayoutGrid,
@@ -25,7 +25,7 @@ import { useAppStore } from "../../../stores/appStore";
 import { Drawer } from "../../../components/hrms/Drawer";
 import { Modal } from "../../../components/hrms/Modal";
 import { Button } from "../../../components/hrms/Button";
-import PageInfoButton from "../../../components/common/PageInfoButton";
+import PageHeader from "../../../components/ui/PageHeader";
 import { hrmsGuides } from "../../../data/hrms/hrmsGuides";
 
 const STAGE_DROP_STYLES = {
@@ -229,7 +229,7 @@ export default function TrainingFunnel({ embedded = false, onBack }) {
 
   return (
     <div className="flex flex-col gap-5 w-full pb-16">
-      {/* Top Breadcrumb & Header matching screenshot */}
+      {/* Header */}
       <div className="flex flex-col gap-1">
         {/* Back button to Training Setup */}
         {!embedded && (
@@ -243,23 +243,10 @@ export default function TrainingFunnel({ embedded = false, onBack }) {
           </button>
         )}
 
-        <div className="flex flex-wrap items-center justify-between gap-4">
-          <div>
-            <div className="flex items-center gap-2.5">
-              <h1 className="text-[24px] font-bold text-slate-900 tracking-tight">Training Funnel</h1>
-              <PageInfoButton guide={hrmsGuides.trainingFunnel} />
-            </div>
-            <div className="text-[13px] text-slate-500 flex items-center gap-1.5 mt-0.5 font-medium">
-              <Link to="/hrms/training" className="hover:text-navy hover:underline">
-                Dashboard
-              </Link>
-              <span>&gt;</span>
-              <span className="text-slate-700">Training Funnel</span>
-            </div>
-          </div>
-
-          {/* Top Right Action Icons */}
-          <div className="flex flex-wrap lg:flex-nowrap items-center gap-2">
+        <PageHeader
+          title="Training Funnel"
+          guide={hrmsGuides.trainingFunnel}
+          actions={<>
             {/* View switcher: Kanban vs List */}
             <div className="flex p-1 bg-white border border-bdr rounded-xl shadow-xs">
               <button
@@ -293,8 +280,8 @@ export default function TrainingFunnel({ embedded = false, onBack }) {
             >
               <Plus size={18} />
             </button>
-          </div>
-        </div>
+          </>}
+        />
       </div>
 
       {/* Filter Toolbar */}

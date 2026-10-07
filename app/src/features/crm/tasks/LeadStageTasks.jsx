@@ -135,14 +135,19 @@ const DEFAULT_TASK_OPTIONS = [
   "Negotiate pricing",
 ];
 
-function getDynamicTaskOptions() {
+function getDynamicTaskOptions(masterTasks = []) {
+  const names = (Array.isArray(masterTasks) ? masterTasks : [])
+    .map((m) => m.name || m.title)
+    .filter(Boolean);
+  if (names.length > 0) return [...new Set([...DEFAULT_TASK_OPTIONS, ...names])];
+  // Offline fallback: last cached master-task list.
   try {
     const raw = localStorage.getItem('leadMasterTasksV1');
     if (raw) {
       const parsed = JSON.parse(raw);
       if (Array.isArray(parsed) && parsed.length > 0) {
-        const names = parsed.map((m) => m.name).filter(Boolean);
-        return [...new Set([...DEFAULT_TASK_OPTIONS, ...names])];
+        const cached = parsed.map((m) => m.name).filter(Boolean);
+        return [...new Set([...DEFAULT_TASK_OPTIONS, ...cached])];
       }
     }
   } catch { /* ignore */ }
@@ -240,6 +245,7 @@ function stagesWithTasks(stages, stageTasks) {
 export default function LeadStageTasks({ leadForms = [] }) {
   const storeStages = useCrmStore((s) => s.stages);
   const storeStageTasks = useCrmStore((s) => s.stageTasks);
+  const storeMasterTasks = useCrmStore((s) => s.masterTasks);
   const [stages, setStages] = useState([]);
   // Each distinct tree state is written back at most once. Without this,
   // a sync that never sticks (offline create/update that the server
@@ -258,7 +264,7 @@ export default function LeadStageTasks({ leadForms = [] }) {
   const [saveSuccess, setSaveSuccess] = useState(false);
   const [isGuideOpen, setIsGuideOpen] = useState(false);
   const [stageDrafts, setStageDrafts] = useState({});
-  const taskOptions = useMemo(() => getDynamicTaskOptions(), []);
+  const taskOptions = useMemo(() => getDynamicTaskOptions(storeMasterTasks), [storeMasterTasks]);
 
 
   // An edit anywhere in the tree is written back as the flat task collection

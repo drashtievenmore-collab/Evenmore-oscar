@@ -3,7 +3,7 @@ import { useAppStore } from "../../../stores/appStore";
 import { useDocumentStore } from "../../../stores/documentStore";
 import { Badge } from "../../../components/hrms/Badge";
 import Modal from "../../../components/ui/Modal";
-import PageInfoButton from "../../../components/common/PageInfoButton";
+import PageHeader from "../../../components/ui/PageHeader";
 import { hrmsGuides } from "../../../data/hrms/hrmsGuides";
 import {
   FileText,
@@ -448,25 +448,16 @@ export function DocumentsPage() {
         onChange={handleDeviceFileInputChange}
       />
 
-      {/* Top Header */}
-      <div className="flex flex-wrap items-center justify-between gap-4">
-        <div>
-          <div className="flex items-center gap-2.5">
-            <h1 className="text-[24px] font-bold tracking-tight text-slate-900 flex items-center gap-2.5">
-              <span>Document Management</span>
-              <span className="text-[12px] font-semibold px-2.5 py-0.5 rounded-full bg-rose-50 text-rose-700 border border-rose-200">
-                PDF Vault
-              </span>
-            </h1>
-            <PageInfoButton guide={hrmsGuides.documents} />
-          </div>
-          <p className="text-[13px] text-muted mt-0.5">
-            Manage company compliance policies, employee personnel dossiers, and personal records in PDF format
-          </p>
-        </div>
-
-        {/* Primary Action Button: Directly select PDF from device */}
-        <div className="flex flex-wrap lg:flex-nowrap items-center gap-2.5">
+      <PageHeader
+        title="Document Management"
+        titleExtra={
+          <span className="text-[12px] font-semibold px-2.5 py-0.5 rounded-full bg-rose-50 text-rose-700 border border-rose-200">
+            PDF Vault
+          </span>
+        }
+        subtitle="Manage company compliance policies, employee personnel dossiers, and personal records in PDF format"
+        guide={hrmsGuides.documents}
+        actions={
           <button
             type="button"
             onClick={() =>
@@ -479,8 +470,8 @@ export function DocumentsPage() {
             <UploadCloud size={17} />
             <span>Select PDF from Device</span>
           </button>
-        </div>
-      </div>
+        }
+      />
 
       {/* Drag & Drop Quick Notice Zone */}
       <div
