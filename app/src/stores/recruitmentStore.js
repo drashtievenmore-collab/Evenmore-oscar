@@ -1,6 +1,7 @@
 import { create } from "zustand";
 import { lazyStore } from "../services/lazyModules";
-import { writeThrough, pullTracked } from "../services/hrmsSync";
+import { writeThrough, pullTracked, hrmsSync, isBackendEnabled, isServerId } from "../services/hrmsSync";
+import { api } from "../services/api";
 
 
 
@@ -18,7 +19,7 @@ function persist(state) {
   writeThrough("recruitmentQuestions", state.questions);
 }
 
-const useRecruitmentStoreBase = create((set) => ({
+const useRecruitmentStoreBase = create((set, get) => ({
   jobs: [],
   candidates: [],
   interviews: [],
@@ -39,13 +40,29 @@ const useRecruitmentStoreBase = create((set) => ({
       pullTracked("interviews"),
       pullTracked("offers"),
       pullTracked("recruitmentQuestions"),
+      pullTracked("onboarding"),
     ]);
+    // Rebuild the checklist ticks from the server: a candidate linked to an
+    // employee is onboarded; a completed document task means verified docs.
+    const tasks = rows[5] || [];
+    const verified = {};
+    tasks.forEach((t) => {
+      if (t?.candidateId && t.completedAt && /document|verif|kyc/i.test(String(t.title || ""))) {
+        verified[String(t.candidateId)] = true;
+      }
+    });
+    const onboarded = {};
+    (rows[1] || []).forEach((c) => {
+      if (c?.employee) onboarded[String(c.id)] = true;
+    });
     set((s) => ({
       jobs: rows[0] || s.jobs,
       candidates: rows[1] || s.candidates,
       interviews: rows[2] || s.interviews,
       offers: rows[3] || s.offers,
       questions: rows[4] || s.questions,
+      onboardedMap: { ...onboarded, ...s.onboardedMap },
+      verifiedDocsMap: { ...verified, ...s.verifiedDocsMap },
     }));
     return rows;
   },
@@ -216,19 +233,43 @@ const useRecruitmentStoreBase = create((set) => ({
     }),
 
   // ─── ONBOARDING ────────────────────────────────────
-  completeOnboarding: (candidateId) =>
-    set((st) => {
-      const nextMap = { ...st.onboardedMap, [candidateId]: true };
-      persist({ ...st, onboardedMap: nextMap });
-      return { onboardedMap: nextMap };
-    }),
+  // The tick stays local for instant UI, but the record of it lives in
+  // Postgres: completion converts the candidate to an employee
+  // (`POST /hrms/onboarding/{id}/complete/`), verification completes an
+  // onboarding task row. Both survive refresh and other devices.
+  completeOnboarding: async (candidateId) => {
+    set((st) => ({ onboardedMap: { ...st.onboardedMap, [candidateId]: true } }));
+    if (!isBackendEnabled() || !isServerId(candidateId)) return null;
+    try {
+      return await api.post(`/hrms/onboarding/${candidateId}/complete/`, {});
+    } catch (err) {
+      // Already converted on another device — the tick above still stands.
+      if (err?.status === 409) return err.payload || { already: true };
+      console.warn("[HRMS] onboarding not saved:", err?.message || err);
+      return null;
+    }
+  },
 
-  verifyDocuments: (candidateId) =>
-    set((st) => {
-      const nextMap = { ...st.verifiedDocsMap, [candidateId]: true };
-      persist({ ...st, verifiedDocsMap: nextMap });
-      return { verifiedDocsMap: nextMap };
-    }),
+  verifyDocuments: async (candidateId) => {
+    set((st) => ({ verifiedDocsMap: { ...st.verifiedDocsMap, [candidateId]: true } }));
+    if (!isBackendEnabled() || !isServerId(candidateId)) return null;
+    try {
+      const existing = await hrmsSync.pull("onboarding", { candidateId });
+      const open = (existing || []).find(
+        (t) => !t.completedAt && /document|verif|kyc/i.test(String(t.title || ""))
+      );
+      const now = new Date().toISOString();
+      if (open && isServerId(open.id)) {
+        return await hrmsSync.update("onboarding", open.id, { completedAt: now });
+      }
+      return await hrmsSync.create("onboarding", {
+        candidateId, title: "Documents verified", completedAt: now,
+      });
+    } catch (err) {
+      console.warn("[HRMS] document verification not saved:", err?.message || err);
+      return null;
+    }
+  },
 }));
 
 // Hydrated the first time a screen reads it, not at boot — services/lazyModules.

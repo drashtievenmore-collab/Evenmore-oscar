@@ -29,7 +29,6 @@ export const crmService = {
   // Discussion & notes (graph: DiscussionNotesTab + 8 handlers)
   getDiscussionThreads: (leadId) => api.get(`/crm/leads/${leadId}/threads/`),
   sendThreadMessage: (leadId, threadId, data) => api.post(`/crm/leads/${leadId}/threads/${threadId}/messages/`, data),
-  logCallAction: (leadId, data) => api.post(`/crm/leads/${leadId}/calls/`, data),
   logMailAction: (leadId, data) => api.post(`/crm/leads/${leadId}/emails/`, data),
   saveNote: (leadId, data) => api.post(`/crm/leads/${leadId}/notes/`, data),
   // Files (graph: handleUploadFiles/handleViewFile/handleDownloadFile/handleRemoveFile)
@@ -49,6 +48,19 @@ export const crmService = {
   saveLeadForm: (data) => api.post('/crm/forms/', data),
   updateLeadForm: (id, data) => api.patch(`/crm/forms/${id}/`, data),
   deleteLeadForm: (id) => api.delete(`/crm/forms/${id}/`),
+  // Deal → CRM project hand-off (server links party/deal/owner/value)
+  createDealProject: (dealId, data) => api.post(`/crm/deals/${dealId}/create-project/`, data || {}),
+  // Deal timeline entries (mirrors the server audit trail)
+  getDealActivities: (dealId) => api.get(`/crm/deals/${dealId}/activities/`),
+  postDealActivity: (dealId, data) => api.post(`/crm/deals/${dealId}/activities/`, data || {}),
+  // Deal workspace lines, documents (persisted sub-resources)
+  getDealLines: (dealId) => api.get(`/crm/deals/${dealId}/lines/`),
+  addDealLine: (dealId, data) => api.post(`/crm/deals/${dealId}/lines/`, data || {}),
+  updateDealLine: (dealId, lineId, data) => api.patch(`/crm/deals/${dealId}/lines/${lineId}/`, data || {}),
+  deleteDealLine: (dealId, lineId) => api.delete(`/crm/deals/${dealId}/lines/${lineId}/`),
+  getDealDocuments: (dealId) => api.get(`/crm/deals/${dealId}/documents/`),
+  addDealDocument: (dealId, data) => api.post(`/crm/deals/${dealId}/documents/`, data || {}),
+  deleteDealDocument: (dealId, documentId) => api.delete(`/crm/deals/${dealId}/documents/${documentId}/`),
 };
 
 // ── Sales pipeline ───────────────────────────────────────────────────────
@@ -67,6 +79,10 @@ export const salesService = {
   // Full document pipeline: Quotation → Order → Invoice → Challan → Payment → Return
   createQuotation: (data) => api.post('/sales/quotations/', data),
   updateQuotationStatus: (id, status) => api.patch(`/sales/quotations/${id}/`, { status }),
+  // Customer approval: Accepted + automatic Lead -> Customer conversion
+  // (transactional on the server; never creates a Sales Order).
+  approveQuotation: (id, data) => api.post(`/sales/quotations/${id}/approve/`, data || {}),
+  acceptQuotation: (id, data) => api.post(`/sales/quotations/${id}/accept/`, data || {}),
   convertQuotationToOrder: (id) => api.post(`/sales/quotations/${id}/convert-to-order/`),
   createOrder: (data) => api.post('/sales/orders/', data),
   updateOrderStage: (id, stage) => api.patch(`/sales/orders/${id}/`, { stage }),

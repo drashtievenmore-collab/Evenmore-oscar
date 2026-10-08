@@ -93,25 +93,43 @@ function lineFromApi(line) {
  * Header fields every sales/purchase document shares (`DocumentSerializer`).
  * `partyField` is `partyId` on the sales side and `vendorId` on the purchase
  * side — api.md §6.2 names the same column differently there.
+ *
+ * `partial` is for PATCH: only keys present on the input are sent, and no
+ * defaults are applied — a status-only update must never reset the date to
+ * today or wipe the lines. `status`/`stage` are always mapped when present
+ * so status flips reach the server.
  */
-function documentToApi(doc, { partyField = 'partyId', partyKeys = [] } = {}) {
+function documentToApi(doc, { partyField = 'partyId', partyKeys = [] } = {}, { partial = false } = {}) {
   const lines = doc.lineItems || doc.items || [];
   const partyId = partyKeys.map((k) => doc[k]).find(Boolean);
+  // Document links survive only as server ids — a local placeholder id
+  // would 400 the whole create, so those stay local-only.
+  const link = (v) => (isServerId(v) ? v : undefined);
+  const dated = (value) => (value !== undefined ? isoOut(value) : undefined);
   return compact({
     [partyField]: partyId,
-    date: isoOut(doc.date) || isoOut('Today'),
-    dueDate: isoOut(doc.dueDate),
-    expectedDate: isoOut(doc.expectedDate || doc.deliveryDate),
-    validUntil: isoOut(doc.validUntil || doc.validTill),
+    date: doc.date !== undefined || !partial ? (isoOut(doc.date) || (!partial ? isoOut('Today') : undefined)) : undefined,
+    dueDate: !partial || doc.dueDate !== undefined ? dated(doc.dueDate) : undefined,
+    expectedDate: !partial || doc.expectedDate !== undefined || doc.deliveryDate !== undefined
+      ? isoOut(doc.expectedDate || doc.deliveryDate) : undefined,
+    validUntil: !partial || doc.validUntil !== undefined || doc.validTill !== undefined
+      ? isoOut(doc.validUntil || doc.validTill) : undefined,
     notes: doc.notes || undefined,
     terms: doc.terms || doc.termsAndConditions || undefined,
     referenceNumber: doc.referenceNumber || doc.reference || undefined,
     location: doc.location || undefined,
-    freightCharges: doc.freightCharges !== undefined ? num(doc.freightCharges) : undefined,
-    otherCharges: doc.otherCharges !== undefined ? num(doc.otherCharges) : undefined,
-    roundOff: doc.roundOff !== undefined ? num(doc.roundOff) : undefined,
-    discountOverride: doc.discountTotal !== undefined ? num(doc.discountTotal) : undefined,
-    lineItems: lines.map(lineToApi),
+    status: doc.status || undefined,
+    stage: doc.stage || undefined,
+    quotation: link(doc.quotationId || doc.sourceQuotationId),
+    salesOrder: link(doc.salesOrderId || doc.sourceSalesOrderId),
+    estimate: link(doc.estimateId || doc.sourceEstimateId),
+    crmDeal: link(doc.dealId),
+    crmLead: link(doc.leadId),
+    freightCharges: !partial || doc.freightCharges !== undefined ? (doc.freightCharges !== undefined ? num(doc.freightCharges) : undefined) : undefined,
+    otherCharges: !partial || doc.otherCharges !== undefined ? (doc.otherCharges !== undefined ? num(doc.otherCharges) : undefined) : undefined,
+    roundOff: !partial || doc.roundOff !== undefined ? (doc.roundOff !== undefined ? num(doc.roundOff) : undefined) : undefined,
+    discountOverride: !partial || doc.discountTotal !== undefined ? (doc.discountTotal !== undefined ? num(doc.discountTotal) : undefined) : undefined,
+    lineItems: !partial || doc.lineItems !== undefined || doc.items !== undefined ? lines.map(lineToApi) : undefined,
   });
 }
 
@@ -156,7 +174,7 @@ function documentResource(path, {
 } = {}) {
   return {
     path,
-    toApi: (doc) => documentToApi(doc, { partyField, partyKeys }),
+    toApi: (doc, opts) => documentToApi(doc, { partyField, partyKeys }, opts),
     fromApi: (row) => documentFromApi(row, { numberField, partyLabel }),
   };
 }
@@ -388,10 +406,14 @@ export const RESOURCES = {
       // api.md §5.7: an invoice posts as a Draft unless the create says
       // otherwise. The UI decides that up front, so carry the flag through —
       // finalizing is what allocates the number and posts stock and ledger.
-      toApi: (doc) => ({
-        ...base.toApi(doc),
-        finalize: doc.finalized === true || (doc.status && doc.status !== 'Draft'),
-      }),
+      // The flag is only sent when the caller set it: a status-only PATCH
+      // must never trigger (or skip) finalization by accident.
+      toApi: (doc, opts) => {
+        const payload = base.toApi(doc, opts);
+        if (doc.finalize !== undefined) payload.finalize = doc.finalize;
+        else if (doc.finalized !== undefined) payload.finalize = doc.finalized === true;
+        return payload;
+      },
     };
   })(),
   salesReturns: documentResource('/sales/returns/', { numberField: 'returnNumber' }),
@@ -556,26 +578,39 @@ export const RESOURCES = {
 
   transfers: {
     path: '/inventory/transfers/',
-    toApi: (t) => compact({
-      fromLocationId: t.fromLocationId || t.fromLocation || undefined,
-      toLocationId: t.toLocationId || t.toLocation || undefined,
-      date: isoOut(t.date),
+    // Wire names are sourceLocationId / destLocationId / shipped_by.
+    toApi: (t, { partial } = {}) => compact({
+      sourceLocationId: t.sourceLocationId || t.fromLocationId || t.fromLocation || undefined,
+      destLocationId: t.destLocationId || t.toLocationId || t.toLocation || undefined,
+      date: !partial || t.date !== undefined ? isoOut(t.date) : undefined,
       notes: t.notes || undefined,
-      lineItems: (t.items || t.lineItems || []).map(lineToApi),
+      status: t.status || undefined,
+      shipped_by: t.shipped_by || t.shippedBy || undefined,
+      items: !partial || t.items !== undefined || t.lineItems !== undefined
+        ? (t.items || t.lineItems || []).map(lineToApi) : undefined,
     }),
     fromApi: (row) => ({ ...row, date: displayIn(row.date), _synced: true }),
   },
 
   serviceUsages: {
     path: '/inventory/service-usage/',
+    // Wire names are `qty` (quantity) and `date` (used_on).
     toApi: (u) => compact({
       itemId: u.itemId || undefined,
       date: isoOut(u.date),
-      quantity: num(u.quantity ?? u.qty),
+      qty: num(u.qty ?? u.quantity ?? u.qtyUsed),
       reference: u.reference || undefined,
+      jobReference: u.jobReference || u.purpose || undefined,
+      technician: u.technician || undefined,
       notes: u.notes || undefined,
     }),
-    fromApi: (row) => ({ ...row, date: displayIn(row.date), _synced: true }),
+    fromApi: (row) => ({
+      ...row,
+      qty: row.qty ?? row.quantity ?? 0,
+      quantity: row.qty ?? row.quantity ?? 0,
+      date: displayIn(row.date),
+      _synced: true,
+    }),
   },
 
   valuationItems: {
@@ -601,27 +636,89 @@ export const RESOURCES = {
 
   faultyParts: {
     path: '/inventory/faulty-parts/',
-    toApi: (f) => compact({
+    // Wire names are `date` (reported_date) and `qty` (quantity); the UI
+    // reads `reportedOn`/`quantity`, translated both ways here.
+    toApi: (f, { partial } = {}) => compact({
       itemId: f.itemId || undefined,
-      quantity: num(f.quantity ?? f.qty),
+      qty: (f.qty ?? f.quantity) !== undefined || !partial ? num(f.qty ?? f.quantity) : undefined,
       reason: f.reason || undefined,
+      faultDescription: f.faultDescription || f.reason || undefined,
       status: f.status || undefined,
-      reportedOn: isoOut(f.reportedOn || f.date),
+      date: !partial || f.date !== undefined || f.reportedOn !== undefined ? isoOut(f.date || f.reportedOn) : undefined,
     }),
-    fromApi: (row) => ({ ...row, reportedOn: displayIn(row.reportedOn), _synced: true }),
+    fromApi: (row) => ({
+      ...row,
+      qty: row.qty ?? row.quantity ?? 1,
+      quantity: row.qty ?? row.quantity ?? 1,
+      reportedOn: displayIn(row.date || row.reportedOn),
+      date: displayIn(row.date || row.reportedOn),
+      _synced: true,
+    }),
   },
 
   zoneRequests: {
     path: '/inventory/zone-requests/',
-    toApi: (z) => compact({
-      itemId: z.itemId || undefined,
-      fromZone: z.fromZone || undefined,
-      toZone: z.toZone || undefined,
-      quantity: num(z.quantity ?? z.qty),
-      status: z.status || undefined,
-      notes: z.notes || undefined,
+    // Wire keeps snake_case for target_sector / manager_signoff_needed (no
+    // aliases on the serializer); `date` is request_date.
+    toApi: (z, { partial } = {}) => {
+      const lines = z.lines || (z.itemId
+        ? [{ itemId: z.itemId, qty: z.qty ?? z.quantity ?? 1 }]
+        : []);
+      return compact({
+        zoneLocationId: z.zoneLocationId || undefined,
+        target_sector: z.target_sector || z.targetSector || z.sector || undefined,
+        date: !partial || z.date !== undefined ? isoOut(z.date) : undefined,
+        requestedBy: z.requestedBy || undefined,
+        status: z.status || undefined,
+        notes: z.notes || undefined,
+        manager_signoff_needed: z.manager_signoff_needed ?? z.managerSignoffNeeded ?? undefined,
+        lines: !partial || z.lines !== undefined || z.itemId !== undefined
+          ? lines.map((l) => compact({
+            ...(isServerId(l.id) ? { id: l.id } : {}),
+            itemId: l.itemId || undefined,
+            qty: l.qty ?? l.quantity ?? l.requestedQty ?? 1,
+          })) : undefined,
+      });
+    },
+    fromApi: (row) => ({
+      ...row,
+      date: displayIn(row.date),
+      zone: row.zone || '',
+      status: row.status || 'Requested',
+      _synced: true,
     }),
-    fromApi: (row) => ({ ...row, _synced: true }),
+  },
+
+  itemParts: {
+    path: '/inventory/item-parts/',
+    toApi: (p) => compact({
+      parentItemId: p.parentItemId || undefined,
+      partItemId: p.partItemId || undefined,
+      requiredQty: p.requiredQty !== undefined ? num(p.requiredQty, 1) : undefined,
+    }),
+    fromApi: (row) => ({
+      ...row,
+      parentItemId: row.parentItemId,
+      partItemId: row.partItemId,
+      requiredQty: num(row.requiredQty, 1),
+      _synced: true,
+    }),
+  },
+
+  qualityStandards: {
+    path: '/purchase/quality-standards/',
+    toApi: (s) => compact({
+      name: s.name,
+      categoryId: s.categoryId || undefined,
+      checks: Array.isArray(s.checks) ? s.checks : undefined,
+      tolerancePct: s.tolerancePct !== undefined ? num(s.tolerancePct) : undefined,
+      active: s.active ?? undefined,
+    }),
+    fromApi: (row) => ({
+      ...row,
+      tolerancePct: row.tolerancePct ?? row.tolerance_pct ?? 2,
+      _synced: true,
+    }),
   },
 
   bankAccounts: {
@@ -638,19 +735,40 @@ export const RESOURCES = {
     fromApi: (row) => ({ ...row, _synced: true }),
   },
 
-  journalEntries: {
-    path: '/accounts/journal/',
-    toApi: (j) => compact({
-      date: isoOut(j.date),
-      reference: j.reference || undefined,
-      narration: j.narration || j.description || undefined,
-      lines: j.lines || undefined,
-      debitAccount: j.debitAccount || undefined,
-      creditAccount: j.creditAccount || undefined,
-      amount: j.amount !== undefined ? num(j.amount) : undefined,
-      status: j.status || undefined,
+  bankTransfers: {
+    path: '/accounts/transfers/',
+    toApi: (t) => compact({
+      fromAccountId: t.fromAccountId || undefined,
+      toAccountId: t.toAccountId || undefined,
+      date: isoOut(t.date),
+      amount: num(t.amount),
+      reference: t.reference || undefined,
+      notes: t.notes || undefined,
     }),
     fromApi: (row) => ({ ...row, date: displayIn(row.date), _synced: true }),
+  },
+
+  journalEntries: {
+    path: '/accounts/journal/',
+    toApi: (j, { partial } = {}) => compact({
+      entryDate: !partial || j.entryDate !== undefined || j.date !== undefined
+        ? isoOut(j.entryDate || j.date) : undefined,
+      narration: j.narration || j.description || undefined,
+      reference: j.reference || undefined,
+      lines: !partial || j.lines !== undefined ? j.lines : undefined,
+      debitAccount: j.debitAccount || undefined,
+      creditAccount: j.creditAccount || undefined,
+      amount: j.amount !== undefined && !j.lines ? num(j.amount) : undefined,
+      status: j.status || undefined,
+    }),
+    fromApi: (row) => ({
+      ...row,
+      date: displayIn(row.entryDate || row.date),
+      entryDate: displayIn(row.entryDate || row.date),
+      description: row.narration || row.description || '',
+      narration: row.narration || '',
+      _synced: true,
+    }),
   },
 
   chartOfAccounts: {
@@ -780,10 +898,24 @@ export async function pushCreate(key, record, { idempotencyKey } = {}) {
 export async function pushUpdate(key, id, updates) {
   const resource = RESOURCES[key];
   if (!resource || !isBackendEnabled() || !isServerId(id)) return null;
-  const payload = resource.toApi(updates);
+  const payload = resource.toApi(updates, { partial: true });
   (resource.omitOnUpdate || []).forEach((field) => delete payload[field]);
   const body = await api.patch(`${resource.path}${id}/`, payload);
   return resource.fromApi ? resource.fromApi(body) : body;
+}
+
+/**
+ * A non-CRUD action on a document (`finalize`, `cancel`, `receive-goods`,
+ * `convert-to-*`). Returns the server's document, unwrapping `{ bill }`
+ * style envelopes. Rejections throw so the UI can report them.
+ */
+export async function postDocumentAction(key, id, action, data) {
+  const resource = RESOURCES[key];
+  if (!resource || !isBackendEnabled() || !isServerId(id)) return null;
+  const body = await api.post(`${resource.path}${id}/${action}/`, data || {});
+  const doc = body && typeof body === 'object' && body.bill ? body.bill : body;
+  const saved = resource.fromApi ? resource.fromApi(doc) : doc;
+  return { saved, envelope: body };
 }
 
 export async function pushDelete(key, id) {

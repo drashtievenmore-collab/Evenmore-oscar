@@ -26,6 +26,41 @@ function displayIn(value) {
   return value ? formatDateDDMMYYYY(value) : value;
 }
 
+/** Weekday name for a wire date (`2024-11-01` → `Friday`). Empty when unparseable. */
+function weekdayName(value) {
+  if (!value) return '';
+  try {
+    const iso = toISODate(value);
+    const d = iso ? new Date(`${iso}T00:00:00`) : new Date(value);
+    if (Number.isNaN(d.getTime())) return '';
+    return d.toLocaleDateString('en-US', { weekday: 'long' });
+  } catch {
+    return '';
+  }
+}
+
+/** `60 Days` / `60` → `60` for integer day-count columns. */
+function parseDayCount(value, fallback = 0) {
+  if (value === undefined || value === null || value === '') return fallback;
+  const match = String(value).match(/(\d+)/);
+  return match ? Number(match[1]) : fallback;
+}
+
+/** `$95,000 / annum` → `95000` for CTC columns. Undefined when unparseable. */
+function parseCtc(value) {
+  if (value === undefined || value === null || value === '') return undefined;
+  const digits = String(value).replace(/[^0-9.]/g, '');
+  const amount = Number(digits);
+  return Number.isFinite(amount) && digits !== '' ? amount : undefined;
+}
+
+/** HR screen offer statuses → API vocabulary (api.md §11.5). */
+function offerStatusToServer(status) {
+  if (!status) return undefined;
+  if (String(status).toLowerCase() === 'pending') return 'Sent';
+  return status;
+}
+
 function num(value, fallback = 0) {
   const n = Number(value);
   return Number.isFinite(n) ? n : fallback;
@@ -64,13 +99,15 @@ export const HRMS_RESOURCES = {
       email: e.email || undefined,
       phone: e.phone || undefined,
       employeeCode: e.employeeCode || e.empId || undefined,
-      departmentId: e.departmentId || undefined,
-      department: e.department || undefined,
-      designationId: e.designationId || undefined,
+      departmentId: e.departmentId || e.department_id || undefined,
+      department: e.department || e.dept || undefined,
+      designationId: e.designationId || e.designation_id || undefined,
       designation: e.designation || e.role || undefined,
       reportingManagerId: e.reportingManagerId || undefined,
-      locationId: e.locationId || undefined,
-      joiningDate: isoOut(e.joiningDate || e.doj),
+      locationId: e.locationId || e.location_id || undefined,
+      location: typeof e.location === 'string' ? e.location : undefined,
+      joiningDate: isoOut(e.joiningDate || e.joining || e.doj) || undefined,
+      joining: isoOut(e.joiningDate || e.joining || e.doj) || undefined,
       dateOfBirth: isoOut(e.dateOfBirth || e.dob),
       gender: e.gender || undefined,
       employmentType: e.employmentType || undefined,
@@ -83,11 +120,15 @@ export const HRMS_RESOURCES = {
         'employmentType', 'gender', 'location', 'status',
       ]),
       // Tables read `empId` and `role`; the API calls them `employeeCode` and
-      // `designation`.
-      empId: row.employeeCode || row.empId || '',
+      // `designation`. The wire sends `joining` (joining_date); accept the
+      // `joiningDate` alias too.
+      id: row.id,
+      empId: row.employeeCode || row.empId || row.id || '',
+      employeeCode: row.employeeCode || '',
       role: row.designation || row.role || '',
-      doj: displayIn(row.joiningDate),
-      joiningDate: displayIn(row.joiningDate),
+      doj: displayIn(row.joiningDate || row.joining),
+      joiningDate: displayIn(row.joiningDate || row.joining),
+      joining: displayIn(row.joiningDate || row.joining),
       _synced: true,
     }),
   },
@@ -96,7 +137,28 @@ export const HRMS_RESOURCES = {
   designations: plain('/hrms/designations/'),
   locations: plain('/hrms/locations/'),
   teams: plain('/hrms/teams/'),
-  holidays: dated('/hrms/holidays/', ['date']),
+  holidays: {
+    ...dated('/hrms/holidays/', ['date']),
+    toApi: (h) => compact({
+      name: h.name,
+      date: isoOut(h.date),
+      holidayType: h.holidayType || h.type || undefined,
+      appliesTo: h.appliesTo || undefined,
+      status: h.status || undefined,
+      locationId: h.locationId || undefined,
+    }),
+    // The table reads the local keys (`day`, `type`, `appliesTo`); the
+    // weekday is derived from the date, the rest pass through.
+    fromApi: (row) => ({
+      ...row,
+      date: displayIn(row.date),
+      day: weekdayName(row.date),
+      type: row.holidayType || row.type || '',
+      appliesTo: row.appliesTo || '',
+      status: row.status || 'Upcoming',
+      _synced: true,
+    }),
+  },
 
   // ── leave ─────────────────────────────────────────────────────────────────
   leaves: {
@@ -167,7 +229,38 @@ export const HRMS_RESOURCES = {
   candidates: dated('/hrms/candidates/', ['appliedDate']),
   applications: dated('/hrms/applications/', ['appliedDate']),
   interviews: dated('/hrms/interviews/', ['scheduledDate', 'date']),
-  offers: dated('/hrms/offers/', ['offerDate', 'joiningDate']),
+  offers: {
+    ...dated('/hrms/offers/', ['offerDate', 'joiningDate', 'expiryDate']),
+    // The letter form reads flat keys (`position`, `salary`, `dept` …);
+    // the API keeps the same columns plus the application link.
+    toApi: (o) => compact({
+      applicationId: o.applicationId || undefined,
+      offeredCtc: o.offeredCtc !== undefined ? num(o.offeredCtc) : parseCtc(o.salary),
+      joiningDate: isoOut(o.joiningDate),
+      expiryDate: isoOut(o.expiryDate),
+      status: offerStatusToServer(o.status),
+      position: o.position || undefined,
+      department: o.department || o.dept || undefined,
+      jobType: o.jobType || o.job_type || undefined,
+      location: o.location || undefined,
+      workMode: o.workMode || o.work_mode || undefined,
+      reportingManager: o.reportingManager || o.reporting_manager || undefined,
+      probationPeriod: o.probationPeriod || o.probation_period || undefined,
+      notes: o.notes || undefined,
+    }),
+    fromApi: (row) => ({
+      ...row,
+      joiningDate: displayIn(row.joiningDate),
+      expiryDate: displayIn(row.expiryDate),
+      dept: row.department || row.dept || '',
+      jobType: row.jobType || row.job_type || 'Full-time',
+      workMode: row.workMode || row.work_mode || '',
+      reportingManager: row.reportingManager || row.reporting_manager || '',
+      probationPeriod: row.probationPeriod || row.probation_period || '',
+      salary: row.salary || (row.offeredCtc != null ? `${Number(row.offeredCtc).toLocaleString('en-IN')} / annum` : ''),
+      _synced: true,
+    }),
+  },
   onboarding: dated('/hrms/onboarding/', ['startDate']),
   recruitmentQuestions: plain('/hrms/recruitment/questions/'),
 
@@ -214,7 +307,25 @@ export const HRMS_RESOURCES = {
   assetRequests: dated('/hrms/asset-requests/', ['requestDate']),
 
   // ── employee lifecycle ────────────────────────────────────────────────────
-  resignations: dated('/hrms/resignations/', ['resignationDate', 'lastWorkingDay']),
+  resignations: {
+    ...dated('/hrms/resignations/', ['lastWorkingDay']),
+    toApi: (r) => compact({
+      employeeId: r.employeeId || undefined,
+      submittedOn: isoOut(r.submittedDate || r.submittedOn),
+      noticePeriodDays: parseDayCount(r.noticePeriod ?? r.noticePeriodDays, 30),
+      lastWorkingDay: isoOut(r.lastWorkingDay),
+      handoverTo: r.handoverTo || undefined,
+      reason: r.reason || undefined,
+      status: r.status || undefined,
+    }),
+    fromApi: (row) => ({
+      ...row,
+      employee: row.employeeName || row.employee || '',
+      submittedDate: displayIn(row.submittedOn),
+      noticePeriod: row.noticePeriodDays != null ? `${row.noticePeriodDays} Days` : (row.noticePeriod || ''),
+      _synced: true,
+    }),
+  },
   terminations: dated('/hrms/terminations/', ['terminationDate']),
   complaints: dated('/hrms/complaints/', ['raisedDate']),
   documents: dated('/hrms/documents/', ['uploadedDate', 'expiryDate']),

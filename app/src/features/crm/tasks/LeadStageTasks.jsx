@@ -108,8 +108,8 @@ const CHEVRON_STEP =
   "polygon(0 0, calc(100% - 16px) 0, 100% 50%, calc(100% - 16px) 100%, 0 100%, 16px 50%)";
 
 const TASK_ROLE_MAP = {
-  "Call": "Tele Caller Executive",
-  "Call customer": "Tele Caller Executive",
+  "Follow-up": "BDE",
+  "Follow-up with customer": "BDE",
   "Send email": "Sales Support Executive",
   "Send quotation": "BDE",
   "Schedule demo": "Area Sales Manager",
@@ -119,15 +119,14 @@ const TASK_ROLE_MAP = {
 
 /** Soft chip colors per role — [background, text, dot]. */
 const ROLE_CHIP_STYLES = {
-  "Tele Caller Executive": ["linear-gradient(135deg, #ecfeff, #f0fdfa)", "#0e7490", "#06b6d4"],
+  "BDE": ["linear-gradient(135deg, #ecfeff, #f0fdfa)", "#0e7490", "#06b6d4"],
   "Sales Support Executive": ["linear-gradient(135deg, #eff6ff, #eef2ff)", "#1d4ed8", "#3b82f6"],
-  "BDE": ["linear-gradient(135deg, #faf5ff, #fdf4ff)", "#7e22ce", "#a855f7"],
   "Area Sales Manager": ["linear-gradient(135deg, #fffbeb, #fff7ed)", "#b45309", "#f59e0b"],
 };
 const ROLE_CHIP_FALLBACK = ["linear-gradient(135deg, #f8fafc, #f1f5f9)", "#475569", "#94a3b8"];
 
 const DEFAULT_TASK_OPTIONS = [
-  "Call",
+  "Follow-up",
   "Send email",
   "Send quotation",
   "Schedule demo",
@@ -211,7 +210,7 @@ const PIPELINE_KEY = 'leadStageTasksPipelineV1';
 const EMPTY_MASTER_TASK = {
   name: '',
   description: '',
-  role: 'Tele Caller Executive',
+  role: 'BDE',
   department: 'Any',
   priority: 'Medium',
   dueIn: 1,
@@ -297,7 +296,7 @@ export default function LeadStageTasks({ leadForms = [] }) {
   function getDraft(stageId) {
     return (
       stageDrafts[stageId] || {
-        name: "Call",
+        name: "Follow-up",
         order: 0,
         required: true,
         autoCreate: true,
@@ -319,7 +318,7 @@ export default function LeadStageTasks({ leadForms = [] }) {
 
   function addDraftTask(stageId) {
     const draft = getDraft(stageId);
-    const role = TASK_ROLE_MAP[draft.name] || "Tele Caller Executive";
+    const role = TASK_ROLE_MAP[draft.name] || "BDE";
     setStages((current) =>
       current.map((stage) => {
         if (stage.id !== stageId) return stage;
@@ -346,7 +345,7 @@ export default function LeadStageTasks({ leadForms = [] }) {
     setStageDrafts((prev) => ({
       ...prev,
       [stageId]: {
-        name: "Call",
+        name: "Follow-up",
         order: 0,
         required: true,
         autoCreate: true,
@@ -387,7 +386,7 @@ export default function LeadStageTasks({ leadForms = [] }) {
               id: Date.now(),
               name: masterTask.name.trim(),
               description: masterTask.description.trim() || "New stage task",
-              role: masterTask.role || "Tele Caller Executive",
+              role: masterTask.role || "BDE",
               department: masterTask.department || "Any",
               priority: masterTask.priority,
               time: masterTask.time,
@@ -604,7 +603,7 @@ export default function LeadStageTasks({ leadForms = [] }) {
                         }
                         className="w-full max-w-xs bg-white border border-slate-200 rounded-lg px-3 py-1.5 text-xs text-slate-700 focus:outline-none focus:border-blue-500 shadow-2xs cursor-pointer"
                       >
-                        <option>Tele Caller Executive</option>
+                        <option>BDE</option>
                         <option>Sales Support Executive</option>
                         <option>BDE</option>
                         <option>Area Sales Manager</option>
@@ -817,7 +816,7 @@ export default function LeadStageTasks({ leadForms = [] }) {
                       </thead>
                       <tbody className="divide-y divide-slate-100 bg-white">
                         {stage.tasks.map((task) => {
-                          const currentRole = task.role || TASK_ROLE_MAP[task.name] || "Tele Caller Executive";
+                          const currentRole = task.role || TASK_ROLE_MAP[task.name] || "BDE";
                           return (
                             <tr key={task.id} className="hover:bg-slate-50/50 transition">
                               <td className="px-3 py-2.5">
@@ -1045,7 +1044,7 @@ export default function LeadStageTasks({ leadForms = [] }) {
                     onChange={(e) => updateMasterTask("role", e.target.value)}
                     className="w-full px-3 py-1.5 bg-white border border-slate-200 rounded-lg focus:outline-none focus:border-blue-500 shadow-2xs text-slate-800"
                   >
-                    <option>Tele Caller Executive</option>
+                    <option>BDE</option>
                     <option>Sales Support Executive</option>
                     <option>BDE</option>
                     <option>Area Sales Manager</option>

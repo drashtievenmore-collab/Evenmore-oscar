@@ -46,7 +46,7 @@ import { useERP } from '../../../context/ERPContext';
 
 const STAGES = ['Draft', 'Sent', 'Open', 'Won', 'Lost'];
 const PRODUCTS = ['All Products', 'Diamond Jewelry', 'Gold Ornaments', 'Silver Collection', 'Laser Machine', 'CNC Spindle', 'AMC Service'];
-const SOURCES = ['All Sources', 'Website', 'Referral', 'Walk-in', 'Trade Show', 'Cold Call', 'Social Media'];
+const SOURCES = ['All Sources', 'Website', 'Referral', 'Walk-in', 'Trade Show', 'Social Media'];
 const USERS = ['All Users', 'Priya Patel', 'Jayesh Patel', 'Kavita Desai', 'Hetal Patel', 'Rohit Sharma', 'Amit Kumar', 'Utsav Faldu', 'Dr. Meera', 'Ankush Jain', 'Nikhil Patil', 'Mr. Kamlesh Dhumadiya'];
 
 const STAGE_STYLES = {
@@ -561,6 +561,8 @@ export default function DealsPage() {
       )}
 
       {linkedDealId ? <DealDetailView key={linkedDealId} deal={deals.find((item) => String(item.id) === linkedDealId)} onEdit={handleOpenEditModal} onNotify={showNotification} onDelete={setDealToDelete} onUpdate={(patch) => {
+        // Header fields reach `/crm/deals/` through the board write-back
+        // below; nested arrays have their own endpoints (wired in the view).
         const updated = loadDeals().map((item) => String(item.id) === linkedDealId ? { ...item, ...patch } : item);
         setDeals(updated);
         window.dispatchEvent(new Event('crm:data-updated'));

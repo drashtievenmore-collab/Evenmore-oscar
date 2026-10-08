@@ -2,14 +2,15 @@ import React, { useState } from 'react';
 import { useERP } from '../../context/ERPContext';
 import { DataTable } from '../../components/ui/DataTable';
 import { StatCard } from '../../components/ui/StatCard';
-import { StatusBadge } from '../../components/ui/StatusBadge';
 import { Button } from '../../components/ui/Button';
-import { Plus, FileText, CheckCircle2, ArrowRight, X, Copy, Eye, Printer, Minimize2, Maximize2 } from 'lucide-react';
+import { Plus, FileText, CheckCircle2, ArrowRight, X, Eye, Printer, Pencil, Trash2, AlertTriangle } from 'lucide-react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { LineItemEditor } from '../../components/common/LineItemEditor';
 import { PageHeader } from '../../components/common/PageHeader';
-import { useEstimates, addEstimate, updateEstimate } from '../../services/estimateStore';
+import { useEstimates, updateEstimate } from '../../services/estimateStore';
 import { PrintEstimateModal } from '../../components/common/PrintEstimateModal';
+import EstimateComposer from './EstimateComposer';
+import './EstimatesPage.css';
 
 function logLeadActivity(leadId, title, color) {
     if (!leadId || !title) return;
@@ -35,48 +36,79 @@ const estimateGuide = {
 };
 
 export const EstimatesPage = () => {
-    const { customers, addQuotation, formatCurrency, formatDateDDMMYYYY } = useERP();
+    const { customers, addQuotation, deleteEstimate, formatCurrency } = useERP();
     const navigate = useNavigate();
     const location = useLocation();
     const leadRequest = location.state && location.state.fromLead ? location.state : null;
     const autoOpened = React.useRef(false);
     const estimates = useEstimates();
-    const [isModalOpen, setIsModalOpen] = useState(false);
-    const [isFullscreen, setIsFullscreen] = useState(false);
+    const [isComposerOpen, setIsComposerOpen] = useState(false);
+    const [composerKey, setComposerKey] = useState(0);
+    const [composerInitial, setComposerInitial] = useState({ customerId: '', items: [] });
     const [selectedEstimate, setSelectedEstimate] = useState(null);
     const [printEstimateTarget, setPrintEstimateTarget] = useState(null);
-    const [selectedCustomerId, setSelectedCustomerId] = useState(customers[0]?.id || '');
-    const [validUntil, setValidUntil] = useState('15 Days');
-    const [lineItems, setLineItems] = useState([]);
+    const [editingEstimate, setEditingEstimate] = useState(null);
 
     const handleOpenCreateModal = () => {
-        setSelectedCustomerId(customers[0]?.id || '');
-        setValidUntil('15 Days');
-        setLineItems([]);
-        setIsFullscreen(false);
-        setIsModalOpen(true);
+        const match = customers.find((c) => leadRequest && c.name === leadRequest.company) || customers[0];
+        setEditingEstimate(null);
+        setComposerInitial({ customerId: match?.id || '', items: [] });
+        setComposerKey((k) => k + 1);
+        setIsComposerOpen(true);
     };
 
     const handleCloseCreateModal = () => {
-        setIsModalOpen(false);
-        setIsFullscreen(false);
+        setEditingEstimate(null);
+        setIsComposerOpen(false);
     };
+
+    const handleEdit = (estimate) => {
+        if (!estimate || estimate.status === 'Converted') return;
+        setEditingEstimate(estimate);
+        setComposerInitial({ customerId: '', items: [] });
+        setComposerKey((k) => k + 1);
+        setIsComposerOpen(true);
+    };
+
+    const handleDelete = (estimate) => {
+        if (!estimate || estimate.status === 'Converted') return;
+        const label = estimate.estimateNumber || 'this estimate';
+        if (!window.confirm(`Delete estimate ${label}? This cannot be undone.`)) return;
+        if (selectedEstimate && selectedEstimate.id === estimate.id) setSelectedEstimate(null);
+        deleteEstimate?.(estimate.id);
+    };
+
+    const isRowLocked = (estimate) => estimate.status === 'Converted';
+
+    // Pastel filled pills like the register mockup (real statuses kept).
+    const estimateStatusTone = (status) => ({
+        Draft: 'bg-blue-50 text-blue-700 border-blue-200',
+        Sent: 'bg-blue-50 text-blue-700 border-blue-200',
+        Viewed: 'bg-cyan-50 text-cyan-700 border-cyan-200',
+        Accepted: 'bg-emerald-50 text-emerald-700 border-emerald-200',
+        Converted: 'bg-emerald-50 text-emerald-700 border-emerald-200',
+        Rejected: 'bg-rose-50 text-rose-700 border-rose-200',
+        Expired: 'bg-rose-50 text-rose-700 border-rose-200',
+    }[status] || 'bg-slate-100 text-slate-600 border-slate-200');
+
+    const renderEstimateStatus = (status) => (
+        <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-[11px] font-bold border ${estimateStatusTone(status)}`}>
+            {status}
+        </span>
+    );
+
+    const actionIconBtn = 'h-7 w-7 grid place-items-center rounded-md cursor-pointer transition-colors disabled:opacity-40 disabled:cursor-not-allowed';
 
     React.useEffect(() => {
         if (!leadRequest || autoOpened.current) return;
         autoOpened.current = true;
         const match = customers.find((c) => c.name === leadRequest.company) || customers[0];
-        if (match) setSelectedCustomerId(match.id);
-        if (Array.isArray(leadRequest.items) && leadRequest.items.length > 0) {
-            setLineItems(leadRequest.items.map((it, i) => ({
-                id: `li-${Date.now()}-${i}`,
-                description: it.name,
-                qty: 1,
-                rate: it.rate || 0,
-                amount: it.rate || 0,
-            })));
-        }
-        setIsModalOpen(true);
+        setComposerInitial({
+            customerId: match?.id || '',
+            items: Array.isArray(leadRequest.items) ? leadRequest.items : [],
+        });
+        setComposerKey((k) => k + 1);
+        setIsComposerOpen(true);
     }, [leadRequest, customers]);
 
     const totalValue = estimates
@@ -85,6 +117,11 @@ export const EstimatesPage = () => {
 
     const handleConvert = (estimateId) => {
         const estimate = estimates.find((e) => e.id === estimateId);
+        if (!estimate) return;
+        convertEstimateObject(estimate);
+    };
+
+    const convertEstimateObject = (estimate) => {
         if (!estimate) return;
         const cust = customers.find((c) => c.id === estimate.customerId) ||
             customers.find((c) => c.name === estimate.customer) ||
@@ -104,67 +141,76 @@ export const EstimatesPage = () => {
             items: estimate.items || [],
         };
         addQuotation(nextQuote);
-        updateEstimate(estimate.id, { status: 'Converted' });
+        if (estimate.id) updateEstimate(estimate.id, { status: 'Converted' });
         if (estimate.leadId) {
             logLeadActivity(estimate.leadId, `Estimate ${estimate.estimateNumber} converted to Quotation ${nextQuote.quoteNumber}`, '#10b981');
         }
+        setIsComposerOpen(false);
         navigate('/sales/quotations');
     };
 
-    const handleClone = (estimate) => {
-        const cloned = {
-            ...estimate,
-            id: `est-${Date.now()}`,
-            estimateNumber: `EST-2026-${String(estimates.length + 3).padStart(3, '0')}`,
-            date: new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }),
-            status: 'Draft',
-        };
-        addEstimate(cloned);
+    const itemNames = (estimate) => {
+        const names = (estimate.items || [])
+            .map((it) => it.itemName || it.name || it.description)
+            .filter(Boolean);
+        if (names.length === 0) return '1 Item';
+        if (names.length <= 2) return names.join(', ');
+        return `Multiple Items (${names.length})`;
     };
+
+    const itemNamesTitle = (estimate) => (estimate.items || [])
+        .map((it) => it.itemName || it.name || it.description)
+        .filter(Boolean)
+        .join(', ');
 
     const columns = [
         {
             header: 'Estimate #',
             accessor: 'estimateNumber',
-            width: '18%',
+            width: '14%',
             render: (e) => (
-                <div>
-                    <button
-                        onClick={() => setSelectedEstimate(e)}
-                        className="font-bold font-mono text-primary hover:underline block text-left cursor-pointer"
-                    >
-                        {e.estimateNumber}
-                    </button>
-                    <span className="text-[11px] text-muted">{formatDateDDMMYYYY(e.date)}</span>
-                </div>
+                <button
+                    onClick={() => setSelectedEstimate(e)}
+                    title="View Details"
+                    className="font-bold text-[13px] text-[#1F2E4A] hover:underline block text-left cursor-pointer"
+                >
+                    {e.estimateNumber}
+                    {e._synced === false && (
+                        <span
+                            className="ml-1.5 inline-flex items-center gap-1 align-middle text-[10px] font-bold text-amber-600 no-underline"
+                            title={e._syncError || 'This estimate did not reach the server.'}
+                        >
+                            <AlertTriangle size={11} /> Not synced
+                        </span>
+                    )}
+                </button>
             ),
         },
         {
             header: 'Customer',
             accessor: 'customer',
-            width: '26%',
+            width: '24%',
             render: (e) => (
-                <div>
-                    <strong className="text-slate-900 dark:text-slate-100 block">{e.customer}</strong>
-                    <span className="text-[11px] text-muted">Validity: {e.validUntil || '15 Days'}</span>
-                </div>
+                <span className="font-semibold text-[13px] text-slate-800 block truncate" title={e.customer}>
+                    {e.customer}
+                </span>
             ),
         },
         {
             header: 'Items',
-            width: '14%',
+            width: '20%',
             render: (e) => (
-                <span className="text-xs text-muted">
-                    {e.items && e.items.length > 0 ? `${e.items.length} Line Items` : '1 Item'}
+                <span className="text-[13px] text-slate-600 block truncate" title={itemNamesTitle(e)}>
+                    {itemNames(e)}
                 </span>
             ),
         },
         {
             header: 'Estimated Total',
             accessor: 'amount',
-            width: '18%',
+            width: '14%',
             render: (e) => (
-                <span className="font-mono font-bold text-slate-900 dark:text-slate-100">
+                <span className="font-bold text-[13px] text-slate-900">
                     {formatCurrency(e.amount || 0)}
                 </span>
             ),
@@ -172,81 +218,77 @@ export const EstimatesPage = () => {
         {
             header: 'Status',
             accessor: 'status',
-            width: '14%',
-            render: (e) => <StatusBadge status={e.status} />,
+            width: '12%',
+            align: 'center',
+            render: (e) => renderEstimateStatus(e.status),
         },
         {
             header: 'Actions',
-            width: '10%',
+            align: 'right',
+            width: '16%',
             render: (e) => (
                 <div className="flex items-center justify-end gap-1.5 whitespace-nowrap">
                     <button
                       onClick={() => setSelectedEstimate(e)}
-                      className="p-1.5 text-muted hover:text-primary hover:bg-card-hover rounded-lg cursor-pointer transition-colors"
+                      className={`${actionIconBtn} bg-slate-100 text-slate-500 hover:bg-slate-200`}
                       title="View Details"
                     >
                         <Eye size={13} />
                     </button>
                     <button
-                      onClick={() => setPrintEstimateTarget(e)}
-                      className="p-1.5 text-muted hover:text-primary hover:bg-card-hover rounded-lg cursor-pointer transition-colors"
-                      title="Print Official Estimate Voucher"
+                      onClick={() => handleEdit(e)}
+                      disabled={isRowLocked(e)}
+                      className={`${actionIconBtn} bg-blue-50 text-blue-600 hover:bg-blue-100`}
+                      title={isRowLocked(e) ? 'Converted estimates cannot be edited' : 'Edit Estimate'}
                     >
-                        <Printer size={13} />
-                    </button>
-                    <button
-                      onClick={() => handleClone(e)}
-                      className="p-1.5 text-muted hover:text-primary hover:bg-card-hover rounded-lg cursor-pointer transition-colors"
-                      title="Clone / Duplicate Estimate"
-                    >
-                        <Copy size={13} />
+                        <Pencil size={13} />
                     </button>
                     {e.status === 'Converted' ? (
                         <button
                           onClick={() => navigate('/sales/quotations')}
                           className="text-xs font-semibold text-emerald-600 dark:text-emerald-400 hover:underline inline-flex items-center gap-1 cursor-pointer"
+                          title="Open the converted quotation"
                         >
                             <CheckCircle2 size={12} /> Converted
                         </button>
                     ) : (
                         <button
                           onClick={() => handleConvert(e.id)}
-                          className="text-xs font-semibold text-primary hover:underline inline-flex items-center gap-1 cursor-pointer"
+                          className={`${actionIconBtn} bg-emerald-500 text-white hover:bg-emerald-600`}
+                          title="Convert to Quotation"
                         >
-                            Convert <ArrowRight size={12} />
+                            <ArrowRight size={13} />
                         </button>
                     )}
+                    <button
+                      onClick={() => handleDelete(e)}
+                      disabled={isRowLocked(e)}
+                      className={`${actionIconBtn} bg-red-500 text-white hover:bg-red-600`}
+                      title={isRowLocked(e) ? 'Converted estimates cannot be deleted' : 'Delete Estimate'}
+                    >
+                        <Trash2 size={13} />
+                    </button>
                 </div>
             ),
         },
     ];
 
-    const selectedCustomer = customers.find((c) => c.id === selectedCustomerId) || customers[0];
-
-    const handleCreate = (e) => {
-        e.preventDefault();
-        const cust = selectedCustomer || customers[0];
-        const computedTotal = lineItems.reduce((acc, it) => acc + (it.amount || it.qty * it.rate), 0);
-        const next = {
-            id: `est-${Date.now()}`,
-            estimateNumber: `EST-2026-${String(estimates.length + 3).padStart(3, '0')}`,
-            customerId: cust?.id || '',
-            customer: cust?.name || 'Acme Corp',
-            leadId: leadRequest?.leadId || '',
-            leadName: leadRequest?.leadName || '',
-            date: new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }),
-            validUntil: validUntil || '15 Days',
-            amount: computedTotal > 0 ? computedTotal : 1500,
-            status: 'Draft',
-            items: lineItems,
-        };
-        addEstimate(next);
-        if (leadRequest?.leadId) {
-            logLeadActivity(leadRequest.leadId, `Estimate ${next.estimateNumber} created for ${leadRequest.leadName || 'lead'}`, '#ec4899');
-        }
-        setIsModalOpen(false);
-        setLineItems([]);
-    };
+    if (isComposerOpen) {
+        return (
+            <EstimateComposer
+                key={composerKey}
+                initialCustomerId={composerInitial.customerId}
+                initialLines={composerInitial.items}
+                editingEstimate={editingEstimate}
+                leadId={leadRequest?.leadId || ''}
+                leadName={leadRequest?.leadName || ''}
+                company={leadRequest?.company || ''}
+                onBack={handleCloseCreateModal}
+                onSaved={() => { setEditingEstimate(null); setIsComposerOpen(false); }}
+                onConvert={(saved) => convertEstimateObject(saved)}
+            />
+        );
+    }
 
     return (
         <div className="space-y-6">
@@ -281,6 +323,7 @@ export const EstimatesPage = () => {
                 />
             </div>
 
+            <div className="estimate-register">
             <DataTable
                 title="Estimate Register"
                 data={estimates}
@@ -293,92 +336,7 @@ export const EstimatesPage = () => {
                     String(e.status ?? '').toLowerCase().includes(term)
                 }
             />
-
-            {isModalOpen && (
-                <div className={`fixed inset-0 z-50 bg-black/50 backdrop-blur-sm flex items-center justify-center transition-all duration-200 ${isFullscreen ? 'p-0' : 'p-2 sm:p-4'}`}>
-                    <div className={`bg-white border border-slate-200 shadow-2xl flex flex-col overflow-hidden transition-all duration-200 ${
-                        isFullscreen ? 'w-full h-full rounded-none p-4 sm:p-8' : 'max-w-5xl w-full rounded-2xl p-4 sm:p-6 max-h-[92vh]'
-                    } text-xs`}>
-                        <div className="flex items-center justify-between pb-3 border-b border-slate-200">
-                            <h3 className="font-bold text-base text-[#1F2E4A]">Create Sales Estimate</h3>
-                            <div className="flex items-center gap-2">
-                                <button
-                                    type="button"
-                                    onClick={() => setIsFullscreen(!isFullscreen)}
-                                    className="p-1.5 text-slate-400 hover:text-slate-700 rounded-lg hover:bg-slate-100 transition cursor-pointer"
-                                    title={isFullscreen ? "Exit Fullscreen" : "Maximize Fullscreen"}
-                                >
-                                    {isFullscreen ? <Minimize2 size={16} /> : <Maximize2 size={16} />}
-                                </button>
-                                <button
-                                    type="button"
-                                    onClick={handleCloseCreateModal}
-                                    className="p-1.5 text-slate-400 hover:text-slate-700 rounded-lg hover:bg-slate-100 transition cursor-pointer"
-                                >
-                                    <X size={18} />
-                                </button>
-                            </div>
-                        </div>
-                        <form onSubmit={handleCreate} className="space-y-4 mt-4 overflow-y-auto pr-1 flex-1">
-                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                                <div>
-                                    <label className="font-semibold text-slate-700 block mb-1">Customer Account *</label>
-                                    <select
-                                        required
-                                        value={selectedCustomerId}
-                                        onChange={(e) => setSelectedCustomerId(e.target.value)}
-                                        className="w-full p-2 border border-slate-300 rounded bg-white text-slate-800 font-medium"
-                                    >
-                                        {customers.map((c) => (
-                                            <option key={c.id} value={c.id}>
-                                                {c.name} ({c.code}) - Balance: ₹{c.balance.toFixed(2)}
-                                            </option>
-                                        ))}
-                                    </select>
-                                    {selectedCustomer && (
-                                        <div className="mt-2 p-2.5 rounded-xl border border-slate-200 bg-slate-50 text-[11px] space-y-1">
-                                            <div className="flex items-center justify-between font-bold text-slate-800">
-                                                <span>{selectedCustomer.name}</span>
-                                                <span className="text-blue-700 font-mono text-[10px] bg-blue-50 px-1.5 py-0.5 rounded border border-blue-200">
-                                                    Credit Limit: ₹{(selectedCustomer.creditLimit || 50000).toLocaleString('en-IN')}
-                                                </span>
-                                            </div>
-                                            <div className="flex flex-wrap gap-x-3 gap-y-0.5 text-slate-600 text-[10px]">
-                                                <span>POC: <strong>{selectedCustomer.contactPerson || 'Account Lead'}</strong></span>
-                                                <span>Email: {selectedCustomer.email}</span>
-                                                <span>Phone: {selectedCustomer.phone}</span>
-                                                <span>Outstanding: ₹{(selectedCustomer.balance || 0).toLocaleString('en-IN')}</span>
-                                            </div>
-                                        </div>
-                                    )}
-                                </div>
-                                <div>
-                                    <label className="font-semibold text-slate-700 block mb-1">Validity Period</label>
-                                    <input
-                                        type="text"
-                                        value={validUntil}
-                                        onChange={(e) => setValidUntil(e.target.value)}
-                                        placeholder="e.g. 15 Days"
-                                        className="w-full p-2 border border-slate-300 rounded bg-white text-slate-800"
-                                    />
-                                </div>
-                            </div>
-
-                            <div>
-                                <label className="font-semibold text-slate-700 block mb-2">Estimate Line Items</label>
-                                <LineItemEditor items={lineItems} onChange={setLineItems} type="sales" />
-                            </div>
-
-                            <div className="flex items-center justify-end gap-2 pt-4 border-t border-slate-200">
-                                <Button variant="outline" type="button" onClick={handleCloseCreateModal}>
-                                    Cancel
-                                </Button>
-                                <Button type="submit">Generate Estimate</Button>
-                            </div>
-                        </form>
-                    </div>
-                </div>
-            )}
+            </div>
 
             {selectedEstimate && (
                 <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-sm flex items-center justify-center p-2 sm:p-4">
@@ -389,7 +347,7 @@ export const EstimatesPage = () => {
                                 <span className="font-semibold text-slate-600 bg-slate-100 px-2.5 py-0.5 rounded">
                                     {selectedEstimate.customer}
                                 </span>
-                                <StatusBadge status={selectedEstimate.status} />
+                                {renderEstimateStatus(selectedEstimate.status)}
                             </div>
                             <div className="flex flex-wrap lg:flex-nowrap items-center gap-2">
                                 <button
@@ -435,14 +393,25 @@ export const EstimatesPage = () => {
                             </div>
                             <div className="flex flex-wrap lg:flex-nowrap items-center gap-2">
                                 {selectedEstimate.status !== 'Converted' && (
-                                    <Button
-                                        onClick={() => {
-                                            handleConvert(selectedEstimate.id);
-                                            setSelectedEstimate(null);
-                                        }}
-                                    >
-                                        Convert to Quotation
-                                    </Button>
+                                    <>
+                                        <Button
+                                            variant="outline"
+                                            onClick={() => {
+                                                setSelectedEstimate(null);
+                                                handleEdit(selectedEstimate);
+                                            }}
+                                        >
+                                            Edit
+                                        </Button>
+                                        <Button
+                                            onClick={() => {
+                                                handleConvert(selectedEstimate.id);
+                                                setSelectedEstimate(null);
+                                            }}
+                                        >
+                                            Convert to Quotation
+                                        </Button>
+                                    </>
                                 )}
                                 <Button variant="outline" onClick={() => setSelectedEstimate(null)}>
                                     Close

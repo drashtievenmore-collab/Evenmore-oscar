@@ -13,6 +13,7 @@ import {
   CONTRACT_TYPES,
   CONTRACT_TEMPLATES,
   loadContracts,
+  refreshContractsCache,
   createContract,
   formatContractMoney,
   formatContractDate,
@@ -141,7 +142,7 @@ export default function ContractsPage() {
   }
 
   useEffect(() => {
-    refresh();
+    refreshContractsCache().then(() => refresh()).catch(() => refresh());
     window.addEventListener('storage', refresh);
     window.addEventListener('crm:data-updated', refresh);
     return () => {
@@ -190,13 +191,13 @@ export default function ContractsPage() {
     setPage(1);
   }
 
-  function submitCreate(event) {
+  async function submitCreate(event) {
     event.preventDefault();
     if (busy) return;
     setBusy(true);
     setFormError('');
     try {
-      const contract = createContract(form);
+      const contract = await createContract(form);
       setCreateOpen(false);
       setForm(EMPTY_FORM);
       setCreated(contract);

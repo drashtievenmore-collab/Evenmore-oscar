@@ -12,9 +12,11 @@ import {
     pushCreate,
     pushUpdate,
     pushDelete,
+    postDocumentAction,
     pullCompanyProfile,
     isServerId,
     describeError,
+    RESOURCES,
 } from '../services/backendSync';
 // ── [PHASE-2E.1] steel-category → HSN default map (Sweven fabrication master) ──
 //   Falls back to 7216 (angles/shapes/sections) unless the category matches a known steel family.
@@ -207,6 +209,19 @@ export const ERPProvider = ({ children, }) => {
         zoneRequests: setZoneRequests,
         bankAccounts: setBankAccounts,
         journalEntries: setJournalEntries,
+        itemParts: setItemParts,
+        // Guide rows ship with the app; server rows join them (matched by
+        // name) instead of blanking the QC checklist when the backend is empty.
+        qualityStandards: (rows) => setQualityStandards((prev) => {
+            const server = Array.isArray(rows) ? rows : [];
+            if (server.length === 0) return prev;
+            const names = new Set(server.map((r) => String(r?.name || '').toLowerCase()));
+            return [
+                ...server,
+                ...(Array.isArray(prev) ? prev : []).filter((r) =>
+                    r && !isServerId(r.id) && !names.has(String(r?.name || '').toLowerCase())),
+            ];
+        }),
     };
 
     const [backendStatus, setBackendStatus] = useState({ connected: false, loading: false, lastSyncAt: null });
@@ -461,6 +476,73 @@ export const ERPProvider = ({ children, }) => {
             console.warn(`[ERP] could not delete ${key}:`, err);
             showToast(`Delete not saved to server — ${describeError(err)}`);
         });
+    };
+
+    /**
+     * Re-read collections after a server-side action (finalize, cancel,
+     * receive-goods …) that posts stock and ledger rows behind the scenes.
+     * Server rows win by id; local-only rows (offline creates) are kept.
+     * Stock movements additionally dedupe by business key, because the
+     * screen posts an instant local mirror of the SALE the server also
+     * posts — same type/reference/item/quantity means the same movement.
+     */
+    const movementKey = (m) => [
+        m?.type,
+        m?.referenceId ?? m?.reference_id ?? m?.referenceNumber ?? m?.reference_number,
+        m?.itemId ?? m?.itemSku,
+        Number(m?.quantity),
+    ].join('|');
+    const refreshCollections = (keys) => {
+        if (!isBackendEnabled() || !keys?.length) return Promise.resolve({});
+        return pullAll(keys).then((collections) => {
+            Object.entries(collections).forEach(([key, rows]) => {
+                const setter = syncSettersRef.current[key];
+                if (!setter || !Array.isArray(rows)) return;
+                const serverIds = new Set(rows.map((r) => String(r?.id)));
+                const serverKeys = new Set(rows.map(movementKey));
+                setter((prev) => {
+                    const base = Array.isArray(prev) ? prev : [];
+                    const localOnly = base.filter((r) => {
+                        if (!r || isServerId(r.id) || serverIds.has(String(r.id))) return false;
+                        if (key === 'inventoryMovements' && serverKeys.has(movementKey(r))) return false;
+                        return true;
+                    });
+                    return [...localOnly, ...rows];
+                });
+            });
+            return collections;
+        }).catch(() => ({}));
+    };
+
+    /**
+     * Re-point local stock mirrors at the server row after reconcile, so the
+     * refresh dedupes by business key instead of double counting.
+     */
+    const repointMovements = (tempId, serverId) => {
+        if (!serverId || serverId === tempId) return;
+        setInventoryMovements((prev) => prev.map((m) => (
+            m.referenceId === tempId ? { ...m, referenceId: serverId } : m
+        )));
+    };
+
+    /**
+     * Run a document action endpoint (`finalize`, `cancel`, `receive-goods`)
+     * and reconcile the returned document into state. The server owns the
+     * side effects (numbers, stock, ledger); dependents re-read afterwards.
+     */
+    const runDocAction = (key, id, action, data, setter, { refresh = [] } = {}) => {
+        if (!isBackendEnabled() || !isServerId(id)) return Promise.resolve(null);
+        return postDocumentAction(key, id, action, data)
+            .then(({ saved }) => {
+                if (saved && setter) reconcile(setter, id, saved);
+                if (refresh.length) refreshCollections(refresh);
+                return saved;
+            })
+            .catch((err) => {
+                console.warn(`[ERP] ${key}/${action} failed:`, err);
+                showToast(`${action} not saved to server — ${describeError(err)}`);
+                throw err;
+            });
     };
 
     /**
@@ -795,6 +877,16 @@ export const ERPProvider = ({ children, }) => {
                 notes: `RMA Defect: ${part.notes}`,
             });
         }
+        // The server allocates the RMA number and posts the FAULTY movement
+        // itself; the re-read replaces the optimistic row and dedupes stock.
+        if (targetItem && isServerId(targetItem.id)) {
+            persistCreate('faultyParts', { ...part, itemId: targetItem.id }, setFaultyParts, {
+                onServer: (saved) => {
+                    repointMovements(part.id, saved?.id);
+                    refreshCollections(['faultyParts', 'inventoryMovements', 'items']);
+                },
+            });
+        }
         showToast(`RMA case ${part.rmaNumber} initiated.`);
         return part;
     };
@@ -807,6 +899,7 @@ export const ERPProvider = ({ children, }) => {
                 status: newStatus,
             };
         }));
+        persistUpdate('faultyParts', id, { status: newStatus }, setFaultyParts);
     };
     const updateFaultyPartNotes = (id, newNotes) => {
         setFaultyParts((prev) => prev.map((p) => {
@@ -817,6 +910,7 @@ export const ERPProvider = ({ children, }) => {
                 notes: newNotes,
             };
         }));
+        persistUpdate('faultyParts', id, { notes: newNotes }, setFaultyParts);
     };
 
     // ── ADDRESS SNAPSHOT HELPERS ──────────────────────────────────────────────
@@ -1011,19 +1105,6 @@ export const ERPProvider = ({ children, }) => {
                     : c));
             }
 
-            // Auto-create Journal Entry for Revenue & AR
-            const je = {
-                id: `je-${Date.now()}`,
-                entryNumber: `JE-2026-${String(journalEntries.length + 81).padStart(3, '0')}`,
-                date: invoice.date,
-                description: `Sales Invoice - ${invoice.customer}`,
-                reference: invoice.invoiceNumber,
-                debitAccount: '1210 - Accounts Receivable',
-                creditAccount: '4010 - Sales Revenue',
-                amount: invoice.total,
-                status: 'Posted',
-            };
-            setJournalEntries((prev) => [je, ...prev]);
             showToast(`Invoice ${invoice.invoiceNumber} created and finalized.`);
         } else {
             showToast(`Draft Invoice ${invoice.invoiceNumber} saved.`);
@@ -1033,7 +1114,21 @@ export const ERPProvider = ({ children, }) => {
         // the same work authoritatively — allocates INV-…, recomputes the
         // totals, posts the SALE movements and the Dr Debtors / Cr Sales entry —
         // and its reply replaces the optimistic row.
-        persistCreate('invoices', invoice, setInvoices);
+        persistCreate('invoices', invoice, setInvoices, {
+            // Local stock mirrors point at the temp id; re-point them at the
+            // server invoice so the refresh dedupes instead of double counting.
+            // The server's own postings (JE, ledger, balances) arrive via re-read.
+            onServer: (saved) => {
+                if (saved && saved.id && saved.id !== invoice.id) {
+                    setInventoryMovements((prev) => prev.map((m) => (
+                        m.referenceId === invoice.id
+                            ? { ...m, referenceId: saved.id, referenceNumber: saved.invoiceNumber || m.referenceNumber }
+                            : m
+                    )));
+                }
+                refreshCollections(['invoices', 'journalEntries', 'inventoryMovements', 'parties', 'items']);
+            },
+        });
 
         return invoice;
     };
@@ -1125,7 +1220,10 @@ export const ERPProvider = ({ children, }) => {
             };
             return updatedInv;
         }));
-        if (updatedInv) showToast(`Draft Invoice ${updatedInv.invoiceNumber} updated.`);
+        if (updatedInv) {
+            showToast(`Draft Invoice ${updatedInv.invoiceNumber} updated.`);
+            persistUpdate('invoices', invoiceId, updatedInv, setInvoices);
+        }
         return updatedInv;
     };
 
@@ -1193,19 +1291,13 @@ export const ERPProvider = ({ children, }) => {
                 : c));
         }
 
-        // Auto-create Journal Entry for Revenue & AR
-        const je = {
-            id: `je-${Date.now()}`,
-            entryNumber: `JE-2026-${String(journalEntries.length + 81).padStart(3, '0')}`,
-            date: finalized.date,
-            description: `Sales Invoice - ${finalized.customer}`,
-            reference: finalized.invoiceNumber,
-            debitAccount: '1210 - Accounts Receivable',
-            creditAccount: '4010 - Sales Revenue',
-            amount: finalized.total,
-            status: 'Posted',
-        };
-        setJournalEntries((prev) => [je, ...prev]);
+        // Auto-create Journal Entry for Revenue & AR — server-side: the
+        // finalize action posts Dr Debtors / Cr Sales itself, and the
+        // re-read below brings that entry in. A local mirror here would
+        // double-count in the ledger views.
+        runDocAction('invoices', finalized.id, 'finalize', {}, setInvoices, {
+            refresh: ['invoices', 'journalEntries', 'inventoryMovements', 'parties'],
+        }).catch(() => {});
         showToast(`Invoice ${finalized.invoiceNumber} finalized and posted to General Ledger.`);
         return finalized;
     };
@@ -1225,7 +1317,9 @@ export const ERPProvider = ({ children, }) => {
             };
         }
 
-        // If invoice was finalized / posted, reverse GL, AR balance, and stock movement (if direct)
+        // If invoice was finalized / posted, the server reverses GL, AR
+        // balance, and stock on cancel — the re-read below brings those
+        // reversals in. No local reversal JE: it would double-count.
         if (inv.finalized !== false && inv.status !== 'Draft') {
             // Reversal of customer balance
             if (inv.customer) {
@@ -1233,20 +1327,6 @@ export const ERPProvider = ({ children, }) => {
                     ? { ...c, balance: Math.max(0, c.balance - inv.total) }
                     : c));
             }
-
-            // Auto-create Reversal Journal Entry
-            const jeReversal = {
-                id: `je-${Date.now()}`,
-                entryNumber: `JE-2026-${String(journalEntries.length + 82).padStart(3, '0')}`,
-                date: getCurrentDateFormatted(),
-                description: `Invoice Cancellation Reversal - ${inv.invoiceNumber} (${inv.customer})`,
-                reference: `REV-${inv.invoiceNumber}`,
-                debitAccount: '4010 - Sales Revenue',
-                creditAccount: '1210 - Accounts Receivable',
-                amount: inv.total,
-                status: 'Posted',
-            };
-            setJournalEntries((prev) => [jeReversal, ...prev]);
 
             // Reversal of physical stock movement if Direct Invoice (Case B/C without DC)
             const soId = inv.salesOrderId || inv.linkedSo;
@@ -1277,12 +1357,24 @@ export const ERPProvider = ({ children, }) => {
         }
 
         setInvoices((prev) => prev.map((i) => i.id === invoiceId ? { ...i, status: 'Cancelled' } : i));
+        // Server-side cancel reverses postings; re-read what it touched.
+        runDocAction('invoices', invoiceId, 'cancel', {}, setInvoices, {
+            refresh: ['invoices', 'journalEntries', 'inventoryMovements', 'parties'],
+        }).catch(() => {});
         showToast(`Invoice ${inv.invoiceNumber} cancelled.`);
         return { success: true, message: `Invoice ${inv.invoiceNumber} cancelled.` };
     };
 
     const updateInvoiceStatus = (id, newStatus) => {
         setInvoices((prev) => prev.map((inv) => (inv.id === id ? { ...inv, status: newStatus } : inv)));
+        // Posted invoices reject PATCH by design (cancel, don't edit) and the
+        // status column itself is server-derived — the push is best-effort
+        // with no reconcile, so a derived value never reverts the display.
+        // Only drafts persist this way; posted statuses change via actions.
+        const current = invoices.find((inv) => inv.id === id);
+        if (!current || current.status === 'Draft') {
+            persistUpdate('invoices', id, { status: newStatus });
+        }
         showToast(`Invoice status updated to ${newStatus}.`);
     };
 
@@ -1368,7 +1460,12 @@ export const ERPProvider = ({ children, }) => {
     };
 
     const updateProformaInvoiceStatus = (id, status) => {
+        const current = proformaInvoices.find((pi) => pi.id === id);
         setProformaInvoices((prev) => prev.map((pi) => (pi.id === id ? { ...pi, status } : pi)));
+        // Only drafts accept PATCH (api.md §1.9).
+        if (!current || current.status === 'Draft') {
+            persistUpdate('proformaInvoices', id, { status }, setProformaInvoices);
+        }
         showToast(`Proforma status updated to ${status}.`);
     };
 
@@ -1423,6 +1520,11 @@ export const ERPProvider = ({ children, }) => {
             convertedInvoiceId: newInvoice.id,
             convertedInvoiceNumber: newInvoice.invoiceNumber,
         } : p)));
+        // Draft proformas accept the status PATCH; the invoice itself
+        // persists through createInvoice above.
+        if (!pi || pi.status === 'Draft' || pi.status === 'Sent') {
+            persistUpdate('proformaInvoices', proformaId, { status: 'Converted' }, setProformaInvoices);
+        }
 
         showToast(`Proforma ${pi.proformaNumber} converted to Draft Invoice ${newInvoice.invoiceNumber}!`);
         return newInvoice;
@@ -1447,6 +1549,28 @@ export const ERPProvider = ({ children, }) => {
             managerSignoffNeeded: true,
         };
         setZoneRequests((prev) => [req, ...prev]);
+        // Resolve the shop-floor zone and the item to server rows so the
+        // request persists (zone_location is required server-side).
+        const zoneLocation = locations.find((l) =>
+            [l.name, l.code].filter(Boolean).some((v) =>
+                String(v).toLowerCase() === String(req.zone || req.targetSector || '').toLowerCase()));
+        const zoneItem = items.find((i) =>
+            (req.itemId && i.id === req.itemId) ||
+            (req.sku && i.sku?.toLowerCase() === String(req.sku).toLowerCase()));
+        if (zoneLocation && isServerId(zoneLocation.id)) {
+            persistCreate('zoneRequests', {
+                ...req,
+                zoneLocationId: zoneLocation.id,
+                itemId: zoneItem && isServerId(zoneItem.id) ? zoneItem.id : undefined,
+                lines: zoneItem && isServerId(zoneItem.id)
+                    ? [{ itemId: zoneItem.id, qty: req.qty || 1 }] : [],
+            }, setZoneRequests, {
+                onServer: (saved) => {
+                    repointMovements(req.id, saved?.id);
+                    refreshCollections(['zoneRequests', 'inventoryMovements', 'items']);
+                },
+            });
+        }
         showToast(`Requisition ${req.requestNumber} queued.`);
         return req;
     };
@@ -1456,6 +1580,11 @@ export const ERPProvider = ({ children, }) => {
                 return r;
             return { ...r, status: newStatus };
         }));
+        // Fulfilled issues stock server-side; re-read afterwards.
+        persistUpdate('zoneRequests', id, { status: newStatus }, setZoneRequests);
+        if (newStatus === 'Fulfilled') {
+            refreshCollections(['zoneRequests', 'inventoryMovements', 'items']);
+        }
         if (newStatus === 'Fulfilled') {
             const targetReq = zoneRequests.find((r) => r.id === id);
             if (targetReq) {
@@ -1777,15 +1906,22 @@ export const ERPProvider = ({ children, }) => {
             requiredQty: Number(part.requiredQty) || 1,
         };
         setItemParts((prev) => [...prev, newItemPart]);
+        // Machine BOM feeds the backend explosion service — both ends must be
+        // saved items, otherwise the row stays local-only.
+        if (isServerId(newItemPart.parentItemId) && isServerId(newItemPart.partItemId)) {
+            persistCreate('itemParts', newItemPart, setItemParts);
+        }
         showToast(`BOM part linked to machine.`);
         return newItemPart;
     };
     const updateItemPart = (id, updates) => {
         setItemParts((prev) => prev.map((p) => (p.id === id ? { ...p, ...updates } : p)));
+        persistUpdate('itemParts', id, updates, setItemParts);
         showToast(`Machine BOM part updated.`);
     };
     const removeItemPart = (id) => {
         setItemParts((prev) => prev.filter((p) => p.id !== id));
+        persistDelete('itemParts', id);
         showToast(`Machine BOM part removed.`);
     };
 
@@ -1825,7 +1961,7 @@ export const ERPProvider = ({ children, }) => {
         const diff = isAbsolute ? adjustment - targetItem.availableQty : adjustment;
         if (diff === 0)
             return;
-        recordMovement({
+        const mirror = recordMovement({
             itemId: targetItem.id,
             itemSku: targetItem.sku,
             itemName: targetItem.name,
@@ -1837,6 +1973,24 @@ export const ERPProvider = ({ children, }) => {
             referenceNumber: `ADJ-${Math.floor(1000 + Math.random() * 9000)}`,
             notes: reason,
         });
+        // Server-side adjustment posts the ADJUSTMENT movement authoritatively
+        // (api.md §7.2); drop the local mirror once posted and re-read.
+        if (isBackendEnabled() && isServerId(targetItem.id)) {
+            api.post('/inventory/adjustments/', {
+                itemId: targetItem.id,
+                quantity: diff,
+                isAbsolute: false,
+                reason,
+            }).then(() => {
+                if (mirror?.id) {
+                    setInventoryMovements((prev) => prev.filter((m) => m.id !== mirror.id));
+                }
+                refreshCollections(['items', 'inventoryMovements']);
+            }).catch((err) => {
+                console.warn('[ERP] stock adjustment not saved:', err);
+                showToast(`Adjustment not saved to server — ${describeError(err)}`);
+            });
+        }
         showToast(`Stock for ${targetItem.sku} adjusted by ${diff > 0 ? '+' : ''}${diff} units.`);
     };
     const addCustomer = (cust, { persist = true } = {}) => {
@@ -2003,13 +2157,23 @@ export const ERPProvider = ({ children, }) => {
             estimateNumber: est.estimateNumber || `EST-2026-${String(estimates.length + 1).padStart(3, '0')}`,
             customerId: est.customerId,
             customer: est.customer || 'Acme Corp',
+            contactPerson: est.contactPerson || '',
             billingAddress: createAddressSnapshot(est.billingAddress) || defaultAddresses.billing,
             shippingAddress: createAddressSnapshot(est.shippingAddress) || defaultAddresses.shipping,
             date: formatDateDDMMYYYY(est.date || 'Today'),
             validUntil: est.validUntil || '15 Days',
+            validityDays: est.validityDays ?? '',
+            paymentTerms: est.paymentTerms || '',
+            leadId: est.leadId ? String(est.leadId) : '',
+            leadName: est.leadName || '',
             amount: estAmount,
             status: est.status || 'Draft',
             items: est.items || [],
+            discountTotal: est.discountTotal ?? 0,
+            freightCharges: est.freightCharges ?? 0,
+            otherCharges: est.otherCharges ?? 0,
+            loadingCharges: est.loadingCharges ?? 0,
+            terms: est.terms || '',
             notes: est.notes || 'Preliminary cost estimate',
         };
         setEstimates((prev) => [newEst, ...prev]);
@@ -2040,6 +2204,7 @@ export const ERPProvider = ({ children, }) => {
             return undefined;
         }
         setEstimates((prev) => prev.map((e) => (e.id === estimateId ? { ...e, status: 'Converted' } : e)));
+        persistUpdate('estimates', estimateId, { status: 'Converted' }, setEstimates);
         const newQuote = {
             customerId: est.customerId,
             customer: est.customer,
@@ -2075,6 +2240,16 @@ export const ERPProvider = ({ children, }) => {
             sourceEstimateNumber: quote.sourceEstimateNumber,
             customerId: quote.customerId,
             customer: quote.customer || 'Acme Corp',
+            contactPerson: quote.contactPerson || '',
+            salesPerson: quote.salesPerson || '',
+            broker: quote.broker || '',
+            paymentTerms: quote.paymentTerms || '',
+            deliveryDate: quote.deliveryDate || '',
+            validityDays: quote.validityDays ?? '',
+            discountTotal: quote.discountTotal ?? 0,
+            freightCharges: quote.freightCharges ?? 0,
+            otherCharges: quote.otherCharges ?? 0,
+            loadingCharges: quote.loadingCharges ?? 0,
             billingAddress: createAddressSnapshot(quote.billingAddress) || defaultAddresses.billing,
             shippingAddress: createAddressSnapshot(quote.shippingAddress) || defaultAddresses.shipping,
             date: formatDateDDMMYYYY(quote.date || 'Today'),
@@ -2110,6 +2285,7 @@ export const ERPProvider = ({ children, }) => {
                 status: ['Draft', 'Sent', 'Viewed'].includes(q.status) ? (share.decision || (viewed ? 'Viewed' : q.status)) : q.status };
         }));
         if (current && current.status !== 'Viewed' && nextStatus === 'Viewed') {
+            persistUpdate('quotations', id, { status: nextStatus }, setQuotations);
             emitCrmEvent({
                 type: CRM_EVENT_TYPES.QUOTATION_VIEWED,
                 entityType: 'quotation',
@@ -2145,9 +2321,60 @@ export const ERPProvider = ({ children, }) => {
             activity: [...(q.activity || []), { id: crypto.randomUUID(), type: `Delivery challan ${challan.challanNumber} created`, quotationId: id, timestamp: new Date().toISOString() }] } : q));
         return challan;
     };
+    /**
+     * Customer approval of a quotation (`Accepted` / `Approved`).
+     *
+     * Server rows go through `POST /sales/quotations/{id}/approve/`, which
+     * marks the quotation Accepted AND converts the linked lead into a
+     * Customer/Party in one transaction — the response carries
+     * `{ customer, lead, message }`. Local-only rows just flip status.
+     * Never creates a Sales Order; that stays an explicit next step.
+     */
+    const approveQuotation = async (id) => {
+        const target = quotations.find((q) => String(q.id) === String(id));
+        if (!target) return null;
+        if (!isBackendEnabled() || !isServerId(id)) {
+            setQuotations((prev) => prev.map((q) => (q.id === id ? { ...q, status: 'Accepted' } : q)));
+            showToast('Quotation approved. Lead has been converted to Customer successfully.');
+            return { customer: null };
+        }
+        try {
+            const { saved, envelope } = await postDocumentAction('quotations', id, 'approve', {});
+            if (saved) reconcile(setQuotations, id, { ...saved, status: 'Accepted' });
+            else setQuotations((prev) => prev.map((q) => (q.id === id ? { ...q, status: 'Accepted' } : q)));
+            // The new/linked customer must be visible for the Sales Order step.
+            refreshFromBackend();
+            showToast(envelope?.message || 'Quotation approved. Lead has been converted to Customer successfully.');
+            return envelope;
+        } catch (err) {
+            console.warn('[ERP] quotations/approve failed:', err);
+            markSyncFailure(setQuotations, id, err);
+            showToast(`Quotation approval failed — ${describeError(err)}`);
+            throw err;
+        }
+    };
     const updateQuotationStatus = (id, status) => {
         const target = quotations.find((q) => String(q.id) === String(id));
+        // Approval always flows through the approve endpoint so the linked
+        // lead is converted server-side; a plain PATCH cannot do that (and
+        // non-draft rows reject PATCH outright, api.md §1.9).
+        if (['Accepted', 'Approved'].includes(status)) {
+            setQuotations((prev) => prev.map((q) => (q.id === id ? { ...q, status: 'Accepted' } : q)));
+            approveQuotation(id).catch(() => {
+                // approveQuotation already toasted; roll the optimistic flip
+                // back only when the server rejected it.
+                if (target && isServerId(id)) {
+                    setQuotations((prev) => prev.map((q) => (q.id === id ? { ...q, status: target.status } : q)));
+                }
+            });
+            return;
+        }
         setQuotations((prev) => prev.map((q) => (q.id === id ? { ...q, status } : q)));
+        // Only draft-like quotations accept PATCH (api.md §1.9); posted ones
+        // move via convert/cancel actions.
+        if (!target || ['Draft', 'Sent'].includes(target.status)) {
+            persistUpdate('quotations', id, { status }, setQuotations);
+        }
         if (target && target.status !== 'Sent' && status === 'Sent') {
             emitCrmEvent({
                 type: CRM_EVENT_TYPES.QUOTATION_SENT,
@@ -2225,6 +2452,7 @@ export const ERPProvider = ({ children, }) => {
         };
         setSalesOrders((prev) => [newOrder, ...prev]);
         showToast(`Quote ${quote.quoteNumber} converted to Sales Order ${newOrder.orderNumber}!`);
+        persistCreate('salesOrders', newOrder, setSalesOrders);
         return newOrder;
     };
     const addSalesOrder = (order) => {
@@ -2272,7 +2500,13 @@ export const ERPProvider = ({ children, }) => {
         return newOrder;
     };
     const updateSalesOrderStage = (id, stage) => {
+        const current = salesOrders.find((o) => o.id === id);
         setSalesOrders((prev) => prev.map((o) => (o.id === id ? { ...o, stage, status: stage } : o)));
+        // Only drafts accept PATCH (api.md §1.9); posted orders move via
+        // dispatch/cancel actions.
+        if (!current || current.stage === 'Draft') {
+            persistUpdate('salesOrders', id, { stage, status: stage }, setSalesOrders);
+        }
     };
     const cancelSalesOrder = (orderId) => {
         const order = salesOrders.find((o) => o.id === orderId);
@@ -2281,6 +2515,10 @@ export const ERPProvider = ({ children, }) => {
             return { success: true, message: 'Already cancelled.' };
         }
         setSalesOrders((prev) => prev.map((o) => (o.id === orderId ? { ...o, stage: 'Cancelled', status: 'Cancelled' } : o)));
+        // Server-side cancel releases reservations; re-read afterwards.
+        runDocAction('salesOrders', orderId, 'cancel', {}, setSalesOrders, {
+            refresh: ['salesOrders', 'deliveryChallans'],
+        }).catch(() => {});
         showToast(`Sales Order ${order.orderNumber} cancelled.`);
         return { success: true, message: `Sales Order ${order.orderNumber} cancelled.` };
     };
@@ -2431,6 +2669,7 @@ export const ERPProvider = ({ children, }) => {
         const createdInvoice = createInvoice(newInvoice);
 
         // Update SO line items invoicedQty and stage
+        let updatedSo = null;
         setSalesOrders((prev) => prev.map((o) => {
             if (o.id !== orderId) return o;
             const updatedItems = (o.items || []).map((line) => {
@@ -2443,7 +2682,7 @@ export const ERPProvider = ({ children, }) => {
                 };
             });
             const stillOpen = updatedItems.some((l) => (Number(l.qty ?? l.orderedQty) || 1) - (Number(l.invoicedQty) || 0) > 0.001);
-            return {
+            return updatedSo = {
                 ...o,
                 stage: stillOpen ? 'Partially Invoiced' : 'Invoiced',
                 status: stillOpen ? 'Partially Invoiced' : 'Invoiced',
@@ -2452,6 +2691,15 @@ export const ERPProvider = ({ children, }) => {
             };
         }));
 
+        if (updatedSo) {
+            // The server has no "Partially …" order stages (ORDER_STAGES) —
+            // progress lives on the linked invoice/challan docs, which are
+            // already persisted. Only representable stages go up.
+            const SERVER_SO_STAGES = ['Draft', 'Confirmed', 'Packing', 'Dispatched', 'Delivered', 'Invoiced', 'Cancelled'];
+            if (SERVER_SO_STAGES.includes(updatedSo.stage)) {
+                persistUpdate('salesOrders', orderId, updatedSo, setSalesOrders);
+            }
+        }
         showToast(`Generated invoice ${createdInvoice.invoiceNumber} for ${order.orderNumber}`);
         return createdInvoice;
     };
@@ -2568,7 +2816,25 @@ export const ERPProvider = ({ children, }) => {
         }
 
         showToast(`Delivery Challan ${newChallan.challanNumber} issued.`);
-        persistCreate('deliveryChallans', newChallan, setDeliveryChallans);
+        persistCreate('deliveryChallans', newChallan, setDeliveryChallans, {
+            onServer: (saved) => {
+                if (saved && saved.id && saved.id !== newChallan.id) {
+                    setInventoryMovements((prev) => prev.map((m) => (
+                        m.referenceId === newChallan.id
+                            ? { ...m, referenceId: saved.id, referenceNumber: saved.challanNumber || m.referenceNumber }
+                            : m
+                    )));
+                }
+                // Non-draft challans dispatch stock server-side (the create
+                // itself only numbers the document).
+                const dispatchThenRefresh = () => refreshCollections(['deliveryChallans', 'inventoryMovements', 'salesOrders', 'items']);
+                if (saved && saved.id && saved.status && saved.status !== 'Draft' && saved.status !== 'Cancelled') {
+                    api.post(`/sales/challans/${saved.id}/dispatch/`, {}).then(dispatchThenRefresh, dispatchThenRefresh);
+                } else {
+                    dispatchThenRefresh();
+                }
+            },
+        });
         return newChallan;
     };
     const updateDeliveryChallanStatus = (id, status) => {
@@ -2589,6 +2855,7 @@ export const ERPProvider = ({ children, }) => {
             }
             return { ...c, status };
         }));
+        persistUpdate('deliveryChallans', id, { status }, setDeliveryChallans);
         showToast(`Challan updated to ${status}.`);
     };
     const cancelDeliveryChallan = (challanId) => {
@@ -2598,6 +2865,9 @@ export const ERPProvider = ({ children, }) => {
 
         if (challan.status === 'Draft') {
             setDeliveryChallans(prev => prev.map(c => c.id === challanId ? { ...c, status: 'Cancelled' } : c));
+            runDocAction('deliveryChallans', challanId, 'cancel', {}, setDeliveryChallans, {
+                refresh: ['deliveryChallans', 'salesOrders'],
+            }).catch(() => {});
             showToast('Draft challan cancelled.');
             return { success: true, message: 'Draft challan cancelled.' };
         }
@@ -2675,6 +2945,12 @@ export const ERPProvider = ({ children, }) => {
         // 3. Mark Challan as Cancelled
         setDeliveryChallans((prev) => prev.map((c) => c.id === challanId ? { ...c, status: 'Cancelled' } : c));
 
+        // Server-side cancel reverses postings; re-read what it touched.
+        // (Local mirrors above keep the screen instant.)
+        runDocAction('deliveryChallans', challanId, 'cancel', {}, setDeliveryChallans, {
+            refresh: ['deliveryChallans', 'salesOrders', 'inventoryMovements'],
+        }).catch(() => {});
+
         // 4. Update linked Warranty Cards to Cancelled
         setWarranties((prev) => prev.map((w) => {
             if (w.deliveryChallanId === challanId || w.challanNumber === challan.challanNumber) {
@@ -2686,6 +2962,9 @@ export const ERPProvider = ({ children, }) => {
             }
             return w;
         }));
+        warranties
+            .filter((w) => w.deliveryChallanId === challanId || w.challanNumber === challan.challanNumber)
+            .forEach((w) => persistUpdate('warranties', w.id, { documentStatus: 'Cancelled' }, setWarranties));
 
         showToast(`Delivery Challan ${challan.challanNumber} cancelled and stock reversed.`);
         return { success: true, message: `Challan ${challan.challanNumber} cancelled.` };
@@ -2764,21 +3043,12 @@ export const ERPProvider = ({ children, }) => {
         }
         // Add to Operating Bank Account
         setBankAccounts((prev) => prev.map((acc, idx) => idx === 0 ? { ...acc, balance: acc.balance + payAmt } : acc));
-        // Auto-create Journal Entry
-        const newJe = {
-            id: `je-${Date.now()}`,
-            entryNumber: `JE-2026-${String(journalEntries.length + 85).padStart(3, '0')}`,
-            date: newPay.date,
-            description: `Payment Received from ${newPay.customer} against ${newPay.invoiceNumber || 'Account'}`,
-            reference: newPay.receiptNumber,
-            debitAccount: '1010 - Cash & Bank',
-            creditAccount: '1210 - Accounts Receivable',
-            amount: payAmt,
-            status: 'Posted',
-        };
-        setJournalEntries((prev) => [newJe, ...prev]);
+        // The receipt's own journal entry is posted server-side with the
+        // payment — re-read instead of mirroring it locally (no doubles).
+        persistCreate('paymentIns', newPay, setPaymentIns, {
+            onServer: () => refreshCollections(['paymentIns', 'invoices', 'journalEntries', 'parties', 'bankAccounts']),
+        });
         showToast(`Recorded receipt of ${formatCurrency(payAmt)} from ${newPay.customer}`);
-        persistCreate('paymentIns', newPay, setPaymentIns);
         return newPay;
     };
     const addSalesReturn = (ret) => {
@@ -2914,21 +3184,21 @@ export const ERPProvider = ({ children, }) => {
                 : c));
         }
 
-        // Auto-create Journal Entry (Sales Returns & Allowances / AR)
-        const newJe = {
-            id: `je-${Date.now()}`,
-            entryNumber: `JE-2026-${String(journalEntries.length + 86).padStart(3, '0')}`,
-            date: newRet.date,
-            description: `Sales Return / Credit Note - ${newRet.customer}`,
-            reference: newRet.returnNumber,
-            debitAccount: '4090 - Sales Returns & Allowances',
-            creditAccount: '1210 - Accounts Receivable',
-            amount: totalAmount,
-            status: 'Posted',
-        };
-        setJournalEntries((prev) => [newJe, ...prev]);
+        // The credit-note journal entry is posted server-side with the
+        // return — no local mirror (it would double-count in ledger views).
         showToast(`Credit Note ${newRet.returnNumber} issued for ${formatCurrency(totalAmount)}.`);
-        persistCreate('salesReturns', newRet, setSalesReturns);
+        persistCreate('salesReturns', newRet, setSalesReturns, {
+            onServer: (saved) => {
+                if (saved && saved.id && saved.id !== newRet.id) {
+                    setInventoryMovements((prev) => prev.map((m) => (
+                        m.referenceId === newRet.id
+                            ? { ...m, referenceId: saved.id, referenceNumber: saved.returnNumber || m.referenceNumber }
+                            : m
+                    )));
+                }
+                refreshCollections(['salesReturns', 'invoices', 'journalEntries', 'inventoryMovements', 'parties', 'items']);
+            },
+        });
         return newRet;
     };
 
@@ -2968,22 +3238,13 @@ export const ERPProvider = ({ children, }) => {
                 : c));
         }
 
-        // 3. Reversal Journal Entry
-        const jeReversal = {
-            id: `je-${Date.now()}`,
-            entryNumber: `JE-2026-${String(journalEntries.length + 87).padStart(3, '0')}`,
-            date: getCurrentDateFormatted(),
-            description: `Sales Return Cancellation Reversal - ${sr.returnNumber} (${sr.customer})`,
-            reference: `REV-${sr.returnNumber}`,
-            debitAccount: '1210 - Accounts Receivable',
-            creditAccount: '4090 - Sales Returns & Allowances',
-            amount: sr.amount,
-            status: 'Posted',
-        };
-        setJournalEntries((prev) => [jeReversal, ...prev]);
-
+        // 3. Server-side cancel reverses postings (no local reversal JE —
+        // it would double-count once the re-read lands).
         // 4. Mark status as Cancelled
         setSalesReturns((prev) => prev.map((r) => r.id === returnId ? { ...r, status: 'Cancelled' } : r));
+        runDocAction('salesReturns', returnId, 'cancel', {}, setSalesReturns, {
+            refresh: ['salesReturns', 'invoices', 'journalEntries', 'inventoryMovements', 'parties', 'items'],
+        }).catch(() => {});
         showToast(`Sales Return ${sr.returnNumber} cancelled.`);
         return { success: true, message: `Sales Return ${sr.returnNumber} cancelled.` };
     };
@@ -3022,6 +3283,10 @@ export const ERPProvider = ({ children, }) => {
             return;
         }
         setPurchaseOrders((prev) => prev.map((p) => (p.id === id ? { ...p, status } : p)));
+        // Only drafts accept PATCH (api.md §1.9).
+        if (po.status === 'Draft') {
+            persistUpdate('purchaseOrders', id, { status }, setPurchaseOrders);
+        }
         showToast(`PO updated to ${status}.`);
     };
     const getPoBilledStatus = (poId) => {
@@ -3083,6 +3348,9 @@ export const ERPProvider = ({ children, }) => {
         }
 
         setPurchaseOrders((prev) => prev.map((p) => p.id === poId ? { ...p, status: 'Cancelled' } : p));
+        runDocAction('purchaseOrders', poId, 'cancel', {}, setPurchaseOrders, {
+            refresh: ['purchaseOrders', 'purchaseBills'],
+        }).catch(() => {});
         showToast(`Purchase Order ${po.poNumber} cancelled.`);
         return { success: true, message: `Purchase Order ${po.poNumber} cancelled.` };
     };
@@ -3103,28 +3371,26 @@ export const ERPProvider = ({ children, }) => {
     };
     // Backend-first: vendor process instructions live in Postgres
     // (GET /jobwork/process-instructions/) when logged in; localStorage is only the offline cache.
+    // Offline creates are retried here and merged — never wiped by a pull.
     useEffect(() => {
         let live = true;
-        import('../services/jobWorkSync').then(({ pullVPIs, isJobWorkBackendEnabled }) => {
-            if (!isJobWorkBackendEnabled()) return;
-            pullVPIs().then((rows) => {
-                if (live && Array.isArray(rows)) {
-                    setProductionInstructions(rows);
-                    persistProductionInstructions(rows);
-                }
-            });
-        });
-        const onSession = () => {
-            import('../services/jobWorkSync').then(({ pullVPIs, isJobWorkBackendEnabled }) => {
+        const syncVPIs = () => {
+            import('../services/jobWorkSync').then(async ({ pullVPIs, pushCreateVPI, reconcilePendingCreates, mergeServerRows, isJobWorkBackendEnabled }) => {
                 if (!isJobWorkBackendEnabled()) return;
-                pullVPIs().then((rows) => {
+                try {
+                    const cached = JSON.parse(localStorage.getItem('oscar_productionInstructions') || '[]');
+                    const reconciled = await reconcilePendingCreates(Array.isArray(cached) ? cached : [], pushCreateVPI);
+                    const rows = await pullVPIs();
                     if (live && Array.isArray(rows)) {
-                        setProductionInstructions(rows);
-                        persistProductionInstructions(rows);
+                        const merged = mergeServerRows(reconciled, rows);
+                        setProductionInstructions(merged);
+                        persistProductionInstructions(merged);
                     }
-                });
+                } catch { /* offline — keep cache */ }
             });
         };
+        syncVPIs();
+        const onSession = () => syncVPIs();
         window.addEventListener('evenmore:authorized', onSession);
         return () => {
             live = false;
@@ -3263,19 +3529,8 @@ export const ERPProvider = ({ children, }) => {
 
         // Increase vendor AP liability across vendors and parties
         syncVendorBalance(po.vendorId, po.vendor, billAmt);
-        // Auto-create Journal Entry (Inventory Asset / Accounts Payable)
-        const newJe = {
-            id: `je-${Date.now()}`,
-            entryNumber: `JE-2026-${String(journalEntries.length + 87).padStart(3, '0')}`,
-            date: getCurrentDateFormatted(),
-            description: `Purchase Bill Intake - ${po.vendor} (${po.poNumber})`,
-            reference: newBill.billNumber,
-            debitAccount: '1410 - Inventory Asset',
-            creditAccount: '2010 - Accounts Payable',
-            amount: billAmt,
-            status: 'Posted',
-        };
-        setJournalEntries((prev) => [newJe, ...prev]);
+        // The bill's own journal entry is posted server-side with the bill —
+        // no local mirror (it would double-count in ledger views).
         // ── [PHASE-2B] Auto-receive on PO→Bill kept only for pre-received (legacy) bills ──
         // Old code auto-received inventory from every bill line at conversion time.
         //   Now handled by GoodsReceiptPage (GRN). The block below still runs when the
@@ -3331,6 +3586,18 @@ export const ERPProvider = ({ children, }) => {
             });
         }
         showToast(`Purchase Bill ${newBill.billNumber} created from ${po.poNumber}`);
+        persistCreate('purchaseBills', newBill, setPurchaseBills, {
+            onServer: (saved) => {
+                if (saved && saved.id && saved.id !== newBill.id) {
+                    setInventoryMovements((prev) => prev.map((m) => (
+                        m.referenceId === newBill.id
+                            ? { ...m, referenceId: saved.id, referenceNumber: saved.billNumber || m.referenceNumber }
+                            : m
+                    )));
+                }
+                refreshCollections(['purchaseBills', 'purchaseOrders', 'journalEntries', 'inventoryMovements', 'parties', 'items']);
+            },
+        });
         return newBill;
     };
     const addPurchaseBill = (bill) => {
@@ -3382,19 +3649,8 @@ export const ERPProvider = ({ children, }) => {
 
         // Increase vendor AP liability across vendors and parties
         syncVendorBalance(newBill.vendorId, newBill.vendor, billAmt);
-        // Auto-create Journal Entry
-        const newJe = {
-            id: `je-${Date.now()}`,
-            entryNumber: `JE-2026-${String(journalEntries.length + 87).padStart(3, '0')}`,
-            date: newBill.billDate,
-            description: `Vendor Bill Intake - ${newBill.vendor}`,
-            reference: newBill.billNumber,
-            debitAccount: '1410 - Inventory Asset',
-            creditAccount: '2010 - Accounts Payable',
-            amount: billAmt,
-            status: 'Posted',
-        };
-        setJournalEntries((prev) => [newJe, ...prev]);
+        // The bill's journal entry is posted server-side — no local mirror
+        // (it would double-count in ledger views).
         // ── [PHASE-2B] Auto-stock on bill creation replaced by GRN-gated stock entry ──
         // Old code auto-recorded PURCHASE movements for every bill line here
         //   (noted below). Now movement happens ONLY when the bill was already
@@ -3451,7 +3707,18 @@ export const ERPProvider = ({ children, }) => {
             });
         }
         showToast(`Vendor Bill ${newBill.billNumber} recorded.`);
-        persistCreate('purchaseBills', newBill, setPurchaseBills);
+        persistCreate('purchaseBills', newBill, setPurchaseBills, {
+            onServer: (saved) => {
+                if (saved && saved.id && saved.id !== newBill.id) {
+                    setInventoryMovements((prev) => prev.map((m) => (
+                        m.referenceId === newBill.id
+                            ? { ...m, referenceId: saved.id, referenceNumber: saved.billNumber || m.referenceNumber }
+                            : m
+                    )));
+                }
+                refreshCollections(['purchaseBills', 'purchaseOrders', 'journalEntries', 'inventoryMovements', 'parties', 'items']);
+            },
+        });
         return newBill;
     };
     const cancelPurchaseBill = (billId) => {
@@ -3500,19 +3767,8 @@ export const ERPProvider = ({ children, }) => {
         // Reverse vendor AP liability across vendors and parties
         syncVendorBalance(bill.vendorId, bill.vendor, -(bill.total || bill.amount || 0));
 
-        // Auto-create Journal Entry reversal
-        const jeReversal = {
-            id: `je-${Date.now()}`,
-            entryNumber: `JE-2026-${String(journalEntries.length + 88).padStart(3, '0')}`,
-            date: getCurrentDateFormatted(),
-            description: `Purchase Bill Cancellation Reversal - ${bill.billNumber} (${bill.vendor})`,
-            reference: `REV-${bill.billNumber}`,
-            debitAccount: '2010 - Accounts Payable',
-            creditAccount: '1410 - Inventory Asset',
-            amount: bill.total || bill.amount || 0,
-            status: 'Posted',
-        };
-        setJournalEntries((prev) => [jeReversal, ...prev]);
+        // Server-side cancel reverses postings; re-read what it touched.
+        // (No local reversal JE — it would double-count in ledger views.)
 
         // Re-evaluate linked PO status
         if (bill.purchaseOrderId || bill.poRef || bill.linkedPo) {
@@ -3541,6 +3797,9 @@ export const ERPProvider = ({ children, }) => {
         }
 
         setPurchaseBills((prev) => prev.map((b) => b.id === billId ? { ...b, status: 'Cancelled' } : b));
+        runDocAction('purchaseBills', billId, 'cancel', {}, setPurchaseBills, {
+            refresh: ['purchaseBills', 'purchaseOrders', 'journalEntries', 'inventoryMovements', 'parties', 'items'],
+        }).catch(() => {});
         showToast(`Purchase Bill ${bill.billNumber} cancelled.`);
         return { success: true, message: `Purchase Bill ${bill.billNumber} cancelled.` };
     };
@@ -3569,6 +3828,7 @@ export const ERPProvider = ({ children, }) => {
                 (o.sku && String(o.sku).toLowerCase() === String(line.sku || line.itemSku || '').toLowerCase());
             const findOverride = (line) => Array.isArray(receivedOverrides) ? receivedOverrides.find((o) => MATCH(line, o)) : null;
             const weightMeta = {};
+            const serverLinesPayload = [];
             let autoFlagPending = false;
             billLines.forEach((line, idx) => {
                 const override = findOverride(line);
@@ -3589,6 +3849,12 @@ export const ERPProvider = ({ children, }) => {
                     // Tolerance exceeded → auto QC Pending Approval (variances need manual approval)
                     if (Math.abs(variationPct) > tolerancePct) autoFlagPending = true;
                 }
+                serverLinesPayload.push({
+                    ...(isServerId(line.id) ? { lineId: line.id } : {}),
+                    lineIndex: idx,
+                    receivedQty,
+                    ...(receivedWeight ? { receivedWeight } : {}),
+                });
                 weightMeta[line.id || `line-${idx}`] = {
                     isWeightItem,
                     tolerancePct,
@@ -3676,10 +3942,32 @@ export const ERPProvider = ({ children, }) => {
                     ? `Goods received with weight variance beyond tolerance — QC set to Pending Approval for ${bill.billNumber}.`
                     : `Stock received and added to inventory from bill ${bill.billNumber}`
             );
+            // Server-side receive posts stock + QC authoritatively (api.md §6.3).
+            if (isBackendEnabled() && isServerId(billId)) {
+                const finalQc = autoFlagPending ? 'Pending Approval' : qcStatus;
+                api.post(`/purchase/bills/${billId}/receive-goods/`, {
+                    lines: serverLinesPayload,
+                    qcStatus: ['Approved', 'Pending Approval', 'Rejected'].includes(finalQc) ? finalQc : 'Approved',
+                }).then((body) => {
+                    const resource = RESOURCES.purchaseBills;
+                    const saved = resource.fromApi ? resource.fromApi(body.bill || body) : (body.bill || body);
+                    if (saved) reconcile(setPurchaseBills, billId, saved);
+                    refreshCollections(['purchaseBills', 'inventoryMovements', 'items', 'purchaseOrders']);
+                }).catch((err) => {
+                    console.warn('[ERP] receive-goods not saved:', err);
+                    showToast(`Receipt not saved to server — ${describeError(err)}`);
+                });
+            }
         }
     };
     const updatePurchaseBillStatus = (id, status) => {
+        const current = purchaseBills.find((b) => b.id === id);
         setPurchaseBills((prev) => prev.map((b) => (b.id === id ? { ...b, status } : b)));
+        // Only drafts accept PATCH (api.md §1.9); posted bills move via
+        // receive/cancel actions and payment allocations.
+        if (!current || current.status === 'Draft') {
+            persistUpdate('purchaseBills', id, { status }, setPurchaseBills);
+        }
         showToast(`Vendor bill marked as ${status}.`);
     };
     // ── Vendor Bills (manual entry, backend contract: /purchase/vendor-bills/) ──
@@ -4035,24 +4323,8 @@ export const ERPProvider = ({ children, }) => {
                 ? { ...acc, balance: Math.max(0, acc.balance - payAmt) }
                 : acc));
         }
-        // Auto-create Journal Entry
-        const newJe = {
-            id: `je-${Date.now()}`,
-            entryNumber: `JE-2026-${String(journalEntries.length + 88).padStart(3, '0')}`,
-            date: newPay.date,
-            description: isAdvance
-                ? `Advance to Vendor ${newPay.vendor}${newPay.poNumber ? ` against ${newPay.poNumber}` : ''}`
-                : newPay.advanceApplied
-                    ? `Advance adjustment applied to bill ${newPay.billNumber} (${newPay.vendor})`
-                    : `Disbursement to Vendor ${newPay.vendor}`,
-            reference: newPay.voucherNumber || 'VOU-PAID',
-            // [PHASE-2D] advance sits in a Vendor Advances asset account until a bill is adjusted
-            debitAccount: isAdvance ? '1025 - Vendor Advances' : newPay.advanceApplied ? '2010 - Accounts Payable' : '2010 - Accounts Payable',
-            creditAccount: isAdvance ? '1010 - Cash & Bank' : newPay.advanceApplied ? '1025 - Vendor Advances' : '1010 - Cash & Bank',
-            amount: payAmt,
-            status: 'Posted',
-        };
-        setJournalEntries((prev) => [newJe, ...prev]);
+        // The disbursement's journal entry is posted server-side with the
+        // payment — no local mirror (it would double-count in ledger views).
         if (isAdvance) {
             showToast(`Advance of ${formatCurrency(payAmt)} released to ${newPay.vendor}${newPay.poNumber ? ` for ${newPay.poNumber}` : ''}`);
         } else if (newPay.advanceApplied) {
@@ -4060,7 +4332,9 @@ export const ERPProvider = ({ children, }) => {
         } else {
             showToast(`Disbursed ${formatCurrency(payAmt)} to ${newPay.vendor}`);
         }
-        persistCreate('paymentOuts', newPay, setPaymentOuts);
+        persistCreate('paymentOuts', newPay, setPaymentOuts, {
+            onServer: () => refreshCollections(['paymentOuts', 'purchaseBills', 'journalEntries', 'parties', 'bankAccounts']),
+        });
         return newPay;
     };
     // ── [PHASE-2D] Vendor / PO advance balance ──
@@ -4129,6 +4403,21 @@ export const ERPProvider = ({ children, }) => {
             qcNote: qcNote || b.qcNote,
             qcUpdatedAt: getCurrentISODate(),
         } : b));
+        // Server-side QC gate (api.md §6.3) — the weight-variance rule runs
+        // there too; the reconciled record wins.
+        if (isBackendEnabled() && isServerId(billId)) {
+            api.post(`/purchase/bills/${billId}/qc/`, { status: newStatus, note: qcNote || undefined })
+                .then((body) => {
+                    const resource = RESOURCES.purchaseBills;
+                    const saved = resource.fromApi ? resource.fromApi(body) : body;
+                    if (saved) reconcile(setPurchaseBills, billId, saved);
+                    refreshCollections(['purchaseBills', 'inventoryMovements', 'items']);
+                })
+                .catch((err) => {
+                    console.warn('[ERP] QC not saved:', err);
+                    showToast(`QC not saved to server — ${describeError(err)}`);
+                });
+        }
         const hintMap = {
             'Approved': 'approved for inventory',
             'Pending Approval': 'held for inspection',
@@ -4158,16 +4447,25 @@ export const ERPProvider = ({ children, }) => {
             id: std.id || `qs-${Date.now()}`,
             name: std.name || 'New QC Standard',
             category: std.category || 'General',
+            categoryId: std.categoryId,
             checks: Array.isArray(std.checks) ? std.checks : [],
             tolerancePct: std.tolerancePct !== undefined ? Number(std.tolerancePct) : 2,
             active: std.active !== false,
         };
         setQualityStandards((prev) => [newStd, ...prev]);
+        // Resolve the category name to a saved category row when possible.
+        if (!newStd.categoryId) {
+            const match = (categories || []).find((c) =>
+                String(c?.name || '').toLowerCase() === String(newStd.category || '').toLowerCase());
+            if (match && isServerId(match.id)) newStd.categoryId = match.id;
+        }
+        persistCreate('qualityStandards', newStd, setQualityStandards);
         showToast(`Quality standard "${newStd.name}" added.`);
         return newStd;
     };
     const updateQualityStandard = (id, updates) => {
         setQualityStandards((prev) => prev.map((s) => s.id === id ? { ...s, ...updates } : s));
+        persistUpdate('qualityStandards', id, updates, setQualityStandards);
         showToast('Quality standard updated.');
     };
     // ── [PHASE-2E] Chart of Accounts: derive balances from journal entries ──
@@ -4218,17 +4516,22 @@ export const ERPProvider = ({ children, }) => {
             status: 'Completed',
         };
         setTransfers((prev) => [newTr, ...prev]);
-        setJournalEntries((prev) => [{
-            id: `je-${Date.now()}`,
-            entryNumber: `JE-2026-${String(prev.length + 90).padStart(3, '0')}`,
-            date: newTr.date,
-            description: `Inter-bank transfer ${bankAccounts[fromIdx]?.bankName} → ${bankAccounts[toIdx]?.bankName}`,
-            reference: trNum,
-            debitAccount: `1010 - Cash & Bank (${bankAccounts[toIdx]?.bankName || 'Target'})`,
-            creditAccount: `1010 - Cash & Bank (${bankAccounts[fromIdx]?.bankName || 'Source'})`,
-            amount: amt,
-            status: 'Posted',
-        }, ...prev]);
+        // The transfer posts its own journal entry server-side
+        // (post_bank_transfer) — no local mirror (it would double-count).
+        // Bank-account rows must already exist server-side; temp accounts
+        // stay local-only.
+        if (isBackendEnabled()
+            && isServerId(bankAccounts[fromIdx]?.id)
+            && isServerId(bankAccounts[toIdx]?.id)) {
+            persistCreate('bankTransfers', {
+                ...newTr,
+                fromAccountId: bankAccounts[fromIdx].id,
+                toAccountId: bankAccounts[toIdx].id,
+                notes: `Inter-bank transfer ${bankAccounts[fromIdx]?.bankName} → ${bankAccounts[toIdx]?.bankName}`,
+            }, setTransfers, {
+                onServer: () => refreshCollections(['journalEntries', 'bankAccounts']),
+            });
+        }
         showToast(`Inter-bank transfer ${trNum}: ${formatCurrency(amt)} moved from ${bankAccounts[fromIdx]?.bankName} to ${bankAccounts[toIdx]?.bankName}.`);
         return newTr;
     };
@@ -4360,21 +4663,21 @@ export const ERPProvider = ({ children, }) => {
         }
         // Reduce vendor liability balance across vendors and parties
         syncVendorBalance(newDebit.vendorId, newDebit.vendor, -retAmt);
-        // Auto-create Journal Entry
-        const newJe = {
-            id: `je-${Date.now()}`,
-            entryNumber: `JE-2026-${String(journalEntries.length + 89).padStart(3, '0')}`,
-            date: newDebit.date,
-            description: `Purchase Return / Debit Note - ${newDebit.vendor}`,
-            reference: newDebit.debitNoteNumber,
-            debitAccount: '2010 - Accounts Payable',
-            creditAccount: '1410 - Inventory Asset',
-            amount: retAmt,
-            status: 'Posted',
-        };
-        setJournalEntries((prev) => [newJe, ...prev]);
+        // The debit note's journal entry is posted server-side — no local
+        // mirror (it would double-count in ledger views).
         showToast(`Debit Note ${newDebit.debitNoteNumber} issued.`);
-        persistCreate('purchaseReturns', newDebit, setPurchaseReturns);
+        persistCreate('purchaseReturns', newDebit, setPurchaseReturns, {
+            onServer: (saved) => {
+                if (saved && saved.id && saved.id !== newDebit.id) {
+                    setInventoryMovements((prev) => prev.map((m) => (
+                        m.referenceId === newDebit.id
+                            ? { ...m, referenceId: saved.id, referenceNumber: saved.debitNoteNumber || m.referenceNumber }
+                            : m
+                    )));
+                }
+                refreshCollections(['purchaseReturns', 'purchaseBills', 'journalEntries', 'inventoryMovements', 'parties', 'items']);
+            },
+        });
         return newDebit;
     };
     const cancelPurchaseReturn = (returnId) => {
@@ -4412,27 +4715,19 @@ export const ERPProvider = ({ children, }) => {
         // 2. Reverse vendor AP reduction across vendors and parties
         syncVendorBalance(pr.vendorId, pr.vendor, pr.amount);
 
-        // 3. Reversal Journal Entry
-        const jeReversal = {
-            id: `je-${Date.now()}`,
-            entryNumber: `JE-2026-${String(journalEntries.length + 90).padStart(3, '0')}`,
-            date: getCurrentDateFormatted(),
-            description: `Purchase Return Cancellation Reversal - ${pr.debitNoteNumber} (${pr.vendor})`,
-            reference: `REV-${pr.debitNoteNumber}`,
-            debitAccount: '1410 - Inventory Asset',
-            creditAccount: '2010 - Accounts Payable',
-            amount: pr.amount,
-            status: 'Posted',
-        };
-        setJournalEntries((prev) => [jeReversal, ...prev]);
-
+        // 3. Server-side cancel reverses postings; re-read what it touched.
+        // (No local reversal JE — it would double-count in ledger views.)
         // 4. Mark status as Cancelled
         setPurchaseReturns((prev) => prev.map((r) => r.id === returnId ? { ...r, status: 'Cancelled' } : r));
+        runDocAction('purchaseReturns', returnId, 'cancel', {}, setPurchaseReturns, {
+            refresh: ['purchaseReturns', 'purchaseBills', 'journalEntries', 'inventoryMovements', 'parties', 'items'],
+        }).catch(() => {});
         showToast(`Debit Note ${pr.debitNoteNumber} cancelled.`);
         return { success: true, message: `Debit Note ${pr.debitNoteNumber} cancelled.` };
     };
     const updatePurchaseReturnStatus = (id, status) => {
         setPurchaseReturns((prev) => prev.map((r) => (r.id === id ? { ...r, status } : r)));
+        persistUpdate('purchaseReturns', id, { status }, setPurchaseReturns);
     };
     const addExpense = (exp) => {
         const newExp = {
@@ -4451,21 +4746,11 @@ export const ERPProvider = ({ children, }) => {
         setBankAccounts((prev) => prev.map((acc, idx) => idx === 0
             ? { ...acc, balance: Math.max(0, acc.balance - (newExp.amount || 0)) }
             : acc));
-        // Auto-create Journal Entry
-        const newJe = {
-            id: `je-${Date.now()}`,
-            entryNumber: `JE-2026-${String(journalEntries.length + 90).padStart(3, '0')}`,
-            date: newExp.date,
-            description: `Expense: ${newExp.category} - ${newExp.payee}`,
-            reference: newExp.expenseNumber,
-            debitAccount: '5020 - Logistics & Operating Expense',
-            creditAccount: '1010 - Cash & Bank',
-            amount: newExp.amount,
-            status: 'Posted',
-        };
-        setJournalEntries((prev) => [newJe, ...prev]);
+        // The expense's journal entry is posted server-side — no local mirror.
         showToast(`Expense voucher ${newExp.expenseNumber} recorded.`);
-        persistCreate('expenses', newExp, setExpenses);
+        persistCreate('expenses', newExp, setExpenses, {
+            onServer: () => refreshCollections(['expenses', 'journalEntries', 'bankAccounts']),
+        });
         return newExp;
     };
     const addLocation = (loc) => {
@@ -4536,10 +4821,39 @@ export const ERPProvider = ({ children, }) => {
             });
         }
         showToast(`Transfer manifest ${newTr.transferNumber} created.`);
+        // Server owns the transfer number and posts the OUT/IN movements on
+        // receive; the re-read replaces the optimistic row and dedupes stock.
+        if (isServerId(newTr.sourceLocationId) && isServerId(newTr.destLocationId)) {
+            persistCreate('transfers', newTr, setTransfers, {
+                onServer: (saved) => {
+                    repointMovements(newTr.id, saved?.id);
+                    refreshCollections(['transfers', 'inventoryMovements', 'items']);
+                },
+            });
+        }
         return newTr;
     };
     const updateTransferStatus = (id, status) => {
         setTransfers((prev) => prev.map((t) => (t.id === id ? { ...t, status } : t)));
+        // Stock moves through dedicated actions (dispatch posts OUT/IN,
+        // receive closes, cancel reverses); a bare status PATCH would only
+        // relabel the row without moving stock.
+        if (isBackendEnabled() && isServerId(id)) {
+            const action = status === 'In Transit' ? 'dispatch' : status === 'Received' ? 'receive' : status === 'Cancelled' ? 'cancel' : null;
+            if (action) {
+                api.post(`/inventory/transfers/${id}/${action}/`, {}).then((body) => {
+                    const resource = RESOURCES.transfers;
+                    const saved = resource.fromApi ? resource.fromApi(body) : body;
+                    if (saved) reconcile(setTransfers, id, saved);
+                    refreshCollections(['transfers', 'inventoryMovements', 'items']);
+                }).catch((err) => {
+                    console.warn(`[ERP] transfer ${action} failed:`, err);
+                    showToast(`Transfer not saved to server — ${describeError(err)}`);
+                });
+            } else {
+                persistUpdate('transfers', id, { status }, setTransfers);
+            }
+        }
         showToast(`Stock transfer marked as ${status}.`);
     };
     const addServiceUsage = (usage) => {
@@ -4571,6 +4885,15 @@ export const ERPProvider = ({ children, }) => {
             });
         }
         showToast(`Consumed ${newUsage.qtyUsed}x ${newUsage.sku} on ${newUsage.ticketNumber}`);
+        // Server allocates the ticket and posts the SERVICE_USAGE movement.
+        if (targetItem && isServerId(targetItem.id)) {
+            persistCreate('serviceUsages', { ...newUsage, itemId: targetItem.id }, setServiceUsages, {
+                onServer: (saved) => {
+                    repointMovements(newUsage.id, saved?.id);
+                    refreshCollections(['serviceUsages', 'inventoryMovements', 'items']);
+                },
+            });
+        }
         return newUsage;
     };
     const addBankAccount = (acc) => {
@@ -4599,6 +4922,34 @@ export const ERPProvider = ({ children, }) => {
             status: 'Posted',
         };
         setJournalEntries((prev) => [newEntry, ...prev]);
+        // Manual entries post balanced Dr = Cr lines. Resolve both legs
+        // against the chart of accounts; without resolvable accounts the row
+        // stays local-only instead of 400ing.
+        if (isBackendEnabled()) {
+            const amount = Number(newEntry.amount) || 0;
+            pullAll(['chartOfAccounts']).then(({ chartOfAccounts }) => {
+                const findAccount = (label) => {
+                    const code = String(label || '').split(' ')[0];
+                    return (chartOfAccounts || []).find((a) =>
+                        (code && a.code === code) || (label && a.name === label));
+                };
+                const dr = findAccount(newEntry.debitAccount);
+                const cr = findAccount(newEntry.creditAccount);
+                if (!dr?.id || !cr?.id || !isServerId(dr.id) || !isServerId(cr.id) || !(amount > 0)) {
+                    showToast('Journal entry saved locally — ledger accounts not found on server.');
+                    return;
+                }
+                persistCreate('journalEntries', {
+                    ...newEntry,
+                    lines: [
+                        { accountId: dr.id, debit: amount, description: newEntry.description },
+                        { accountId: cr.id, credit: amount, description: newEntry.description },
+                    ],
+                }, setJournalEntries, {
+                    onServer: () => refreshCollections(['journalEntries']),
+                });
+            }).catch(() => {});
+        }
         showToast(`Journal entry ${newEntry.entryNumber} posted to GL.`);
         return newEntry;
     };
@@ -4970,6 +5321,7 @@ export const ERPProvider = ({ children, }) => {
             updateCategory,
             addQuotation,
             updateQuotationStatus,
+            approveQuotation,
             recordQuotationActivity,
             syncQuotationShare,
             convertQuotationToDeliveryChallan,

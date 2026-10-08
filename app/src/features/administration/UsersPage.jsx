@@ -126,7 +126,7 @@ export function UsersPage() {
     name: '',
     email: '',
     phone: '',
-    role: 'Tele Caller Executive',
+    role: 'BDE',
     department: 'Sales',
     status: 'Active',
     employeeId: '',
@@ -925,7 +925,7 @@ export function UsersPage() {
                     className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500"
                   >
                     <option value="Accountant">Accountant</option>
-                    <option value="Tele Caller Executive">Tele Caller Executive</option>
+                    <option value="BDE">BDE</option>
                     <option value="Tele sales coordinator">Tele sales coordinator</option>
                     <option value="Relation ship manager">Relation ship manager</option>
                     <option value="Sales support execut.">Sales support execut.</option>
@@ -1097,7 +1097,7 @@ export function UsersPage() {
                     className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500"
                   >
                     <option value="Accountant">Accountant</option>
-                    <option value="Tele Caller Executive">Tele Caller Executive</option>
+                    <option value="BDE">BDE</option>
                     <option value="Tele sales coordinator">Tele sales coordinator</option>
                     <option value="Relation ship manager">Relation ship manager</option>
                     <option value="Sales support execut.">Sales support execut.</option>

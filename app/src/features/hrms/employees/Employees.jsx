@@ -150,26 +150,31 @@ export default function Employees() {
   function handleAdd() {
     if (!form.name || !form.email) return setToast("Name and email are required.", "error");
     const next = {
-      id: `EMP${1000 + employees.length + 1}`,
       name: form.name,
       email: form.email,
       designation: form.designation,
       department: form.dept,
       location: form.location,
-      joining: new Date().toLocaleDateString("en-IN", { month: "short", day: "2-digit", year: "numeric" }),
+      joiningDate: new Date().toISOString().slice(0, 10),
       status: "Active",
       avatar: `https://randomuser.me/api/portraits/${employees.length % 2 === 0 ? "women" : "men"}/${(employees.length * 7) % 90}.jpg`,
-      img: `https://randomuser.me/api/portraits/${employees.length % 2 === 0 ? "women" : "men"}/${(employees.length * 7) % 90}.jpg`,
     };
-    addStoreEmployee(next);
-    setToast("Employee added successfully.");
+    addStoreEmployee(next).then((saved) => {
+      if (saved) setToast("Employee added successfully.");
+    }).catch(() => {});
     setShowForm(false);
     setForm({ name: "", email: "", designation: "Senior Engineer", dept: "Engineering", location: "Mumbai" });
   }
 
-  function handleDelete(id, name) {
-    deleteStoreEmployee(id);
-    setToast(`Employee ${name} removed.`);
+  async function handleDelete(id, name) {
+    if (!id) return setToast("Cannot delete — missing employee id.", "error");
+    if (typeof window !== "undefined" && !window.confirm(`Delete employee ${name}? This cannot be undone.`)) return;
+    try {
+      await deleteStoreEmployee(id);
+      setToast(`Employee ${name} removed.`);
+    } catch {
+      // `deleteEmployee` already restored the row and toasted the reason.
+    }
   }
 
   const handleExport = () => {
@@ -317,7 +322,7 @@ export default function Employees() {
                         </div>
                       </div>
                     </td>
-                    <td className="emp-id">{row.id}</td>
+                    <td className="emp-id">{row.empId || row.employeeCode || row.id}</td>
                     <td style={{ color: "#374151" }}>{row.designation}</td>
                     <td style={{ color: "#374151" }}>{row.department}</td>
                     <td>
@@ -370,7 +375,7 @@ export default function Employees() {
                   <strong>{row.designation}</strong> • {row.department}
                 </div>
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 12 }}>
-                  <span className="emp-id">{row.id}</span>
+                  <span className="emp-id">{row.empId || row.employeeCode || row.id}</span>
                   <span className="emp-status" style={{ ...statusStyles[row.status] }}>
                     {row.status}
                   </span>

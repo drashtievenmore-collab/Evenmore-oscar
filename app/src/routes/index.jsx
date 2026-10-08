@@ -117,13 +117,16 @@ const ProcessPlanDetailPage = lazy(() => import('../features/jobwork/ProcessPlan
 // ── ERP — Sales (Lazy Loaded) ─────────────────────────────────
 const EstimatesPage = lazy(() => import('../features/sales/EstimatesPage').then(m => ({ default: m.EstimatesPage })));
 const QuotationsPage = lazy(() => import('../features/sales/QuotationsPage').then(m => ({ default: m.QuotationsPage })));
+const QuotationComposerPage = lazy(() => import('../features/sales/QuotationComposerPage'));
+const QuotationDetailPage = lazy(() => import('../features/sales/QuotationDetailPage'));
 const SalesOrdersPage = lazy(() => import('../features/sales/SalesOrdersPage').then(m => ({ default: m.SalesOrdersPage })));
 const ProformaInvoicesPage = lazy(() => import('../features/sales/ProformaInvoicesPage').then(m => ({ default: m.ProformaInvoicesPage })));
 const SalesInvoicesPage = lazy(() => import('../features/sales/SalesInvoicesPage').then(m => ({ default: m.SalesInvoicesPage })));
 const SalesReturnsPage = lazy(() => import('../features/sales/SalesReturnsPage').then(m => ({ default: m.SalesReturnsPage })));
 const PaymentInPage = lazy(() => import('../features/sales/PaymentInPage').then(m => ({ default: m.PaymentInPage })));
 const DeliveryChallansPage = lazy(() => import('../features/sales/DeliveryChallansPage').then(m => ({ default: m.DeliveryChallansPage })));
-const WarrantyListPage = lazy(() => import('../features/sales/WarrantyListPage').then(m => ({ default: m.WarrantyListPage })));
+// [DISABLED] Warranty Cards concept commented out
+// const WarrantyListPage = lazy(() => import('../features/sales/WarrantyListPage').then(m => ({ default: m.WarrantyListPage })));
 
 // ── ERP — Purchase (Lazy Loaded) ──────────────────────────────
 const PurchaseOrdersPage = lazy(() => import('../features/purchase/PurchaseOrdersPage').then(m => ({ default: m.PurchaseOrdersPage })));
@@ -261,6 +264,12 @@ const router = createBrowserRouter([
     element: <Page component={PMSClientProofApprovalPage} />,
     errorElement: <RootErrorBoundary />,
   },
+  // ── Public quotation link (shared with customers, no sign-in) ──
+  {
+    path: '/quote/:quotationNumber/:secureToken',
+    element: <Page component={PublicQuotationPage} />,
+    errorElement: <RootErrorBoundary />,
+  },
   // ── Protected Application Shell (Guarded by RequireAuth) ─
   {
     element: <RequireAuth />,
@@ -333,6 +342,8 @@ const router = createBrowserRouter([
       // ── Sales ─────────────────────────────────────────────
       { path: 'sales', element: <Navigate to="/sales/quotations" replace /> },
       { path: 'sales/estimates', element: <Page component={EstimatesPage} /> },
+      { path: 'sales/quotations/create', element: <Page component={QuotationComposerPage} /> },
+      { path: 'sales/quotations/:id', element: <Page component={QuotationDetailPage} /> },
       { path: 'sales/quotations', element: <Page component={QuotationsPage} /> },
       { path: 'sales/orders', element: <Page component={SalesOrdersPage} /> },
       { path: 'sales/proforma', element: <Page component={ProformaInvoicesPage} /> },
@@ -340,8 +351,9 @@ const router = createBrowserRouter([
       { path: 'sales/returns', element: <Page component={SalesReturnsPage} /> },
       { path: 'sales/payments', element: <Page component={PaymentInPage} /> },
       { path: 'sales/delivery', element: <Page component={DeliveryChallansPage} /> },
-      { path: 'sales/warranty', element: <Page component={WarrantyListPage} /> },
-      { path: 'warranty', element: <Navigate to="/sales/warranty" replace /> },
+      // [DISABLED] Warranty Cards concept commented out
+      // { path: 'sales/warranty', element: <Page component={WarrantyListPage} /> },
+      // { path: 'warranty', element: <Navigate to="/sales/warranty" replace /> },
 
       // ── Purchase ──────────────────────────────────────────
       { path: 'purchase', element: <Navigate to="/purchase/orders" replace /> },

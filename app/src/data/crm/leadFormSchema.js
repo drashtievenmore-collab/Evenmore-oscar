@@ -87,7 +87,7 @@ export const defaultLeadFormSections = [
       createField("products", "Multi Select", { label: "Products", placeholder: "Select Products", options: [...TEXTILE_FABRIC_OPTIONS] }),
       createField("lead-users", "User", { label: "Lead Users", placeholder: "Select Users" }),
       createField("task-date", "Date", { label: "Task Date (Optional)", placeholder: "dd-mm-yyyy", helpText: "Leave blank to allocate the first form task immediately." }),
-      createField("task-time", "Single Line", { label: "Task Time (Optional)", placeholder: "--:--", helpText: "No need to set time before calling." }),
+      createField("task-time", "Single Line", { label: "Task Time (Optional)", placeholder: "--:--", helpText: "Optional time for the scheduled task." }),
     ],
   },
 ];

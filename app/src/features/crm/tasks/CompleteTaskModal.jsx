@@ -5,7 +5,7 @@ import { TASK_OUTCOMES, NEXT_ACTIONS, NEXT_ACTION_LABELS } from '../../../servic
 export default function CompleteTaskModal({ open, task, lead, onCancel, onComplete, onSuccess }) {
   const [note, setNote] = useState('');
   const [outcome, setOutcome] = useState('');
-  const [nextAction, setNextAction] = useState('call-again');
+  const [nextAction, setNextAction] = useState('follow-up');
   const [submitting, setSubmitting] = useState(false);
   const [formError, setFormError] = useState('');
   const [phase, setPhase] = useState('form');
@@ -15,7 +15,7 @@ export default function CompleteTaskModal({ open, task, lead, onCancel, onComple
     if (open) {
       setNote('');
       setOutcome('');
-      setNextAction('call-again');
+      setNextAction('follow-up');
       setSubmitting(false);
       setFormError('');
       setPhase('form');
@@ -38,7 +38,7 @@ export default function CompleteTaskModal({ open, task, lead, onCancel, onComple
   const currentStage = task?.stage || lead?.status || '-';
   const attemptNumber = task?.attempt || task?.attemptNumber || 1;
   const nextActionOptions = NEXT_ACTIONS.filter((option) =>
-    ['call-again', 'move-next-stage', 'finish', 'schedule-demo', 'send-quotation'].includes(option.value)
+    ['follow-up', 'move-next-stage', 'finish', 'schedule-demo', 'send-quotation'].includes(option.value)
   );
 
   async function handleSubmit(e) {
@@ -189,7 +189,7 @@ export default function CompleteTaskModal({ open, task, lead, onCancel, onComple
                           {option.label}
                         </span>
                         <span className="block text-[11px] text-slate-500">
-                          {option.value === 'call-again'
+                          {option.value === 'follow-up'
                             ? `Creates attempt ${attemptNumber + 1} in this same stage.`
                             : option.value === 'move-next-stage'
                             ? "Moves the lead to the next stage and creates that stage's task."

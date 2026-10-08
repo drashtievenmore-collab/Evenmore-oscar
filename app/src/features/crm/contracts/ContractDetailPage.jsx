@@ -14,6 +14,7 @@ import {
   CONTRACT_TYPES,
   CONTRACT_TEMPLATES,
   findContract,
+  refreshContractsCache,
   createContract,
   updateContract,
   deleteContract,
@@ -118,7 +119,7 @@ export default function ContractDetailPage() {
   }
 
   useEffect(() => {
-    refresh();
+    refreshContractsCache().then(() => refresh()).catch(() => refresh());
     window.addEventListener('storage', refresh);
     window.addEventListener('crm:data-updated', refresh);
     return () => {
@@ -175,13 +176,13 @@ export default function ContractDetailPage() {
     setEditOpen(true);
   }
 
-  function submitEdit(event) {
+  async function submitEdit(event) {
     event.preventDefault();
     if (busy) return;
     setBusy(true);
     setFormError('');
     try {
-      updateContract(contract.dealId, contract.id, form);
+      await updateContract(contract.dealId, contract.id, form);
       setEditOpen(false);
       setNotice(`Contract ${contract.contractNumber} updated successfully.`);
       refresh();
@@ -189,9 +190,9 @@ export default function ContractDetailPage() {
     finally { setBusy(false); }
   }
 
-  function handleClose() {
+  async function handleClose() {
     try {
-      updateContract(contract.dealId, contract.id, { status: 'Closed' });
+      await updateContract(contract.dealId, contract.id, { status: 'Closed' });
       appendDealActivity(contract.dealId, `Contract ${contract.contractNumber} closed.`);
       setCloseOpen(false);
       setNotice(`Contract ${contract.contractNumber} closed.`);
@@ -205,19 +206,19 @@ export default function ContractDetailPage() {
     setRenewOpen(true);
   }
 
-  function submitRenew(event) {
+  async function submitRenew(event) {
     event.preventDefault();
     if (busy) return;
     setBusy(true);
     setFormError('');
     try {
-      const renewed = createContract({
+      const renewed = await createContract({
         dealId: contract.dealId, customer: contract.customer, contractType: contract.contractType,
         amount: renew.amount, startDate: renew.startDate, endDate: renew.endDate,
         description: contract.description, terms: contract.terms, template: contract.template,
         status: 'Active',
       });
-      updateContract(contract.dealId, contract.id, { status: 'Closed' });
+      await updateContract(contract.dealId, contract.id, { status: 'Closed' });
       appendDealActivity(contract.dealId, `Contract ${contract.contractNumber} renewed as ${renewed.contractNumber}.`);
       setRenewOpen(false);
       setNotice(`Contract renewed as ${renewed.contractNumber}.`);
@@ -226,9 +227,9 @@ export default function ContractDetailPage() {
     finally { setBusy(false); }
   }
 
-  function handleDelete() {
+  async function handleDelete() {
     try {
-      deleteContract(contract.dealId, contract.id);
+      await deleteContract(contract.dealId, contract.id);
       navigate('/crm/contracts');
     } catch (failure) { setError(failure.message); }
   }
@@ -245,7 +246,7 @@ export default function ContractDetailPage() {
         reader.onerror = () => reject(new Error('The file could not be read.'));
         reader.readAsDataURL(file);
       });
-      updateContract(contract.dealId, contract.id, {
+      await updateContract(contract.dealId, contract.id, {
         attachments: [...attachments, { id: `att-${Date.now()}`, name: file.name, size: file.size, mimeType: file.type, data, uploadedBy: actor, createdAt: new Date().toISOString() }],
       });
       setNotice(`Document ${file.name} attached.`);
@@ -292,11 +293,11 @@ export default function ContractDetailPage() {
     setTermsOpen(true);
   }
 
-  function saveTerms(event) {
+  async function saveTerms(event) {
     event.preventDefault();
     try {
       if (termsForm.some((clause) => !clause.heading.trim() || !clause.body.trim() || /[:\n]/.test(clause.heading))) throw new Error('Enter a heading without colons and the full terms for every row.');
-      updateContract(contract.dealId, contract.id, { terms: termsForm.map((clause) => `${clause.heading.trim()}: ${clause.body.trim().replace(/\n/g, '\n  ')}`).join('\n') });
+      await updateContract(contract.dealId, contract.id, { terms: termsForm.map((clause) => `${clause.heading.trim()}: ${clause.body.trim().replace(/\n/g, '\n  ')}`).join('\n') });
       setTermsOpen(false);
       setOpenClause(-1);
       setNotice('Terms & Conditions updated.');
@@ -640,7 +641,7 @@ export default function ContractDetailPage() {
             Activity Type
             <select value={activityType} onChange={(e) => setActivityType(e.target.value)}
               className="block w-full border border-slate-200 rounded-lg px-3 py-2 text-xs outline-none focus:border-blue-400 bg-white">
-              {['Note Added', 'Call Completed', 'Meeting', 'Follow-up', 'Email'].map((type) => <option key={type} value={type}>{type}</option>)}
+              {['Note Added', 'Meeting', 'Follow-up', 'Email'].map((type) => <option key={type} value={type}>{type}</option>)}
             </select>
           </label>
           <label className="block space-y-1.5 font-semibold text-slate-600">

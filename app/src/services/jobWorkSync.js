@@ -267,6 +267,77 @@ export function planToApi(p) {
 
 /* ── API calls ── */
 
+const isUuid = (id) => typeof id === 'string' && /^[0-9a-f-]{36}$/i.test(id);
+
+/**
+ * Push rows the server has never seen (created offline — non-UUID ids) and
+ * swap in the server ids. Returns the list. Failures stay local for the
+ * next load instead of being dropped.
+ */
+export async function reconcilePendingCreates(cached, pushCreate) {
+  const pending = (cached || []).filter((r) => r && !isUuid(r.id));
+  if (pending.length === 0) return cached;
+  let next = [...cached];
+  for (const local of pending) {
+    try {
+      const saved = await pushCreate(local);
+      if (saved) next = next.map((r) => (r.id === local.id ? { ...local, ...saved } : r));
+    } catch { /* retry on the next load */ }
+  }
+  return next;
+}
+
+/**
+ * Server rows win by id; rows the server has never seen (no `_synced`
+ * stamp) are kept so offline creates survive a refresh.
+ */
+export function mergeServerRows(cached, serverRows) {
+  const rows = Array.isArray(serverRows) ? serverRows : [];
+  const ids = new Set(rows.map((r) => String(r.id)));
+  return [
+    ...(cached || []).filter((r) => r && !r._synced && !ids.has(String(r.id))),
+    ...rows,
+  ];
+}
+
+function dataUrlToFile(dataUrl, name) {
+  const [head, data] = String(dataUrl || '').split(',');
+  const mime = /data:(.*?);/.exec(head || '')?.[1] || 'application/octet-stream';
+  const bin = atob(data || '');
+  const bytes = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+  return new File([bytes], name || 'document', { type: mime });
+}
+
+/**
+ * Retry-upload order documents whose bytes never reached the server
+ * (offline at attach time). Rows keep a data-URL preview locally, so the
+ * bytes are still here to send. Returns the order with `fileId`s filled in.
+ */
+export async function uploadPendingJWODocs(jwo) {
+  const docs = jwo?.documents || [];
+  if (!docs.some((d) => d && !d.fileId && typeof d.url === 'string' && d.url.startsWith('data:'))) {
+    return jwo;
+  }
+  const { uploadFileToBackend } = await import('./fileUploadService');
+  let changed = false;
+  const next = [];
+  for (const d of docs) {
+    if (d && !d.fileId && typeof d.url === 'string' && d.url.startsWith('data:')) {
+      try {
+        const fileId = await uploadFileToBackend(dataUrlToFile(d.url, d.fileName), d.fileName || 'document', 'jobwork_document');
+        changed = true;
+        next.push({ ...d, fileId });
+        continue;
+      } catch (err) {
+        console.warn('[jobWorkSync] doc upload retry failed:', err?.message || err);
+      }
+    }
+    next.push(d);
+  }
+  return changed ? { ...jwo, documents: next } : jwo;
+}
+
 export async function pullJWOs() {
   if (!isJobWorkBackendEnabled()) return null;
   try {
@@ -425,6 +496,9 @@ export function vpiEntryFromApi(row) {
     by: row.enteredBy || row.entered_by || '',
     enteredBy: row.enteredBy || row.entered_by || '',
     remarks: row.remarks || '',
+    photoFileId: row.photoFileId || row.photo_file || undefined,
+    photo: row.photoUrl || row.photo_url || '',
+    photoUrl: row.photoUrl || row.photo_url || '',
     _synced: true,
   };
 }
@@ -450,6 +524,21 @@ export async function pushCreateVPIEntry(entry) {
     producedQty: Number(entry.produced ?? entry.producedQty ?? 0),
     enteredBy: entry.by || entry.enteredBy || undefined,
     remarks: entry.remarks || undefined,
+    photoFileId: entry.photoFileId || undefined,
+  });
+  return vpiEntryFromApi(body);
+}
+
+export async function pushUpdateVPIEntry(id, entry) {
+  if (!isJobWorkBackendEnabled()) return null;
+  const isUuid = typeof id === 'string' && /^[0-9a-f-]{36}$/i.test(id);
+  if (!isUuid) return null;
+  const body = await api.patch(`/jobwork/pi-entries/${id}/`, {
+    date: entry.date || undefined,
+    producedQty: entry.produced ?? entry.producedQty ?? undefined,
+    enteredBy: entry.by || entry.enteredBy || undefined,
+    remarks: entry.remarks ?? undefined,
+    photoFileId: entry.photoFileId || undefined,
   });
   return vpiEntryFromApi(body);
 }

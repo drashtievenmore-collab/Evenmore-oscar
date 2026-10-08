@@ -34,12 +34,12 @@ import { isBackendEnabled } from '../../../services/crmSync';
 // with no session.
 
 
-const ROLES = ['Tele Caller Executive', 'Sales Support Executive', 'BDE', 'Area Sales Manager'];
+const ROLES = ['Sales Support Executive', 'BDE', 'Area Sales Manager'];
 const DEPARTMENTS = ['Sales', 'Support', 'Marketing'];
 const PRIORITIES = ['High', 'Medium', 'Low'];
 const STATUSES = ['Active', 'Inactive'];
 const STAGES = ['New Lead', 'Details Collected', 'Quotation Shared', 'Demo Pending', 'Demo Done', 'Negotiation', 'Won', 'Lost'];
-const ICONS = ['call', 'demo', 'pending', 'meeting', 'formal', 'quotation'];
+const ICONS = ['follow-up', 'demo', 'pending', 'meeting', 'formal', 'quotation'];
 const PER_PAGE_OPTIONS = [5, 10, 20, 50];
 
 const STAGE_STYLES = {
@@ -54,7 +54,7 @@ const STAGE_STYLES = {
 };
 
 const ICON_STYLE = {
-  call: 'bg-emerald-50 text-emerald-600',
+  'follow-up': 'bg-emerald-50 text-emerald-600',
   demo: 'bg-violet-50 text-violet-600',
   pending: 'bg-orange-50 text-orange-500',
   meeting: 'bg-rose-50 text-rose-500',
@@ -68,6 +68,7 @@ function text(value) {
 }
 
 function iconFor(key) {
+  if (key === 'follow-up') return Phone;
   if (key === 'demo') return Monitor;
   if (key === 'pending') return Clock;
   if (key === 'meeting') return Gift;
@@ -80,34 +81,21 @@ function iconFor(key) {
 
 const EMPTY_FORM = {
   name: '',
-  icon: 'call',
+  icon: 'follow-up',
   stages: [],
-  role: 'Tele Caller Executive',
+  role: 'BDE',
   department: 'Sales',
   priority: 'Medium',
   dueIn: 0,
   status: 'Active',
 };
 
-// Seed rows so the table matches the design (10 x "call") on first load.
-// Afterwards the list persists to localStorage, so deletes/edits survive
-// a page refresh without any backend.
-const STORAGE_KEY = 'masterTasksFrontendV1';
+// No seed rows — the table starts empty and shows "No tasks found".
+// Previous `seedTasks()` 10x "follow-up" dummy masked an empty backend.
+const STORAGE_KEY = 'masterTasksFrontendV2';
 
 function seedTasks() {
-  return Array.from({ length: 10 }, (_, i) => ({
-    id: `mt-seed-${i + 1}`,
-    order: i + 1,
-    name: 'call',
-    title: 'call',
-    icon: 'call',
-    stages: [],
-    role: 'Tele Caller Executive',
-    department: 'Sales',
-    priority: 'Medium',
-    dueIn: 2,
-    status: 'Active',
-  }));
+  return [];
 }
 
 function loadInitialTasks() {
@@ -115,25 +103,38 @@ function loadInitialTasks() {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (raw) {
       const parsed = JSON.parse(raw);
-      if (Array.isArray(parsed)) return parsed;
+      if (Array.isArray(parsed)) return parsed.filter((t) => !String(t?.id || '').startsWith('mt-seed-'));
     }
+    // Drop the old V1 dummy cache once so it never reappears.
+    localStorage.removeItem('masterTasksFrontendV1');
   } catch {
-    // Corrupt cache — fall through to seed data.
+    // Corrupt cache — fall through to empty.
   }
-  return seedTasks();
+  return [];
 }
 
 export default function MasterTasksPage() {
   const navigate = useNavigate();
   // Backend source of truth; local seed only when offline / server empty.
   const storeTasks = useCrmStore((s) => s.masterTasks);
+  const storeStages = useCrmStore((s) => s.stages);
   const hydrate = useCrmStore((s) => s.hydrate);
   const createRecord = useCrmStore((s) => s.createRecord);
   const updateRecord = useCrmStore((s) => s.updateRecord);
   const deleteRecord = useCrmStore((s) => s.deleteRecord);
   const [localTasks, setLocalTasks] = useState(loadInitialTasks);
   const backendOn = isBackendEnabled();
-  const tasks = backendOn && Array.isArray(storeTasks) && storeTasks.length > 0 ? storeTasks : localTasks;
+  // Logged in: the server owns the list, even when it is still empty — the
+  // seed rows must never mask an empty backend or writes would go local-only.
+  const tasks = backendOn ? (Array.isArray(storeTasks) ? storeTasks : []) : localTasks;
+  /** Resolve the form's stage names to server stage ids so the links persist. */
+  const withStageIds = (row) => {
+    const byName = new Map((storeStages || []).map((s) => [String(s?.name || '').toLowerCase(), s?.id]));
+    const stageIds = (row.stages || [])
+      .map((name) => byName.get(String(name || '').toLowerCase()))
+      .filter(Boolean);
+    return { ...row, stageIds };
+  };
   const applyLocal = (updater) => setLocalTasks((prev) => {
     const next = typeof updater === 'function' ? updater(prev) : updater;
     try { localStorage.setItem(STORAGE_KEY, JSON.stringify(next)); } catch { /* ignore */ }
@@ -238,7 +239,7 @@ export default function MasterTasksPage() {
     setEditingId(task.id);
     setForm({
       name: task.name,
-      icon: task.icon || 'call',
+      icon: task.icon || 'follow-up',
       stages: [...(task.stages || [])],
       role: task.role,
       department: task.department,
@@ -277,7 +278,7 @@ export default function MasterTasksPage() {
     setFormError('');
     if (editingId) {
       if (backendOn) {
-        updateRecord('masterTasks', editingId, clean).catch(() => {
+        updateRecord('masterTasks', editingId, withStageIds(clean)).catch(() => {
           applyLocal((prev) => prev.map((t) => (t.id === editingId ? { ...t, ...clean } : t)));
         });
       } else {
@@ -287,7 +288,7 @@ export default function MasterTasksPage() {
       const maxOrder = tasks.reduce((m, t) => Math.max(m, t.order || 0), 0);
       const row = { id: `mt-${Date.now()}`, order: maxOrder + 1, ...clean };
       if (backendOn) {
-        createRecord('masterTasks', row).catch(() => applyLocal((prev) => [...prev, row]));
+        createRecord('masterTasks', withStageIds(row)).catch(() => applyLocal((prev) => [...prev, row]));
       } else {
         applyLocal((prev) => [...prev, row]);
       }
@@ -313,7 +314,7 @@ export default function MasterTasksPage() {
     delete copy._pending;
     delete copy._local;
     if (backendOn) {
-      createRecord('masterTasks', copy).catch(() => applyLocal((prev) => [...prev, copy]));
+      createRecord('masterTasks', withStageIds(copy)).catch(() => applyLocal((prev) => [...prev, copy]));
     } else {
       applyLocal((prev) => [...prev, copy]);
     }
@@ -403,7 +404,7 @@ export default function MasterTasksPage() {
       <InfoBanner
         storageKey="leadMasterTasksBannerV2"
         title="Why use Master Lead Tasks?"
-        text="Create reusable tasks such as calls, demos and quotations once, then link them to the relevant lead stages. Set the responsible role, department, priority and due days so your team follows a consistent process for every lead."
+        text="Create reusable tasks such as follow-ups, demos and quotations once, then link them to the relevant lead stages. Set the responsible role, department, priority and due days so your team follows a consistent process for every lead."
       />
 
       <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
@@ -494,7 +495,7 @@ export default function MasterTasksPage() {
                     <td className="px-2 py-3 text-slate-500">{(safePage - 1) * perPage + idx + 1}</td>
                     <td className="px-3 py-3">
                       <span className="inline-flex items-center gap-2 font-bold text-slate-800 whitespace-nowrap">
-                        <span className={`w-7 h-7 rounded-lg grid place-items-center shrink-0 ${ICON_STYLE[t.icon] || ICON_STYLE.call}`}>
+                        <span className={`w-7 h-7 rounded-lg grid place-items-center shrink-0 ${ICON_STYLE[t.icon] || ICON_STYLE['follow-up']}`}>
                           <Icon size={14} />
                         </span>
                         {t.name}
@@ -605,7 +606,7 @@ export default function MasterTasksPage() {
             <div className="p-5 space-y-3.5 max-h-[72vh] overflow-y-auto text-xs">
               <div>
                 <label className="block font-semibold text-slate-700 mb-1">Task Name <span className="text-rose-500">*</span></label>
-                <input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="e.g. Call, Demo, Quotation" className="w-full px-3 py-2 bg-white border border-slate-200 rounded-lg focus:outline-none focus:border-blue-500 text-slate-800" />
+                <input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="e.g. Follow-up, Demo, Quotation" className="w-full px-3 py-2 bg-white border border-slate-200 rounded-lg focus:outline-none focus:border-blue-500 text-slate-800" />
               </div>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>

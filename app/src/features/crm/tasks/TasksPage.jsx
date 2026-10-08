@@ -321,7 +321,7 @@ export default function TasksPage() {
     <div className="feature-page">
       <PageHeader
         title="CRM Tasks"
-        subtitle="Track follow-ups, scheduled calls, demos, and sales milestones."
+        subtitle="Track follow-ups, scheduled visits, demos, and sales milestones."
         breadcrumb={[{ label: 'CRM', to: '/crm/leads' }, { label: 'Tasks' }]}
       />
 

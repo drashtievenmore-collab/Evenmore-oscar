@@ -1,14 +1,9 @@
 import { useEffect, useRef, useState } from 'react';
 import { Modal } from '../../../components/ui/Modal';
-import { TASK_OUTCOMES } from '../../../services/taskCompletionService';
 
 /* Shared bits for the lead ⋮ quick actions. Every modal is controlled by
    LeadsPage: it passes the lead, option lists, and an onSave that writes
    server-first with a local fallback. */
-
-const LOG_CALL_OUTCOMES = TASK_OUTCOMES.filter((o) =>
-  ['Connected', 'No Answer', 'Interested', 'Follow-up Required'].includes(o.value),
-);
 
 function Field({ label, required, children, wide }) {
   return (
@@ -349,52 +344,7 @@ export function ConvertDealModal({ isOpen, lead, onClose, onSave }) {
   );
 }
 
-// ── 4. Log Call ────────────────────────────────────────────────
-// Outcome-first call log. Options mirror TASK_OUTCOMES.
-export function LogCallModal({ isOpen, lead, onClose, onSave }) {
-  const [outcome, setOutcome] = useState('Connected');
-  const [notes, setNotes] = useState('');
-  useResetOnOpen(isOpen, () => {
-    setOutcome('Connected');
-    setNotes('');
-  });
-  if (!isOpen) return null;
-  return (
-    <Modal
-      isOpen
-      onClose={onClose}
-      title="Log Call"
-      subtitle={`${lead?.name || 'Lead'}${lead?.phone ? ` — ${lead.phone}` : ''}`}
-      footer={
-        <ModalFooter onClose={onClose} saveLabel="Save Call" onSave={() => onSave({ outcome, notes: notes.trim() })} />
-      }
-    >
-      <div className="grid grid-cols-1 gap-3">
-        <Field label="Outcome" required>
-          <select className={inputCls} value={outcome} onChange={(e) => setOutcome(e.target.value)}>
-            {LOG_CALL_OUTCOMES.map((o) => (
-              <option key={o.value} value={o.value} title={o.description}>
-                {o.label}
-              </option>
-            ))}
-          </select>
-        </Field>
-        <Field label="Call Notes">
-          <textarea
-            rows={3}
-            className={`${inputCls} h-auto py-2 resize-y`}
-            value={notes}
-            autoFocus
-            onChange={(e) => setNotes(e.target.value)}
-            placeholder="What was discussed…"
-          />
-        </Field>
-      </div>
-    </Modal>
-  );
-}
-
-// ── 5. Convert to Party ────────────────────────────────────────
+// ── 4. Convert to Party ────────────────────────────────────────
 // When the buyer becomes regular. Creates a Customer party (feeds Sales
 // Orders) and links it on Lead.party.
 export function ConvertPartyModal({ isOpen, lead, onClose, onSave }) {

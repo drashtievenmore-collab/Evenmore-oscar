@@ -9,6 +9,7 @@ import {
 } from 'lucide-react';
 import { toISODate } from '../../../utils/dateUtils';
 import PageHeader from '../../../components/ui/PageHeader';
+import KpiCard from '../../../components/ui/KpiCard';
 
 const STATUS_PILL = {
   'In Progress': 'bg-blue-50 text-blue-600 border-blue-200',
@@ -172,22 +173,10 @@ export default function ProductionInstructionsPage() {
       />
 
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
-        {[
-          { icon: ClipboardList, value: totalInstructions, label: 'Total Instructions', bg: '#e8f1fd', c: '#2563eb' },
-          { icon: Clock, value: inProgressCount, label: 'In Progress', bg: '#fdf3e0', c: '#d97706' },
-          { icon: CheckCircle2, value: completedCount, label: 'Completed', bg: '#e6f7ef', c: '#059669' },
-          { icon: Layers, value: pendingCount, label: 'Pending', bg: '#f3e8ff', c: '#7c3aed' },
-        ].map((k) => (
-          <div key={k.label} className="rounded-xl border border-[#e2eaf5] bg-white p-4 shadow-[0_1px_2px_rgba(16,42,82,0.05)]">
-            <div className="flex items-start gap-2.5">
-              <span className="grid h-10 w-10 place-items-center rounded-lg" style={{ background: k.bg, color: k.c }}><k.icon size={19} /></span>
-              <div>
-                <p className="text-[15px] font-extrabold tracking-tight text-[#17294e]">{k.value}</p>
-                <p className="text-[11px] font-medium text-slate-500">{k.label}</p>
-              </div>
-            </div>
-          </div>
-        ))}
+        <KpiCard label="Total Instructions" value={totalInstructions} icon={ClipboardList} tone="blue" />
+        <KpiCard label="In Progress" value={inProgressCount} icon={Clock} tone="amber" />
+        <KpiCard label="Completed" value={completedCount} icon={CheckCircle2} tone="emerald" />
+        <KpiCard label="Pending" value={pendingCount} icon={Layers} tone="purple" />
       </div>
 
       <div className="overflow-hidden rounded-xl border border-[#e2eaf5] bg-white shadow-[0_1px_2px_rgba(16,42,82,0.05)]">

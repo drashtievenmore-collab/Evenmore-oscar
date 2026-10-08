@@ -70,7 +70,7 @@ export default function DailyProductionPage() {
     setShowModal(true);
   };
 
-  const handleSave = (e) => {
+  const handleSave = async (e) => {
     e.preventDefault();
     if (!formDate) { alert('Date is required.'); return; }
     if (!(Number(formQty) > 0)) { alert('Produced quantity must be greater than 0.'); return; }
@@ -81,10 +81,20 @@ export default function DailyProductionPage() {
         by = u?.name || u?.full_name || u?.username || '';
       } catch { by = ''; }
     }
+    // The File itself travels along (`photoFile`) so the store can upload it
+    // to /files/ first and persist the server file id on the entry.
     if (editing) {
-      dailyEntriesStore.update(editing.id, { date: formDate, produced: Number(formQty), by, remarks: formRemarks, photo: formPhoto ? formPhoto.name : editing.photo });
+      await dailyEntriesStore.update(editing.id, {
+        date: formDate, produced: Number(formQty), by, remarks: formRemarks,
+        photoFile: formPhoto || undefined,
+        photo: formPhoto ? formPhoto.name : editing.photo,
+      });
     } else {
-      dailyEntriesStore.add({ id: `e-${Date.now()}`, instructionId: pi?.id, piId: pi?.id, date: formDate, produced: Number(formQty), by, remarks: formRemarks, photo: formPhoto ? formPhoto.name : '' });
+      await dailyEntriesStore.add({
+        id: `e-${Date.now()}`, instructionId: pi?.id, piId: pi?.id,
+        date: formDate, produced: Number(formQty), by, remarks: formRemarks,
+        photoFile: formPhoto || undefined, photo: formPhoto ? formPhoto.name : '',
+      });
     }
     setShowModal(false);
   };

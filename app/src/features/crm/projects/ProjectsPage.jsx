@@ -10,6 +10,7 @@ import PageHeader from '../../../components/ui/PageHeader';
 import { loadDeals } from '../../../services/dealService';
 import {
   loadProjects,
+  refreshProjectsCache,
   projectDefaults,
   createProjectFromDeal,
   createStandaloneProject,
@@ -142,7 +143,7 @@ export default function ProjectsPage() {
   }
 
   useEffect(() => {
-    refresh();
+    refreshProjectsCache().then(() => refresh()).catch(() => refresh());
     window.addEventListener('storage', refresh);
     window.addEventListener('crm:data-updated', refresh);
     return () => {
@@ -190,7 +191,7 @@ export default function ProjectsPage() {
     setCreateOpen(true);
   }
 
-  function submitCreate(event) {
+  async function submitCreate(event) {
     event.preventDefault();
     if (busy) return;
     setBusy(true);
@@ -198,10 +199,10 @@ export default function ProjectsPage() {
     try {
       let project;
       if (form.sourceDealId) {
-        const result = createProjectFromDeal(form.sourceDealId, form);
+        const result = await createProjectFromDeal(form.sourceDealId, form);
         project = result.project;
       } else {
-        project = createStandaloneProject(form);
+        project = await createStandaloneProject(form);
       }
       setCreateOpen(false);
       setForm(EMPTY_FORM);
@@ -224,14 +225,14 @@ export default function ProjectsPage() {
     setEditing(project);
   }
 
-  function submitEdit(event) {
+  async function submitEdit(event) {
     event.preventDefault();
     if (busy || !editing) return;
     setBusy(true);
     setFormError('');
     try {
       const { sourceDealId: _ignored, ...patch } = form;
-      const updated = updateProject(editing.id, patch);
+      const updated = await updateProject(editing.id, patch);
       setEditing(null);
       setNotice(`Project ${updated.projectNumber} updated successfully.`);
       refresh();
@@ -239,10 +240,10 @@ export default function ProjectsPage() {
     finally { setBusy(false); }
   }
 
-  function confirmDelete() {
+  async function confirmDelete() {
     if (!deleting) return;
     try {
-      const removed = deleteProject(deleting.id);
+      const removed = await deleteProject(deleting.id);
       setDeleting(null);
       setNotice(`Project ${removed.projectNumber} deleted.`);
       refresh();

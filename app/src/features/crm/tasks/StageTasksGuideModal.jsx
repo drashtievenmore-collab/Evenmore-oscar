@@ -15,7 +15,7 @@ const GUIDES = {
     steps: [
       "Open the Lead Stage Tasks page, choose the pipeline, and click any stage such as New Lead, Details Collected, Quotation Shared, Demo Pending, Demo Done, Negotiation, Won, or Lost.",
       "Click \"+ Add Task\" inside the selected stage and enter a task name with a short description that clearly tells the assignee what action to take.",
-      "For New Lead, create a task like \"Call\" with a description such as \"Initial call to understand requirement and qualify the lead.\"",
+      "For New Lead, create a task like \"Follow-up\" with a description such as \"Initial follow-up to understand requirement and qualify the lead.\"",
       "For Details Collected, create a task like \"Send email\" with a description such as \"Share brochure, confirm collected details, and plan the next step.\"",
       "For Quotation Shared, Demo Pending, and Demo Done, create tasks like \"Send quotation\", \"Schedule demo\", or \"Client meeting\" with descriptions for proposal sharing, demo planning, and post-demo follow-up.",
       "For Negotiation, Won, and Lost, create tasks like \"Negotiate pricing\", \"Handover to onboarding\", or \"Capture lost reason\" so the team can close, convert, or report the lead properly.",

@@ -64,41 +64,30 @@ export function normalizeSection(section, rows) {
           _synced: true,
         };
       });
-    case 'calls':
-      return list.map((row) => {
-        if (row && row.called_at === undefined && row.calledAt === undefined && row.date !== undefined) {
-          return { ...row, _synced: row._synced ?? false };
-        }
-        return {
-          id: row.id,
-          outcome: row.outcome || 'Connected',
-          direction: row.direction || 'outbound',
-          duration: row.duration_seconds != null ? `${row.duration_seconds} min` : (row.duration || '-'),
-          duration_seconds: row.duration_seconds ?? 0,
-          notes: row.notes || '',
-          by: row.calledByName || row.by || '',
-          calledByName: row.calledByName || '',
-          phone: row.phone || '',
-          date: displayDateTime(row.called_at || row.date),
-          called_at: row.called_at || '',
-          _synced: true,
-        };
-      });
     case 'emails':
       return list.map((row) => {
-        if (row && row.to_addresses === undefined && row.person !== undefined) {
+        if (row && row.to_addresses === undefined && row.toAddresses === undefined && row.person !== undefined) {
           return { ...row, _synced: row._synced ?? false };
         }
+        const sentAt = row.sent_at ?? row.sentAt ?? null;
+        const createdAt = row.created_at ?? row.createdAt ?? null;
+        const toAddresses = row.to_addresses ?? row.toAddresses ?? [];
+        const person = row.person
+          || row.createdByName || row.created_byName || row.senderName
+          || (Array.isArray(toAddresses) && toAddresses.length > 0 ? toAddresses.join(', ') : '')
+          || '';
         return {
           id: row.id,
           subject: row.subject || '',
           body: row.body || '',
           message: row.body || '',
-          person: row.person || '',
-          date: displayDateTime(row.sent_at || row.created_at || row.date),
-          sent_at: row.sent_at || '',
-          status: row.status || (row.sent_at ? 'Sent' : 'Draft'),
-          to_addresses: row.to_addresses || [],
+          person,
+          date: displayDateTime(sentAt || createdAt || row.date),
+          sent_at: sentAt || '',
+          sentAt: sentAt || '',
+          status: row.status || (sentAt ? 'Sent' : 'Draft'),
+          to_addresses: Array.isArray(toAddresses) ? toAddresses : [],
+          toAddresses: Array.isArray(toAddresses) ? toAddresses : [],
           _synced: true,
         };
       });
@@ -107,43 +96,74 @@ export function normalizeSection(section, rows) {
         if (row && row.source !== undefined && row.name === undefined) {
           return { ...row, _synced: row._synced ?? false };
         }
+        const attributedAt = row.attributed_at ?? row.attributedAt ?? null;
+        const createdAt = row.created_at ?? row.createdAt ?? null;
         return {
           id: row.id,
-          source: row.name || row.source || '',
-          name: row.name || '',
-          sourceId: row.sourceId || undefined,
-          details: row.campaign || row.medium || row.details || '',
-          campaign: row.campaign || '',
+          source: row.name || row.source || row.sourceName || '',
+          name: row.name || row.source || '',
+          sourceId: row.sourceId || row.source_id || undefined,
+          details: row.details || row.campaign || row.medium || '',
+          campaign: row.campaign || row.details || '',
           medium: row.medium || '',
-          date: displayDateTime(row.attributed_at || row.date),
-          attributed_at: row.attributed_at || '',
-          createdBy: row.createdBy || '',
+          date: displayDateTime(attributedAt || createdAt || row.date),
+          attributed_at: attributedAt || '',
+          createdBy: row.createdBy || row.createdByName || row.created_byName || row.authorName || '',
           color: row.color || '#1f6bff',
           icon: row.icon || 'globe',
           _synced: true,
         };
       });
-    case 'products':
+    case 'products': {
+      // Fabric requirement rows (Users & Requirements tab). The wire speaks
+      // camelCase (`productName`, `fabricColor`, `expectedRate`, ...); older
+      // local rows may carry snake_case or the generic `name`/`price` keys.
+      const rateOf = (row) => {
+        const raw = row.expectedRate ?? row.expected_rate;
+        const num = Number(raw);
+        return Number.isFinite(num) ? num : null;
+      };
       return list.map((row) => {
-        if (row && row.product_name === undefined && (row.name !== undefined || row.productName !== undefined)) {
+        if (row && row.product_name === undefined && row.productName === undefined
+          && (row.name !== undefined || row.productName !== undefined)) {
           return { ...row, _synced: row._synced ?? false };
         }
+        const rate = rateOf(row);
         return {
           id: row.id,
-          name: row.product_name || row.name || '',
-          product_name: row.product_name || row.name || '',
-          productName: row.product_name || row.name || '',
-          sku: row.sku || '',
-          qty: row.qty ?? 1,
-          quantity: row.qty ?? 1,
-          notes: row.notes || '',
-          price: row.price || '',
+          productName: row.productName || row.product_name || row.name || '',
+          product_name: row.productName || row.product_name || row.name || '',
+          name: row.productName || row.product_name || row.name || '',
+          fabricCode: row.fabricCode || row.fabric_code || '',
+          fabric_code: row.fabricCode || row.fabric_code || '',
+          fabricType: row.fabricType || row.fabric_type || '',
+          fabric_type: row.fabricType || row.fabric_type || '',
+          fabricDesign: row.fabricDesign || row.fabric_design || '',
+          fabric_design: row.fabricDesign || row.fabric_design || '',
+          fabricColor: row.fabricColor || row.fabric_color || '',
+          fabric_color: row.fabricColor || row.fabric_color || '',
+          fabricWidth: row.fabricWidth ?? row.fabric_width ?? '',
+          fabric_width: row.fabricWidth ?? row.fabric_width ?? '',
+          fabricGsm: row.fabricGsm ?? row.fabric_gsm ?? '',
+          fabric_gsm: row.fabricGsm ?? row.fabric_gsm ?? '',
+          sku: row.fabricCode || row.fabric_code || row.sku || '',
+          qty: row.qty ?? row.quantity ?? 1,
+          quantity: row.qty ?? row.quantity ?? 1,
+          uom: row.uom || row.UOM || '',
+          expectedRate: rate,
+          expected_rate: rate,
+          // Legacy `price` display kept for readers that prefill rates
+          // (Estimates tab). Expected rate is never a confirmed price.
+          price: rate != null ? `Rs. ${Number(rate).toLocaleString('en-IN')}` : (row.price || ''),
           status: row.status || 'Active',
-          image: row.image || '',
-          itemId: row.itemId || undefined,
+          notes: row.notes || row.remarks || '',
+          remarks: row.notes || row.remarks || '',
+          image: '',
+          itemId: row.itemId || row.item_id || undefined,
           _synced: true,
         };
       });
+    }
     case 'users':
       return list.map((row) => {
         if (row && row.userId === undefined && row.email !== undefined && row.added_at === undefined) {
@@ -218,7 +238,6 @@ export function normalizeSection(section, rows) {
         email: '#3b82f6',
         sent: '#10b981',
         note: '#f59e0b',
-        call: '#8b5cf6',
         task: '#ef4444',
         activity: '#94a3b8',
       };
@@ -254,52 +273,62 @@ export function toApiSection(section, row) {
     case 'notes':
       if (!text(row.body || row.text).trim()) return null;
       return { body: text(row.body || row.text).trim() };
-    case 'calls': {
-      let durationSeconds = 0;
-      const rawSeconds = Number(row.duration_seconds);
-      if (Number.isFinite(rawSeconds) && row.duration_seconds !== undefined && row.duration_seconds !== null && row.duration_seconds !== '') {
-        durationSeconds = Math.max(0, Math.round(rawSeconds));
-      } else {
-        const match = text(row.duration ?? '').match(/(\d+(\.\d+)?)/);
-        if (match) {
-          const amount = Number(match[1]);
-          const isSeconds = /sec/i.test(text(row.duration ?? ''));
-          durationSeconds = Math.max(0, Math.round(isSeconds ? amount : amount * 60));
-        }
-      }
-      return compact({
-        direction: text(row.direction || 'outbound').toLowerCase().startsWith('in') ? 'inbound' : 'outbound',
-        outcome: text(row.outcome || 'Connected'),
-        duration_seconds: durationSeconds,
-        notes: text(row.notes || ''),
-        called_at: row.called_at || new Date().toISOString(),
-      });
-    }
     case 'emails':
       if (!text(row.subject).trim()) return null;
-      return compact({
-        subject: text(row.subject).trim(),
-        body: text(row.body || row.message || ''),
-        to_addresses: Array.isArray(row.to_addresses) && row.to_addresses.length > 0
-          ? row.to_addresses
-          : (row.mailTo ? [text(row.mailTo)] : undefined),
-      });
+      {
+        const toList = Array.isArray(row.to_addresses) ? row.to_addresses
+          : (Array.isArray(row.toAddresses) ? row.toAddresses : []);
+        return compact({
+          subject: text(row.subject).trim(),
+          body: text(row.body || row.message || ''),
+          to_addresses: toList.length > 0
+            ? toList
+            : (row.mailTo ? [text(row.mailTo)] : undefined),
+        });
+      }
     case 'sources': {
       if (!text(row.sourceId || row.name || row.source).trim() && !text(row.details || row.campaign).trim()) return null;
       return compact({
-        sourceId: row.sourceId || undefined,
+        sourceId: row.sourceId || row.source_id || undefined,
+        // Channel label ("Website", "Referral", …). The API resolves it to a
+        // real `crm.Source` so GET returns `name`; without it SOURCE is blank.
+        source: text(row.source || row.name || '').trim() || undefined,
+        name: text(row.name || row.source || '').trim() || undefined,
         campaign: text(row.details || row.campaign || '').slice(0, 500) || undefined,
         medium: text(row.medium || ''),
       });
     }
-    case 'products':
-      if (!text(row.product_name || row.name || row.productName).trim()) return null;
+    case 'products': {
+      const quality = text(
+        row.productName || row.product_name || row.name || row.productName,
+      ).trim();
+      if (!quality) return null;
+      const numOrUndef = (value) => {
+        if (value === undefined || value === null || value === '') return undefined;
+        const num = Number(value);
+        return Number.isFinite(num) ? num : undefined;
+      };
+      const textOrUndef = (value) => {
+        const str = text(value).trim();
+        return str || undefined;
+      };
+      const qty = Number(row.qty ?? row.quantity ?? 1);
       return compact({
-        itemId: row.itemId || undefined,
-        product_name: text(row.product_name || row.name || row.productName).trim(),
-        qty: Number(row.qty ?? row.quantity ?? 1) || 1,
-        notes: text(row.notes || ''),
+        itemId: row.itemId || row.item_id || undefined,
+        product_name: quality,
+        fabric_code: textOrUndef(row.fabricCode || row.fabric_code),
+        fabric_type: textOrUndef(row.fabricType || row.fabric_type),
+        fabric_design: textOrUndef(row.fabricDesign || row.fabric_design),
+        fabric_color: textOrUndef(row.fabricColor || row.fabric_color),
+        fabric_width: numOrUndef(row.fabricWidth ?? row.fabric_width),
+        fabric_gsm: numOrUndef(row.fabricGsm ?? row.fabric_gsm),
+        qty: Number.isFinite(qty) && qty > 0 ? qty : 1,
+        uom: textOrUndef(row.uom),
+        expected_rate: numOrUndef(row.expectedRate ?? row.expected_rate),
+        status: text(row.status || 'Active'),
+        notes: text(row.notes || row.remarks || ''),
       });
+    }
     case 'users':
       if (!row.userId) return null;
       return compact({ userId: row.userId, role: text(row.role || '') || undefined });
@@ -318,7 +347,7 @@ export function toApiSection(section, row) {
 
 /** Sections with a real `GET/POST /crm/leads/{id}/{section}/` endpoint. */
 export const WRITABLE_LEAD_SECTIONS = new Set([
-  'users', 'products', 'sources', 'notes', 'calls', 'emails', 'files', 'threads',
+  'users', 'products', 'sources', 'notes', 'emails', 'files', 'threads',
 ]);
 
 /**

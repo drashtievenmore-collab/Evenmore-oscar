@@ -26,6 +26,7 @@ export const ADMIN_RESOURCES = {
       reportingManager: u.reportingManager || undefined,
       status: u.status || undefined,
       password: u.password || undefined,
+      crmRoles: u.crmRoles || u.crm_roles || undefined,
     }),
     /**
      * The screens treat these as text — they search, sort and group on them.
