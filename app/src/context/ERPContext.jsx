@@ -1,5 +1,4 @@
 import React, { createContext, useContext, useState, useEffect, useRef, useCallback } from 'react';
-import { publishEstimates } from '../services/estimateStore';
 import { formatDateDDMMYYYY, getCurrentDateFormatted, getCurrentISODate, addDaysISO, toISODate, toDisplayDate } from '../utils/dateUtils';
 import { formatCurrency as formatCurrencyUtil, getCurrencySymbol, getCurrencyConfig, CURRENCY_CONFIGS, fetchLiveExchangeRates, DEFAULT_RATES, setBaseCurrency } from '../utils/currencyUtils';
 import { calculateWarrantyCoverageStatus } from '../utils/warrantyUtils';
@@ -89,7 +88,6 @@ const normalizeProformaInvoices = (pis) => {
 };
 
 export const ERPProvider = ({ children, }) => {
-    const [estimates, setEstimates] = useState([]);
     const [faultyParts, setFaultyParts] = useState([]);
     const [invoices, setInvoices] = useState([]);
     const [proformaInvoices, setProformaInvoices] = useState(() => normalizeProformaInvoices([]));
@@ -184,7 +182,6 @@ export const ERPProvider = ({ children, }) => {
         parties: setParties,
         customers: setCustomers,
         vendors: setVendors,
-        estimates: setEstimates,
         quotations: setQuotations,
         salesOrders: setSalesOrders,
         proformaInvoices: setProformaInvoices,
@@ -433,8 +430,12 @@ export const ERPProvider = ({ children, }) => {
      *                 the same local id (a party is mirrored into `customers`
      *                 or `vendors`), reconciled with the same server row.
      */
-    const persistCreate = (key, record, setter, { also = [], onServer } = {}) => {
-        if (!isBackendEnabled() || !record?.id) return record;
+    const persistCreate = (key, record, setter, { also = [], onServer, onError } = {}) => {
+        if (!isBackendEnabled() || !record?.id) {
+            // Local-only: the caller's row is final — report it as saved.
+            onServer?.(record);
+            return record;
+        }
         pushCreate(key, record)
             .then((serverRecord) => {
                 if (!serverRecord) return;
@@ -449,6 +450,7 @@ export const ERPProvider = ({ children, }) => {
                 markSyncFailure(setter, record.id, err);
                 also.forEach(({ setter: otherSetter }) => markSyncFailure(otherSetter, record.id, err));
                 showToast(`Saved locally only — ${describeError(err)}`);
+                onError?.(err);
             });
         return record;
     };
@@ -2142,89 +2144,8 @@ export const ERPProvider = ({ children, }) => {
         persistUpdate('categories', id, updates, setCategories);
         showToast(`Category updated.`);
     };
-    // ── ESTIMATES ACTIONS ──────────────────────────────────────────────
-    // The CRM screens read estimates through `services/estimateStore`.
-    useEffect(() => {
-        publishEstimates(estimates, { addEstimate, updateEstimate });
-    }, [estimates]);
-
-    const addEstimate = (est) => {
-        const estAmount = est.amount ||
-            (est.items ? est.items.reduce((acc, it) => acc + (it.amount || it.qty * it.rate), 0) : 0) || 5000;
-        const defaultAddresses = resolvePartyAddresses(est.customerId, est.customer);
-        const newEst = {
-            id: est.id || `est-${Date.now()}`,
-            estimateNumber: est.estimateNumber || `EST-2026-${String(estimates.length + 1).padStart(3, '0')}`,
-            customerId: est.customerId,
-            customer: est.customer || 'Acme Corp',
-            contactPerson: est.contactPerson || '',
-            billingAddress: createAddressSnapshot(est.billingAddress) || defaultAddresses.billing,
-            shippingAddress: createAddressSnapshot(est.shippingAddress) || defaultAddresses.shipping,
-            date: formatDateDDMMYYYY(est.date || 'Today'),
-            validUntil: est.validUntil || '15 Days',
-            validityDays: est.validityDays ?? '',
-            paymentTerms: est.paymentTerms || '',
-            leadId: est.leadId ? String(est.leadId) : '',
-            leadName: est.leadName || '',
-            amount: estAmount,
-            status: est.status || 'Draft',
-            items: est.items || [],
-            discountTotal: est.discountTotal ?? 0,
-            freightCharges: est.freightCharges ?? 0,
-            otherCharges: est.otherCharges ?? 0,
-            loadingCharges: est.loadingCharges ?? 0,
-            terms: est.terms || '',
-            notes: est.notes || 'Preliminary cost estimate',
-        };
-        setEstimates((prev) => [newEst, ...prev]);
-        showToast(`Estimate ${newEst.estimateNumber} created.`);
-        persistCreate('estimates', newEst, setEstimates);
-        return newEst;
-    };
-    const updateEstimate = (id, updates) => {
-        setEstimates((prev) => prev.map((e) => (e.id === id ? {
-            ...e,
-            ...updates,
-            billingAddress: updates.billingAddress ? createAddressSnapshot(updates.billingAddress) : e.billingAddress,
-            shippingAddress: updates.shippingAddress ? createAddressSnapshot(updates.shippingAddress) : e.shippingAddress,
-        } : e)));
-        persistUpdate('estimates', id, updates, setEstimates);
-        showToast(`Estimate updated.`);
-    };
-    const deleteEstimate = (id) => {
-        setEstimates((prev) => prev.filter((e) => e.id !== id));
-        persistDelete('estimates', id);
-        showToast(`Estimate deleted.`);
-    };
-    const convertEstimateToQuotation = (estimateId) => {
-        const est = estimates.find((e) => e.id === estimateId);
-        if (!est) return undefined;
-        if (est.status === 'Converted') {
-            showToast(`Estimate ${est.estimateNumber} has already been converted.`);
-            return undefined;
-        }
-        setEstimates((prev) => prev.map((e) => (e.id === estimateId ? { ...e, status: 'Converted' } : e)));
-        persistUpdate('estimates', estimateId, { status: 'Converted' }, setEstimates);
-        const newQuote = {
-            customerId: est.customerId,
-            customer: est.customer,
-            billingAddress: createAddressSnapshot(est.billingAddress),
-            shippingAddress: createAddressSnapshot(est.shippingAddress),
-            date: getCurrentDateFormatted(),
-            validUntil: 'In 30 days',
-            amount: est.amount,
-            status: 'Draft',
-            items: est.items || [],
-            sourceEstimateId: est.id,
-            sourceEstimateNumber: est.estimateNumber,
-            notes: `Converted from Estimate ${est.estimateNumber}. ${est.notes || ''}`,
-        };
-        const created = addQuotation(newQuote);
-        showToast(`Estimate ${est.estimateNumber} converted to Quotation ${created.quoteNumber}!`);
-        return created;
-    };
-
-    const addQuotation = (quote) => {
+    // ── QUOTATIONS ACTIONS ─────────────────────────────────────────────
+    const addQuotation = (quote, { onServer, onError, silent } = {}) => {
         const totalAmount = quote.amount ??
             (quote.items ? quote.items.reduce((acc, it) => acc + (it.amount ?? it.qty * it.rate), 0) : 0);
         const defaultAddresses = resolvePartyAddresses(quote.customerId, quote.customer);
@@ -2236,8 +2157,6 @@ export const ERPProvider = ({ children, }) => {
             terms: quote.terms,
             termsAndConditions: quote.termsAndConditions,
             freight: quote.freight,
-            sourceEstimateId: quote.sourceEstimateId,
-            sourceEstimateNumber: quote.sourceEstimateNumber,
             customerId: quote.customerId,
             customer: quote.customer || 'Acme Corp',
             contactPerson: quote.contactPerson || '',
@@ -2262,13 +2181,61 @@ export const ERPProvider = ({ children, }) => {
             notes: quote.notes || 'Commercial quotation',
         };
         setQuotations((prev) => [newQ, ...prev]);
-        showToast(`Quotation ${newQ.quoteNumber} issued.`);
-        persistCreate('quotations', newQ, setQuotations);
+        // Embedded callers (lead inline form) toast only on server confirm;
+        // every other caller keeps the immediate toast.
+        if (!silent && !onServer) showToast(`Quotation ${newQ.quoteNumber} issued.`);
+        persistCreate('quotations', newQ, setQuotations, {
+            onServer: (serverRecord) => {
+                if (silent || onServer) {
+                    const number = serverRecord?.quoteNumber || serverRecord?.quotationNumber || newQ.quoteNumber;
+                    showToast(`Quotation ${number} generated.`);
+                }
+                onServer?.(serverRecord);
+            },
+            onError: (err) => {
+                onError?.(err);
+            },
+        });
         return newQ;
     };
     const recordQuotationActivity = (id, type) => {
         const event = { id: crypto.randomUUID(), type, quotationId: id, timestamp: new Date().toISOString() };
         setQuotations(prev => prev.map(q => q.id === id ? { ...q, activity: [...(q.activity || []), event] } : q));
+    };
+    /**
+     * Staff-side mirror of the server's quotation → deal pipeline
+     * (`advance_deal_for_quotation`): the server already moved server-linked
+     * deals, this settles local rows and refreshes the board without waiting
+     * for the next pull. Same transition guards, fire-and-forget.
+     */
+    const moveLinkedDealToStage = (quote, stage) => {
+        (async () => {
+            try {
+                const [{ useCrmStore }, dealService] = await Promise.all([
+                    import('../stores/crmStore'),
+                    import('../services/dealService'),
+                ]);
+                const state = useCrmStore.getState();
+                const rows = state.deals || [];
+                let deal = rows.find((d) => String(d.id) === String(quote?.dealId || quote?.crmDeal));
+                if (!deal && quote?.leadId) {
+                    const match = dealService.findDealForLead?.(quote.leadId);
+                    if (match) deal = rows.find((d) => String(d.id) === String(match.id)) || match;
+                }
+                if (!deal) return;
+                const from = deal.stage || 'Draft';
+                const allowed = {
+                    Sent: ['Draft'],
+                    Open: ['Draft', 'Sent'],
+                    Won: ['Draft', 'Sent', 'Open', 'Revised', 'Declined'],
+                    Lost: ['Draft', 'Sent', 'Open', 'Revised', 'Declined'],
+                };
+                if (from === stage || !(allowed[stage] || []).includes(from)) return;
+                await state.updateRecord('deals', deal.id, { stage });
+            } catch {
+                // Local-only or offline: the board keeps its current stage.
+            }
+        })();
     };
     const syncQuotationShare = (id, share) => {
         const current = quotations.find((q) => String(q.id) === String(id));
@@ -2286,6 +2253,7 @@ export const ERPProvider = ({ children, }) => {
         }));
         if (current && current.status !== 'Viewed' && nextStatus === 'Viewed') {
             persistUpdate('quotations', id, { status: nextStatus }, setQuotations);
+            moveLinkedDealToStage(current, 'Open');
             emitCrmEvent({
                 type: CRM_EVENT_TYPES.QUOTATION_VIEWED,
                 entityType: 'quotation',
@@ -2335,6 +2303,7 @@ export const ERPProvider = ({ children, }) => {
         if (!target) return null;
         if (!isBackendEnabled() || !isServerId(id)) {
             setQuotations((prev) => prev.map((q) => (q.id === id ? { ...q, status: 'Accepted' } : q)));
+            moveLinkedDealToStage(target, 'Won');
             showToast('Quotation approved. Lead has been converted to Customer successfully.');
             return { customer: null };
         }
@@ -2344,6 +2313,7 @@ export const ERPProvider = ({ children, }) => {
             else setQuotations((prev) => prev.map((q) => (q.id === id ? { ...q, status: 'Accepted' } : q)));
             // The new/linked customer must be visible for the Sales Order step.
             refreshFromBackend();
+            moveLinkedDealToStage(target, 'Won');
             showToast(envelope?.message || 'Quotation approved. Lead has been converted to Customer successfully.');
             return envelope;
         } catch (err) {
@@ -2375,7 +2345,11 @@ export const ERPProvider = ({ children, }) => {
         if (!target || ['Draft', 'Sent'].includes(target.status)) {
             persistUpdate('quotations', id, { status }, setQuotations);
         }
+        if (status === 'Rejected') {
+            moveLinkedDealToStage(target, 'Lost');
+        }
         if (target && target.status !== 'Sent' && status === 'Sent') {
+            moveLinkedDealToStage(target, 'Sent');
             emitCrmEvent({
                 type: CRM_EVENT_TYPES.QUOTATION_SENT,
                 entityType: 'quotation',
@@ -2387,6 +2361,27 @@ export const ERPProvider = ({ children, }) => {
                     path: target.dealId ? `/crm/deals?deal=${encodeURIComponent(target.dealId)}` : '/crm/quotations',
                 },
             });
+        }
+    };
+    /**
+     * Full edit of a quotation (inline lead form). Local-only rows merge
+     * locally; server rows PATCH — which the backend only accepts while the
+     * row is a Draft (api.md §1.9), so callers must gate on status first.
+     * The optimistic merge rolls back when the server rejects it.
+     */
+    const updateQuotation = async (id, patch) => {
+        const target = quotations.find((q) => String(q.id) === String(id));
+        if (!target) throw new Error('That quotation no longer exists.');
+        const merged = { ...target, ...patch };
+        setQuotations((prev) => prev.map((q) => (String(q.id) === String(id) ? merged : q)));
+        if (!isBackendEnabled() || !isServerId(id)) return merged;
+        try {
+            const saved = await pushUpdate('quotations', id, patch);
+            if (saved) reconcile(setQuotations, id, saved);
+            return saved || merged;
+        } catch (err) {
+            setQuotations((prev) => prev.map((q) => (String(q.id) === String(id) ? target : q)));
+            throw err;
         }
     };
     const convertQuotationToSalesOrder = (quoteId) => {
@@ -2435,8 +2430,6 @@ export const ERPProvider = ({ children, }) => {
             terms: quote.terms,
             termsAndConditions: quote.termsAndConditions,
             freight: quote.freight,
-            sourceEstimateId: quote.sourceEstimateId,
-            sourceEstimateNumber: quote.sourceEstimateNumber,
             customerId: quote.customerId,
             customer: quote.customer,
             billingAddress: createAddressSnapshot(quote.billingAddress),
@@ -2478,8 +2471,6 @@ export const ERPProvider = ({ children, }) => {
             quotationNumber: order.quotationNumber,
             sourceQuotationId: order.sourceQuotationId || order.quotationId,
             sourceQuotationNumber: order.sourceQuotationNumber || order.quotationNumber,
-            sourceEstimateId: order.sourceEstimateId,
-            sourceEstimateNumber: order.sourceEstimateNumber,
             customerId: order.customerId,
             customer: order.customer || 'Acme Corp',
             billingAddress: createAddressSnapshot(order.billingAddress) || defaultAddresses.billing,
@@ -5093,7 +5084,6 @@ export const ERPProvider = ({ children, }) => {
                     units: all('units', units),
                     categoryParts,
                     itemParts,
-                    estimates: all('estimates', estimates),
                     quotations: all('quotations', quotations),
                     salesOrders: all('salesOrders', salesOrders),
                     proformaInvoices: all('proformaInvoices', proformaInvoices),
@@ -5155,7 +5145,6 @@ export const ERPProvider = ({ children, }) => {
             if (Array.isArray(payload.units)) setUnits(payload.units);
             if (Array.isArray(payload.categoryParts)) setCategoryParts(payload.categoryParts);
             if (Array.isArray(payload.itemParts)) setItemParts(payload.itemParts);
-            if (Array.isArray(payload.estimates)) setEstimates(payload.estimates);
             if (Array.isArray(payload.quotations)) setQuotations(payload.quotations);
             if (Array.isArray(payload.salesOrders)) setSalesOrders(payload.salesOrders);
             if (Array.isArray(payload.proformaInvoices)) setProformaInvoices(payload.proformaInvoices);
@@ -5211,6 +5200,7 @@ export const ERPProvider = ({ children, }) => {
             // plus a manual re-pull for the "Sync now" affordance.
             backendStatus,
             refreshFromBackend,
+            showToast,
             warranties,
             addWarrantyCard,
             updateWarrantyCard,
@@ -5245,11 +5235,6 @@ export const ERPProvider = ({ children, }) => {
             items,
             categories,
             fabrics,
-            estimates,
-            addEstimate,
-            updateEstimate,
-            deleteEstimate,
-            convertEstimateToQuotation,
             quotations,
             salesOrders,
             proformaInvoices,
@@ -5287,7 +5272,6 @@ export const ERPProvider = ({ children, }) => {
             getCurrentISODate,
             addDaysISO,
             toastMessage,
-            showToast,
             calculateItemStock,
             getItemMovements,
             getCustomerLedger,
@@ -5321,6 +5305,7 @@ export const ERPProvider = ({ children, }) => {
             updateCategory,
             addQuotation,
             updateQuotationStatus,
+            updateQuotation,
             approveQuotation,
             recordQuotationActivity,
             syncQuotationShare,

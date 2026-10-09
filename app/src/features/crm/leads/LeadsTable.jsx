@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
-import { Archive, ArrowUpDown, Building2, ClipboardList, Handshake, MoreVertical, NotebookPen, Pencil, Pin, RotateCcw, Scissors } from "lucide-react";
+import { Archive, ArrowUpDown, Building2, ClipboardList, Handshake, MoreVertical, NotebookPen, Pencil, Phone, Pin, RotateCcw, Scissors } from "lucide-react";
 import LeadAvatar from "./LeadAvatar";
 import { leadColumnPatch, leadColumnValue } from "./leadColumns";
 

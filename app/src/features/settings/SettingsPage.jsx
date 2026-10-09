@@ -1,9 +1,22 @@
-import React, { useState } from 'react';
+import React, { useState, Suspense, lazy } from 'react';
 import { useERP } from '../../context/ERPContext';
 import { Button } from '../../components/ui/Button';
 import PageHeader from '../../components/ui/PageHeader';
-import { Building, Bell, Database, Save, Check, RotateCcw, AlertTriangle, MapPin, Phone, Hash } from 'lucide-react';
-export const SettingsPage = () => {
+import { Building, Bell, Database, Save, Check, RotateCcw, AlertTriangle, Cog, LayoutGrid, Briefcase, UserCheck } from 'lucide-react';
+
+// Module settings pages, loaded on demand so the Settings bundle stays light.
+const CRMSystemSetupPage = lazy(() => import('../crm/setup/CRMSystemSetupPage'));
+const PMSSettingsPage = lazy(() => import('../pms/settings/PMSSettingsPage'));
+const HRAdminPage = lazy(() => import('../hrms/organization/HRAdminPage'));
+
+const TABS = [
+  { id: 'general', label: 'General', icon: Cog },
+  { id: 'crm', label: 'CRM', icon: LayoutGrid },
+  { id: 'pms', label: 'PMS (Projects)', icon: Briefcase },
+  { id: 'hrms', label: 'HRMS', icon: UserCheck },
+];
+
+function GeneralSettings() {
     const {
         resetDemoData,
         exportDatabaseSnapshot,
@@ -45,11 +58,6 @@ export const SettingsPage = () => {
         setShowConfirmReset(false);
     };
     return (<div className="space-y-6 max-w-4xl">
-      <PageHeader
-        title="System & Organization Settings"
-        subtitle="Configure company legal entity parameters, fiscal calendars, threshold alerts, and inventory rules."
-      />
-
       <form onSubmit={handleSave} className="space-y-6">
         <div className="bg-white border border-[#CED4DA] rounded-lg p-5">
           <div className="flex items-center gap-2 pb-3 border-b border-[#CED4DA] mb-4">
@@ -136,7 +144,7 @@ export const SettingsPage = () => {
           <Database size={18}/>
           <h3 className="font-bold text-sm">ERP Database Backup & Portability</h3>
         </div>
-        
+
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-xs">
           {/* Export / Backup */}
           <div className="p-4 bg-slate-50 border border-slate-200 rounded-xl space-y-2.5">
@@ -227,4 +235,44 @@ export const SettingsPage = () => {
         </div>
       </div>
     </div>);
+}
+
+export const SettingsPage = () => {
+    const [tab, setTab] = useState('general');
+    return (
+      <div className="space-y-5">
+        <PageHeader
+          title="Settings"
+          subtitle="All module settings in one place — General, CRM, PMS and HRMS."
+        />
+        <div className="flex flex-wrap gap-2">
+          {TABS.map((t) => {
+            const Icon = t.icon;
+            const active = tab === t.id;
+            return (
+              <button
+                key={t.id}
+                type="button"
+                onClick={() => setTab(t.id)}
+                className={`inline-flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-bold border transition-colors cursor-pointer ${
+                  active
+                    ? 'bg-[#1F2E4A] text-white border-[#1F2E4A]'
+                    : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'
+                }`}
+              >
+                <Icon size={14} /> {t.label}
+              </button>
+            );
+          })}
+        </div>
+        {tab === 'general' && <GeneralSettings />}
+        {tab !== 'general' && (
+          <Suspense fallback={<div className="p-8 text-center text-xs text-slate-500">Loading settings…</div>}>
+            {tab === 'crm' && <CRMSystemSetupPage />}
+            {tab === 'pms' && <PMSSettingsPage />}
+            {tab === 'hrms' && <HRAdminPage />}
+          </Suspense>
+        )}
+      </div>
+    );
 };

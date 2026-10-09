@@ -115,7 +115,6 @@ const ProcessPlanListPage = lazy(() => import('../features/jobwork/ProcessPlanLi
 const ProcessPlanDetailPage = lazy(() => import('../features/jobwork/ProcessPlanDetailPage'));
 
 // ── ERP — Sales (Lazy Loaded) ─────────────────────────────────
-const EstimatesPage = lazy(() => import('../features/sales/EstimatesPage').then(m => ({ default: m.EstimatesPage })));
 const QuotationsPage = lazy(() => import('../features/sales/QuotationsPage').then(m => ({ default: m.QuotationsPage })));
 const QuotationComposerPage = lazy(() => import('../features/sales/QuotationComposerPage'));
 const QuotationDetailPage = lazy(() => import('../features/sales/QuotationDetailPage'));
@@ -145,7 +144,6 @@ const AddEditItemPage = lazy(() => import('../features/inventory/AddEditItemPage
 const CategoriesPage = lazy(() => import('../features/inventory/CategoriesPage').then(m => ({ default: m.CategoriesPage })));
 const StockPositionPage = lazy(() => import('../features/inventory/StockPositionPage').then(m => ({ default: m.StockPositionPage })));
 const TransfersPage = lazy(() => import('../features/inventory/TransfersPage').then(m => ({ default: m.TransfersPage })));
-const TransportPage = lazy(() => import('../features/inventory/TransportPage').then(m => ({ default: m.TransportPage })));
 const ERPLocationsPage = lazy(() => import('../features/inventory/LocationsPage').then(m => ({ default: m.LocationsPage })));
 const FaultyPartsPage = lazy(() => import('../features/inventory/FaultyPartsPage').then(m => ({ default: m.FaultyPartsPage })));
 const ServiceUsagePage = lazy(() => import('../features/inventory/ServiceUsagePage').then(m => ({ default: m.ServiceUsagePage })));
@@ -341,7 +339,6 @@ const router = createBrowserRouter([
 
       // ── Sales ─────────────────────────────────────────────
       { path: 'sales', element: <Navigate to="/sales/quotations" replace /> },
-      { path: 'sales/estimates', element: <Page component={EstimatesPage} /> },
       { path: 'sales/quotations/create', element: <Page component={QuotationComposerPage} /> },
       { path: 'sales/quotations/:id', element: <Page component={QuotationDetailPage} /> },
       { path: 'sales/quotations', element: <Page component={QuotationsPage} /> },
@@ -388,7 +385,6 @@ const router = createBrowserRouter([
       { path: 'inventory/stock-position', element: <Page component={StockPositionPage} /> },
       { path: 'inventory/stock', element: <Navigate to="/inventory/stock-position" replace /> },
       { path: 'inventory/transfers', element: <Page component={TransfersPage} /> },
-      { path: 'inventory/transport', element: <Page component={TransportPage} /> },
       { path: 'inventory/locations', element: <Page component={ERPLocationsPage} /> },
       { path: 'inventory/faulty-parts', element: <Page component={FaultyPartsPage} /> },
       { path: 'inventory/service-usage', element: <Page component={ServiceUsagePage} /> },

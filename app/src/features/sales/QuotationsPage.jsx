@@ -10,11 +10,11 @@ import { AutoPOModal } from '../../components/common/AutoPOModal';
 import { PageHeader } from '../../components/common/PageHeader';
 import { PrintQuotationModal } from '../../components/common/PrintQuotationModal';
 const quotationGuide = {
-    title: 'Quotations & Estimates',
+    title: 'Quotations',
     subtitle: 'Commercial price proposals and direct 1-click conversion to Sales Orders.',
-    purpose: 'A Quotation (or Proforma Estimate) is a non-binding price and quantity offer sent to prospective or existing clients. Once the customer approves the quote, it converts directly into a confirmed Sales Order without re-entering line items.',
+    purpose: 'A Quotation is a non-binding price and quantity offer sent to prospective or existing clients. Once the customer approves the quote, it converts directly into a confirmed Sales Order without re-entering line items.',
     keyTerms: [
-        { term: 'Quotation / Estimate', definition: 'A proposed pricing estimate valid for a designated duration (e.g. 30 days).' },
+        { term: 'Quotation', definition: 'A proposed pricing offer valid for a designated duration (e.g. 30 days).' },
         { term: 'Pipeline Value', definition: 'The total monetary value of all active unexpired quotes currently awaiting customer confirmation.' },
         { term: '1-Click SO Conversion', definition: 'Automatically converts approved quote line items into a confirmed Sales Order.' },
     ],
@@ -200,7 +200,7 @@ export const QuotationsPage = () => {
         },
     ];
     return (<div className="space-y-6">
-      <PageHeader title="Quotations & Estimates" subtitle="Generate pricing estimates and convert approved quotes directly into confirmed Sales Orders." guide={quotationGuide} actions={<Button icon={Plus} onClick={handleOpenCreateModal}>
+      <PageHeader title="Quotations" subtitle="Generate quotations and convert approved quotes directly into confirmed Sales Orders." guide={quotationGuide} actions={<Button icon={Plus} onClick={handleOpenCreateModal}>
             New Quotation
           </Button>}/>
 
@@ -216,7 +216,7 @@ export const QuotationsPage = () => {
 
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
         <StatCard label="Total Quotations" value={quotations.length} icon={FileText}/>
-        <StatCard label="Estimated Pipeline Value" value={formatCurrency(totalPipeline)}/>
+        <StatCard label="Pipeline Value" value={formatCurrency(totalPipeline)}/>
         <StatCard label="Confirmed Conversion" value={`${quotations.filter((q) => q.status === 'Confirmed' || q.status === 'Invoiced').length} Quotes`} trend={{ positive: true, text: 'Direct SO conversion' }}/>
       </div>
 

@@ -137,15 +137,18 @@ export function CreateProjectModal({ isOpen, onClose, onCreated, initialOrderNum
 
     const nextErrors = {};
     if (!selectedOrder) nextErrors.order = 'Select a CRM sales order.';
-    if (!managerId) nextErrors.manager = 'Assign a project manager.';
-    if (selectedConfigIds.length === 0) nextErrors.stages = 'Pick at least one stage.';
-    if (selectedConfigIds.length > 0 && Math.round(totalPercentage * 100) / 100 !== 100) {
+    // The server accepts a null manager and zero stages — only enforce these
+    // when the tenant actually has managers / stage templates to choose from,
+    // otherwise creation would be impossible on a fresh workspace.
+    if (managers.length > 0 && !managerId) nextErrors.manager = 'Assign a project manager.';
+    if (activeConfigs.length > 0 && selectedConfigIds.length === 0) nextErrors.stages = 'Pick at least one stage.';
+    if (activeConfigs.length > 0 && selectedConfigIds.length > 0 && Math.round(totalPercentage * 100) / 100 !== 100) {
       nextErrors.stages = `Total stage percentage must equal 100% (currently ${Math.round(totalPercentage * 100) / 100}%).`;
     }
     setErrors(nextErrors);
     if (Object.keys(nextErrors).length > 0) return;
 
-    const manager = managers.find((m) => m.id === managerId);
+    const manager = managers.find((m) => m.id === managerId) || null;
     let id;
     const stageWeights = Object.fromEntries(
       selectedConfigIds.map((cid) => [cid, Number(stagePercentages[cid]) || 0])
@@ -153,12 +156,14 @@ export function CreateProjectModal({ isOpen, onClose, onCreated, initialOrderNum
     try {
       id = await createProjectFromOrder({
         order: selectedOrder,
-        projectManager: {
-          id: manager.id,
-          name: manager.name,
-          email: manager.email,
-          avatar: manager.avatar,
-        },
+        projectManager: manager
+          ? {
+              id: manager.id,
+              name: manager.name,
+              email: manager.email,
+              avatar: manager.avatar,
+            }
+          : null,
         priority,
         startDate: new Date(`${startDate}T09:00:00`).toISOString(),
         stageConfigIds: selectedConfigIds,
@@ -262,7 +267,7 @@ export function CreateProjectModal({ isOpen, onClose, onCreated, initialOrderNum
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
           <div>
             <label className={labelClass} htmlFor="pms-pm">
-              Project Manager <span className="text-rose-500">*</span>
+              Project Manager{managers.length > 0 && <span className="text-rose-500"> *</span>}
             </label>
             <select
               id="pms-pm"
@@ -277,6 +282,11 @@ export function CreateProjectModal({ isOpen, onClose, onCreated, initialOrderNum
                 </option>
               ))}
             </select>
+            {managers.length === 0 && (
+              <p className="text-[11px] text-amber-600 mt-1.5">
+                No team members found. Add users in Administration → Users first.
+              </p>
+            )}
             {errors.manager && (
               <p className="flex items-center gap-1 text-[11px] text-rose-600 mt-1.5">
                 <AlertCircle size={11} /> {errors.manager}
@@ -341,17 +351,24 @@ export function CreateProjectModal({ isOpen, onClose, onCreated, initialOrderNum
                   Distribute Evenly
                 </button>
               )}
-              <span
-                className={`text-[11px] font-bold px-2 py-0.5 rounded-full ${
-                  Math.round(totalPercentage * 100) / 100 === 100
-                    ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
-                    : 'bg-rose-50 text-rose-700 border border-rose-200'
-                }`}
-              >
-                Total: {Math.round(totalPercentage * 100) / 100}% / 100%
-              </span>
+              {activeConfigs.length > 0 && (
+                <span
+                  className={`text-[11px] font-bold px-2 py-0.5 rounded-full ${
+                    Math.round(totalPercentage * 100) / 100 === 100
+                      ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
+                      : 'bg-rose-50 text-rose-700 border border-rose-200'
+                  }`}
+                >
+                  Total: {Math.round(totalPercentage * 100) / 100}% / 100%
+                </span>
+              )}
             </div>
           </div>
+          {activeConfigs.length === 0 ? (
+            <p className="text-[11px] text-amber-600 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2">
+              No stage templates exist yet — the project will be created without stages. Add templates in PMS settings and apply them to the project later.
+            </p>
+          ) : (
           <div className="rounded-lg border border-[#dce5f4] divide-y divide-slate-100 max-h-56 overflow-y-auto">
             {activeConfigs.map((c) => {
               const isSelected = selectedConfigIds.includes(c.id);
@@ -400,6 +417,7 @@ export function CreateProjectModal({ isOpen, onClose, onCreated, initialOrderNum
               );
             })}
           </div>
+          )}
           {errors.stages && (
             <p className="flex items-center gap-1 text-[11px] text-rose-600 mt-1.5">
               <AlertCircle size={11} /> {errors.stages}

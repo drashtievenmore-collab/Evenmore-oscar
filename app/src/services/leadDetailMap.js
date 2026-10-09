@@ -152,8 +152,8 @@ export function normalizeSection(section, rows) {
           uom: row.uom || row.UOM || '',
           expectedRate: rate,
           expected_rate: rate,
-          // Legacy `price` display kept for readers that prefill rates
-          // (Estimates tab). Expected rate is never a confirmed price.
+          // Legacy `price` display kept for readers that prefill rates.
+          // Expected rate is never a confirmed price.
           price: rate != null ? `Rs. ${Number(rate).toLocaleString('en-IN')}` : (row.price || ''),
           status: row.status || 'Active',
           notes: row.notes || row.remarks || '',

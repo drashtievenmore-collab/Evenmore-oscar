@@ -5,7 +5,7 @@ import { PageInfoButton } from './PageInfoButton';
 
 /**
  * GLOBAL page header — the single approved header for every OSCAR ERP
- * module (reference: Sales Estimates).
+ * module (reference: Sales Quotations).
  *
  * Layout (identical everywhere):
  *   [Breadcrumb]  Dashboard › Module › Current Page   (12px)

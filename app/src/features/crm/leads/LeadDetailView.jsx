@@ -33,7 +33,6 @@ import {
   Square,
   FileText,
   Truck,
-  Receipt,
   Printer,
   Download,
   Upload,
@@ -60,7 +59,6 @@ import {
 import LeadFormBuilder from './LeadFormBuilder';
 import { createFieldFromType } from '../../../data/crm/leadFormSchema';
 import { exportToCSV } from '../../../services/exportUtils';
-import { useEstimates, estimateMatchesLead, addEstimate } from '../../../services/estimateStore';
 import { useCrmStore } from '../../../stores/crmStore';
 import { withSampleTeam } from '../common/sampleTeam';
 import { useLeadDetailStore, EMPTY_DETAIL } from '../../../stores/leadDetailStore';
@@ -75,6 +73,7 @@ import { emitCrmEvent, CRM_EVENT_TYPES } from '../../../services/crmEventNotific
 import { useAppStore } from '../../../stores/appStore';
 import { completeTaskWithOutcome, NEXT_ACTION_LABELS, getLeadStageOrder } from '../../../services/taskCompletionService';
 import CompleteTaskModal from '../tasks/CompleteTaskModal';
+import QuotationComposerPage from '../../sales/QuotationComposerPage';
 
 const DETAIL_TABS = [
   'General',
@@ -82,7 +81,6 @@ const DETAIL_TABS = [
   'Sources & Emails',
   'Files',
   'Tasks',
-  'Estimates',
   'Quotations',
   'Delivery Challans',
   'Activity',
@@ -94,7 +92,6 @@ const DETAIL_TAB_ICONS = {
   'Sources & Emails': Globe,
   Files: FileStack,
   Tasks: ListChecks,
-  Estimates: Receipt,
   Quotations: FileText,
   'Delivery Challans': Truck,
   Activity: Sparkles,
@@ -2105,195 +2102,19 @@ function LeadTasksTab({ lead, onCountsChange, onActivity }) {
   );
 }
 
-function EstimatesTab({ lead, onCountsChange }) {
-  const all = useEstimates();
-  const { customers } = useERP() || {};
-  const linked = useMemo(() => all.filter((e) => estimateMatchesLead(e, lead)), [all, lead]);
-  const storedProducts = useLeadDetailState(lead).products;
-  const [isCreateOpen, setIsCreateOpen] = useState(false);
-  const [selectedCustomerId, setSelectedCustomerId] = useState('');
-  const [validUntil, setValidUntil] = useState('15 Days');
-  const [lineItems, setLineItems] = useState([]);
-  const [createError, setCreateError] = useState('');
-
-  React.useEffect(() => {
-    onCountsChange?.({ estimates: linked.length });
-  }, [linked.length, onCountsChange]);
-
-  function openCreateModal() {
-    const preferredCustomer = (customers || []).find((c) => c.name === (lead?.company || lead?.name)) || (customers || [])[0];
-    setSelectedCustomerId(preferredCustomer?.id || '');
-    setValidUntil('15 Days');
-    setCreateError('');
-    setLineItems((storedProducts || []).map((p, index) => ({
-      id: `li-${Date.now()}-${index}`,
-      description: p.name,
-      qty: Number(p.qty) || 1,
-      rate: Number(String(p.price || '').replace(/[^0-9]/g, '')) || 0,
-      amount: (Number(String(p.price || '').replace(/[^0-9]/g, '')) || 0) * (Number(p.qty) || 1),
-    })));
-    setIsCreateOpen(true);
-  }
-
-  function handleCreateEstimate(event) {
-    event.preventDefault();
-    const cust = (customers || []).find((c) => c.id === selectedCustomerId) || (customers || [])[0];
-    // The server requires a real customer record (`partyId`); a locally-only
-    // customer would make the POST 400 and the estimate would never persist.
-    if (!cust || !isServerId(cust.id)) {
-      setCreateError('This customer is still being saved to the server. Please wait a moment and try again.');
-      return;
-    }
-    const total = (lineItems || []).reduce((sum, item) => sum + ((item.amount) || (Number(item.qty || 1) * Number(item.rate || 0))), 0);
-    const created = {
-      id: `est-${Date.now()}`,
-      estimateNumber: `EST-2026-${String((all.length || 0) + 3).padStart(3, '0')}`,
-      customerId: cust?.id || '',
-      customer: cust?.name || lead?.company || lead?.name || 'Acme Corp',
-      leadId: String(lead?.id || ''),
-      leadName: lead?.name || '',
-      date: new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }),
-      validUntil: validUntil || '15 Days',
-      amount: total > 0 ? total : 1500,
-      status: 'Draft',
-      items: lineItems,
-    };
-
-    addEstimate(created);
-    setIsCreateOpen(false);
-    setLineItems([]);
-  }
-
-  function estimateTone(status) {
-    if (status === 'Converted') return 'bg-emerald-50 text-emerald-700 border-emerald-200';
-    if (status === 'Sent') return 'bg-blue-50 text-blue-700 border-blue-200';
-    return 'bg-slate-100 text-slate-600 border-slate-200';
-  }
-
-  return (
-    <div className="card">
-      <div className="card-header flex flex-wrap lg:flex-nowrap items-center justify-between gap-2 lg:gap-0">
-        <h3 className="font-bold text-sm">Estimates ({linked.length})</h3>
-        <button type="button" onClick={openCreateModal} className="btn-primary btn-sm flex items-center gap-1.5">
-          <Plus size={13} strokeWidth={2.4} /> New Estimate
-        </button>
-      </div>
-      <div className="table-scroll">
-        <table className="data-table text-xs min-w-[640px] lg:min-w-0">
-          <thead>
-            <tr>
-              <th style={{ width: 36 }}>#</th>
-              <th>Estimate Number</th>
-              <th>Customer</th>
-              <th>Date</th>
-              <th>Valid Until</th>
-              <th style={{ textAlign: 'right' }}>Total</th>
-              <th style={{ textAlign: 'center' }}>Status</th>
-              <th style={{ width: 80, textAlign: 'center' }}>Action</th>
-            </tr>
-          </thead>
-          <tbody>
-            {linked.map((e, idx) => (
-              <tr key={e.id}>
-                <td className="text-slate-500 font-mono">{idx + 1}</td>
-                <td>
-                  <button type="button" onClick={openCreateModal} className="font-mono font-bold text-blue-600 hover:underline">
-                    {e.estimateNumber}
-                  </button>
-                </td>
-                <td className="font-semibold">{e.customer}</td>
-                <td className="text-slate-500 text-xs whitespace-nowrap">{e.date}</td>
-                <td className="text-slate-500 text-xs">{e.validUntil}</td>
-                <td style={{ textAlign: 'right' }} className="font-bold font-mono">
-                  ${(e.amount || 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}
-                </td>
-                <td style={{ textAlign: 'center' }}>
-                  <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold border ${estimateTone(e.status)}`}>
-                    {e.status}
-                  </span>
-                </td>
-                <td>
-                  <div className="flex items-center justify-center gap-1">
-                    <button type="button" onClick={openCreateModal} className="p-1 rounded text-blue-600 hover:bg-blue-50 transition cursor-pointer" title="Open estimate details">
-                      <Eye size={13} />
-                    </button>
-                  </div>
-                </td>
-              </tr>
-            ))}
-            {linked.length === 0 && (
-              <tr>
-                <td colSpan={8} className="empty-row">No estimates for {lead?.name || 'this lead'} yet. Click New Estimate to create one.</td>
-              </tr>
-            )}
-          </tbody>
-        </table>
-      </div>
-
-      {isCreateOpen && (
-        <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-sm flex items-center justify-center p-2 sm:p-4" onClick={() => setIsCreateOpen(false)}>
-          <div className="bg-white rounded-xl border border-slate-200 max-w-3xl w-full p-4 sm:p-6 shadow-2xl text-xs max-h-[90vh] flex flex-col overflow-hidden" onClick={(event) => event.stopPropagation()}>
-            <div className="flex items-center justify-between pb-3 border-b border-slate-200">
-              <h3 className="font-bold text-base text-[#1F2E4A]">Create Sales Estimate</h3>
-              <button onClick={() => setIsCreateOpen(false)} className="text-slate-400 hover:text-slate-600 cursor-pointer">
-                <X size={18} />
-              </button>
-            </div>
-            <form onSubmit={handleCreateEstimate} className="space-y-4 mt-4 overflow-y-auto pr-1 flex-1">
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <div>
-                  <label className="font-semibold text-slate-700 block mb-1">Customer Account *</label>
-                  <select
-                    required
-                    value={selectedCustomerId}
-                    onChange={(event) => setSelectedCustomerId(event.target.value)}
-                    className="w-full p-2 border border-slate-300 rounded bg-white text-slate-800 font-medium"
-                  >
-                    {(customers || []).map((customer) => (
-                      <option key={customer.id} value={customer.id}>
-                        {customer.name} ({customer.code}) - Balance: ${customer.balance.toFixed(2)}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-                <div>
-                  <label className="font-semibold text-slate-700 block mb-1">Validity Period</label>
-                  <input
-                    type="text"
-                    value={validUntil}
-                    onChange={(event) => setValidUntil(event.target.value)}
-                    placeholder="e.g. 15 Days"
-                    className="w-full p-2 border border-slate-300 rounded bg-white text-slate-800"
-                  />
-                </div>
-              </div>
-
-              <div>
-                <label className="font-semibold text-slate-700 block mb-2">Estimate Line Items</label>
-                <LineItemEditor items={lineItems} onChange={setLineItems} type="sales" />
-              </div>
-
-              {createError && <p role="alert" className="text-xs font-semibold text-rose-600">{createError}</p>}
-
-              <div className="flex items-center justify-end gap-2 pt-4 border-t border-slate-200">
-                <button type="button" onClick={() => setIsCreateOpen(false)} className="px-3 py-1.5 border border-slate-300 rounded-lg text-slate-700 hover:bg-slate-100 font-medium cursor-pointer">
-                  Cancel
-                </button>
-                <button type="submit" className="px-3.5 py-1.5 bg-blue-600 text-white rounded-lg font-semibold hover:bg-blue-700 cursor-pointer">
-                  Generate Estimate
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
-    </div>
-  );
-}
-
 function quotationMatchesLead(q, lead) {
   if (!q || !lead) return false;
   if (q.leadId && String(q.leadId) === String(lead.id)) return true;
+  // Sales composer stores a typed "Deal / Lead Reference" (e.g. LEAD-0008)
+  // instead of the lead id when created directly in Sales — match it against
+  // the lead number so those quotations link back to this lead.
+  const leadNumbers = [lead.leadNumber, lead.lead_number, lead.id]
+    .map((v) => String(v || '').trim().toLowerCase())
+    .filter(Boolean);
+  const refs = [q.dealReference, q.dealId]
+    .map((v) => String(v || '').trim().toLowerCase())
+    .filter(Boolean);
+  if (leadNumbers.some((n) => refs.includes(n))) return true;
   const company = String(lead.company || '').trim().toLowerCase();
   const customer = String(q.customer || '').trim().toLowerCase();
   if (company && customer && (customer === company || customer.includes(company) || company.includes(customer))) return true;
@@ -2304,14 +2125,13 @@ function quotationMatchesLead(q, lead) {
 }
 
 function QuotationsTab({ lead, onActivity }) {
-  const { quotations, customers, updateQuotationStatus, approveQuotation, addQuotation } = useERP() || {};
+  const { quotations, customers, updateQuotationStatus, approveQuotation } = useERP() || {};
   const linked = useMemo(() => (quotations || []).filter((q) => quotationMatchesLead(q, lead)), [quotations, lead]);
   const storedProducts = useLeadDetailState(lead).products;
-  const [isCreateOpen, setIsCreateOpen] = useState(false);
-  const [selectedCustomerId, setSelectedCustomerId] = useState((customers || [])[0]?.id || '');
-  const [validUntil, setValidUntil] = useState('30 Days');
-  const [lineItems, setLineItems] = useState([]);
   const [approvingId, setApprovingId] = useState(null);
+  // Inline view state: list | create | edit — the form renders inside this
+  // tab's content area, never as a modal or a route change.
+  const [view, setView] = useState({ name: 'list' });
 
   const isApprovedStatus = (status) => ['Accepted', 'Approved', 'Converted', 'Confirmed', 'Invoiced'].includes(status);
   const canApprove = (q) => !isApprovedStatus(q.status) && !['Rejected', 'Cancelled', 'Expired'].includes(q.status);
@@ -2334,60 +2154,67 @@ function QuotationsTab({ lead, onActivity }) {
     }
   }
 
-  useEffect(() => {
-    if (!customers || customers.length === 0) return;
+  // Prefill for the inline form: customer/lead identity plus the lead's
+  // fabric requirements as line items (master specs resolve in the form).
+  function leadPrefill() {
     const match = (customers || []).find((customer) => customer.name === (lead?.company || lead?.name)) || (customers || [])[0];
-    if (match) setSelectedCustomerId(match.id);
-  }, [customers, lead]);
-
-  function openCreateModal() {
-    const match = (customers || []).find((customer) => customer.name === (lead?.company || lead?.name)) || (customers || [])[0];
-    const nextItems = (storedProducts || []).map((product, index) => ({
-      id: `quote-item-${product.id ?? index}`,
-      description: product.name,
-      qty: 1,
-      rate: Number(String(product.price || '').replace(/[^0-9.]/g, '')) || 0,
-      amount: Number(String(product.price || '').replace(/[^0-9.]/g, '')) || 0,
-    }));
-
-    setSelectedCustomerId(match?.id || '');
-    setValidUntil('30 Days');
-    setLineItems(nextItems.length > 0 ? nextItems : [{
-      id: `quote-item-${Date.now()}`,
-      description: 'Commercial pricing proposal',
-      qty: 1,
-      rate: 0,
-      amount: 0,
-    }]);
-    setIsCreateOpen(true);
-  }
-
-  function handleCreateQuotation(event) {
-    event.preventDefault();
-    const customer = (customers || []).find((entry) => entry.id === selectedCustomerId) || (customers || [])[0];
-    const computedTotal = (lineItems || []).reduce((sum, item) => {
-      const qty = Number(item.qty || 1);
-      const rate = Number(item.rate || 0);
-      const amount = Number(item.amount || (qty * rate));
-      return sum + amount;
-    }, 0);
-
-    const created = addQuotation?.({
-      customerId: customer?.id,
-      customer: customer?.name || lead?.company || lead?.name || 'Acme Corp',
+    return {
+      fromLead: true,
       leadId: String(lead?.id || ''),
       leadName: lead?.name || '',
-      date: new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }),
-      validUntil: validUntil || '30 Days',
-      amount: computedTotal > 0 ? computedTotal : 1500,
-      status: 'Draft',
-      items: lineItems,
-    });
+      company: lead?.company || lead?.name || '',
+      customerId: match?.id || '',
+      dealReference: lead?.leadNumber || lead?.lead_number || '',
+      items: (storedProducts || []).map((product) => ({
+        name: product.name,
+        qty: 1,
+        rate: Number(String(product.price || '').replace(/[^0-9.]/g, '')) || 0,
+      })),
+    };
+  }
 
-    setIsCreateOpen(false);
-    setLineItems([]);
-    setValidUntil('30 Days');
-    onActivity?.(`Quotation ${created?.quoteNumber || 'created'} generated for ${lead?.name || customer?.name || 'lead'}`, '#3b82f6');
+  // Only Draft server rows accept PATCH (api.md §1.9); local-only rows are
+  // always editable. Anything else opens in Sales (read-only view).
+  const canEditQuote = (q) => Boolean(q) && (!isServerId(q.id) || q.status === 'Draft');
+
+  const activeEdit = view.name === 'edit'
+    ? linked.find((q) => String(q.id) === String(view.id)) || null
+    : null;
+
+  function handleFormDone(saved, wasEdit) {
+    const number = saved?.quoteNumber || saved?.quotationNumber || activeEdit?.quoteNumber || '';
+    onActivity?.(
+      wasEdit
+        ? `Quotation ${number} updated`
+        : `Quotation ${number || 'created'} generated for ${lead?.name || 'lead'}`,
+      '#3b82f6',
+    );
+    setView({ name: 'list' });
+  }
+
+  if (view.name === 'create' || (view.name === 'edit' && activeEdit)) {
+    const isEdit = view.name === 'edit';
+    return (
+      <div className="space-y-4">
+        <div className="card">
+          <div className="card-header flex flex-wrap items-center justify-between gap-2">
+            <h3 className="font-bold text-sm">{isEdit ? `Edit ${activeEdit.quoteNumber}` : 'New Quotation'}</h3>
+            <span className="text-[11px] text-slate-500">
+              for {lead?.company || lead?.name || 'lead'}{isEdit ? ` • ${activeEdit.status}` : ''}
+            </span>
+          </div>
+        </div>
+        <QuotationComposerPage
+          key={isEdit ? `edit-${activeEdit.id}` : 'create'}
+          embedded={{
+            prefill: isEdit ? null : leadPrefill(),
+            editQuote: isEdit ? activeEdit : null,
+            onDone: (saved) => handleFormDone(saved, isEdit),
+            onCancel: () => setView({ name: 'list' }),
+          }}
+        />
+      </div>
+    );
   }
 
   function sendQuotation(q) {
@@ -2404,9 +2231,14 @@ function QuotationsTab({ lead, onActivity }) {
     <div className="card">
       <div className="card-header flex flex-wrap lg:flex-nowrap items-center justify-between gap-2 lg:gap-0">
         <h3 className="font-bold text-sm">Quotations ({linked.length})</h3>
-        <button type="button" onClick={openCreateModal} className="btn-primary btn-sm flex items-center gap-1.5">
-          <Plus size={13} strokeWidth={2.4} /> New Quotation
-        </button>
+        <div className="flex items-center gap-2">
+          <Link to="/sales/quotations" className="btn-sm inline-flex items-center gap-1.5 rounded-lg border border-[#dce5f4] bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-600 hover:text-blue-600 hover:bg-blue-50 transition" title="Open all quotations in Sales">
+            View in Sales <ArrowRight size={13} />
+          </Link>
+          <button type="button" onClick={() => setView({ name: 'create' })} className="btn-primary btn-sm flex items-center gap-1.5" title="Create quotation inline">
+            <Plus size={13} strokeWidth={2.4} /> New Quotation
+          </button>
+        </div>
       </div>
       <div className="table-scroll">
         <table className="data-table text-xs min-w-[640px] lg:min-w-0">
@@ -2427,9 +2259,15 @@ function QuotationsTab({ lead, onActivity }) {
               <tr key={q.id}>
                 <td className="text-slate-500 font-mono">{idx + 1}</td>
                 <td>
-                  <button type="button" onClick={openCreateModal} className="font-mono font-bold text-blue-600 hover:underline">
-                    {q.quoteNumber}
-                  </button>
+                  {canEditQuote(q) ? (
+                    <button type="button" onClick={() => setView({ name: 'edit', id: q.id })} className="font-mono font-bold text-blue-600 hover:underline" title="Edit quotation">
+                      {q.quoteNumber}
+                    </button>
+                  ) : (
+                    <Link to={`/sales/quotations/${q.id}`} className="font-mono font-bold text-blue-600 hover:underline" title="Open in Sales Quotations">
+                      {q.quoteNumber}
+                    </Link>
+                  )}
                 </td>
                 <td className="font-semibold">{q.customer}</td>
                 <td className="text-slate-500 text-xs whitespace-nowrap">{q.date}</td>
@@ -2444,9 +2282,20 @@ function QuotationsTab({ lead, onActivity }) {
                 </td>
                 <td>
                   <div className="flex items-center justify-center gap-1">
-                    <button type="button" onClick={openCreateModal} className="p-1 rounded text-blue-600 hover:bg-blue-50 transition cursor-pointer" title="Open quotation details">
-                      <Eye size={13} />
-                    </button>
+                    {canEditQuote(q) ? (
+                      <button type="button" onClick={() => setView({ name: 'edit', id: q.id })} className="p-1 rounded text-blue-600 hover:bg-blue-50 transition cursor-pointer inline-flex" title="Edit quotation">
+                        <Eye size={13} />
+                      </button>
+                    ) : (
+                      <Link to={`/sales/quotations/${q.id}`} className="p-1 rounded text-blue-600 hover:bg-blue-50 transition cursor-pointer inline-flex" title="Open quotation in Sales">
+                        <Eye size={13} />
+                      </Link>
+                    )}
+                    {canEditQuote(q) && (
+                      <button type="button" onClick={() => setView({ name: 'edit', id: q.id })} className="p-1 rounded text-slate-500 hover:text-blue-600 hover:bg-blue-50 transition cursor-pointer inline-flex" title="Edit quotation">
+                        <Pencil size={13} />
+                      </button>
+                    )}
                     {canApprove(q) && (
                       <button
                         type="button"
@@ -2479,68 +2328,12 @@ function QuotationsTab({ lead, onActivity }) {
             ))}
             {linked.length === 0 && (
               <tr>
-                <td colSpan={8} className="empty-row">No quotations for {lead?.name || 'this lead'} yet. Convert an estimate to create one automatically.</td>
+                <td colSpan={8} className="empty-row">No quotations for {lead?.name || 'this lead'} yet. <Link to="/sales/quotations" className="font-bold text-blue-600 hover:underline">Open Sales Quotations</Link> to create one.</td>
               </tr>
             )}
           </tbody>
         </table>
       </div>
-
-      {isCreateOpen && (
-        <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-sm flex items-center justify-center p-2 sm:p-4" onClick={() => setIsCreateOpen(false)}>
-          <div className="bg-white rounded-xl border border-slate-200 max-w-3xl w-full p-4 sm:p-6 shadow-2xl text-xs max-h-[90vh] flex flex-col overflow-hidden" onClick={(event) => event.stopPropagation()}>
-            <div className="flex items-center justify-between pb-3 border-b border-slate-200">
-              <h3 className="font-bold text-base text-[#1F2E4A]">Create Quotation Estimate</h3>
-              <button type="button" onClick={() => setIsCreateOpen(false)} className="text-slate-400 hover:text-slate-600 cursor-pointer" aria-label="Close quotation dialog">
-                <X size={18} />
-              </button>
-            </div>
-            <form onSubmit={handleCreateQuotation} className="space-y-4 mt-4 overflow-y-auto pr-1 flex-1">
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <div>
-                  <label className="font-semibold text-slate-700 block mb-1">Customer Account *</label>
-                  <select
-                    required
-                    value={selectedCustomerId}
-                    onChange={(event) => setSelectedCustomerId(event.target.value)}
-                    className="w-full p-2 border border-slate-300 rounded bg-white text-slate-800 font-medium"
-                  >
-                    {(customers || []).map((customer) => (
-                      <option key={customer.id} value={customer.id}>
-                        {customer.name} ({customer.code}) - Balance: ${customer.balance.toFixed(2)}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-                <div>
-                  <label className="font-semibold text-slate-700 block mb-1">Validity Period</label>
-                  <input
-                    type="text"
-                    value={validUntil}
-                    onChange={(event) => setValidUntil(event.target.value)}
-                    placeholder="e.g. 30 Days"
-                    className="w-full p-2 border border-slate-300 rounded bg-white text-slate-800"
-                  />
-                </div>
-              </div>
-
-              <div>
-                <label className="font-semibold text-slate-700 block mb-2">Quotation Line Items</label>
-                <LineItemEditor items={lineItems} onChange={setLineItems} type="sales" />
-              </div>
-
-              <div className="flex items-center justify-end gap-2 pt-4 border-t border-slate-200">
-                <button type="button" onClick={() => setIsCreateOpen(false)} className="px-3 py-1.5 border border-slate-300 rounded-lg text-slate-700 hover:bg-slate-100 font-medium cursor-pointer">
-                  Cancel
-                </button>
-                <button type="submit" className="px-3.5 py-1.5 bg-blue-600 text-white rounded-lg font-semibold hover:bg-blue-700 cursor-pointer">
-                  Generate Quotation
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
     </div>
   );
 }
@@ -2773,12 +2566,9 @@ function DeliveryChallansTab({ lead, onCountsChange, onActivity }) {
 
 function ActivityTab({ lead, items }) {
   const entries = items ?? [];
-  const allEstimates = useEstimates();
   const { quotations } = useERP() || {};
-  const linkedEstimates = (allEstimates || []).filter((e) => estimateMatchesLead(e, lead));
   const linkedQuotations = (quotations || []).filter((q) => quotationMatchesLead(q, lead));
   const systemEntries = [
-    ...linkedEstimates.map((e) => ({ id: `sys-est-${e.id}`, title: `Estimate ${e.estimateNumber} • ${e.status}`, time: e.date || '', color: '#f59e0b' })),
     ...linkedQuotations.map((q) => ({ id: `sys-q-${q.id}`, title: `Quotation ${q.quoteNumber} • ${q.status}`, time: q.date || '', color: '#10b981' })),
   ];
   systemEntries.push(...linkedQuotations.flatMap(q => (q.activity || []).map(event => ({ id: event.id, title: `${q.quoteNumber} ? ${event.type}`, time: event.timestamp, color: '#10b981' }))));
@@ -3697,7 +3487,6 @@ export default function LeadDetailView({ lead, onBackToLeads }) {
     sources: storedDetailState.sources.length,
     files: storedDetailState.files.length,
     openTasks: (storedDetailState.tasks || []).filter((t) => t.status !== 'Completed').length || lead?.openTasksCount || 0,
-    estimates: lead?.estimatesCount ?? 0,
     challans: lead?.deliveryChallansCount ?? 0,
   }));
   const [activities, setActivities] = useState(() => storedDetailState.activities || []);
@@ -3842,7 +3631,6 @@ export default function LeadDetailView({ lead, onBackToLeads }) {
     { label: 'Source', value: detailCounts.sources, icon: Globe, color: '#10b981', bg: '#f0fdf4' },
     { label: 'Files', value: detailCounts.files, icon: FileStack, color: '#8b5cf6', bg: '#f5f3ff' },
     { label: 'Open Tasks', value: detailCounts.openTasks, icon: ListChecks, color: '#f59e0b', bg: '#fffbeb' },
-    { label: 'Estimates', value: detailCounts.estimates, icon: Receipt, color: '#06b6d4', bg: '#ecfeff' },
     { label: 'Delivery Challans', value: detailCounts.challans, icon: Truck, color: '#f97316', bg: '#fff7ed' },
   ];
 
@@ -4148,11 +3936,10 @@ export default function LeadDetailView({ lead, onBackToLeads }) {
       {activeTab === 'Users & Requirements' && <UsersProductsTab lead={activeLeadData} onCountsChange={updateDetailCounts} onActivity={logActivity} />}
       {activeTab === 'Files' && <FilesTab lead={activeLeadData} onCountsChange={updateDetailCounts} onActivity={logActivity} />}
       {activeTab === 'Tasks' && <LeadTasksTab lead={activeLeadData} onCountsChange={updateDetailCounts} onActivity={logActivity} />}
-      {activeTab === 'Estimates' && <EstimatesTab lead={activeLeadData} onCountsChange={updateDetailCounts} />}
       {activeTab === 'Quotations' && <QuotationsTab lead={activeLeadData} onActivity={logActivity} />}
       {activeTab === 'Delivery Challans' && <DeliveryChallansTab lead={activeLeadData} onCountsChange={updateDetailCounts} onActivity={logActivity} />}
       {activeTab === 'Activity' && <ActivityTab lead={activeLeadData} items={activities} />}
-      {!['Sources & Emails', 'General', 'Users & Requirements', 'Files', 'Tasks', 'Estimates', 'Quotations', 'Delivery Challans', 'Activity'].includes(activeTab) && (
+      {!['Sources & Emails', 'General', 'Users & Requirements', 'Files', 'Tasks', 'Quotations', 'Delivery Challans', 'Activity'].includes(activeTab) && (
         <div className="card p-8 text-center space-y-2">
           <Info size={28} className="text-blue-500 mx-auto" />
           <h4 className="font-bold text-sm text-slate-800 dark:text-slate-200">{activeTab} Details</h4>

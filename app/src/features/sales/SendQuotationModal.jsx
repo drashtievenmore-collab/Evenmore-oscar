@@ -1,7 +1,17 @@
 import React, { useMemo, useState } from 'react';
-import { Copy, FileText, Link2, Mail, MessageCircle, Send, X } from 'lucide-react';
-import { api } from '../../services/api';
-import { isBackendEnabled } from '../../services/resourceSync';
+import { CheckCircle2, Copy, Download, FileText, Link2, Mail, MessageCircle, Send, X } from 'lucide-react';
+import { api, getAuthToken } from '../../services/api';
+import { isBackendEnabled, isServerId } from '../../services/resourceSync';
+import { sharingRequest } from '../../services/quotationSharing';
+
+function absoluteShareUrl(url) {
+  if (!url) return '';
+  if (/^https?:\/\//i.test(url)) return url;
+  if (typeof window !== 'undefined' && window.location?.origin) {
+    return `${window.location.origin}${url.startsWith('/') ? '' : '/'}${url}`;
+  }
+  return url;
+}
 
 function num(value, fallback = 0) {
   const n = Number(value);
@@ -22,15 +32,17 @@ export default function SendQuotationModal({
   const [emails, setEmails] = useState(customerEmail ? [customerEmail] : []);
   const [emailInput, setEmailInput] = useState('');
   const [phone, setPhone] = useState(customerPhone || '');
-  const [subject, setSubject] = useState(`Quotation ${quotation?.quoteNumber || ''} from ${quotation?.customer || 'us'}`);
+  const [subject, setSubject] = useState(`Quotation ${quotation?.quoteNumber || quotation?.quotationNumber || ''} from ${quotation?.customer || 'us'}`);
   const [message, setMessage] = useState(
-    `Dear ${quotation?.customer || 'Customer'},\n\nPlease find attached our quotation (${quotation?.quoteNumber || ''}) for your reference. You can view the quotation online using the secure link below.\n\nIf you have any questions, please let us know.`,
+    `Dear ${quotation?.customer || 'Customer'},\n\nPlease find attached our quotation (${quotation?.quoteNumber || quotation?.quotationNumber || ''}) for your reference. You can view the quotation online using the secure link below.\n\nIf you have any questions, please let us know.`,
   );
   const [includeLink, setIncludeLink] = useState(true);
   const [requestApproval, setRequestApproval] = useState(false);
   const [sending, setSending] = useState(false);
+  const [downloading, setDownloading] = useState(false);
   const [error, setError] = useState('');
   const [sentOk, setSentOk] = useState('');
+  const [sentDone, setSentDone] = useState(false);
 
   const items = useMemo(() => (Array.isArray(quotation?.items) ? quotation.items : []), [quotation]);
   const totals = useMemo(() => {
@@ -51,15 +63,38 @@ export default function SendQuotationModal({
     setError('');
   }
 
-  function fullMessage() {
+  function decisionUrl(linkUrl, decision) {
+    if (!linkUrl) return '';
+    const sep = linkUrl.includes('?') ? '&' : '?';
+    return `${linkUrl}${sep}decision=${decision}`;
+  }
+
+  function fullMessage(linkUrl) {
     let body = message.trim();
     if (requestApproval) {
-      body += '\n\nPlease use the secure link below to approve or reject this quotation online.';
+      body += '\n\nPlease open the secure link below to accept or reject this quotation online — your response reaches us immediately.';
     }
-    if (includeLink && shareUrl) {
-      body += `\n\nView quotation: ${shareUrl}`;
+    if (includeLink && linkUrl) {
+      body += `\n\nView quotation: ${linkUrl}`;
+      // Plain-text fallback for the Accept / Reject buttons in the HTML email.
+      body += `\nAccept: ${decisionUrl(linkUrl, 'accept')}`;
+      body += `\nReject: ${decisionUrl(linkUrl, 'reject')}`;
+    } else if (requestApproval && linkUrl) {
+      body += `\n\nView quotation: ${linkUrl}`;
+      body += `\nAccept: ${decisionUrl(linkUrl, 'accept')}`;
+      body += `\nReject: ${decisionUrl(linkUrl, 'reject')}`;
     }
     return body;
+  }
+
+  // The approval buttons live on the secure link page, so a link must exist
+  // before the email goes out. Mint one when the quotation has none yet.
+  async function ensureLink() {
+    if (shareUrl) return shareUrl;
+    const result = await sharingRequest(quotation.id, { expiryDays: 30 });
+    const url = absoluteShareUrl(result?.url || '');
+    if (!url) throw new Error('Could not generate the secure quotation link.');
+    return url;
   }
 
   async function handleSendEmail() {
@@ -77,37 +112,144 @@ export default function SendQuotationModal({
       setError('Save this quotation first, then send it.');
       return;
     }
+    if (!isServerId(quotation.id)) {
+      setError('Save this quotation to the server first, then send it. This copy only exists in this browser.');
+      return;
+    }
     setSending(true);
     try {
+      // A quotation PDF is attached server-side on every email send. The
+      // secure link page carries the accept/reject buttons, so make sure a
+      // link exists before sending when the email promises one.
+      let linkUrl = shareUrl;
+      if ((includeLink || requestApproval) && !linkUrl) {
+        try {
+          linkUrl = await ensureLink();
+        } catch (linkErr) {
+          setError(linkErr?.message || 'Could not generate the secure quotation link.');
+          return;
+        }
+      }
       const result = await api.post(`/sales/quotations/${quotation.id}/send/`, {
         channel: 'email',
         recipients: emails,
         subject: subject.trim(),
-        message: fullMessage(),
+        message: fullMessage(linkUrl),
       });
       if (result && result.sent === false) {
         setError(result.note || 'The email was recorded but not delivered.');
         return;
       }
       setSentOk(`Email sent to ${emails.join(', ')}.`);
-      onSent?.('email');
+      setSentDone(true);
     } catch (err) {
-      setError(err?.message || 'The email could not be sent.');
+      setError(describeSendError(err));
     } finally {
       setSending(false);
     }
   }
 
-  function handleWhatsApp() {
+  function describeSendError(err) {
+    const payload = err?.payload;
+    const backendMessage = payload?.message || payload?.detail || payload?.error;
+    if (backendMessage && !/^request failed with status/i.test(backendMessage)) {
+      const code = payload?.code ? ` (${payload.code})` : '';
+      return `${backendMessage}${code}`;
+    }
+    const fieldErrors = payload?.field_errors;
+    if (fieldErrors && typeof fieldErrors === 'object') {
+      const [field, messages] = Object.entries(fieldErrors)[0] || [];
+      if (field) return `${field}: ${[].concat(messages)[0]}`;
+    }
+    if (err?.status === 500) {
+      return 'The server hit an unexpected error (500). Check the backend console traceback and the Network → Response body for this request, then retry.';
+    }
+    return err?.message || 'The email could not be sent.';
+  }
+
+  async function handleWhatsApp() {
     const digits = String(phone).replace(/\D/g, '');
     if (!digits) {
       setError('Enter the customer mobile number first.');
       return;
     }
+    if (!isServerId(quotation?.id)) {
+      setError('Save this quotation to the server first, then share it. This copy only exists in this browser.');
+      return;
+    }
     setError('');
-    const text = encodeURIComponent(`${subject}\n\n${fullMessage()}`);
+    setSentOk('');
+    let linkUrl = shareUrl;
+    if ((includeLink || requestApproval) && !linkUrl) {
+      try {
+        linkUrl = await ensureLink();
+      } catch (linkErr) {
+        setError(linkErr?.message || 'Could not generate the secure quotation link.');
+        return;
+      }
+    }
+    // WhatsApp cannot receive a file through a link — fetch the PDF now so
+    // it is waiting in Downloads, ready to attach to the chat that opens.
+    let pdfReady = false;
+    try {
+      pdfReady = await downloadPdf();
+    } catch {
+      pdfReady = false;
+    }
+    const text = encodeURIComponent(`${subject}\n\n${fullMessage(linkUrl)}`);
     window.open(`https://wa.me/${digits}?text=${text}`, '_blank', 'noopener');
-    onSent?.('whatsapp');
+    setSentOk(
+      pdfReady
+        ? 'WhatsApp opened and PDF downloaded — attach the PDF file to the chat before sending.'
+        : 'WhatsApp opened. The PDF could not be downloaded — use the Download PDF button, then attach it manually.',
+    );
+    setSentDone(true);
+  }
+
+  // The same PDF the email attaches, for the WhatsApp flow: `wa.me` links
+  // can only prefill text, so the sender downloads the file here and
+  // attaches it to the chat manually.
+  async function downloadPdf() {
+    if (!isBackendEnabled() || !isServerId(quotation?.id)) return false;
+    const base = (import.meta.env.VITE_API_URL || import.meta.env.VITE_API_BASE_URL || '/api/v1').replace(/\/+$/, '');
+    const token = getAuthToken();
+    const response = await fetch(`${base}/sales/quotations/${quotation.id}/pdf/`, {
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+    });
+    if (!response.ok) return false;
+    const blob = await response.blob();
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `${quotation?.quoteNumber || quotation?.quotationNumber || 'quotation'}.pdf`;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 5000);
+    return true;
+  }
+
+  async function handleDownloadPdf() {
+    setError('');
+    setSentOk('');
+    if (!isBackendEnabled()) {
+      setError('You are not signed in. Sign in and try again.');
+      return;
+    }
+    if (!isServerId(quotation?.id)) {
+      setError('Save this quotation to the server first, then download it.');
+      return;
+    }
+    setDownloading(true);
+    try {
+      const ok = await downloadPdf();
+      if (!ok) throw new Error('PDF download failed.');
+      setSentOk('PDF downloaded — attach it to your WhatsApp chat.');
+    } catch (err) {
+      setError(err?.message || 'The PDF could not be downloaded.');
+    } finally {
+      setDownloading(false);
+    }
   }
 
   async function handleCopyLink() {
@@ -137,6 +279,36 @@ export default function SendQuotationModal({
           <button type="button" onClick={onClose} className="text-slate-400 hover:text-slate-600 p-1" aria-label="Close"><X size={18} /></button>
         </div>
 
+        {sentDone ? (
+          <div className="flex-1 overflow-y-auto px-5 py-10">
+            <div className="mx-auto max-w-sm text-center">
+              <span className="mx-auto inline-flex h-14 w-14 items-center justify-center rounded-full bg-emerald-100 text-emerald-600">
+                <CheckCircle2 size={30} />
+              </span>
+              <h3 className="mt-3 text-base font-extrabold text-slate-900">Sent to Customer Successfully</h3>
+              <p role="status" className="mt-1.5 text-xs font-semibold text-slate-700">{sentOk}</p>
+              {channel === 'email' ? (
+                <p className="mt-2 text-[11px] leading-relaxed text-slate-500">
+                  Quotation {quotation?.quoteNumber || quotation?.quotationNumber || ''} went out with its PDF
+                  ({quotation?.quoteNumber || quotation?.quotationNumber || 'quotation'}.pdf) attached
+                  {(includeLink || requestApproval) ? ' and the secure approve / reject link inside' : ''}.
+                </p>
+              ) : (
+                <p className="mt-2 text-[11px] leading-relaxed text-slate-500">
+                  Remember to attach the downloaded PDF file to the WhatsApp chat before you press send there.
+                </p>
+              )}
+              <button
+                type="button"
+                onClick={() => onSent?.(channel)}
+                className="mt-5 inline-flex items-center gap-1.5 px-8 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-lg"
+              >
+                Done
+              </button>
+            </div>
+          </div>
+        ) : (
+        <>
         <div className="px-5 py-3 border-b border-slate-100 flex items-center gap-2 text-[11px] text-blue-800 bg-blue-50/60">
           <Link2 size={13} className="shrink-0" />
           <span>A secure quotation link will be shared with your customer. They can view the quotation and approve or reject it directly.</span>
@@ -210,6 +382,18 @@ export default function SendQuotationModal({
                     <input value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="e.g. 919876543210" className={inputCls} />
                     <p className="text-[11px] text-slate-400 mt-1">Opens WhatsApp with the quotation message prefilled.</p>
                   </div>
+                  <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
+                    <p className="text-xs font-bold text-slate-800">Quotation PDF</p>
+                    <p className="text-[11px] text-slate-500 mt-0.5">WhatsApp links carry text only — download the PDF here, then attach it to the chat yourself.</p>
+                    <button
+                      type="button"
+                      onClick={handleDownloadPdf}
+                      disabled={downloading}
+                      className="mt-2 inline-flex items-center gap-1.5 px-3 py-2 bg-white border border-slate-200 hover:bg-slate-100 text-slate-700 text-xs font-bold rounded-lg disabled:opacity-50"
+                    >
+                      <Download size={13} /> {downloading ? 'Preparing…' : 'Download PDF'}
+                    </button>
+                  </div>
                   <div>
                     <label className="block text-xs font-semibold text-slate-600 mb-1">Message</label>
                     <textarea value={message} onChange={(e) => setMessage(e.target.value)} rows={7} className={`${inputCls} leading-relaxed`} />
@@ -233,7 +417,7 @@ export default function SendQuotationModal({
                   </div>
                   <div className="text-right">
                     <p className="text-xs font-extrabold text-slate-900">QUOTATION</p>
-                    <p className="text-[11px] font-mono text-slate-600">{quotation?.quoteNumber}</p>
+                    <p className="text-[11px] font-mono text-slate-600">{quotation?.quoteNumber || quotation?.quotationNumber}</p>
                   </div>
                 </div>
                 <div className="flex items-start justify-between mt-2 text-[11px]">
@@ -293,6 +477,8 @@ export default function SendQuotationModal({
             )}
           </div>
         </div>
+        </>
+        )}
       </div>
     </div>
   );

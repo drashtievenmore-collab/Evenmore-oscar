@@ -52,6 +52,7 @@ export default function QuotationDetailPage() {
   const {
     quotations = [], customers = [], approveQuotation, updateQuotationStatus,
     recordQuotationActivity, syncQuotationShare, convertQuotationToSalesOrder,
+    backendStatus, refreshFromBackend,
   } = useERP() || {};
   const [sendOpen, setSendOpen] = useState(false);
   const [printOpen, setPrintOpen] = useState(false);
@@ -87,9 +88,9 @@ export default function QuotationDetailPage() {
   const decisionEvent = activity.find((e) => ['Quotation Accepted', 'Quotation Rejected'].includes(e.type));
   const milestones = [
     { label: 'Quotation Created', detail: quote?.date ? `${quote.date} • ${quote?.salesPerson || 'Sales'}` : '', done: true },
-    { label: 'Link Sent to Customer', detail: sentEvent ? `${new Date(sentEvent.timestamp).toLocaleString()} • Email / WhatsApp` : 'Not yet', done: Boolean(sentEvent) || ['Sent', 'Viewed', 'Accepted'].includes(quote?.status) },
-    { label: 'Viewed by Customer', detail: viewedEvent ? new Date(viewedEvent.timestamp).toLocaleString() : 'Not yet', done: Boolean(viewedEvent) },
-    { label: 'Approved / Rejected', detail: decisionEvent ? new Date(decisionEvent.timestamp).toLocaleString() : 'Not yet', done: Boolean(decisionEvent) || ['Accepted', 'Rejected'].includes(quote?.status) },
+    { label: 'Link Sent to Customer', detail: sentEvent ? `${new Date(sentEvent.timestamp).toLocaleString()} • Email / WhatsApp` : 'Not yet', done: Boolean(sentEvent) || ['Sent', 'Viewed', 'Accepted', 'Converted', 'Rejected'].includes(quote?.status) },
+    { label: 'Viewed by Customer', detail: viewedEvent ? new Date(viewedEvent.timestamp).toLocaleString() : 'Not yet', done: Boolean(viewedEvent) || ['Viewed', 'Accepted', 'Converted', 'Rejected'].includes(quote?.status) },
+    { label: 'Approved / Rejected', detail: decisionEvent ? new Date(decisionEvent.timestamp).toLocaleString() : 'Not yet', done: Boolean(decisionEvent) || ['Accepted', 'Converted', 'Rejected'].includes(quote?.status) },
   ];
 
   async function ensureShare(expiryDays = 30) {
@@ -147,13 +148,32 @@ export default function QuotationDetailPage() {
   }
 
   if (!quote) {
+    // Empty collection = still pulling from the server (or the pull failed) —
+    // never leave this as a dead "Loading…" without a way out.
+    const loading = (quotations || []).length === 0 && backendStatus?.loading;
+    const failed = (quotations || []).length === 0 && !backendStatus?.loading;
     return (
       <div className="space-y-4">
         <button type="button" onClick={() => navigate('/sales/quotations')} className="inline-flex items-center gap-1.5 px-3 py-2 bg-white border border-slate-200 rounded-lg text-xs font-semibold text-slate-600 hover:bg-slate-50">
           <ArrowLeft size={14} /> Back to Quotations
         </button>
-        <div className="card p-8 text-center text-xs text-slate-500">
-          {(quotations || []).length === 0 ? 'Loading quotation…' : 'This quotation no longer exists. It may have been deleted.'}
+        <div className="card p-8 text-center text-xs text-slate-500 space-y-3">
+          <p>
+            {loading
+              ? 'Loading quotation…'
+              : failed
+                ? 'Could not load quotations from the server. Check that the backend is running, then retry.'
+                : 'This quotation no longer exists. It may have been deleted.'}
+          </p>
+          {failed && (
+            <button
+              type="button"
+              onClick={() => refreshFromBackend?.()}
+              className="inline-flex items-center gap-1.5 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded-lg"
+            >
+              <RefreshCw size={13} /> Retry
+            </button>
+          )}
         </div>
       </div>
     );
@@ -244,12 +264,12 @@ export default function QuotationDetailPage() {
             </div>
           </div>
 
-          <div className="rounded-2xl border border-amber-200 bg-amber-50/60 p-4 sm:p-5">
+          <div className={`rounded-2xl border p-4 sm:p-5 ${quote.status === 'Accepted' || quote.status === 'Converted' ? 'border-emerald-200 bg-emerald-50/60' : quote.status === 'Rejected' ? 'border-rose-200 bg-rose-50/60' : 'border-amber-200 bg-amber-50/60'}`}>
             <div className="flex flex-wrap items-center justify-between gap-2">
-              <h3 className="text-sm font-bold text-slate-900 flex items-center gap-2"><span className="inline-flex h-6 w-6 items-center justify-center rounded-full bg-amber-100 text-amber-700">◉</span> Customer Response</h3>
-              <span className="inline-flex items-center gap-1 text-[11px] font-bold text-amber-700"><Clock3 size={12} /> Awaiting Response</span>
+              <h3 className="text-sm font-bold text-slate-900 flex items-center gap-2"><span className={`inline-flex h-6 w-6 items-center justify-center rounded-full ${quote.status === 'Accepted' || quote.status === 'Converted' ? 'bg-emerald-100 text-emerald-700' : quote.status === 'Rejected' ? 'bg-rose-100 text-rose-700' : 'bg-amber-100 text-amber-700'}`}>◉</span> Customer Response</h3>
+              <span className={`inline-flex items-center gap-1 text-[11px] font-bold ${quote.status === 'Accepted' || quote.status === 'Converted' ? 'text-emerald-700' : quote.status === 'Rejected' ? 'text-rose-700' : 'text-amber-700'}`}><Clock3 size={12} /> {quote.status === 'Accepted' || quote.status === 'Converted' ? 'Accepted' : quote.status === 'Rejected' ? 'Rejected' : 'Awaiting Response'}</span>
             </div>
-            <p className="text-[11px] text-slate-500 mt-0.5">Waiting for customer to respond to this quotation.</p>
+            <p className="text-[11px] text-slate-500 mt-0.5">{quote.status === 'Accepted' || quote.status === 'Converted' ? 'Customer has accepted this quotation.' : quote.status === 'Rejected' ? 'Customer has rejected this quotation.' : 'Waiting for customer to respond to this quotation.'}</p>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mt-3">
               <button type="button" onClick={() => handleRespond(true)} disabled={responding || ['Accepted', 'Converted'].includes(quote.status)} className="flex items-center gap-3 rounded-xl border border-emerald-200 bg-white p-3 text-left hover:bg-emerald-50/50 disabled:opacity-50">
                 <span className="inline-flex h-8 w-8 items-center justify-center rounded-full bg-emerald-500 text-white shrink-0"><CheckCircle2 size={16} /></span>

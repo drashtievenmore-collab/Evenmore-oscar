@@ -122,7 +122,6 @@ function documentToApi(doc, { partyField = 'partyId', partyKeys = [] } = {}, { p
     stage: doc.stage || undefined,
     quotation: link(doc.quotationId || doc.sourceQuotationId),
     salesOrder: link(doc.salesOrderId || doc.sourceSalesOrderId),
-    estimate: link(doc.estimateId || doc.sourceEstimateId),
     crmDeal: link(doc.dealId),
     crmLead: link(doc.leadId),
     freightCharges: !partial || doc.freightCharges !== undefined ? (doc.freightCharges !== undefined ? num(doc.freightCharges) : undefined) : undefined,
@@ -140,6 +139,11 @@ function documentToApi(doc, { partyField = 'partyId', partyKeys = [] } = {}, { p
 function documentFromApi(row, { numberField, partyLabel = 'customer' } = {}) {
   const lines = (row.lineItems || []).map(lineFromApi);
   const total = num(row.total);
+  const serverNumber = numberField ? row[numberField] : undefined;
+  // The screens predate the API contract and read legacy aliases
+  // (`quoteNumber`, `piNumber`); the server owns `quotationNumber` /
+  // `proformaNumber`. Carry both so pulled rows never render a blank number.
+  const numberAlias = { quotationNumber: 'quoteNumber', proformaNumber: 'piNumber' }[numberField];
   return {
     ...row,
     date: displayIn(row.date),
@@ -160,7 +164,13 @@ function documentFromApi(row, { numberField, partyLabel = 'customer' } = {}) {
     balanceDue: num(row.balanceDue),
     status: row.displayStatus || row.status,
     finalized: Boolean(row.postedAt),
-    ...(numberField ? { [numberField]: row[numberField] } : {}),
+    ...(numberField ? { [numberField]: serverNumber } : {}),
+    ...(numberAlias ? { [numberAlias]: serverNumber || row[numberAlias] } : {}),
+    // Server links arrive camelized (`crmDeal`/`crmLead`); the screens read
+    // `dealId`/`leadId`. Carry both so a refresh never drops the link that
+    // drives the deal-pipeline moves (Draft → Sent → Open → Won/Lost).
+    dealId: row.crmDeal || row.dealId || undefined,
+    leadId: row.crmLead || row.leadId || undefined,
     _synced: true,
   };
 }
@@ -394,7 +404,6 @@ export const RESOURCES = {
   },
 
   // Sales pipeline (api.md §5)
-  estimates: documentResource('/sales/estimates/', { numberField: 'estimateNumber' }),
   quotations: documentResource('/sales/quotations/', { numberField: 'quotationNumber' }),
   salesOrders: documentResource('/sales/orders/', { numberField: 'orderNumber' }),
   proformaInvoices: documentResource('/sales/proforma-invoices/', { numberField: 'piNumber' }),
@@ -788,7 +797,7 @@ export const RESOURCES = {
 export const PULL_ORDER = [
   'categories', 'units', 'locations', 'fabrics', 'items',
   'parties', 'customers', 'vendors',
-  'estimates', 'quotations', 'salesOrders', 'proformaInvoices',
+  'quotations', 'salesOrders', 'proformaInvoices',
   'deliveryChallans', 'invoices', 'paymentIns', 'salesReturns', 'warranties',
   'purchaseOrders', 'purchaseBills', 'vendorBills', 'paymentOuts', 'purchaseReturns', 'expenses',
   'transfers', 'serviceUsages', 'valuationItems', 'monthEndAudits',

@@ -40,7 +40,7 @@ import {
   ShoppingCart,
 } from 'lucide-react';
 
-import { loadDeals, saveDeals, buildDeal, EMPTY_DEAL_FORM, getInitialsFromName, getAvatarColorFromName } from '../../../services/dealService';
+import { loadDeals, buildDeal, EMPTY_DEAL_FORM, getInitialsFromName, getAvatarColorFromName } from '../../../services/dealService';
 import { useCrmStore } from '../../../stores/crmStore';
 import { useERP } from '../../../context/ERPContext';
 
@@ -132,10 +132,11 @@ export default function DealsPage() {
 
   useEffect(() => { setDeals(storeDeals); }, [storeDeals]);
 
-  // Anything the board changed is written back to `/crm/deals/`.
-  useEffect(() => {
-    if (deals.length > 0 || storeDeals.length > 0) saveDeals(deals);
-  }, [deals, storeDeals]);
+  // NOTE: no blanket write-back here. Every mutation below writes through the
+  // CRM store explicitly (createRecord / updateRecord / deleteRecord), so the
+  // server is hit exactly once per user action. A whole-list write-back on
+  // every render used to re-POST the row whose server id had just replaced
+  // its local id, minting an identical duplicate deal on each create.
 
   const [searchParams, setSearchParams] = useSearchParams();
   const linkedDealId = searchParams.get('deal');
@@ -561,15 +562,21 @@ export default function DealsPage() {
       )}
 
       {linkedDealId ? <DealDetailView key={linkedDealId} deal={deals.find((item) => String(item.id) === linkedDealId)} onEdit={handleOpenEditModal} onNotify={showNotification} onDelete={setDealToDelete} onUpdate={(patch) => {
-        // Header fields reach `/crm/deals/` through the board write-back
-        // below; nested arrays have their own endpoints (wired in the view).
+        // Header fields reach `/crm/deals/` through an explicit update —
+        // nested arrays have their own endpoints (wired in the view).
         const updated = loadDeals().map((item) => String(item.id) === linkedDealId ? { ...item, ...patch } : item);
         setDeals(updated);
+        useCrmStore.getState().updateRecord('deals', linkedDealId, patch).catch((err) => {
+          console.warn('[CRM Deals] Server update error:', err?.message || err);
+        });
         window.dispatchEvent(new Event('crm:data-updated'));
       }} onDuplicate={(deal) => {
         const copy = buildDeal({ name: `${deal.name} (copy)`, client: deal.client, phone: deal.phone, price: deal.price, product: deal.product, products: deal.products, source: deal.source, assignedUser: deal.assignedUser, team: deal.team, description: deal.description, stage: 'Draft', createdAt: new Date().toISOString() }, `dl-${crypto.randomUUID()}`);
         const updated = [copy, ...loadDeals()];
         setDeals(updated);
+        useCrmStore.getState().createRecord('deals', copy).catch((err) => {
+          console.warn('[CRM Deals] Server save error:', err?.message || err);
+        });
         setSearchParams({ deal: copy.id });
         showNotification('Deal duplicated as a new draft.');
       }} /> : <>

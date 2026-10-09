@@ -21,12 +21,22 @@ export function syncCollection(key, next = [], previous = []) {
   const after = new Set(next.map((row) => String(row?.id)));
   const report = warn(key);
 
+  const withoutTransient = (row) => {
+    if (!row || typeof row !== 'object') return row;
+    const { _pending, ...rest } = row;
+    return rest;
+  };
+
   next.forEach((row) => {
     if (!row) return;
+    // An optimistic echo (a row the store already sent, awaiting its server
+    // id) must never be created again — that is how whole-list write-backs
+    // minted identical duplicate rows on every create.
+    if (row._pending) return;
     const existing = before.get(String(row.id));
     if (!existing) {
       store.createRecord(key, row).catch(report);
-    } else if (isServerId(row.id) && JSON.stringify(existing) !== JSON.stringify(row)) {
+    } else if (isServerId(row.id) && JSON.stringify(withoutTransient(existing)) !== JSON.stringify(withoutTransient(row))) {
       store.updateRecord(key, row.id, row).catch(report);
     }
   });

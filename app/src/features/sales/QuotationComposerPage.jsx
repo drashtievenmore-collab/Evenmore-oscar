@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useMemo, useRef, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import {
   ArrowLeft, CheckCircle2, FileText, Plus, Search,
@@ -7,7 +7,8 @@ import {
 import { useERP } from '../../context/ERPContext';
 import { useCrmStore } from '../../stores/crmStore';
 import { withSampleTeam } from '../crm/common/sampleTeam';
-import { isServerId } from '../../services/resourceSync';
+import { isBackendEnabled, isServerId } from '../../services/resourceSync';
+import { toISODate } from '../../utils/dateUtils';
 
 const UOMS = ['Meter', 'Yard', 'Nos', 'Kg', 'Piece', 'Set'];
 const GST_RATES = [0, 5, 12, 18, 28];
@@ -124,31 +125,60 @@ const cellInput = 'w-full min-w-0 px-1.5 py-1 bg-white border border-slate-200 r
 const labelCls = 'block text-[11px] font-semibold text-slate-600 mb-1';
 const cardCls = 'bg-white rounded-2xl border border-slate-200 p-4 sm:p-5';
 
-export default function QuotationComposerPage() {
+/**
+ * QuotationComposerPage — full Sales quotation form.
+ *
+ * Standalone it is the `/sales/quotations/create` page (prefill via
+ * `location.state`). Embedded (`embedded={{ prefill?, editQuote?, onDone, onCancel }}`)
+ * it renders the same form inside another screen — e.g. the CRM lead
+ * Quotations tab — with no navigation: save calls `onDone`, cancel calls
+ * `onCancel`. `editQuote` switches the form to edit mode for that row.
+ */
+export default function QuotationComposerPage({ embedded = null } = {}) {
   const navigate = useNavigate();
   const location = useLocation();
-  const prefill = location.state || {};
-  const { customers = [], items = [], addQuotation, convertQuotationToSalesOrder } = useERP() || {};
+  const isEmbedded = Boolean(embedded);
+  const editQuote = embedded?.editQuote || null;
+  const prefill = embedded?.prefill || location.state || {};
+  const { customers = [], items = [], addQuotation, updateQuotation, convertQuotationToSalesOrder, showToast } = useERP() || {};
   const teamMembers = useCrmStore((s) => s.teamMembers);
   const salesTeam = withSampleTeam(teamMembers);
 
-  const initialCustomerId = prefill.customerId
+  const initQuoteDate = toISODate(editQuote?.date) || todayISO();
+  const initValidityDays = Number(editQuote?.validityDays) || 30;
+  const initialCustomerId = editQuote?.customerId
+    || prefill.customerId
     || customers.find((c) => prefill.company && c.name === prefill.company)?.id
     || customers[0]?.id || '';
   const [customerId, setCustomerId] = useState(initialCustomerId);
   const customer = customers.find((c) => c.id === customerId) || null;
 
-  const [contactPerson, setContactPerson] = useState(customer?.contactPerson || '');
-  const [quoteDate, setQuoteDate] = useState(todayISO());
-  const [validityDays, setValidityDays] = useState(30);
-  const [validUntil, setValidUntil] = useState(addDaysISO(todayISO(), 30));
-  const [salesPerson, setSalesPerson] = useState('');
-  const [broker, setBroker] = useState('');
-  const [dealRef, setDealRef] = useState(prefill.dealReference || prefill.dealId || '');
+  const [contactPerson, setContactPerson] = useState(editQuote?.contactPerson ?? customer?.contactPerson ?? '');
+  const [quoteDate, setQuoteDate] = useState(initQuoteDate);
+  const [validityDays, setValidityDays] = useState(initValidityDays);
+  const [validUntil, setValidUntil] = useState(() => toISODate(editQuote?.validUntil) || addDaysISO(initQuoteDate, initValidityDays));
+  const [salesPerson, setSalesPerson] = useState(editQuote?.salesPerson ?? '');
+  const [broker, setBroker] = useState(editQuote?.broker ?? '');
+  const [dealRef, setDealRef] = useState(editQuote?.dealReference || editQuote?.dealId || prefill.dealReference || prefill.dealId || '');
   const [customerSearch, setCustomerSearch] = useState('');
   const [customerPickerOpen, setCustomerPickerOpen] = useState(false);
 
   const [lines, setLines] = useState(() => {
+    // Edit mode restores the row's own lines (discount/tax/uom preserved);
+    // create mode resolves names against the item master for full specs.
+    if (editQuote && Array.isArray(editQuote.items) && editQuote.items.length > 0) {
+      return editQuote.items.map((it) => ({
+        ...blankLine(),
+        key: uid('li'),
+        itemId: isServerId(it.itemId) ? it.itemId : '',
+        fabric: it.itemName || it.name || it.description || '',
+        qty: Number(it.qty ?? it.quantity) || 1,
+        uom: it.uom || it.unit || 'Meter',
+        rate: Number(it.rate ?? it.price) || 0,
+        discPct: Number(it.discount) || 0,
+        gstPct: it.tax ?? it.gstPct ?? 5,
+      }));
+    }
     const seed = Array.isArray(prefill.items) ? prefill.items : [];
     if (seed.length > 0) {
       return seed.map((entry) => {
@@ -166,17 +196,22 @@ export default function QuotationComposerPage() {
   });
   const [itemSearch, setItemSearch] = useState('');
   const [docDiscPct, setDocDiscPct] = useState(0);
-  const [freightType, setFreightType] = useState('To Pay');
-  const [freightAmount, setFreightAmount] = useState(0);
-  const [loading, setLoading] = useState(0);
-  const [otherCharges, setOtherCharges] = useState(0);
-  const [termsText, setTermsText] = useState(defaultTerms(30));
-  const [paymentTerms, setPaymentTerms] = useState(PAYMENT_TERMS[0]);
-  const [deliveryDate, setDeliveryDate] = useState(addDaysISO(todayISO(), 12));
+  const [freightType, setFreightType] = useState(editQuote && num(editQuote.freightCharges) > 0 ? 'Paid' : 'To Pay');
+  const [freightAmount, setFreightAmount] = useState(num(editQuote?.freightCharges));
+  const [loading, setLoading] = useState(num(editQuote?.loadingCharges));
+  const [otherCharges, setOtherCharges] = useState(num(editQuote?.otherCharges));
+  const [termsText, setTermsText] = useState(editQuote?.terms || editQuote?.termsAndConditions || defaultTerms(initValidityDays));
+  const [paymentTerms, setPaymentTerms] = useState(editQuote?.paymentTerms || PAYMENT_TERMS[0]);
+  const [deliveryDate, setDeliveryDate] = useState(() => toISODate(editQuote?.deliveryDate) || addDaysISO(initQuoteDate, 12));
   const [withTax, setWithTax] = useState(true);
   const [approvalStep, setApprovalStep] = useState(0);
   const [saveAsDraftChecked, setSaveAsDraftChecked] = useState(false);
   const [formError, setFormError] = useState('');
+  // Inline (embedded) save state: guards double-click duplicates and tracks
+  // a create that is still waiting for the server so a retry updates it.
+  const savingRef = useRef(false);
+  const [saving, setSaving] = useState(false);
+  const [pendingId, setPendingId] = useState(() => editQuote?.id || null);
 
   const filteredCustomers = useMemo(() => {
     const q = customerSearch.trim().toLowerCase();
@@ -233,6 +268,20 @@ export default function QuotationComposerPage() {
   const creditLimit = num(customer?.creditLimit);
   const outstanding = num(customer?.balance ?? customer?.outstanding);
   const available = creditLimit - outstanding;
+
+  // Unsaved-changes detection for embedded Cancel (random row `key`
+  // excluded — it differs per mount, not per edit).
+  function formSignature() {
+    return JSON.stringify({
+      customerId, contactPerson, salesPerson, broker, quoteDate, validUntil,
+      validityDays, dealRef, docDiscPct, freightType, freightAmount, loading,
+      otherCharges, termsText, paymentTerms, deliveryDate, withTax,
+      lines: (lines || []).map(({ key, ...rest }) => rest),
+    });
+  }
+  const initialSignatureRef = useRef(null);
+  if (initialSignatureRef.current === null) initialSignatureRef.current = formSignature();
+  const isDirty = () => formSignature() !== initialSignatureRef.current;
 
   function handleCustomerChange(id) {
     setCustomerId(id);
@@ -323,15 +372,91 @@ export default function QuotationComposerPage() {
   }
 
   function handleSave(status, { stay = false } = {}) {
+    if (savingRef.current) return null;
     const error = validate();
     if (error) {
       setFormError(error);
       return null;
     }
     setFormError('');
-    const saved = addQuotation(buildPayload(status));
-    if (!stay) navigate('/sales/quotations');
+    // Embedded (lead tab): same form, same validation — but no navigation.
+    // The parent swaps the tab content back to the list via onDone.
+    if (isEmbedded) {
+      void embeddedSave(status);
+      return null;
+    }
+    // The server allocates the real id + number on save and the local row is
+    // reconciled to it — navigating to the temp id would land on
+    // "no longer exists" once that swap happens. So: temp id → list now,
+    // server id → detail when the save confirms.
+    const saved = addQuotation(buildPayload(status), {
+      onServer: (serverRecord) => {
+        if (!stay && serverRecord?.id) navigate(`/sales/quotations/${serverRecord.id}`, { replace: true });
+      },
+    });
+    if (!stay) {
+      if (isBackendEnabled() && saved?.id && !isServerId(saved.id)) {
+        navigate('/sales/quotations');
+      } else {
+        navigate(saved?.id ? `/sales/quotations/${saved.id}` : '/sales/quotations');
+      }
+    }
     return saved;
+  }
+
+  // Embedded save: create (or finish a pending create / edit) without
+  // leaving the page. Awaiting the server means the success toast and the
+  // return to the list only happen after the save succeeds, and the saving
+  // flag blocks duplicate submits from repeated clicks.
+  async function embeddedSave(status) {
+    if (savingRef.current) return;
+    savingRef.current = true;
+    setSaving(true);
+    setFormError('');
+    const finish = () => {
+      savingRef.current = false;
+      setSaving(false);
+    };
+    try {
+      if (editQuote || pendingId) {
+        const id = editQuote ? editQuote.id : pendingId;
+        const keepStatus = editQuote ? editQuote.status : status;
+        const updated = await updateQuotation(id, buildPayload(keepStatus));
+        const number = updated?.quoteNumber || updated?.quotationNumber || editQuote?.quoteNumber || '';
+        showToast?.(`Quotation ${number} updated.`);
+        finish();
+        embedded.onDone(updated || null);
+      } else {
+        let resolved = false;
+        const saved = addQuotation(buildPayload(status), {
+          silent: true,
+          onServer: (serverRecord) => {
+            resolved = true;
+            const number = serverRecord?.quoteNumber || serverRecord?.quotationNumber || saved?.quoteNumber || '';
+            showToast?.(`Quotation ${number} generated.`);
+            finish();
+            embedded.onDone(serverRecord || null);
+          },
+          onError: (err) => {
+            resolved = true;
+            // Keep the failed optimistic row and retry against it, so a
+            // retry updates instead of creating a duplicate.
+            setPendingId(saved.id);
+            setFormError(err?.message || 'Could not save the quotation to the server.');
+            finish();
+          },
+        });
+        if (!resolved) setPendingId(saved.id);
+      }
+    } catch (err) {
+      setFormError(err?.message || 'Could not save the quotation.');
+      finish();
+    }
+  }
+
+  function embeddedCancel() {
+    if (isDirty() && !window.confirm('Discard unsaved changes?')) return;
+    embedded.onCancel();
   }
 
   function handleConvert() {
@@ -344,27 +469,31 @@ export default function QuotationComposerPage() {
 
   return (
     <div className="space-y-4">
-      <p className="text-[11px] font-medium text-slate-400">
-        Sales <span className="mx-1">›</span> Quotations <span className="mx-1">›</span>{' '}
-        <span className="text-slate-600 font-semibold">Create Quotation</span>
-      </p>
+      {!isEmbedded && (
+        <>
+          <p className="text-[11px] font-medium text-slate-400">
+            Sales <span className="mx-1">›</span> Quotations <span className="mx-1">›</span>{' '}
+            <span className="text-slate-600 font-semibold">{editQuote ? 'Edit Quotation' : 'Create Quotation'}</span>
+          </p>
 
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <h1 className="text-lg font-extrabold tracking-tight text-slate-900 flex items-center gap-2">
-            <span className="inline-flex h-8 w-8 items-center justify-center rounded-lg bg-blue-50 text-blue-600"><FileText size={16} /></span>
-            Create Quotation
-          </h1>
-          <p className="text-xs text-slate-500 mt-1">Prepare a detailed quotation with fabric specifications, pricing and terms.</p>
-        </div>
-        <button
-          type="button"
-          onClick={() => navigate('/sales/quotations')}
-          className="inline-flex items-center gap-1.5 px-3 py-2 bg-white border border-slate-200 rounded-lg text-xs font-semibold text-slate-600 hover:bg-slate-50"
-        >
-          <ArrowLeft size={14} /> Back to Quotations
-        </button>
-      </div>
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <h1 className="text-lg font-extrabold tracking-tight text-slate-900 flex items-center gap-2">
+                <span className="inline-flex h-8 w-8 items-center justify-center rounded-lg bg-blue-50 text-blue-600"><FileText size={16} /></span>
+                Create Quotation
+              </h1>
+              <p className="text-xs text-slate-500 mt-1">Prepare a detailed quotation with fabric specifications, pricing and terms.</p>
+            </div>
+            <button
+              type="button"
+              onClick={() => navigate('/sales/quotations')}
+              className="inline-flex items-center gap-1.5 px-3 py-2 bg-white border border-slate-200 rounded-lg text-xs font-semibold text-slate-600 hover:bg-slate-50"
+            >
+              <ArrowLeft size={14} /> Back to Quotations
+            </button>
+          </div>
+        </>
+      )}
 
       <div className="grid grid-cols-1 xl:grid-cols-3 gap-4 items-start">
         <div className="xl:col-span-2 space-y-4">
@@ -711,6 +840,10 @@ export default function QuotationComposerPage() {
             </div>
           </div>
 
+          {/* Quick Actions stay on the standalone page: inline (lead tab)
+              saving returns to the list, and submit/send/convert belong to
+              the Sales workflow (list Approve/Send stay available there). */}
+          {!isEmbedded && (
           <div className={cardCls}>
             <h3 className="text-sm font-bold text-slate-900 flex items-center gap-2 mb-3">
               <span className="inline-flex h-6 w-6 items-center justify-center rounded bg-blue-50 text-blue-600">⚡</span>
@@ -731,21 +864,30 @@ export default function QuotationComposerPage() {
               </button>
             </div>
           </div>
+          )}
         </div>
       </div>
 
       {formError && <p role="alert" className="text-xs font-semibold text-rose-600">{formError}</p>}
 
       <div className="flex items-center justify-between bg-white rounded-2xl border border-slate-200 px-4 py-3 sticky bottom-2 shadow-sm">
-        <button type="button" onClick={() => navigate('/sales/quotations')} className="px-4 py-2 bg-white hover:bg-slate-50 text-slate-700 text-xs font-semibold rounded-lg border border-slate-200">Cancel</button>
+        <button type="button" onClick={() => (isEmbedded ? embeddedCancel() : navigate('/sales/quotations'))} className="px-4 py-2 bg-white hover:bg-slate-50 text-slate-700 text-xs font-semibold rounded-lg border border-slate-200">Cancel</button>
         <div className="flex items-center gap-3">
+          {!editQuote && (
           <label className="inline-flex items-center gap-1.5 text-xs text-slate-600 cursor-pointer">
             <input type="checkbox" checked={saveAsDraftChecked} onChange={(e) => setSaveAsDraftChecked(e.target.checked)} className="h-4 w-4 accent-blue-600" />
             Save as Draft
           </label>
-          <button type="button" onClick={() => handleSave(saveAsDraftChecked ? 'Draft' : 'Sent')} className="inline-flex items-center gap-1.5 px-5 py-2.5 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded-lg">
-            <FileText size={14} /> Generate Quotation
+          )}
+          {editQuote ? (
+          <button type="button" disabled={saving} onClick={() => handleSave(editQuote.status)} className="inline-flex items-center gap-1.5 px-5 py-2.5 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded-lg disabled:opacity-60">
+            <FileText size={14} /> {saving ? 'Saving…' : 'Save Changes'}
           </button>
+          ) : (
+          <button type="button" disabled={saving} onClick={() => handleSave(saveAsDraftChecked ? 'Draft' : 'Sent')} className="inline-flex items-center gap-1.5 px-5 py-2.5 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded-lg disabled:opacity-60">
+            <FileText size={14} /> {saving ? 'Saving…' : 'Generate Quotation'}
+          </button>
+          )}
         </div>
       </div>
     </div>

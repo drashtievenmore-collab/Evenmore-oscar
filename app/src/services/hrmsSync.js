@@ -103,7 +103,7 @@ export const HRMS_RESOURCES = {
       department: e.department || e.dept || undefined,
       designationId: e.designationId || e.designation_id || undefined,
       designation: e.designation || e.role || undefined,
-      reportingManagerId: e.reportingManagerId || undefined,
+      managerId: e.managerId || e.manager_id || e.reportingManagerId || undefined,
       locationId: e.locationId || e.location_id || undefined,
       location: typeof e.location === 'string' ? e.location : undefined,
       joiningDate: isoOut(e.joiningDate || e.joining || e.doj) || undefined,
@@ -116,16 +116,20 @@ export const HRMS_RESOURCES = {
     }),
     fromApi: (row) => ({
       ...asText(row, [
-        'name', 'email', 'phone', 'department', 'designation',
+        'name', 'email', 'phone', 'department', 'designation', 'manager',
         'employmentType', 'gender', 'location', 'status',
       ]),
       // Tables read `empId` and `role`; the API calls them `employeeCode` and
       // `designation`. The wire sends `joining` (joining_date); accept the
-      // `joiningDate` alias too.
+      // `joiningDate` alias too. `manager` is the manager's name, `managerId`
+      // its id (backend) — keep `reportingManager*` aliases for older rows.
       id: row.id,
       empId: row.employeeCode || row.empId || row.id || '',
       employeeCode: row.employeeCode || '',
       role: row.designation || row.role || '',
+      managerId: row.managerId || row.manager_id || row.reportingManagerId || '',
+      reportingManager: row.manager || row.reportingManager || row.reporting_manager || '',
+      reportingManagerId: row.managerId || row.manager_id || row.reportingManagerId || '',
       doj: displayIn(row.joiningDate || row.joining),
       joiningDate: displayIn(row.joiningDate || row.joining),
       joining: displayIn(row.joiningDate || row.joining),

@@ -7,7 +7,6 @@ import {
   Users,
   Briefcase,
   ShoppingCart,
-  Truck,
   Package,
   Layers,
   Landmark,
@@ -113,19 +112,16 @@ const NAV = [
       },
       { label: 'Deals', icon: TrendingUp, to: '/crm/deals' },
       { label: 'Contracts', icon: FileText, to: '/crm/contracts' },
-      { label: 'CRM System Setup', icon: Settings, to: '/crm/system-setup' },
     ],
   },
 
   {
     label: 'PMS (Projects)',
     icon: Briefcase,
-    badgeKey: 'pmsActiveCount',
     children: [
       { label: 'PMS Dashboard', icon: Home, to: '/pms' },
       { label: 'All Projects', icon: Layers, to: '/pms/projects' },
       { label: 'My Projects', icon: UserCheck, to: '/pms/my-projects' },
-      { label: 'My Tasks', icon: ListChecks, to: '/pms/my-tasks', badgeKey: 'pmsMyTasksPending' },
       {
         label: 'Production',
         icon: Factory,
@@ -140,7 +136,6 @@ const NAV = [
       { label: 'Timeline & Gantt', icon: Calendar, to: '/pms/timeline' },
       { label: 'Delay Center', icon: AlertTriangle, to: '/pms/delays', badgeKey: 'pmsDelayedCount', badgeColor: '#ef4444' },
       { label: 'PMS Reports', icon: PieChart, to: '/pms/reports' },
-      { label: 'PMS Settings', icon: Settings, to: '/pms/settings' },
     ],
   },
 
@@ -162,7 +157,6 @@ const NAV = [
     label: 'Sales',
     icon: BarChart3,
     children: [
-      { label: 'Estimates', icon: FileText, to: '/sales/estimates' },
       { label: 'Quotations', icon: FileText, to: '/sales/quotations' },
       { label: 'Sales Orders', icon: ShoppingCart, to: '/sales/orders' },
       { label: 'Proforma Invoices', icon: FileSpreadsheet, to: '/sales/proforma' },
@@ -224,14 +218,6 @@ const NAV = [
       },
       { label: 'Stock Position', icon: BarChart3, to: '/inventory/stock-position' },
       { label: 'Transfers', icon: ArrowLeftRight, to: '/inventory/transfers' },
-      {
-        label: 'Logistics',
-        icon: Truck,
-        defaultOpen: true,
-        children: [
-          { label: 'Transport / Material Movement', to: '/inventory/transport' },
-        ],
-      },
       { label: 'Locations', icon: MapPin, to: '/inventory/locations' },
       // { label: 'Faulty Parts', icon: AlertTriangle, to: '/inventory/faulty-parts', badgeKey: 'faulty' },
       { label: 'Service Usage', icon: Wrench, to: '/inventory/service-usage' },
@@ -338,6 +324,12 @@ const NAV = [
       { label: 'Roles', to: '/administration/roles' },
       { label: 'Clients', to: '/administration/clients' },
     ],
+  },
+
+  {
+    label: 'Settings',
+    icon: Settings,
+    to: '/administration/settings',
   },
 ];
 

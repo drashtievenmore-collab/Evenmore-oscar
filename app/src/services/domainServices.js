@@ -67,10 +67,6 @@ export const crmService = {
 
 export const salesService = {
   // Existing — preserved
-  getEstimates: (query) => api.get('/sales/estimates/', { query }),
-  createEstimate: (data) => api.post('/sales/estimates/', data),
-  updateEstimate: (id, data) => api.patch(`/sales/estimates/${id}/`, data),
-  convertEstimateToQuotation: (id) => api.post(`/sales/estimates/${id}/convert-to-quotation/`),
   getQuotations: (query) => api.get('/sales/quotations/', { query }),
   getOrders: (query) => api.get('/sales/orders/', { query }),
   getInvoices: (query) => api.get('/sales/invoices/', { query }),
