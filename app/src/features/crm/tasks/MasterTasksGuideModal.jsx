@@ -15,9 +15,8 @@ const GUIDES = {
     steps: [
       "On the Manage Master Lead Tasks page, click the \"+ Create Master Task\" button at the top-right.",
       "Enter the task name (e.g. Follow-up) and select Assigned Role, Department, Priority, Due In Days, Status and Icon.",
-      "In Used in Stages, select at least one lead stage (e.g. New Lead) where this task should appear.",
       "Click \"Create Task\" to save. The new task appears in the list with Active status.",
-      "Edit, duplicate, or change status anytime. Mapped tasks auto-create when a lead enters the stage.",
+      "Edit, duplicate, or change status anytime.",
     ],
   },
   hi: {
@@ -26,9 +25,8 @@ const GUIDES = {
     steps: [
       "Manage Master Lead Tasks पेज पर ऊपर-दाईं ओर \"+ Create Master Task\" बटन पर क्लिक करें।",
       "टास्क का नाम दर्ज करें (जैसे Follow-up) और Assigned Role, Department, Priority, Due In Days, Status और Icon चुनें।",
-      "Used in Stages में कम से कम एक लीड स्टेज चुनें (जैसे New Lead) जहाँ यह टास्क दिखना चाहिए।",
       "\"Create Task\" पर क्लिक करके सेव करें। नया टास्क Active स्टेटस के साथ लिस्ट में दिखेगा।",
-      "कभी भी edit, duplicate या status बदलें। लीड के स्टेज में आने पर mapped टास्क अपने आप बन जाते हैं।",
+      "कभी भी edit, duplicate या status बदलें।",
     ],
   },
   gu: {
@@ -37,9 +35,8 @@ const GUIDES = {
     steps: [
       "Manage Master Lead Tasks પેજ પર ઉપર-જમણી બાજુ \"+ Create Master Task\" બટન પર ક્લિક કરો.",
       "ટાસ્કનું નામ દાખલ કરો (દા.ત. Follow-up) અને Assigned Role, Department, Priority, Due In Days, Status અને Icon પસંદ કરો.",
-      "Used in Stages માં ઓછામાં ઓછો એક લીડ સ્ટેજ પસંદ કરો (દા.ત. New Lead) જ્યાં આ ટાસ્ક દેખાવું જોઈએ.",
       "\"Create Task\" પર ક્લિક કરીને સેવ કરો. નવું ટાસ્ક Active સ્ટેટસ સાથે યાદીમાં દેખાશે.",
-      "ક્યારેય પણ edit, duplicate અથવા status બદલો. લીડ સ્ટેજમાં આવે ત્યારે mapped ટાસ્ક આપમેળે બને છે.",
+      "ક્યારેય પણ edit, duplicate અથવા status બદલો.",
     ],
   },
 };

@@ -19,14 +19,14 @@ import {
   FileText,
   ArrowUp,
   ArrowDown,
-  Check,
 } from 'lucide-react';
 
 import MasterTasksGuideModal from './MasterTasksGuideModal';
 import InfoBanner from '../common/InfoBanner';
 import PageHeader from '../../../components/ui/PageHeader';
 import { useCrmStore } from '../../../stores/crmStore';
-import { isBackendEnabled } from '../../../services/crmSync';
+import { isBackendEnabled, describeError } from '../../../services/crmSync';
+import { loadForms, TASK_FORM } from '../../../services/crmForms';
 
 // ── Backend-first mode ──────────────────────────────────────────────
 // Master tasks live in Postgres (/crm/master-tasks/) when logged in.
@@ -38,20 +38,8 @@ const ROLES = ['Sales Support Executive', 'BDE', 'Area Sales Manager'];
 const DEPARTMENTS = ['Sales', 'Support', 'Marketing'];
 const PRIORITIES = ['High', 'Medium', 'Low'];
 const STATUSES = ['Active', 'Inactive'];
-const STAGES = ['New Lead', 'Details Collected', 'Quotation Shared', 'Demo Pending', 'Demo Done', 'Negotiation', 'Won', 'Lost'];
 const ICONS = ['follow-up', 'demo', 'pending', 'meeting', 'formal', 'quotation'];
 const PER_PAGE_OPTIONS = [5, 10, 20, 50];
-
-const STAGE_STYLES = {
-  'New Lead': 'bg-blue-50 text-blue-700 border-blue-100',
-  'Details Collected': 'bg-teal-50 text-teal-700 border-teal-100',
-  'Quotation Shared': 'bg-amber-50 text-amber-700 border-amber-100',
-  'Demo Pending': 'bg-orange-50 text-orange-700 border-orange-100',
-  'Demo Done': 'bg-indigo-50 text-indigo-700 border-indigo-100',
-  Negotiation: 'bg-sky-50 text-sky-700 border-sky-100',
-  Won: 'bg-emerald-50 text-emerald-700 border-emerald-100',
-  Lost: 'bg-rose-50 text-rose-700 border-rose-100',
-};
 
 const ICON_STYLE = {
   'follow-up': 'bg-emerald-50 text-emerald-600',
@@ -88,6 +76,7 @@ const EMPTY_FORM = {
   priority: 'Medium',
   dueIn: 0,
   status: 'Active',
+  taskFormId: '',
 };
 
 // No seed rows — the table starts empty and shows "No tasks found".
@@ -157,6 +146,9 @@ export default function MasterTasksPage() {
   const [bulkDelete, setBulkDelete] = useState(false);
   const [menuId, setMenuId] = useState(null);
   const [isGuideOpen, setIsGuideOpen] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const storeForms = useCrmStore((s) => s.forms);
+  const taskForms = useMemo(() => loadForms(TASK_FORM), [storeForms, modalOpen]);
 
   // Pull from GET /crm/master-tasks/ when logged in; offline keeps seed/cache.
   useEffect(() => {
@@ -196,8 +188,7 @@ export default function MasterTasksPage() {
       return (
         text(t.name).includes(q) ||
         text(t.role).includes(q) ||
-        text(t.department).includes(q) ||
-        (t.stages || []).join(' ').toLowerCase().includes(q)
+        text(t.department).includes(q)
       );
     });
     const sorted = [...out].sort((a, b) => {
@@ -246,27 +237,18 @@ export default function MasterTasksPage() {
       priority: task.priority,
       dueIn: task.dueIn,
       status: task.status,
+      taskFormId: task.taskFormId || '',
     });
     setFormError('');
     setModalOpen(true);
     setMenuId(null);
   }
 
-  function toggleStageInForm(stage) {
-    setForm((f) => ({
-      ...f,
-      stages: f.stages.includes(stage) ? f.stages.filter((s) => s !== stage) : [...f.stages, stage],
-    }));
-  }
-
   function submitForm(e) {
     e.preventDefault();
+    if (saving) return;
     if (!form.name.trim()) {
       setFormError('Task name is required.');
-      return;
-    }
-    if (form.stages.length === 0) {
-      setFormError('Select at least one stage.');
       return;
     }
     const clean = {
@@ -276,25 +258,39 @@ export default function MasterTasksPage() {
       dueIn: Number(form.dueIn) || 0,
     };
     setFormError('');
+    setSaving(true);
+    const done = () => {
+      setSaving(false);
+      setModalOpen(false);
+      setEditingId(null);
+    };
+    const failed = (err) => {
+      setSaving(false);
+      setFormError(describeError(err) || 'Could not save the task. Please try again.');
+    };
     if (editingId) {
       if (backendOn) {
-        updateRecord('masterTasks', editingId, withStageIds(clean)).catch(() => {
-          applyLocal((prev) => prev.map((t) => (t.id === editingId ? { ...t, ...clean } : t)));
-        });
+        updateRecord('masterTasks', editingId, withStageIds(clean)).then(done).catch(failed);
       } else {
         applyLocal((prev) => prev.map((t) => (t.id === editingId ? { ...t, ...clean } : t)));
+        done();
       }
     } else {
       const maxOrder = tasks.reduce((m, t) => Math.max(m, t.order || 0), 0);
       const row = { id: `mt-${Date.now()}`, order: maxOrder + 1, ...clean };
       if (backendOn) {
-        createRecord('masterTasks', withStageIds(row)).catch(() => applyLocal((prev) => [...prev, row]));
+        createRecord('masterTasks', withStageIds(row)).then((saved) => {
+          if (!saved) {
+            failed(new Error('No response'));
+            return;
+          }
+          done();
+        }).catch(failed);
       } else {
         applyLocal((prev) => [...prev, row]);
+        done();
       }
     }
-    setModalOpen(false);
-    setEditingId(null);
   }
 
   function duplicateTask(id) {
@@ -457,7 +453,7 @@ export default function MasterTasksPage() {
         )}
 
         <div className="overflow-x-auto">
-          <table className="w-full text-left text-xs border-collapse min-w-[1020px]">
+          <table className="w-full text-left text-xs border-collapse min-w-[900px]">
             <thead>
               <tr className="border-b border-slate-100 bg-slate-50/60 text-[11px] font-bold text-slate-500 uppercase tracking-wider">
                 <th className="px-4 py-3 w-10">
@@ -473,7 +469,6 @@ export default function MasterTasksPage() {
                     Task Name {sortKey === 'name' ? (sortDir === 'asc' ? <ArrowUp size={11} /> : <ArrowDown size={11} />) : null}
                   </button>
                 </th>
-                <th className="px-3 py-3">Used in Stages</th>
                 <th className="px-3 py-3">Assigned Role</th>
                 <th className="px-3 py-3">Department</th>
                 <th className="px-3 py-3">Priority</th>
@@ -485,8 +480,6 @@ export default function MasterTasksPage() {
             <tbody className="divide-y divide-slate-100">
               {pageItems.map((t, idx) => {
                 const Icon = iconFor(t.icon);
-                const visibleStages = (t.stages || []).slice(0, 2);
-                const extra = (t.stages || []).length - visibleStages.length;
                 return (
                   <tr key={t.id} className="transition hover:bg-blue-50/40 hover:shadow-[inset_3px_0_0_0_#2f6fed]">
                     <td className="px-4 py-3">
@@ -500,14 +493,11 @@ export default function MasterTasksPage() {
                         </span>
                         {t.name}
                       </span>
-                    </td>
-                    <td className="px-3 py-3">
-                      <span className="inline-flex items-center gap-1.5 flex-wrap">
-                        {visibleStages.map((s) => (
-                          <span key={s} className={`px-2 py-0.5 rounded-full border text-[10px] font-semibold whitespace-nowrap ${STAGE_STYLES[s] || 'bg-slate-50 text-slate-600 border-slate-200'}`}>{s}</span>
-                        ))}
-                        {extra > 0 && <span className="px-1.5 py-0.5 rounded-md bg-slate-100 text-slate-500 text-[10px] font-bold border border-slate-200">+{extra}</span>}
-                      </span>
+                      {t.taskFormId && (
+                        <span className="mt-1 inline-flex items-center gap-1 px-2 py-0.5 rounded-full border border-indigo-100 bg-indigo-50 text-[10px] font-semibold text-indigo-700">
+                          {taskForms.find((f) => String(f.id) === String(t.taskFormId))?.title || 'Linked Form'}
+                        </span>
+                      )}
                     </td>
                     <td className="px-3 py-3 text-slate-600 font-medium whitespace-nowrap">{t.role}</td>
                     <td className="px-3 py-3 text-slate-600 whitespace-nowrap">{t.department}</td>
@@ -556,7 +546,7 @@ export default function MasterTasksPage() {
               })}
               {pageItems.length === 0 && (
                 <tr>
-                  <td colSpan={10} className="px-4 py-10 text-center">
+                  <td colSpan={9} className="px-4 py-10 text-center">
                     <p className="text-sm font-semibold text-slate-700">No tasks found</p>
                     <p className="text-xs text-slate-500 mt-1">Try a different search or reset filters.</p>
                   </td>
@@ -668,34 +658,23 @@ export default function MasterTasksPage() {
                 </div>
               </div>
               <div>
-                <label className="block font-semibold text-slate-700 mb-1.5">Used in Stages <span className="text-rose-500">*</span></label>
-                <div className="grid grid-cols-2 gap-1.5">
-                  {STAGES.map((s) => {
-                    const checked = form.stages.includes(s);
-                    return (
-                      <button
-                        key={s}
-                        type="button"
-                        onClick={() => toggleStageInForm(s)}
-                        className={`inline-flex items-center gap-2 px-2.5 py-1.5 rounded-lg border text-[11px] font-semibold transition ${checked ? 'border-blue-500 bg-blue-50 text-blue-700' : 'border-slate-200 text-slate-500 hover:border-slate-300'}`}
-                      >
-                        <span className={`w-4 h-4 rounded border grid place-items-center shrink-0 ${checked ? 'bg-blue-600 border-blue-600 text-white' : 'bg-white border-slate-300 text-transparent'}`}>
-                          <Check size={11} />
-                        </span>
-                        {s}
-                      </button>
-                    );
-                  })}
-                </div>
+                <label className="block font-semibold text-slate-700 mb-1">Default Task Form</label>
+                <select value={form.taskFormId} onChange={(e) => setForm({ ...form, taskFormId: e.target.value })} className="w-full px-3 py-2 bg-white border border-slate-200 rounded-lg focus:outline-none focus:border-blue-500 text-slate-800">
+                  <option value="">None</option>
+                  {taskForms.map((tf) => (
+                    <option key={tf.id} value={tf.id}>{tf.title}</option>
+                  ))}
+                </select>
+                <p className="text-[11px] text-slate-500 mt-1">Opened when the task is completed.</p>
               </div>
               {formError && <p className="text-[11px] font-semibold text-rose-600">{formError}</p>}
             </div>
             <div className="flex items-center justify-end gap-2.5 px-5 py-3.5 bg-slate-50/70 border-t border-slate-100">
-              <button type="button" onClick={() => setModalOpen(false)} className="px-4 py-1.5 bg-white hover:bg-slate-50 text-slate-700 text-xs font-semibold rounded-lg border border-slate-200 transition">
+              <button type="button" onClick={() => setModalOpen(false)} disabled={saving} className="px-4 py-1.5 bg-white hover:bg-slate-50 text-slate-700 text-xs font-semibold rounded-lg border border-slate-200 transition disabled:opacity-50">
                 Cancel
               </button>
-              <button type="submit" className="px-4 py-1.5 bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold rounded-lg transition">
-                {editingId ? 'Save Changes' : 'Create Task'}
+              <button type="submit" disabled={saving} className="px-4 py-1.5 bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold rounded-lg transition disabled:opacity-50">
+                {saving ? 'Saving...' : (editingId ? 'Save Changes' : 'Create Task')}
               </button>
             </div>
           </form>

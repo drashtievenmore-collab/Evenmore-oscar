@@ -1278,6 +1278,7 @@ function LeadTasksTab({ lead, onCountsChange, onActivity }) {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingId, setEditingId] = useState(null);
   const [deleteId, setDeleteId] = useState(null);
+  const storeForms = useCrmStore((s) => s.forms);
   const [taskForms, setTaskForms] = useState(() => getLeadTaskForms());
   const [showFormEditor, setShowFormEditor] = useState(false);
   const [taskFormName, setTaskFormName] = useState('');
@@ -1301,15 +1302,30 @@ function LeadTasksTab({ lead, onCountsChange, onActivity }) {
   const storeMasterTasks = useCrmStore((s) => s.masterTasks);
   const masterTaskOptions = useMemo(
     () => (Array.isArray(storeMasterTasks) ? storeMasterTasks : [])
-      .map((task) => ({ id: task.id, name: task.name || task.title || '', title: task.title || task.name || '' }))
-      .filter((t) => t.id && t.name),
+      .filter((task) => String(task?.status || 'Active') === 'Active')
+      .map((task) => ({ id: task.id, name: task.name || task.title || '', title: task.title || task.name || '', priority: task.priority || '', role: task.role || '', taskFormId: task.taskFormId || '', order: task.order || 0 }))
+      .filter((t) => t.id && t.name)
+      .sort((a, b) => (a.order - b.order) || String(a.name).localeCompare(String(b.name))),
     [storeMasterTasks],
   );
   React.useEffect(() => {
-    // Lead detail can open without ever visiting Master Tasks page —
-    // pull the list so the Default Task dropdown has all rows.
-    useCrmStore.getState().hydrate?.().catch(() => {});
+    setTaskForms(getLeadTaskForms());
+  }, [storeForms]);
+  React.useEffect(() => {
+    useCrmStore.getState().hydrate?.().then(() => {
+      setTaskForms(getLeadTaskForms());
+    }).catch(() => {});
   }, [isModalOpen]);
+  React.useEffect(() => {
+    if (!isModalOpen) return;
+    if (!form.defaultTask || form.defaultTask === 'custom') return;
+    if (form.taskFormId) return;
+    const preset = (storeMasterTasks || []).find((t) => String(t.id) === String(form.defaultTask));
+    const linked = preset?.taskFormId || '';
+    if (linked) {
+      setForm((current) => ({ ...current, taskFormId: linked, customValues: {} }));
+    }
+  }, [isModalOpen, form.defaultTask, form.taskFormId, storeMasterTasks]);
   const linkedQuotations = useMemo(
     () => (quotations || []).filter((quotation) => quotationMatchesLead(quotation, lead)),
     [lead, quotations]
@@ -1327,6 +1343,9 @@ function LeadTasksTab({ lead, onCountsChange, onActivity }) {
   const [form, setForm] = useState(() => emptyLeadTaskDraft(defaultAssignee));
   const [formError, setFormError] = useState('');
   const [completeId, setCompleteId] = useState(null);
+  const [formFillId, setFormFillId] = useState(null);
+  const [formFillValues, setFormFillValues] = useState({});
+  const [formFillError, setFormFillError] = useState('');
   const currentUser = useAppStore((s) => s.currentUser);
   const [drawerServerLoaded, setDrawerServerLoaded] = useState(false);
   const selectedTaskForm = useMemo(() => taskForms.find((f) => String(f.id) === String(form.taskFormId)) || null, [taskForms, form.taskFormId]);
@@ -1343,6 +1362,21 @@ function LeadTasksTab({ lead, onCountsChange, onActivity }) {
       typeof label === 'string' ? { id: `f-${index}`, label, type: 'text' } : label
     ));
   }, [selectedTaskForm]);
+  const formFillTask = useMemo(() => tasks.find((t) => String(t.id) === String(formFillId)) || null, [tasks, formFillId]);
+  const formFillDefinition = useMemo(() => {
+    if (!formFillTask?.taskFormId) return null;
+    return taskForms.find((f) => String(f.id) === String(formFillTask.taskFormId)) || null;
+  }, [taskForms, formFillTask]);
+  const formFillFields = useMemo(() => {
+    if (!formFillDefinition) return [];
+    const sections = Array.isArray(formFillDefinition.sections) && formFillDefinition.sections.length > 0
+      ? formFillDefinition.sections
+      : (Array.isArray(formFillDefinition.schema?.sections) ? formFillDefinition.schema.sections : []);
+    if (sections.length > 0) return sections.flatMap((s) => s.fields || []);
+    return (formFillDefinition.fields || []).map((label, index) => (
+      typeof label === 'string' ? { id: `f-${index}`, label, type: 'text' } : label
+    ));
+  }, [formFillDefinition]);
 
   React.useEffect(() => {
     updateStoredLeadDetail(lead?.id, { tasks });
@@ -1425,9 +1459,11 @@ function LeadTasksTab({ lead, onCountsChange, onActivity }) {
   function updateTaskForm(key, value) {
     setForm((current) => {
       if (key === 'defaultTask' && value && value !== 'custom') {
-        const preset = masterTaskOptions.find((t) => String(t.id) === String(value));
+        const preset = (storeMasterTasks || []).find((t) => String(t.id) === String(value));
         if (preset) {
-          return { ...current, defaultTask: value, title: current.title || preset.name || '', priority: preset.priority || current.priority, assignee: current.assignee || preset.role || defaultAssignee };
+          const presetName = preset.name || preset.title || '';
+          const nextFormId = preset.taskFormId || '';
+          return { ...current, defaultTask: value, title: presetName, priority: preset.priority || current.priority, taskFormId: nextFormId, customValues: nextFormId !== current.taskFormId ? {} : current.customValues };
         }
       }
       if (key === 'taskFormId') {
@@ -1610,9 +1646,69 @@ function LeadTasksTab({ lead, onCountsChange, onActivity }) {
     setIsModalOpen(false);
   }
 
+  function getLinkedFormFields(task) {
+    if (!task?.taskFormId) return [];
+    const definition = taskForms.find((f) => String(f.id) === String(task.taskFormId)) || null;
+    if (!definition) return [];
+    const sections = Array.isArray(definition.sections) && definition.sections.length > 0
+      ? definition.sections
+      : (Array.isArray(definition.schema?.sections) ? definition.schema.sections : []);
+    if (sections.length > 0) return sections.flatMap((s) => s.fields || []);
+    return (definition.fields || []).map((label, index) => (
+      typeof label === 'string' ? { id: `f-${index}`, label, type: 'text' } : label
+    ));
+  }
+
+  function openTaskFormFill(task) {
+    setFormFillId(task.id);
+    setFormFillValues({ ...(task.customValues || {}) });
+    setFormFillError('');
+  }
+
+  function requestTaskCompletion(task) {
+    if (!task || task.status !== 'Due') return;
+    const fields = getLinkedFormFields(task);
+    if (task.taskFormId && fields.length > 0) {
+      openTaskFormFill(task);
+      return;
+    }
+    setCompleteId(task.id);
+  }
+
+  function updateFormFillValue(fieldId, value) {
+    setFormFillValues((current) => ({ ...current, [fieldId]: value }));
+  }
+
+  function cancelFormFill() {
+    setFormFillId(null);
+    setFormFillValues({});
+    setFormFillError('');
+  }
+
+  function submitFormFill(e) {
+    if (e) e.preventDefault();
+    const target = tasks.find((t) => String(t.id) === String(formFillId)) || formFillTask;
+    if (!target) {
+      cancelFormFill();
+      return;
+    }
+    for (const field of formFillFields) {
+      if (field.required && !String(formFillValues?.[field.id] ?? '').trim()) {
+        setFormFillError(`"${field.label}" is required.`);
+        return;
+      }
+    }
+    setTasks((prev) => prev.map((t) => (String(t.id) === String(target.id) ? { ...t, customValues: { ...(formFillValues || {}) } } : t)));
+    const filledId = target.id;
+    setFormFillId(null);
+    setFormFillValues({});
+    setFormFillError('');
+    setCompleteId(filledId);
+  }
+
   function toggleStatus(task) {
     if (task.status === 'Due') {
-      setCompleteId(task.id);
+      requestTaskCompletion(task);
       return;
     }
     // Reopen a completed task: clear completion metadata
@@ -1797,6 +1893,9 @@ function LeadTasksTab({ lead, onCountsChange, onActivity }) {
             )}
             {task.description && <p className="text-[11px] text-slate-500 mt-1">{task.description}</p>}
             <p className="text-[11px] text-slate-400 mt-1">Process: {task.process || 'Not Started'}</p>
+            {task.taskFormName && (
+              <p className="mt-1 text-[11px] font-semibold text-[#1d4a79]">Form: {task.taskFormName}</p>
+            )}
             {task.completionOutcome && (
               <p className="flex flex-wrap items-center gap-1.5 mt-1.5 text-[11px]">
                 <span className="px-2 py-0.5 rounded bg-emerald-50 text-emerald-700 border border-emerald-100 font-semibold">
@@ -1814,7 +1913,7 @@ function LeadTasksTab({ lead, onCountsChange, onActivity }) {
         </div>
         <div className="flex items-center gap-1.5 shrink-0">
           {!done && showNote && (
-            <button type="button" onClick={() => setCompleteId(task.id)} title="Fill Task Form" className="w-8 h-8 grid place-items-center rounded-md bg-lime-500 hover:bg-lime-600 text-white transition">
+            <button type="button" onClick={() => requestTaskCompletion(task)} title="Fill Task Form" className="w-8 h-8 grid place-items-center rounded-md bg-lime-500 hover:bg-lime-600 text-white transition">
               <ClipboardList size={14} />
             </button>
           )}
@@ -2084,6 +2183,52 @@ function LeadTasksTab({ lead, onCountsChange, onActivity }) {
               <button type="button" onClick={() => setDeleteId(null)} className="px-4 py-2 bg-white hover:bg-slate-50 text-slate-700 text-xs font-semibold rounded-lg border border-slate-200">Cancel</button>
               <button type="button" onClick={confirmDelete} className="px-4 py-2 bg-rose-600 hover:bg-rose-700 text-white text-xs font-semibold rounded-lg">Delete</button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {formFillId && formFillTask && (
+        <div className="fixed inset-0 z-[75] flex items-center justify-center bg-slate-950/50 p-2 sm:p-4" onClick={cancelFormFill}>
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg max-h-[92vh] overflow-y-auto" onClick={(e) => e.stopPropagation()} role="dialog" aria-modal="true" aria-label="Complete Task Form">
+            <div className="flex items-center justify-between px-5 py-4 border-b border-slate-100">
+              <div>
+                <h2 className="text-[15px] font-bold text-slate-900">{formFillDefinition?.title || formFillTask.taskFormName || 'Task Form'}</h2>
+                <p className="text-[11px] text-slate-500 mt-0.5">{formFillTask.title} · Step 1 of 2</p>
+              </div>
+              <button type="button" onClick={cancelFormFill} className="text-slate-400 hover:text-slate-600 p-1" aria-label="Close">
+                <X size={18} />
+              </button>
+            </div>
+            <form onSubmit={submitFormFill} className="px-5 py-4 space-y-3">
+              {formFillDefinition?.description && (
+                <p className="text-[12px] text-slate-500">{formFillDefinition.description}</p>
+              )}
+              {formFillFields.length === 0 && (
+                <p className="text-[12px] text-slate-400">No fields defined in this form yet.</p>
+              )}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                {formFillFields.map((field) => (
+                  <label key={field.id} className={String(field.type).toLowerCase() === 'multi line' ? 'block sm:col-span-2' : 'block'}>
+                    <span className="block text-[12px] font-semibold text-slate-700 mb-1">{field.label} {field.required && <span className="text-rose-500">*</span>}</span>
+                    {String(field.type).toLowerCase() === 'multi line' ? (
+                      <textarea rows={3} value={formFillValues?.[field.id] || ''} onChange={(e) => updateFormFillValue(field.id, e.target.value)} placeholder={field.placeholder || `Enter ${String(field.label).toLowerCase()}`} className="w-full px-3 py-2 bg-white border border-slate-300 rounded-lg text-[13px] text-slate-800 focus:outline-none focus:border-blue-500" />
+                    ) : String(field.type).toLowerCase() === 'dropdown' || String(field.type).toLowerCase() === 'multi select' ? (
+                      <select value={formFillValues?.[field.id] || ''} onChange={(e) => updateFormFillValue(field.id, e.target.value)} className="w-full h-10 px-3 bg-white border border-slate-300 rounded-lg text-[13px] text-slate-800 focus:outline-none focus:border-blue-500">
+                        <option value="">{field.placeholder || 'Select option'}</option>
+                        {String(field.options || field.placeholder || '').split(',').map((o) => o.trim()).filter(Boolean).map((o) => (<option key={o} value={o}>{o}</option>))}
+                      </select>
+                    ) : (
+                      <input type={String(field.type).toLowerCase() === 'number' ? 'number' : String(field.type).toLowerCase() === 'date' ? 'date' : String(field.type).toLowerCase() === 'email' ? 'email' : String(field.type).toLowerCase() === 'phone' ? 'tel' : 'text'} value={formFillValues?.[field.id] || ''} onChange={(e) => updateFormFillValue(field.id, e.target.value)} placeholder={field.placeholder || `Enter ${String(field.label).toLowerCase()}`} className="w-full h-10 px-3 bg-white border border-slate-300 rounded-lg text-[13px] text-slate-800 focus:outline-none focus:border-blue-500" />
+                    )}
+                  </label>
+                ))}
+              </div>
+              {formFillError && <p className="text-xs font-semibold text-rose-600">{formFillError}</p>}
+              <div className="flex items-center justify-end gap-2.5 pt-2 border-t border-slate-100">
+                <button type="button" onClick={cancelFormFill} className="h-10 px-5 rounded-lg bg-white hover:bg-slate-50 text-slate-700 text-[13px] font-semibold border border-slate-200 transition">Cancel</button>
+                <button type="submit" className="h-10 px-6 rounded-lg bg-[#1d4a79] hover:bg-[#163a61] text-white text-[13px] font-semibold transition">Save and Continue</button>
+              </div>
+            </form>
           </div>
         </div>
       )}

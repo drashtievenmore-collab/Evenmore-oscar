@@ -285,6 +285,7 @@ export const CRM_RESOURCES = {
         stages: ids.length > 0 ? ids : undefined,
         isActive: t.isActive ?? (t.status != null ? t.status === 'Active' : undefined),
         icon: t.icon || undefined,
+        taskFormId: t.taskFormId || undefined,
       });
     },
     fromApi: (row) => {
@@ -310,6 +311,7 @@ export const CRM_RESOURCES = {
         isActive,
         is_active: isActive,
         icon: row.icon || 'call',
+        taskFormId: row.taskFormId ?? row.task_form_id ?? '',
         _synced: true,
       };
     },
