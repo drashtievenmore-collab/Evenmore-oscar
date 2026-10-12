@@ -228,6 +228,7 @@ export default function QuotationDetailPage() {
               <p className="text-xs font-bold text-slate-900 mt-1">{quote.customer}</p>
               <p className="text-[11px] text-slate-500">{customer?.city || ''}{customer?.state ? `, ${customer.state}` : ''}{customer?.country ? `, ${customer.country}` : ''}</p>
             </div>
+
             <div className={cardCls}>
               <p className="text-[11px] font-semibold text-slate-500 flex items-center gap-1.5"><CalendarDays size={13} /> Quotation Date</p>
               <p className="text-xs font-bold text-slate-900 mt-1">{quote.date || '—'}</p>
@@ -294,6 +295,9 @@ export default function QuotationDetailPage() {
               </button>
             </div>
             <dl className="text-xs space-y-1.5 mt-3">
+              {quote.leadName && (
+                <div className="flex justify-between gap-3"><dt className="text-slate-500">Lead Name</dt><dd className="font-semibold text-slate-900 text-right">{quote.leadName}</dd></div>
+              )}
               <div className="flex justify-between gap-3"><dt className="text-slate-500">Customer</dt><dd className="font-semibold text-slate-900 text-right">{quote.customer}</dd></div>
               <div className="flex justify-between gap-3"><dt className="text-slate-500">Contact Person</dt><dd className="font-semibold text-slate-900 text-right">{quote.contactPerson || '—'}{customer?.phone ? ` • +91 ${customer.phone}` : ''}</dd></div>
               <div className="flex justify-between gap-3"><dt className="text-slate-500">Total Items</dt><dd className="font-semibold text-slate-900">{totals.count} Items</dd></div>

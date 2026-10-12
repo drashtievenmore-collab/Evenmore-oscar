@@ -97,7 +97,6 @@ const NAV = [
           { label: 'Lost Leads', icon: UserX, to: '/crm/leads/lost' },
           { label: 'Lead Create Form', icon: FilePlus2, to: '/crm/leads/forms' },
           { label: 'Lead Tasks Master', icon: ClipboardList, to: '/crm/leads/tasks-master' },
-          { label: 'Lead Task Form', icon: FileText, to: '/crm/leads/task-form' },
           { label: 'Lead Stage Tasks', icon: Layers, to: '/crm/leads/stage-tasks' },
         ],
       },

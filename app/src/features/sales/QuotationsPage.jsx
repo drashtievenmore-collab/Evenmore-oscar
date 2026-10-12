@@ -104,9 +104,17 @@ export const QuotationsPage = () => {
             ),
         },
         {
+            header: 'Lead Name',
+            accessor: 'leadName',
+            width: '16%',
+            render: (q) => (
+              <span className="text-xs text-slate-600 dark:text-slate-300">{q.leadName || '—'}</span>
+            ),
+        },
+        {
             header: 'Customer',
             accessor: 'customer',
-            width: '24%',
+            width: '20%',
             render: (q) => (
               <div>
                 <strong className="text-slate-900 dark:text-slate-100 block">{q.customer}</strong>

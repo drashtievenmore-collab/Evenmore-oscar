@@ -1,4 +1,4 @@
-import React, { useMemo, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import {
   ArrowLeft, CheckCircle2, FileText, Plus, Search,
@@ -142,6 +142,7 @@ export default function QuotationComposerPage({ embedded = null } = {}) {
   const prefill = embedded?.prefill || location.state || {};
   const { customers = [], items = [], addQuotation, updateQuotation, convertQuotationToSalesOrder, showToast } = useERP() || {};
   const teamMembers = useCrmStore((s) => s.teamMembers);
+  const leads = useCrmStore((s) => s.leads);
   const salesTeam = withSampleTeam(teamMembers);
 
   const initQuoteDate = toISODate(editQuote?.date) || todayISO();
@@ -150,8 +151,20 @@ export default function QuotationComposerPage({ embedded = null } = {}) {
     || prefill.customerId
     || customers.find((c) => prefill.company && c.name === prefill.company)?.id
     || customers[0]?.id || '';
+  // The picker lists Customers *and* Leads: a quotation is priced and sent
+  // while the prospect is still a lead, and only becomes a billable document
+  // on approval. Whichever kind is resolved here is what the form opens on.
+  const initialLeadId = initialCustomerId
+    ? ''
+    : (editQuote?.leadId || prefill.leadId || '');
+  const [partyKind, setPartyKind] = useState(initialLeadId ? 'lead' : 'customer');
   const [customerId, setCustomerId] = useState(initialCustomerId);
+  const [leadId, setLeadId] = useState(initialLeadId);
   const customer = customers.find((c) => c.id === customerId) || null;
+  const lead = (leads || []).find((l) => String(l.id) === String(leadId)) || null;
+  // Lead name is auto-populated from the lead when embedded in the Lead
+  // Details page. It is read-only — the user must not re-type it.
+  const leadName = prefill.leadName || '';
 
   const [contactPerson, setContactPerson] = useState(editQuote?.contactPerson ?? customer?.contactPerson ?? '');
   const [quoteDate, setQuoteDate] = useState(initQuoteDate);
@@ -162,6 +175,15 @@ export default function QuotationComposerPage({ embedded = null } = {}) {
   const [dealRef, setDealRef] = useState(editQuote?.dealReference || editQuote?.dealId || prefill.dealReference || prefill.dealId || '');
   const [customerSearch, setCustomerSearch] = useState('');
   const [customerPickerOpen, setCustomerPickerOpen] = useState(false);
+
+  // The CRM store hydrates after this form mounts, so a lead chosen as the
+  // initial party is not in `leads` yet on the first render. Pull the contact
+  // person across the moment the row arrives, so the form is never left with
+  // an empty contact for a lead that has one.
+  useEffect(() => {
+    if (partyKind !== 'lead' || !lead || editQuote?.contactPerson) return;
+    setContactPerson((prev) => prev || (lead.name || ''));
+  }, [partyKind, lead, editQuote]);
 
   const [lines, setLines] = useState(() => {
     // Edit mode restores the row's own lines (discount/tax/uom preserved);
@@ -213,15 +235,46 @@ export default function QuotationComposerPage({ embedded = null } = {}) {
   const [saving, setSaving] = useState(false);
   const [pendingId, setPendingId] = useState(() => editQuote?.id || null);
 
-  const filteredCustomers = useMemo(() => {
+  // One list for the picker: existing customers first, then the open leads.
+  // `key` namespaces the two id spaces — a customer and a lead are different
+  // rows that can carry the same uuid once a lead has been converted.
+  const partyOptions = useMemo(() => ([
+    ...(customers || []).map((c) => ({
+      key: `customer:${c.id}`,
+      kind: 'customer',
+      id: String(c.id),
+      label: c.name,
+      display: `${c.name}${c.code ? ` (${c.code})` : ''}`,
+      meta: [c.code, c.phone, c.email].filter(Boolean).join(' • '),
+    })),
+    ...(leads || []).map((l) => ({
+      key: `lead:${l.id}`,
+      kind: 'lead',
+      id: String(l.id),
+      label: l.company || l.name,
+      display: `${l.company || l.name}${l.leadNumber ? ` (${l.leadNumber})` : ''}`,
+      meta: [l.leadNumber, l.phone, l.email].filter(Boolean).join(' • '),
+    })),
+  ]), [customers, leads]);
+
+  const selectedPartyKey = partyKind === 'lead'
+    ? (leadId ? `lead:${leadId}` : '')
+    : (customerId ? `customer:${customerId}` : '');
+  const selectedParty = partyOptions.find((o) => o.key === selectedPartyKey) || null;
+  const party = partyKind === 'lead' ? lead : customer;
+  const partyLabel = partyKind === 'lead'
+    ? (lead?.company || lead?.name || '')
+    : (customer?.name || '');
+
+  const filteredParties = useMemo(() => {
     const q = customerSearch.trim().toLowerCase();
-    if (!q) return customers;
-    return (customers || []).filter((c) => (
-      String(c?.name || '').toLowerCase().includes(q) ||
-      String(c?.code || '').toLowerCase().includes(q) ||
-      String(c?.phone || '').toLowerCase().includes(q)
+    if (!q) return partyOptions;
+    return partyOptions.filter((o) => (
+      String(o.label || '').toLowerCase().includes(q) ||
+      String(o.display || '').toLowerCase().includes(q) ||
+      String(o.meta || '').toLowerCase().includes(q)
     ));
-  }, [customers, customerSearch]);
+  }, [partyOptions, customerSearch]);
 
   const filteredItems = useMemo(() => {
     const q = itemSearch.trim().toLowerCase();
@@ -273,7 +326,7 @@ export default function QuotationComposerPage({ embedded = null } = {}) {
   // excluded — it differs per mount, not per edit).
   function formSignature() {
     return JSON.stringify({
-      customerId, contactPerson, salesPerson, broker, quoteDate, validUntil,
+      partyKind, customerId, leadId, contactPerson, salesPerson, broker, quoteDate, validUntil,
       validityDays, dealRef, docDiscPct, freightType, freightAmount, loading,
       otherCharges, termsText, paymentTerms, deliveryDate, withTax,
       lines: (lines || []).map(({ key, ...rest }) => rest),
@@ -283,12 +336,27 @@ export default function QuotationComposerPage({ embedded = null } = {}) {
   if (initialSignatureRef.current === null) initialSignatureRef.current = formSignature();
   const isDirty = () => formSignature() !== initialSignatureRef.current;
 
-  function handleCustomerChange(id) {
-    setCustomerId(id);
-    const next = customers.find((c) => c.id === id);
-    setContactPerson(next?.contactPerson || '');
+  function handlePartyChange(option) {
+    const next = option.kind === 'lead'
+      ? (leads || []).find((l) => String(l.id) === option.id)
+      : (customers || []).find((c) => String(c.id) === option.id);
+    setPartyKind(option.kind);
+    setCustomerId(option.kind === 'customer' ? option.id : '');
+    setLeadId(option.kind === 'lead' ? option.id : '');
+    // A lead is a person first and a company second, so the person's name is
+    // the contact; a customer carries its own contact person.
+    setContactPerson(option.kind === 'lead' ? (next?.name || '') : (next?.contactPerson || ''));
     setCustomerPickerOpen(false);
     setCustomerSearch('');
+  }
+
+  function handlePartySearch(value) {
+    setCustomerSearch(value);
+    setCustomerPickerOpen(true);
+    if (!value) {
+      setCustomerId('');
+      setLeadId('');
+    }
   }
 
   function handleQuoteDateChange(value) {
@@ -328,7 +396,7 @@ export default function QuotationComposerPage({ embedded = null } = {}) {
   function buildPayload(status) {
     return {
       customerId: customer?.id || '',
-      customer: customer?.name || 'Acme Corp',
+      customer: partyLabel || 'Acme Corp',
       contactPerson: contactPerson.trim(),
       salesPerson,
       broker: broker.trim(),
@@ -337,8 +405,10 @@ export default function QuotationComposerPage({ embedded = null } = {}) {
       validityDays,
       dealId: prefill.dealId || '',
       dealReference: dealRef.trim(),
-      leadId: prefill.leadId ? String(prefill.leadId) : '',
-      leadName: prefill.leadName || '',
+      // The picked lead wins over the embedded one: the picker is what the
+      // user actually chose on this form.
+      leadId: partyKind === 'lead' && leadId ? String(leadId) : (prefill.leadId ? String(prefill.leadId) : ''),
+      leadName: partyKind === 'lead' && leadId ? partyLabel : (prefill.leadName || ''),
       amount: Math.round(totals.grand * 100) / 100,
       status,
       discountTotal: Math.round(totals.docDisc * 100) / 100,
@@ -348,7 +418,7 @@ export default function QuotationComposerPage({ embedded = null } = {}) {
       terms: termsText.trim(),
       paymentTerms,
       deliveryDate,
-      notes: `Quotation for ${customer?.name || 'customer'}`,
+      notes: `Quotation for ${partyLabel || 'customer'}`,
       items: lines.map((line, index) => ({
         ...(isServerId(line.itemId) ? { itemId: line.itemId } : {}),
         itemName: line.fabric || `Item ${index + 1}`,
@@ -364,8 +434,15 @@ export default function QuotationComposerPage({ embedded = null } = {}) {
   }
 
   function validate() {
-    if (!customer) return 'Select a customer account.';
-    if (!isServerId(customer.id)) return 'This customer is still being saved to the server. Please wait a moment and try again.';
+    // Either kind is a valid addressee: a customer is a saved account, a lead
+    // is a saved CRM row. Both must already exist server-side.
+    if (partyKind === 'lead') {
+      if (!lead) return 'Select a customer or a lead.';
+      if (!isServerId(lead.id)) return 'This lead is still being saved to the server. Please wait a moment and try again.';
+    } else {
+      if (!customer) return 'Select a customer account.';
+      if (!isServerId(customer.id)) return 'This customer is still being saved to the server. Please wait a moment and try again.';
+    }
     if (lines.length === 0) return 'Add at least one item.';
     if (!lines.some((line) => line.fabric && num(line.qty) > 0)) return 'Add at least one item with a name and quantity.';
     return '';
@@ -502,15 +579,26 @@ export default function QuotationComposerPage({ embedded = null } = {}) {
               <span className="inline-flex h-6 w-6 items-center justify-center rounded-full bg-blue-50 text-blue-600"><User size={13} /></span>
               Customer &amp; Quote Details
             </h3>
+            {leadName && (
+              <div className="mb-3 flex items-center gap-2 p-2.5 rounded-xl bg-blue-50 border border-blue-200">
+                <span className="inline-flex h-6 w-6 items-center justify-center rounded-full bg-blue-100 text-blue-600 shrink-0">
+                  <User size={12} />
+                </span>
+                <div className="text-[11px] leading-relaxed">
+                  <span className="font-bold text-blue-800">Lead Name: </span>
+                  <span className="text-slate-700">{leadName}</span>
+                </div>
+              </div>
+            )}
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
               <div className="relative">
-                <label className={labelCls}>Customer Account *</label>
+                <label className={labelCls}>Customer / Lead *</label>
                 <div className="relative">
                   <input
-                    value={customer ? `${customer.name}${customer.code ? ` (${customer.code})` : ''}` : customerSearch}
-                    onChange={(e) => { setCustomerSearch(e.target.value); setCustomerPickerOpen(true); if (!e.target.value) handleCustomerChange(''); }}
+                    value={selectedParty ? selectedParty.display : customerSearch}
+                    onChange={(e) => handlePartySearch(e.target.value)}
                     onFocus={() => setCustomerPickerOpen(true)}
-                    placeholder="Search customer…"
+                    placeholder="Search customer or lead…"
                     className="w-full pl-2.5 pr-8 py-1.5 bg-white border border-slate-300 rounded-lg text-xs text-slate-800 focus:outline-none focus:border-blue-500"
                   />
                   <Search size={13} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
@@ -519,31 +607,46 @@ export default function QuotationComposerPage({ embedded = null } = {}) {
                   <>
                     <div className="fixed inset-0 z-10" onClick={() => setCustomerPickerOpen(false)} />
                     <div className="absolute z-20 mt-1 w-full max-h-52 overflow-y-auto rounded-lg border border-slate-200 bg-white shadow-xl">
-                      {filteredCustomers.map((c) => (
+                      {filteredParties.map((option) => (
                         <button
-                          key={c.id}
+                          key={option.key}
                           type="button"
-                          onClick={() => handleCustomerChange(c.id)}
-                          className="block w-full px-3 py-2 text-left text-xs hover:bg-blue-50"
+                          onClick={() => handlePartyChange(option)}
+                          className={`block w-full px-3 py-2 text-left text-xs hover:bg-blue-50 ${option.key === selectedPartyKey ? 'bg-blue-50' : ''}`}
                         >
-                          <span className="block font-bold text-slate-800">{c.name}{c.code ? ` (${c.code})` : ''}</span>
-                          <span className="block text-[11px] text-slate-500">{c.phone || ''}{c.email ? ` • ${c.email}` : ''}</span>
+                          <span className="flex items-center justify-between gap-2">
+                            <span className="block font-bold text-slate-800 truncate">{option.display}</span>
+                            <span className={`shrink-0 px-1.5 py-0.5 rounded text-[10px] font-bold border ${option.kind === 'lead' ? 'bg-violet-50 text-violet-700 border-violet-200' : 'bg-emerald-50 text-emerald-700 border-emerald-200'}`}>
+                              {option.kind === 'lead' ? 'Lead' : 'Customer'}
+                            </span>
+                          </span>
+                          <span className="block text-[11px] text-slate-500">{option.meta}</span>
                         </button>
                       ))}
-                      {filteredCustomers.length === 0 && <p className="px-3 py-2 text-xs text-slate-400">No customers found.</p>}
+                      {filteredParties.length === 0 && <p className="px-3 py-2 text-xs text-slate-400">No customers or leads found.</p>}
                     </div>
                   </>
                 )}
-                {customer && (
+                {party && (
                   <div className="mt-2 flex items-start gap-2 p-2.5 rounded-xl bg-slate-50 border border-slate-200">
-                    <span className="inline-flex h-8 w-8 items-center justify-center rounded-full bg-rose-500 text-white text-xs font-bold shrink-0">
-                      {String(customer.name || '?').trim().charAt(0).toUpperCase()}
+                    <span className={`inline-flex h-8 w-8 items-center justify-center rounded-full text-white text-xs font-bold shrink-0 ${partyKind === 'lead' ? 'bg-violet-500' : 'bg-rose-500'}`}>
+                      {String(partyLabel || '?').trim().charAt(0).toUpperCase()}
                     </span>
                     <div className="text-[11px] leading-relaxed">
-                      <p className="font-bold text-slate-800">{customer.name}</p>
-                      <p className="text-slate-500">Credit Limit: ₹{creditLimit.toLocaleString('en-IN')} • Outstanding: ₹{outstanding.toLocaleString('en-IN')}</p>
-                      <p className="text-slate-500">Available: ₹{available.toLocaleString('en-IN')}</p>
-                      <span className="inline-block mt-1 px-1.5 py-0.5 rounded bg-emerald-50 text-emerald-700 border border-emerald-200 text-[10px] font-bold">Existing Customer</span>
+                      <p className="font-bold text-slate-800">{partyLabel}</p>
+                      {partyKind === 'lead' ? (
+                        <>
+                          <p className="text-slate-500">Lead {lead.leadNumber || '—'} • {lead.status || 'Open'}</p>
+                          <p className="text-slate-500">{[lead.city, lead.state, lead.country].filter(Boolean).join(', ') || '—'}</p>
+                          <span className="inline-block mt-1 px-1.5 py-0.5 rounded bg-violet-50 text-violet-700 border border-violet-200 text-[10px] font-bold">Lead — becomes a customer on approval</span>
+                        </>
+                      ) : (
+                        <>
+                          <p className="text-slate-500">Credit Limit: ₹{creditLimit.toLocaleString('en-IN')} • Outstanding: ₹{outstanding.toLocaleString('en-IN')}</p>
+                          <p className="text-slate-500">Available: ₹{available.toLocaleString('en-IN')}</p>
+                          <span className="inline-block mt-1 px-1.5 py-0.5 rounded bg-emerald-50 text-emerald-700 border border-emerald-200 text-[10px] font-bold">Existing Customer</span>
+                        </>
+                      )}
                     </div>
                   </div>
                 )}
@@ -552,8 +655,8 @@ export default function QuotationComposerPage({ embedded = null } = {}) {
                 <label className={labelCls}>Contact Person</label>
                 <input value={contactPerson} onChange={(e) => setContactPerson(e.target.value)} placeholder="Purchase Manager" className={inputCls} />
                 <div className="mt-2 space-y-1 text-[11px] text-slate-600">
-                  <p>✆ {customer?.phone || '—'}</p>
-                  <p>✉ {customer?.email || '—'}</p>
+                  <p>✆ {party?.phone || '—'}</p>
+                  <p>✉ {party?.email || '—'}</p>
                 </div>
               </div>
               <div className="space-y-3">

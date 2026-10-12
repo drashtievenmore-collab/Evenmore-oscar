@@ -56,13 +56,19 @@ export const ADMIN_RESOURCES = {
      * The API returns null for anything unset (a user with no role yet, no
      * phone on file), so they are normalised to empty strings here rather than
      * guarded at every read.
+     *
+     * `isFromHrms`/`designation`/`employeeStatus` are the join to the HRMS
+     * employee row: HR is where a staff member's job lives, and an account
+     * created from one is marked as such so this screen can say which rows
+     * are HR-sourced rather than looking hand-made.
      */
     fromApi: (row) => ({
       ...asText(row, [
-        'name', 'email', 'phone', 'role', 'department',
-        'employeeId', 'location', 'reportingManager',
+        'name', 'email', 'phone', 'role', 'department', 'designation',
+        'employeeId', 'employeeStatus', 'location', 'reportingManager',
       ]),
       status: row.status || 'Active',
+      isFromHrms: Boolean(row.isFromHrms),
       _synced: true,
     }),
   },

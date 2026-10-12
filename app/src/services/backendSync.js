@@ -261,6 +261,16 @@ function customerFromParty(row) {
     status: row.status === 'Inactive' ? 'On Hold' : (row.status || 'Active'),
     placeOfSupply: row.placeOfSupply,
     gstin: row.gstin,
+    // Party detail the sales screens ignore but Administration -> Clients
+    // renders: which side of the CRM the account came from, and enough of the
+    // tax/address record to show the customer without a second request.
+    partyType: row.type || 'Customer',
+    leadCount: num(row.leadCount),
+    gstTreatment: row.gstTreatment || '',
+    billingAddress: row.billingAddress || {},
+    shippingAddress: row.shippingAddress || {},
+    contacts: row.contacts || [],
+    createdAt: row.createdAt || row.created_at || undefined,
     _synced: true,
   };
 }

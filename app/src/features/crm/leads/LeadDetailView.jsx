@@ -2457,6 +2457,7 @@ function QuotationsTab({ lead, onActivity }) {
             <tr>
               <th style={{ width: 36 }}>#</th>
               <th>Quotation No.</th>
+              <th>Lead Name</th>
               <th>Customer</th>
               <th>Date</th>
               <th>Valid Until</th>
@@ -2480,6 +2481,7 @@ function QuotationsTab({ lead, onActivity }) {
                     </Link>
                   )}
                 </td>
+                <td className="text-slate-600">{q.leadName || lead?.name || '—'}</td>
                 <td className="font-semibold">{q.customer}</td>
                 <td className="text-slate-500 text-xs whitespace-nowrap">{q.date}</td>
                 <td className="text-slate-500 text-xs">{q.validUntil}</td>
@@ -2539,7 +2541,7 @@ function QuotationsTab({ lead, onActivity }) {
             ))}
             {linked.length === 0 && (
               <tr>
-                <td colSpan={8} className="empty-row">No quotations for {lead?.name || 'this lead'} yet. <Link to="/sales/quotations" className="font-bold text-blue-600 hover:underline">Open Sales Quotations</Link> to create one.</td>
+                <td colSpan={9} className="empty-row">No quotations for {lead?.name || 'this lead'} yet. <Link to="/sales/quotations" className="font-bold text-blue-600 hover:underline">Open Sales Quotations</Link> to create one.</td>
               </tr>
             )}
           </tbody>
