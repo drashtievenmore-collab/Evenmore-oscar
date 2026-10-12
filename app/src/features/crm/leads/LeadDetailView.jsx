@@ -1,7 +1,7 @@
 import { findDealForLead } from '../../../services/dealService';
 import CrmKpiCard from '../common/CrmKpiCard';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { useNavigate, Link } from 'react-router-dom';
+import { useNavigate, useSearchParams, Link } from 'react-router-dom';
 import { useERP } from '../../../context/ERPContext';
 import { formatCurrency } from '../../../utils/currencyUtils';
 import {
@@ -270,6 +270,7 @@ function emptyLeadTaskDraft(assignee = '') {
     priority: 'Medium',
     status: 'Due',
     assignee,
+    assigneeId: '',
     description: '',
     proposalId: '',
     deliveryChallanId: '',
@@ -278,6 +279,19 @@ function emptyLeadTaskDraft(assignee = '') {
     taskDate: '',
     taskTime: '',
   };
+}
+
+function resolveAssigneeSelection(value, options) {
+  const raw = String(value || '').trim();
+  if (!raw) return { id: '', name: '' };
+  if (isServerId(raw)) {
+    const match = (options || []).find((o) => String(o.id) === raw);
+    return { id: raw, name: match ? match.name : raw };
+  }
+  const lowered = raw.toLowerCase();
+  const match = (options || []).find((o) => String(o.name || '').trim().toLowerCase() === lowered || String(o.email || '').trim().toLowerCase() === lowered);
+  if (match && isServerId(match.id)) return { id: match.id, name: match.name };
+  return { id: '', name: raw };
 }
 
 /** `YYYY-MM-DD` + `HH:MM` inputs → `DD/MM/YYYY, HH:MM` drawer display. */
@@ -320,6 +334,8 @@ function serverTaskToDrawerRow(task) {
     dueAt: dueDisplay ? `${dueDisplay}, 09:00` : '',
     process: task.status === 'Completed' ? 'Done' : 'Not Started',
     assignee: task.assigneeName || '',
+    assigneeId: task.assigneeId || undefined,
+    assigneeName: task.assigneeName || '',
     description: task.description || '',
     proposalId: '',
     deliveryChallanId: '',
@@ -328,20 +344,20 @@ function serverTaskToDrawerRow(task) {
   };
 }
 
-/**
- * Mirror one drawer task into `/crm/tasks/` (best-effort). The drawer keeps
- * its own row either way; when the save succeeds the server id is attached
- * so later edits, completion and deletes reach the same server row.
- */
-async function mirrorDrawerTaskToBackend({ leadId, row, taskDate, assigneeName }) {
+async function mirrorDrawerTaskToBackend({ leadId, row, taskDate, assigneeName, assigneeId }) {
   if (!isBackendEnabled() || !isServerId(leadId)) return null;
   const store = useCrmStore.getState();
-  const member = (store.teamMembers || []).find((m) => m.name === assigneeName);
+  let resolvedId = isServerId(assigneeId) ? assigneeId : undefined;
+  if (!resolvedId && assigneeName) {
+    const target = String(assigneeName).trim().toLowerCase();
+    const member = (store.teamMembers || []).find((m) => String(m.name || '').trim().toLowerCase() === target || String(m.email || '').trim().toLowerCase() === target);
+    if (member && isServerId(member.id)) resolvedId = member.id;
+  }
   const payload = {
     title: row.title,
     description: row.description || undefined,
     leadId,
-    assigneeId: member && isServerId(member.id) ? member.id : undefined,
+    assigneeId: resolvedId,
     dueDate: taskDate || undefined,
     priority: ['Low', 'Medium', 'High', 'Urgent'].includes(row.priority) ? row.priority : 'Medium',
     status: drawerTaskStatusToServer(row.status),
@@ -1286,19 +1302,32 @@ function LeadTasksTab({ lead, onCountsChange, onActivity }) {
   const [builderSelectedFieldId, setBuilderSelectedFieldId] = useState(null);
   const [builderSaveSuccess, setBuilderSaveSuccess] = useState(false);
   const [taskFormDraftError, setTaskFormDraftError] = useState('');
+  const teamMembers = useCrmStore((s) => s.teamMembers);
   const assigneeOptions = useMemo(() => {
-    const names = [
-      lead?.owner,
-      ...(initialState.users || []).map((user) => user.name),
-      ...useCrmStore.getState().teamMembers.map((member) => member.name),
-      ...tasks.map((task) => task.assignee),
-    ]
-      .map((name) => String(name || '').trim())
-      .filter(Boolean);
-
-    return [...new Set(names)];
-  }, [initialState.users, lead?.owner, tasks]);
-  const defaultAssignee = assigneeOptions.includes('Utsav Faldu') ? 'Utsav Faldu' : (assigneeOptions[0] || '');
+    const byName = new Map();
+    (teamMembers || []).forEach((member) => {
+      const name = String(member?.name || '').trim();
+      if (!name) return;
+      byName.set(name.toLowerCase(), { id: member.id, name, email: member.email || '' });
+    });
+    if (lead?.owner && !byName.has(String(lead.owner).trim().toLowerCase())) {
+      byName.set(String(lead.owner).trim().toLowerCase(), { id: '', name: String(lead.owner).trim(), email: '' });
+    }
+    (initialState.users || []).forEach((user) => {
+      const name = String(user?.name || '').trim();
+      if (name && !byName.has(name.toLowerCase())) byName.set(name.toLowerCase(), { id: user.userId || '', name, email: user.email || '' });
+    });
+    tasks.forEach((task) => {
+      const name = String(task?.assignee || task?.assigneeName || '').trim();
+      if (name && !byName.has(name.toLowerCase())) {
+        const key = String(task.assigneeId || '').trim();
+        byName.set(name.toLowerCase(), { id: isServerId(key) ? key : '', name, email: '' });
+      }
+    });
+    return [...byName.values()];
+  }, [teamMembers, initialState.users, lead?.owner, tasks]);
+  const defaultAssignee = assigneeOptions.length > 0 ? (assigneeOptions[0].id && isServerId(assigneeOptions[0].id) ? assigneeOptions[0].id : assigneeOptions[0].name) : '';
+  const [form, setForm] = useState(() => emptyLeadTaskDraft(defaultAssignee));
   const storeMasterTasks = useCrmStore((s) => s.masterTasks);
   const masterTaskOptions = useMemo(
     () => (Array.isArray(storeMasterTasks) ? storeMasterTasks : [])
@@ -1340,7 +1369,6 @@ function LeadTasksTab({ lead, onCountsChange, onActivity }) {
       return customer.includes(customerName) || (leadName && customer.includes(leadName));
     });
   }, [deliveryChallans, lead]);
-  const [form, setForm] = useState(() => emptyLeadTaskDraft(defaultAssignee));
   const [formError, setFormError] = useState('');
   const [completeId, setCompleteId] = useState(null);
   const [formFillId, setFormFillId] = useState(null);
@@ -1433,6 +1461,7 @@ function LeadTasksTab({ lead, onCountsChange, onActivity }) {
 
   function openEdit(task) {
     const due = parseLeadTaskDueAt(task.dueAt);
+    const currentSelection = task.assigneeId && isServerId(task.assigneeId) ? task.assigneeId : (task.assignee || defaultAssignee);
     setEditingId(task.id);
     setForm({
       defaultTask: task.defaultTask || 'custom',
@@ -1440,7 +1469,8 @@ function LeadTasksTab({ lead, onCountsChange, onActivity }) {
       stage: task.stage || 'New Lead',
       priority: task.priority || 'Medium',
       status: task.status === 'Completed' ? 'Completed' : 'Due',
-      assignee: task.assignee || defaultAssignee,
+      assignee: currentSelection,
+      assigneeId: task.assigneeId || '',
       description: task.description || '',
       proposalId: task.proposalId || '',
       deliveryChallanId: task.deliveryChallanId || '',
@@ -1458,6 +1488,10 @@ function LeadTasksTab({ lead, onCountsChange, onActivity }) {
 
   function updateTaskForm(key, value) {
     setForm((current) => {
+      if (key === 'assignee') {
+        const resolved = resolveAssigneeSelection(value, assigneeOptions);
+        return { ...current, assignee: value, assigneeId: resolved.id, assigneeName: resolved.name };
+      }
       if (key === 'defaultTask' && value && value !== 'custom') {
         const preset = (storeMasterTasks || []).find((t) => String(t.id) === String(value));
         if (preset) {
@@ -1587,6 +1621,9 @@ function LeadTasksTab({ lead, onCountsChange, onActivity }) {
         return;
       }
     }
+    const resolvedAssignee = resolveAssigneeSelection(form.assignee, assigneeOptions);
+    const assigneeName = resolvedAssignee.name || String(form.assignee || '').trim();
+    const assigneeId = resolvedAssignee.id || (isServerId(form.assigneeId) ? form.assigneeId : '');
     const nextTask = {
       defaultTask: form.defaultTask,
       title: form.title.trim(),
@@ -1595,7 +1632,9 @@ function LeadTasksTab({ lead, onCountsChange, onActivity }) {
       priority: form.priority,
       dueAt: formatLeadTaskDueAt(form.taskDate, form.taskTime),
       process: form.status === 'Completed' ? 'Done' : 'Not Started',
-      assignee: form.assignee,
+      assignee: assigneeName,
+      assigneeId,
+      assigneeName,
       description: form.description.trim(),
       proposalId: form.proposalId,
       deliveryChallanId: form.deliveryChallanId,
@@ -1610,6 +1649,7 @@ function LeadTasksTab({ lead, onCountsChange, onActivity }) {
         useCrmStore.getState().updateTask(current.serverTaskId, {
           title: nextTask.title,
           description: nextTask.description || undefined,
+          assigneeId: assigneeId || undefined,
           dueDate: form.taskDate || undefined,
           priority: ['Low', 'Medium', 'High', 'Urgent'].includes(nextTask.priority) ? nextTask.priority : 'Medium',
           status: drawerTaskStatusToServer(nextTask.status),
@@ -1623,10 +1663,10 @@ function LeadTasksTab({ lead, onCountsChange, onActivity }) {
         ...prev,
       ]);
       mirrorDrawerTaskToBackend({
-        leadId: lead?.id, row: manualTask, taskDate: form.taskDate, assigneeName: manualTask.assignee,
+        leadId: lead?.id, row: manualTask, taskDate: form.taskDate, assigneeName, assigneeId,
       }).then((saved) => {
         if (saved?.id) {
-          setTasks((prev) => prev.map((t) => (t.id === manualTask.id ? { ...t, serverTaskId: saved.id } : t)));
+          setTasks((prev) => prev.map((t) => (t.id === manualTask.id ? { ...t, serverTaskId: saved.id, assigneeId: saved.assigneeId || assigneeId, assigneeName: saved.assigneeName || assigneeName } : t)));
         }
       });
       onActivity?.(`Task "${form.title.trim()}" added`, '#16a34a');
@@ -1754,19 +1794,27 @@ function LeadTasksTab({ lead, onCountsChange, onActivity }) {
     }
   }
 
-  async function submitCompleteTask(outcome, nextAction, note) {
+  async function submitCompleteTask(outcome, nextAction, note, nextFollowUpAt, targetStageId) {
     const detailTask = tasks.find((t) => t.id === completeId);
     if (!detailTask) {
       return { ok: false, message: 'Task could not be found.' };
     }
     const actor = currentUser?.name || defaultAssignee || lead?.owner || 'CRM User';
+    const serverTaskId = detailTask.serverTaskId || detailTask.crmTaskId || null;
     let crmTask = null;
     try {
-      crmTask = loadCrmTasks().find((t) => String(t.id) === String(detailTask.crmTaskId)) || null;
+      const storeTasks = useCrmStore.getState().tasks || [];
+      const localCrmTasks = loadCrmTasks();
+      const combined = [...storeTasks, ...localCrmTasks];
+      if (serverTaskId) {
+        crmTask = combined.find((t) => String(t.id) === String(serverTaskId)) || null;
+      }
+      if (!crmTask && detailTask.title && lead?.id) {
+        crmTask = storeTasks.find((t) => String(t.leadId) === String(lead.id) && String(t.title) === String(detailTask.title) && String(t.status) !== 'Completed') || null;
+      }
     } catch (err) {
       console.error('[CRM Completion] Error loading Task List store:', err);
     }
-    // Server Task List row: let the server decide follow-ups/stage changes.
     if (crmTask?.id) {
       const result = await completeTaskWithOutcome({
         task: crmTask,
@@ -1774,6 +1822,8 @@ function LeadTasksTab({ lead, onCountsChange, onActivity }) {
         outcome,
         nextAction,
         note,
+        nextFollowUpAt,
+        targetStageId,
         completedBy: actor,
         leadDetailTask: detailTask,
       });
@@ -1797,15 +1847,22 @@ function LeadTasksTab({ lead, onCountsChange, onActivity }) {
             )
           );
         }
-        if (detailTask.serverTaskId && isBackendEnabled()) {
-          useCrmStore.getState().updateTask(detailTask.serverTaskId, { status: 'Completed' })
-            .catch((err) => console.warn('[CRM] drawer task completion not saved:', err?.message || err));
+        if (result?.stageChanged && isBackendEnabled() && isServerId(lead?.id)) {
+          crmService.getTasks({ leadId: lead.id }).then((body) => {
+            const rows = Array.isArray(body) ? body : (body?.results || []);
+            if (!Array.isArray(rows) || rows.length === 0) return;
+            setTasks((prev) => {
+              const known = new Set(prev.map((t) => t.serverTaskId).filter(Boolean).map((v) => String(v)));
+              const incoming = rows
+                .filter((r) => r?.id && !known.has(String(r.id)))
+                .map((r) => serverTaskToDrawerRow(r));
+              return incoming.length > 0 ? [...incoming, ...prev] : prev;
+            });
+          }).catch(() => {});
         }
       }
       return result;
     }
-    // Local drawer task (no Task List row): complete locally so the
-    // "Task completed successfully" screen still opens.
     setTasks((prev) =>
       prev.map((t) =>
         t.id === detailTask.id
@@ -1825,7 +1882,15 @@ function LeadTasksTab({ lead, onCountsChange, onActivity }) {
       useCrmStore.getState().updateTask(detailTask.serverTaskId, { status: 'Completed' })
         .catch((err) => console.warn('[CRM] drawer task completion not saved:', err?.message || err));
     }
-    return { ok: true, message: 'Task completed.', warnings: [] };
+    return { ok: true, message: 'Task completed successfully.', warnings: [] };
+  }
+
+  function handleCompleteSuccess(result) {
+    setCompleteId(null);
+    const leadId = result?.leadId || result?.lead?.id || lead?.id || null;
+    if (result?.stageChanged && leadId) {
+      navigate(`/crm/leads/${encodeURIComponent(leadId)}?tab=tasks`);
+    }
   }
 
   function confirmDelete() {
@@ -1993,7 +2058,7 @@ function LeadTasksTab({ lead, onCountsChange, onActivity }) {
                 <label className="block text-[13px] font-semibold text-slate-800 mb-1.5">Assign To</label>
                 <select value={form.assignee} onChange={(e) => updateTaskForm('assignee', e.target.value)} className="w-full h-11 px-4 bg-white border border-slate-300 rounded-lg text-[13px] text-slate-800 focus:outline-none focus:border-blue-500">
                   <option value="">Select Staff</option>
-                  {assigneeOptions.map((name) => (<option key={name} value={name}>{name}</option>))}
+                  {assigneeOptions.map((option) => (<option key={option.id || option.name} value={option.id && isServerId(option.id) ? option.id : option.name}>{option.name}</option>))}
                 </select>
               </div>
               <div>
@@ -2093,7 +2158,7 @@ function LeadTasksTab({ lead, onCountsChange, onActivity }) {
                   <label className="block text-[13px] font-semibold text-slate-800 mb-1.5">Assign To</label>
                   <select value={form.assignee} onChange={(e) => updateTaskForm('assignee', e.target.value)} className="w-full h-11 px-4 bg-white border border-slate-300 rounded-lg text-[13px] text-slate-800 focus:outline-none focus:border-blue-500">
                     <option value="">Select Staff</option>
-                    {assigneeOptions.map((name) => (<option key={name} value={name}>{name}</option>))}
+                    {assigneeOptions.map((option) => (<option key={option.id || option.name} value={option.id && isServerId(option.id) ? option.id : option.name}>{option.name}</option>))}
                   </select>
                 </div>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -2238,9 +2303,10 @@ function LeadTasksTab({ lead, onCountsChange, onActivity }) {
           open={Boolean(completeId)}
           task={tasks.find((t) => t.id === completeId) || null}
           lead={lead}
+          blockingTasks={tasks.filter((t) => t.id !== completeId && t.status === 'Due').map((t) => t.title).filter(Boolean)}
           onCancel={() => setCompleteId(null)}
           onComplete={submitCompleteTask}
-          onSuccess={() => setCompleteId(null)}
+          onSuccess={handleCompleteSuccess}
         />
       )}
     </div>
@@ -3596,7 +3662,18 @@ export default function LeadDetailView({ lead, onBackToLeads }) {
   const [isEditOpen, setIsEditOpen] = useState(false);
   const [editForm, setEditForm] = useState(null);
   const storedDetailState = useLeadDetailState(lead);
-  const [activeTab, setActiveTab] = useState('Users & Requirements');
+  const [searchParams, setSearchParams] = useSearchParams();
+  const activeTab = DETAIL_TABS.find(
+    (tab) => tab.toLowerCase() === searchParams.get('tab')?.toLowerCase()
+  ) || 'Users & Requirements';
+
+  function setActiveTab(tab) {
+    setSearchParams((current) => {
+      const next = new URLSearchParams(current);
+      next.set('tab', tab.toLowerCase());
+      return next;
+    }, { replace: true });
+  }
   const { addCustomer, showToast, customers, refreshFromBackend } = useERP() || {};
   const isLeadConverted = Boolean(
     lead?.isConverted ||

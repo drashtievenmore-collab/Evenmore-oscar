@@ -13,6 +13,29 @@ import { api } from './api';
 export { isBackendEnabled, isServerId, describeError };
 
 export const ADMIN_RESOURCES = {
+  customerClients: {
+    path: '/admin/customer-clients/',
+    toApi: (c) => compact({
+      name: c.name,
+      email: c.email,
+      phone: c.phone,
+      status: c.status,
+      billingAddress: c.billingAddress,
+    }),
+    fromApi: (row) => ({
+      ...asText(row, ['name', 'code', 'email', 'phone']),
+      company: row.name || '',
+      location: row.billingAddress?.city || row.placeOfSupply || '',
+      category: row.type === 'Both' ? 'Dual Partner' : 'Customer',
+      tags: [],
+      notes: [],
+      status: row.status || 'Active',
+      deals: Number(row.deals) || 0,
+      projects: Number(row.projects) || 0,
+      lastActivity: row.updatedAt || '',
+      _synced: true,
+    }),
+  },
   users: {
     path: '/admin/users/',
     toApi: (u) => compact({
@@ -87,6 +110,20 @@ export const ADMIN_RESOURCES = {
 };
 
 export const adminSync = createSync(ADMIN_RESOURCES, { label: 'adminSync' });
+
+export async function pullCustomerClients() {
+  if (!isBackendEnabled()) throw new Error('Sign in to view clients.');
+  const resource = ADMIN_RESOURCES.customerClients;
+  const rows = [];
+  let page = 1;
+  let body;
+  do {
+    body = await api.get(resource.path, { query: { page, page_size: 200 } });
+    rows.push(...(body.results || []).map(resource.fromApi));
+    page += 1;
+  } while (body.next);
+  return rows;
+}
 
 /**
  * `GET /admin/permissions/` — the permission catalogue, grouped by module.

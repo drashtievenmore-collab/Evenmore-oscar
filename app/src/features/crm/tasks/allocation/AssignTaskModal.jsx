@@ -1,33 +1,28 @@
 import { useMemo, useState } from 'react';
 import { X } from 'lucide-react';
-import { DEPARTMENTS, EMPLOYEES, PRIORITIES } from './taskAllocationStore';
-
-const EMPTY = {
-  title: '',
-  department: 'Any',
-  assignee: '',
-  priority: 'Medium',
-  deadline: '',
-  description: '',
-  fileName: '',
-};
+import { PRIORITIES } from './taskAllocationStore';
+import { useCrmStore } from '../../../../stores/crmStore';
+import { describeError } from '../../../../services/crmSync';
 
 export default function AssignTaskModal({ isOpen, initial, onClose, onSubmit }) {
+  const employees = useCrmStore((s) => s.teamMembers);
+  const departments = useMemo(() => [...new Set(employees.map((e) => e.department).filter(Boolean))], [employees]);
   const [form, setForm] = useState(() => ({
     title: initial?.title ?? '',
     department: initial?.department ?? 'Any',
-    assignee: initial?.assignee ?? '',
+    assigneeId: initial?.assigneeId ?? '',
     priority: initial?.priority ?? 'Medium',
     deadline: initial?.deadline ? toInputValue(initial.deadline) : '',
     description: initial?.description ?? '',
     fileName: initial?.fileName ?? '',
   }));
   const [error, setError] = useState('');
+  const [saving, setSaving] = useState(false);
 
   const assigneeOptions = useMemo(() => {
-    if (!form.department || form.department === 'Any') return EMPLOYEES;
-    return EMPLOYEES.filter((e) => e.department === form.department);
-  }, [form.department]);
+    if (!form.department || form.department === 'Any') return employees;
+    return employees.filter((e) => e.department === form.department);
+  }, [form.department, employees]);
 
   if (!isOpen) return null;
 
@@ -42,34 +37,44 @@ export default function AssignTaskModal({ isOpen, initial, onClose, onSubmit }) 
     setForm((f) => ({ ...f, [key]: value }));
   }
 
-  function handleSubmit(e) {
+  async function handleSubmit(e) {
     e.preventDefault();
+    if (saving) return;
     if (!form.title.trim()) {
       setError('Task title is required.');
       return;
     }
-    if (!form.assignee) {
+    const assignee = assigneeOptions.find((employee) => String(employee.id) === String(form.assigneeId));
+    if (!assignee) {
       setError('Please select an employee.');
       return;
     }
     setError('');
-    onSubmit({
-      title: form.title.trim(),
-      department: form.department === 'Any' ? assigneeDept(form.assignee) : form.department,
-      assignee: form.assignee,
-      priority: form.priority,
-      deadline: form.deadline ? new Date(form.deadline).toISOString() : null,
-      description: form.description.trim(),
-      fileName: form.fileName,
-    });
+    setSaving(true);
+    try {
+      await onSubmit({
+        title: form.title.trim(),
+        department: form.department === 'Any' ? (assignee.department || '') : form.department,
+        assigneeId: assignee.id,
+        assignee: assignee.name,
+        priority: form.priority,
+        deadline: form.deadline ? new Date(form.deadline).toISOString() : null,
+        description: form.description.trim(),
+        fileName: form.fileName,
+      });
+    } catch (err) {
+      setError(describeError(err));
+    } finally {
+      setSaving(false);
+    }
   }
 
-  function assigneeDept(name) {
-    return EMPLOYEES.find((e) => e.name === name)?.department ?? 'Sales and Marketing';
+  function close() {
+    if (!saving) onClose();
   }
 
   return (
-    <div className="fixed inset-0 z-[70] flex items-center justify-center p-2 sm:p-4 bg-slate-950/50" onClick={onClose}>
+    <div className="fixed inset-0 z-[70] flex items-center justify-center p-2 sm:p-4 bg-slate-950/50" onClick={close}>
       <div
         className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl overflow-hidden max-h-[92vh] flex flex-col"
         onClick={(e) => e.stopPropagation()}
@@ -79,12 +84,13 @@ export default function AssignTaskModal({ isOpen, initial, onClose, onSubmit }) 
       >
         <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100">
           <h2 className="text-[15px] font-bold text-slate-900">{initial ? 'Edit Task' : 'Assign Task'}</h2>
-          <button type="button" onClick={onClose} className="text-slate-400 hover:text-slate-600 p-1" aria-label="Close">
+          <button type="button" disabled={saving} onClick={close} className="text-slate-400 hover:text-slate-600 p-1" aria-label="Close">
             <X size={18} />
           </button>
         </div>
 
         <form onSubmit={handleSubmit} className="px-4 sm:px-6 py-5 overflow-y-auto space-y-4 text-sm">
+          <fieldset disabled={saving} className="space-y-4">
           <div>
             <label className="block text-xs font-semibold text-slate-600 mb-1.5">Task Title<span className="text-rose-500">*</span></label>
             <input
@@ -101,11 +107,11 @@ export default function AssignTaskModal({ isOpen, initial, onClose, onSubmit }) 
               <label className="block text-xs font-semibold text-slate-600 mb-1.5">Department</label>
               <select
                 value={form.department}
-                onChange={(e) => update('department', e.target.value)}
+                onChange={(e) => setForm((f) => ({ ...f, department: e.target.value, assigneeId: '' }))}
                 className="w-full px-3.5 py-2.5 bg-white border border-slate-200 rounded-lg text-[13px] text-slate-800 focus:outline-none focus:border-blue-500"
               >
                 <option value="Any">Any</option>
-                {DEPARTMENTS.map((d) => (
+                {departments.map((d) => (
                   <option key={d} value={d}>{d}</option>
                 ))}
               </select>
@@ -114,13 +120,13 @@ export default function AssignTaskModal({ isOpen, initial, onClose, onSubmit }) 
             <div>
               <label className="block text-xs font-semibold text-slate-600 mb-1.5">Assign To<span className="text-rose-500">*</span></label>
               <select
-                value={form.assignee}
-                onChange={(e) => update('assignee', e.target.value)}
+                value={form.assigneeId}
+                onChange={(e) => update('assigneeId', e.target.value)}
                 className="w-full px-3.5 py-2.5 bg-white border border-slate-200 rounded-lg text-[13px] text-slate-800 focus:outline-none focus:border-blue-500"
               >
                 <option value="">Select employee</option>
                 {assigneeOptions.map((e) => (
-                  <option key={e.name} value={e.name}>{e.name}</option>
+                  <option key={e.id} value={e.id}>{e.name}</option>
                 ))}
               </select>
             </div>
@@ -176,12 +182,12 @@ export default function AssignTaskModal({ isOpen, initial, onClose, onSubmit }) 
             </div>
           </div>
 
-          {error && <p className="text-xs font-semibold text-rose-600">{error}</p>}
+          {error && <p role="alert" className="text-xs font-semibold text-rose-600">{error}</p>}
 
           <div className="flex items-center justify-end gap-2.5 pt-2">
             <button
               type="button"
-              onClick={onClose}
+              onClick={close}
               className="px-5 py-2.5 bg-slate-500 hover:bg-slate-600 text-white text-[13px] font-semibold rounded-lg transition"
             >
               Cancel
@@ -190,9 +196,10 @@ export default function AssignTaskModal({ isOpen, initial, onClose, onSubmit }) 
               type="submit"
               className="px-5 py-2.5 bg-[#1d4a79] hover:bg-[#163a61] text-white text-[13px] font-semibold rounded-lg transition"
             >
-              {initial ? 'Save Changes' : 'Assign Task'}
+              {saving ? 'Saving...' : initial ? 'Save Changes' : 'Assign Task'}
             </button>
           </div>
+          </fieldset>
         </form>
       </div>
     </div>

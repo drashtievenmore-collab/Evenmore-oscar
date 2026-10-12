@@ -1,27 +1,98 @@
-import { useEffect, useState } from 'react';
-import { X, CheckCircle2, AlertTriangle } from 'lucide-react';
-import { TASK_OUTCOMES, NEXT_ACTIONS, NEXT_ACTION_LABELS } from '../../../services/taskCompletionService';
+import { useEffect, useMemo, useState } from 'react';
+import { X, CheckCircle2, AlertTriangle, CheckSquare, Phone, Clock, MoveRight, LayoutGrid, CalendarDays, Check } from 'lucide-react';
+import { NEXT_ACTIONS, NEXT_ACTION_LABELS, getNextStageName } from '../../../services/taskCompletionService';
+import { useCrmStore } from '../../../stores/crmStore';
 
-export default function CompleteTaskModal({ open, task, lead, onCancel, onComplete, onSuccess }) {
-  const [note, setNote] = useState('');
-  const [outcome, setOutcome] = useState('');
-  const [nextAction, setNextAction] = useState('follow-up');
+const WHAT_HAPPENED_MAX = 1000;
+const OUTCOME_NOTES_MAX = 500;
+
+function defaultFollowUpValue() {
+  const date = new Date();
+  date.setDate(date.getDate() + 1);
+  date.setHours(10, 0, 0, 0);
+  const pad = (n) => String(n).padStart(2, '0');
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
+}
+
+function toIsoOrNull(value) {
+  if (!value) return null;
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return null;
+  return date.toISOString();
+}
+
+const OPTION_ICONS = {
+  'needs-another-attempt': Clock,
+  'ready-to-move-on': MoveRight,
+  'finished-with-lead': LayoutGrid,
+};
+
+const OPTION_SUB = {
+  'needs-another-attempt': 'Schedule another attempt in this stage',
+  'ready-to-move-on': 'Move the lead to the next stage and create its tasks',
+  'finished-with-lead': 'Close remaining tasks and keep the current stage.',
+};
+
+export default function CompleteTaskModal({ open, task, lead, onCancel, onComplete, onSuccess, nextStageName, blockingTasks = [] }) {
+  const stages = useCrmStore((s) => s.stages);
+  const [whatHappened, setWhatHappened] = useState('');
+  const [outcomeNotes, setOutcomeNotes] = useState('');
+  const [nextAction, setNextAction] = useState('ready-to-move-on');
+  const [targetStageId, setTargetStageId] = useState('');
+  const [followUpAt, setFollowUpAt] = useState(defaultFollowUpValue);
   const [submitting, setSubmitting] = useState(false);
   const [formError, setFormError] = useState('');
   const [phase, setPhase] = useState('form');
   const [warnings, setWarnings] = useState([]);
 
+  const currentStage = task?.stage || lead?.status || 'New Lead';
+  const attemptNumber = task?.attempt || task?.attemptNumber || 1;
+
+  const stageOptions = useMemo(() => {
+    const rows = Array.isArray(stages) ? stages : [];
+    return rows
+      .filter((s) => s?.is_active !== false)
+      .slice()
+      .sort((a, b) => (Number(a.order ?? a.sequence ?? 0) || 0) - (Number(b.order ?? b.sequence ?? 0) || 0));
+  }, [stages]);
+
+  const suggestedStage = useMemo(() => {
+    if (nextStageName) {
+      const match = stageOptions.find((s) => String(s.name || '').toLowerCase() === String(nextStageName).toLowerCase());
+      if (match) return match;
+    }
+    let name = null;
+    try {
+      name = getNextStageName(currentStage);
+    } catch {
+      name = null;
+    }
+    if (name) {
+      const match = stageOptions.find((s) => String(s.name || '').toLowerCase() === String(name).toLowerCase());
+      if (match) return match;
+    }
+    return stageOptions[0] || null;
+  }, [stageOptions, nextStageName, currentStage]);
+
   useEffect(() => {
     if (open) {
-      setNote('');
-      setOutcome('');
-      setNextAction('follow-up');
+      setWhatHappened('');
+      setOutcomeNotes('');
+      setNextAction('ready-to-move-on');
+      setTargetStageId('');
+      setFollowUpAt(defaultFollowUpValue());
       setSubmitting(false);
       setFormError('');
       setPhase('form');
       setWarnings([]);
     }
   }, [open]);
+
+  useEffect(() => {
+    if (open && !targetStageId && suggestedStage?.id) {
+      setTargetStageId(String(suggestedStage.id));
+    }
+  }, [open, suggestedStage, targetStageId]);
 
   useEffect(() => {
     if (!open) return undefined;
@@ -34,32 +105,41 @@ export default function CompleteTaskModal({ open, task, lead, onCancel, onComple
 
   if (!open) return null;
 
-  const valid = Boolean(note.trim() && outcome && nextAction);
-  const currentStage = task?.stage || lead?.status || '-';
-  const attemptNumber = task?.attempt || task?.attemptNumber || 1;
-  const nextActionOptions = NEXT_ACTIONS.filter((option) =>
-    ['follow-up', 'move-next-stage', 'finish', 'schedule-demo', 'send-quotation'].includes(option.value)
-  );
+  const showMoveToStage = nextAction === 'ready-to-move-on';
+  const showFollowUp = nextAction !== 'finished-with-lead';
+  const valid =
+    Boolean(whatHappened.trim()) &&
+    whatHappened.trim().length <= WHAT_HAPPENED_MAX &&
+    outcomeNotes.length <= OUTCOME_NOTES_MAX &&
+    Boolean(nextAction) &&
+    (!showFollowUp || Boolean(followUpAt)) &&
+    (!showMoveToStage || Boolean(targetStageId));
 
   async function handleSubmit(e) {
     e.preventDefault();
-    if (!note.trim()) {
-      setFormError('Please enter what happened.');
+    if (!whatHappened.trim()) {
+      setFormError('Please summarize what happened.');
       return;
     }
-    if (!outcome) {
-      setFormError('Please select an outcome.');
+    if (showMoveToStage && !targetStageId) {
+      setFormError('Please select the stage to move to.');
       return;
     }
-    if (!nextAction) {
-      setFormError("Please select what's next.");
+    if (showFollowUp && !followUpAt) {
+      setFormError('Please select the next follow-up date and time.');
       return;
     }
 
     setSubmitting(true);
     setFormError('');
     try {
-      const result = (await onComplete?.(outcome, nextAction, note.trim())) || {};
+      const result = (await onComplete?.(
+        outcomeNotes.trim() || null,
+        nextAction,
+        whatHappened.trim(),
+        showFollowUp ? toIsoOrNull(followUpAt) : null,
+        showMoveToStage ? targetStageId : null,
+      )) || {};
       if (result.ok === false) {
         setFormError(result.message || 'Could not complete the task.');
         setSubmitting(false);
@@ -67,7 +147,7 @@ export default function CompleteTaskModal({ open, task, lead, onCancel, onComple
       }
       setWarnings(result.warnings || []);
       setPhase('success');
-      window.setTimeout(() => onSuccess?.(), 1600);
+      window.setTimeout(() => onSuccess?.(result || {}), 1600);
     } catch (err) {
       setFormError(err?.message || 'Something went wrong. Please try again.');
       setSubmitting(false);
@@ -80,14 +160,19 @@ export default function CompleteTaskModal({ open, task, lead, onCancel, onComple
       onClick={() => { if (!submitting && phase === 'form') onCancel?.(); }}
       role="dialog"
       aria-modal="true"
-      aria-label="Fill Task Form"
+      aria-label="Complete Task"
     >
       <div
-        className="flex max-h-[92vh] w-full max-w-[375px] flex-col overflow-hidden rounded-2xl bg-white shadow-2xl"
+        className="flex max-h-[92vh] w-full max-w-[480px] flex-col overflow-hidden rounded-2xl bg-white shadow-2xl"
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="flex items-center justify-between border-b border-slate-100 px-5 py-4">
-          <h2 className="text-[15px] font-bold text-slate-900">Fill Task Form</h2>
+        <div className="flex items-center justify-between border-b border-slate-100 px-5 py-3.5">
+          <div className="flex items-center gap-2">
+            <span className="grid h-6 w-6 place-items-center rounded-md bg-blue-600 text-white">
+              <CheckSquare size={15} />
+            </span>
+            <h2 className="text-[15px] font-bold text-slate-900">Complete Task</h2>
+          </div>
           <button
             type="button"
             onClick={() => { if (!submitting && phase === 'form') onCancel?.(); }}
@@ -107,15 +192,8 @@ export default function CompleteTaskModal({ open, task, lead, onCancel, onComple
               </span>
               <h3 className="mt-4 text-[15px] font-bold text-slate-900">Task completed successfully.</h3>
               <p className="mt-1 text-xs text-slate-500">
-                Outcome: <strong className="text-slate-700">{outcome}</strong>
-                <span className="mx-1">-</span>
                 Next: <strong className="text-slate-700">{NEXT_ACTION_LABELS[nextAction] || nextAction}</strong>
               </p>
-              {note && (
-                <p className="mt-3 w-full rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-left text-[11px] text-slate-600">
-                  {note}
-                </p>
-              )}
               {warnings.length > 0 && (
                 <div className="mt-4 w-full space-y-2 text-left">
                   {warnings.map((warning, index) => (
@@ -131,75 +209,141 @@ export default function CompleteTaskModal({ open, task, lead, onCancel, onComple
         ) : (
           <form onSubmit={handleSubmit} className="overflow-y-auto">
             <div className="space-y-4 px-5 py-4">
-              <div>
-                <p className="text-[14px] font-medium text-slate-700">{task?.title || 'Task'}</p>
-                <p className="mt-1 text-[11px] text-slate-400">
-                  Attempt {attemptNumber} | Stage: {currentStage}
-                </p>
+              <div className="flex items-start gap-2.5">
+                <span className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-blue-50 text-blue-600">
+                  <Phone size={16} />
+                </span>
+                <div className="min-w-0">
+                  <p className="text-[14px] font-bold text-slate-900">{task?.title || 'Detail collection'}</p>
+                  <p className="mt-0.5 text-[11px] text-slate-400">
+                    Attempt {attemptNumber} &nbsp;|&nbsp; Stage: {currentStage}
+                  </p>
+                </div>
               </div>
 
               <div>
-                <label className="mb-2 block text-[13px] font-semibold text-slate-800">
-                  What happened?
+                <label className="mb-1.5 block text-[13px] font-semibold text-slate-800">
+                  What happened? <span className="text-rose-500">*</span>
                 </label>
-                <textarea
-                  rows={3}
-                  value={note}
-                  onChange={(e) => setNote(e.target.value)}
-                  placeholder="Outcome of the call, visit or demo"
-                  className="w-full resize-none rounded-lg border border-slate-200 px-3 py-2 text-[13px] text-slate-700 outline-none transition focus:border-[#1d6bff]"
-                />
+                <div className="rounded-lg border border-slate-200 focus-within:border-blue-500">
+                  <textarea
+                    rows={3}
+                    value={whatHappened}
+                    onChange={(e) => setWhatHappened(e.target.value.slice(0, WHAT_HAPPENED_MAX))}
+                    placeholder="Summarize the call, visit, demo, or outcome.."
+                    className="w-full resize-none rounded-lg px-3 py-2 text-[13px] text-slate-700 outline-none placeholder:text-slate-400"
+                  />
+                  <p className="px-3 pb-1.5 text-right text-[10px] text-slate-400">
+                    {whatHappened.length} / {WHAT_HAPPENED_MAX}
+                  </p>
+                </div>
               </div>
 
               <div>
-                <label className="mb-2 block text-[13px] font-semibold text-slate-800">
-                  Outcome
-                </label>
-                <select
-                  value={outcome}
-                  onChange={(e) => setOutcome(e.target.value)}
-                  className="h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-[13px] text-slate-700 outline-none transition focus:border-[#1d6bff]"
-                >
-                  <option value="">Select outcome</option>
-                  {TASK_OUTCOMES.map((option) => (
-                    <option key={option.value} value={option.value}>
-                      {option.label}
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              <div>
-                <label className="mb-2 block text-[13px] font-semibold text-slate-800">
-                  What next?
+                <label className="mb-1.5 block text-[13px] font-semibold text-slate-800">
+                  What next? <span className="text-rose-500">*</span>
                 </label>
                 <div className="space-y-2">
-                  {nextActionOptions.map((option) => (
-                    <label key={option.value} className="flex cursor-pointer items-start gap-2">
-                      <input
-                        type="radio"
-                        name="next-action"
-                        value={option.value}
-                        checked={nextAction === option.value}
-                        onChange={(e) => setNextAction(e.target.value)}
-                        className="mt-1 h-4 w-4 accent-[#1d4a79]"
-                      />
-                      <span className="min-w-0">
-                        <span className="block text-[13px] font-semibold text-slate-700">
-                          {option.label}
+                  {NEXT_ACTIONS.map((option) => {
+                    const Icon = OPTION_ICONS[option.value] || Clock;
+                    const selected = nextAction === option.value;
+                    return (
+                      <label
+                        key={option.value}
+                        className={`flex cursor-pointer items-start gap-2.5 rounded-xl border px-3 py-2.5 transition ${
+                          selected
+                            ? 'border-teal-500 bg-teal-50/60'
+                            : 'border-slate-200 bg-white hover:border-slate-300'
+                        }`}
+                      >
+                        <input
+                          type="radio"
+                          name="next-action"
+                          value={option.value}
+                          checked={selected}
+                          onChange={(e) => setNextAction(e.target.value)}
+                          className="mt-1 h-4 w-4 accent-teal-600"
+                        />
+                        <span className={`mt-0.5 grid h-6 w-6 shrink-0 place-items-center rounded-full ${selected ? 'bg-teal-600 text-white' : 'bg-slate-100 text-slate-500'}`}>
+                          <Icon size={13} />
                         </span>
-                        <span className="block text-[11px] text-slate-500">
-                          {option.value === 'follow-up'
-                            ? `Creates attempt ${attemptNumber + 1} in this same stage.`
-                            : option.value === 'move-next-stage'
-                            ? "Moves the lead to the next stage and creates that stage's task."
-                            : option.value === 'finish'
-                            ? 'Marks this task completed and closes this follow-up.'
-                            : option.description}
+                        <span className="min-w-0">
+                          <span className="block text-[13px] font-semibold text-slate-800">
+                            {option.label}
+                          </span>
+                          <span className="block text-[11px] text-slate-500">
+                            {OPTION_SUB[option.value] || option.description}
+                          </span>
+                          {option.value === 'ready-to-move-on' && blockingTasks.length > 0 && (
+                            <span className="mt-0.5 block text-[11px] font-medium text-rose-500">
+                              Blocked until these are completed: {blockingTasks.join(', ')}
+                            </span>
+                          )}
                         </span>
-                      </span>
-                    </label>
-                  ))}
+                      </label>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {showMoveToStage && (
+                <div>
+                  <label className="mb-1.5 block text-[13px] font-semibold text-slate-800">
+                    Move to stage <span className="text-rose-500">*</span>
+                  </label>
+                  <select
+                    value={targetStageId}
+                    onChange={(e) => setTargetStageId(e.target.value)}
+                    className="h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-[13px] text-slate-700 outline-none transition focus:border-blue-500"
+                  >
+                    <option value="">Select stage</option>
+                    {stageOptions.map((s) => (
+                      <option key={s.id} value={s.id}>
+                        {s.name}
+                      </option>
+                    ))}
+                  </select>
+                  <p className="mt-1 text-[11px] text-slate-400">
+                    This is the suggested stage based on this task. You can change it if needed.
+                  </p>
+                </div>
+              )}
+
+              {showFollowUp && (
+              <div>
+                <label className="mb-1.5 block text-[13px] font-semibold text-slate-800">
+                  Next follow-up date & time <span className="text-rose-500">*</span>
+                </label>
+                <div className="relative">
+                  <input
+                    type="datetime-local"
+                    value={followUpAt}
+                    onChange={(e) => setFollowUpAt(e.target.value)}
+                    className="h-10 w-full rounded-lg border border-slate-200 bg-white px-3 pr-9 text-[13px] text-slate-700 outline-none transition focus:border-blue-500"
+                  />
+                  <CalendarDays size={15} className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                </div>
+                <p className="mt-1 text-[11px] text-slate-400">
+                  The next stage task will be scheduled for this date and time.
+                </p>
+              </div>
+              )}
+
+              <div>
+                <label className="mb-1.5 block text-[13px] font-semibold text-slate-800">
+                  Outcome notes / blockers <span className="font-normal text-slate-400">(Optional)</span>
+                </label>
+                <div className="rounded-lg border border-slate-200 focus-within:border-blue-500">
+                  <textarea
+                    rows={2}
+                    value={outcomeNotes}
+                    onChange={(e) => setOutcomeNotes(e.target.value.slice(0, OUTCOME_NOTES_MAX))}
+                    placeholder="Any additional notes, customer feedback, or blockers.."
+                    className="w-full resize-none rounded-lg px-3 py-2 text-[13px] text-slate-700 outline-none placeholder:text-slate-400"
+                  />
+                  <p className="px-3 pb-1.5 text-right text-[10px] text-slate-400">
+                    {outcomeNotes.length} / {OUTCOME_NOTES_MAX}
+                  </p>
                 </div>
               </div>
 
@@ -208,19 +352,19 @@ export default function CompleteTaskModal({ open, task, lead, onCancel, onComple
               )}
             </div>
 
-            <div className="flex items-center justify-end gap-2.5 border-t border-slate-100 bg-slate-50/50 px-5 py-4">
+            <div className="flex items-center justify-end gap-2.5 border-t border-slate-100 px-5 py-4">
               <button
                 type="button"
                 onClick={onCancel}
                 disabled={submitting}
-                className="h-10 rounded-lg bg-slate-500 px-5 text-[13px] font-semibold text-white transition hover:bg-slate-600 disabled:opacity-50"
+                className="h-10 rounded-lg border border-slate-200 bg-white px-5 text-[13px] font-semibold text-slate-600 transition hover:bg-slate-50 disabled:opacity-50"
               >
                 Cancel
               </button>
               <button
                 type="submit"
                 disabled={!valid || submitting}
-                className="inline-flex h-10 items-center gap-2 rounded-lg bg-[#1d4a79] px-5 text-[13px] font-semibold text-white transition hover:bg-[#163a61] disabled:cursor-not-allowed disabled:opacity-50"
+                className="inline-flex h-10 items-center gap-1.5 rounded-lg bg-emerald-600 px-5 text-[13px] font-semibold text-white transition hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-50"
               >
                 {submitting ? (
                   <>
@@ -228,7 +372,10 @@ export default function CompleteTaskModal({ open, task, lead, onCancel, onComple
                     Saving...
                   </>
                 ) : (
-                  'Complete Task'
+                  <>
+                    <Check size={15} />
+                    Complete Task
+                  </>
                 )}
               </button>
             </div>

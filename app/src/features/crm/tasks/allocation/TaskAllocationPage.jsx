@@ -5,7 +5,9 @@ import AssignTaskModal from './AssignTaskModal';
 import InfoBanner from '../../common/InfoBanner';
 import PageHeader from '../../../../components/ui/PageHeader';
 import KpiCard from '../../../../components/ui/KpiCard';
-import { loadAllocationTasks, saveAllocationTasks, formatDeadline, EMPLOYEES, DEPARTMENTS, STATUSES } from './taskAllocationStore';
+import { formatDeadline, STATUSES } from './taskAllocationStore';
+import { useCrmStore } from '../../../../stores/crmStore';
+import { describeError } from '../../../../services/crmSync';
 
 function initials(name) {
   if (!name) return '?';
@@ -40,7 +42,14 @@ const selectCls = 'w-full h-11 px-3.5 bg-slate-50/60 border border-slate-200 rou
 
 export default function TaskAllocationPage() {
   const navigate = useNavigate();
-  const [tasks, setTasks] = useState(loadAllocationTasks);
+  const tasks = useCrmStore((s) => s.taskAllocations);
+  const employees = useCrmStore((s) => s.teamMembers);
+  const loading = useCrmStore((s) => s.status.loading);
+  const createRecord = useCrmStore((s) => s.createRecord);
+  const deleteRecord = useCrmStore((s) => s.deleteRecord);
+  const departments = useMemo(() => [...new Set(employees.map((e) => e.department).filter(Boolean))], [employees]);
+  const [error, setError] = useState('');
+  const [deleting, setDeleting] = useState(false);
   const [statusFilter, setStatusFilter] = useState('Any');
   const [assigneeFilter, setAssigneeFilter] = useState('Anyone');
   const [deptFilter, setDeptFilter] = useState('Any');
@@ -57,14 +66,10 @@ export default function TaskAllocationPage() {
   const [showFilters, setShowFilters] = useState(false);
 
   useEffect(() => {
-    saveAllocationTasks(tasks);
-  }, [tasks]);
-
-  useEffect(() => {
     setPage(1);
   }, [statusFilter, assigneeFilter, deptFilter, search, perPage]);
 
-  const assigneeOptions = useMemo(() => [...new Set([...EMPLOYEES.map((e) => e.name), ...tasks.map((t) => t.assignee)])], [tasks]);
+  const assigneeOptions = useMemo(() => [...new Set([...employees.map((e) => e.name), ...tasks.map((t) => t.assignee)])], [employees, tasks]);
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -122,27 +127,26 @@ export default function TaskAllocationPage() {
     setSearch('');
   }
 
-  function handleCreate(data) {
-    setTasks((prev) => {
-      const now = new Date().toISOString();
-      return [
-        ...prev,
-        {
-          id: `ta-${Date.now()}`,
-          assignedBy: 'company',
-          status: 'Pending',
-          audit: [{ text: `company assigned this to ${data.assignee}`, at: now }],
-          ...data,
-        },
-      ];
-    });
+  async function handleCreate(data) {
+    const saved = await createRecord('taskAllocations', { ...data, status: 'Pending' });
+    if (!saved) throw new Error('Task could not be saved. Please try again.');
+    resetFilters();
+    setPage(1);
     setIsModalOpen(false);
   }
 
-  function confirmDelete() {
-    if (!deleteId) return;
-    setTasks((prev) => prev.filter((t) => t.id !== deleteId));
-    setDeleteId(null);
+  async function confirmDelete() {
+    if (!deleteId || deleting) return;
+    setError('');
+    setDeleting(true);
+    try {
+      await deleteRecord('taskAllocations', deleteId);
+      setDeleteId(null);
+    } catch (err) {
+      setError(describeError(err));
+    } finally {
+      setDeleting(false);
+    }
   }
 
   function openDetail(id) {
@@ -209,7 +213,7 @@ export default function TaskAllocationPage() {
             <label className="block text-xs font-semibold text-slate-500 mb-1.5">Department</label>
             <select value={draftDept} onChange={(e) => setDraftDept(e.target.value)} className={selectCls}>
               <option value="Any">All departments</option>
-              {DEPARTMENTS.map((d) => (
+              {departments.map((d) => (
                 <option key={d} value={d}>{d}</option>
               ))}
             </select>
@@ -307,7 +311,7 @@ export default function TaskAllocationPage() {
                 return (
                   <tr key={t.id} className="hover:bg-blue-50/40 transition-colors group">
                     <td className="px-5 py-4">
-                      <button type="button" onClick={() => openDetail(t.id)} className="flex items-start gap-3 text-left w-full">
+                      <button type="button" disabled={t._pending} onClick={() => openDetail(t.id)} className="flex items-start gap-3 text-left w-full disabled:opacity-50">
                         <span className="w-9 h-9 shrink-0 grid place-items-center rounded-xl bg-blue-50 border border-blue-100 text-[12px] font-bold text-blue-600">
                           {initials(t.title)}
                         </span>
@@ -348,10 +352,10 @@ export default function TaskAllocationPage() {
                     </td>
                     <td className="px-5 py-4">
                       <div className="flex items-center justify-end gap-2">
-                        <button type="button" onClick={() => openDetail(t.id)} title="View details" className="w-8 h-8 grid place-items-center bg-white text-slate-400 hover:text-blue-600 hover:border-blue-200 hover:bg-blue-50 border border-slate-200 rounded-lg transition">
+                        <button type="button" disabled={t._pending} onClick={() => openDetail(t.id)} title="View details" className="w-8 h-8 grid place-items-center bg-white text-slate-400 hover:text-blue-600 hover:border-blue-200 hover:bg-blue-50 border border-slate-200 rounded-lg transition disabled:opacity-50">
                           <Eye size={15} />
                         </button>
-                        <button type="button" onClick={() => setDeleteId(t.id)} title="Delete task" className="w-8 h-8 grid place-items-center bg-white text-slate-400 hover:text-rose-600 hover:border-rose-200 hover:bg-rose-50 border border-slate-200 rounded-lg transition">
+                        <button type="button" disabled={t._pending} onClick={() => { setError(''); setDeleteId(t.id); }} title="Delete task" className="w-8 h-8 grid place-items-center bg-white text-slate-400 hover:text-rose-600 hover:border-rose-200 hover:bg-rose-50 border border-slate-200 rounded-lg transition disabled:opacity-50">
                           <Trash2 size={15} />
                         </button>
                       </div>
@@ -365,8 +369,8 @@ export default function TaskAllocationPage() {
                     <div className="mx-auto w-11 h-11 grid place-items-center rounded-2xl bg-slate-50 border border-slate-100 text-slate-300 mb-3">
                       <Search size={18} />
                     </div>
-                    <p className="text-[13px] font-semibold text-slate-600">No tasks found</p>
-                    <p className="text-xs text-slate-400 mt-1">Try adjusting your filters or search.</p>
+                    <p className="text-[13px] font-semibold text-slate-600">{loading ? 'Loading tasks...' : 'No tasks found'}</p>
+                    {!loading && <p className="text-xs text-slate-400 mt-1">Try adjusting your filters or search.</p>}
                     {hasActiveFilters && (
                       <button type="button" onClick={resetFilters} className="mt-3 text-xs font-semibold text-blue-600 hover:underline">Clear all filters</button>
                     )}
@@ -387,7 +391,7 @@ export default function TaskAllocationPage() {
         </div>
       </div>
 
-      <AssignTaskModal isOpen={isModalOpen} onClose={() => setIsModalOpen(false)} onSubmit={handleCreate} />
+      {isModalOpen && <AssignTaskModal isOpen onClose={() => setIsModalOpen(false)} onSubmit={handleCreate} />}
 
       {deleteId && (
         <div className="fixed inset-0 bg-slate-900/45 backdrop-blur-[2px] flex items-center justify-center z-[70] p-2 sm:p-4" onClick={() => setDeleteId(null)}>
@@ -396,10 +400,11 @@ export default function TaskAllocationPage() {
               <AlertTriangle size={18} />
             </div>
             <h2 className="text-[15px] font-extrabold text-slate-900">Delete this task?</h2>
+            {error && <p role="alert" className="text-xs text-rose-600 mt-2">{error}</p>}
             <p className="text-[13px] text-slate-500 mt-1 leading-relaxed">This action cannot be undone. The task will be permanently removed.</p>
             <div className="flex items-center justify-end gap-2 mt-5">
               <button type="button" onClick={() => setDeleteId(null)} className="h-9 px-4 bg-white hover:bg-slate-50 text-slate-600 text-[13px] font-semibold rounded-xl border border-slate-200 transition">Cancel</button>
-              <button type="button" onClick={confirmDelete} className="h-9 px-4 bg-rose-600 hover:bg-rose-700 active:scale-[0.98] text-white text-[13px] font-semibold rounded-xl shadow-sm shadow-rose-600/25 transition">Delete</button>
+              <button type="button" disabled={deleting} onClick={confirmDelete} className="h-9 px-4 bg-rose-600 hover:bg-rose-700 active:scale-[0.98] text-white text-[13px] font-semibold rounded-xl shadow-sm shadow-rose-600/25 transition">{deleting ? 'Deleting...' : 'Delete'}</button>
             </div>
           </div>
         </div>

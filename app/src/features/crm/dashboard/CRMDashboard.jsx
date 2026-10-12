@@ -201,11 +201,9 @@ export default function DashboardView() {
     if (t.status === "Completed") return;
     setCompleteTarget(t);
   };
-  async function handleComplete(outcome, nextAction) {
+  async function handleComplete(outcome, nextAction, note, nextFollowUpAt, targetStageId) {
     if (!completeTarget) return { ok: false, message: "No task selected." };
-    // `POST /crm/tasks/{id}/complete/` closes the task and, where the stage
-    // rules call for it, creates the follow-up or advances the lead.
-    return completeTaskWithOutcome({ task: completeTarget, outcome, nextAction });
+    return completeTaskWithOutcome({ task: completeTarget, outcome, nextAction, note, nextFollowUpAt, targetStageId });
   }
   const handleCompleteSuccess = () => setCompleteTarget(null);
   const recent = leads.slice(0, 5);

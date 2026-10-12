@@ -493,11 +493,6 @@ export default function MasterTasksPage() {
                         </span>
                         {t.name}
                       </span>
-                      {t.taskFormId && (
-                        <span className="mt-1 inline-flex items-center gap-1 px-2 py-0.5 rounded-full border border-indigo-100 bg-indigo-50 text-[10px] font-semibold text-indigo-700">
-                          {taskForms.find((f) => String(f.id) === String(t.taskFormId))?.title || 'Linked Form'}
-                        </span>
-                      )}
                     </td>
                     <td className="px-3 py-3 text-slate-600 font-medium whitespace-nowrap">{t.role}</td>
                     <td className="px-3 py-3 text-slate-600 whitespace-nowrap">{t.department}</td>

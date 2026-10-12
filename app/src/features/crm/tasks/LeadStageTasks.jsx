@@ -6,7 +6,6 @@ import {
   ClipboardList,
   MousePointerClick,
   Plus,
-  Trash2,
   Users,
   Workflow,
   X,
@@ -125,32 +124,22 @@ const ROLE_CHIP_STYLES = {
 };
 const ROLE_CHIP_FALLBACK = ["linear-gradient(135deg, #f8fafc, #f1f5f9)", "#475569", "#94a3b8"];
 
-const DEFAULT_TASK_OPTIONS = [
-  "Follow-up",
-  "Send email",
-  "Send quotation",
-  "Schedule demo",
-  "Client meeting",
-  "Negotiate pricing",
-];
-
 function getDynamicTaskOptions(masterTasks = []) {
   const names = (Array.isArray(masterTasks) ? masterTasks : [])
     .map((m) => m.name || m.title)
     .filter(Boolean);
-  if (names.length > 0) return [...new Set([...DEFAULT_TASK_OPTIONS, ...names])];
-  // Offline fallback: last cached master-task list.
+  if (names.length > 0) return [...new Set(names)];
   try {
     const raw = localStorage.getItem('leadMasterTasksV1');
     if (raw) {
       const parsed = JSON.parse(raw);
       if (Array.isArray(parsed) && parsed.length > 0) {
         const cached = parsed.map((m) => m.name).filter(Boolean);
-        return [...new Set([...DEFAULT_TASK_OPTIONS, ...cached])];
+        return [...new Set(cached)];
       }
     }
   } catch { /* ignore */ }
-  return DEFAULT_TASK_OPTIONS;
+  return [];
 }
 
 /**
@@ -261,6 +250,7 @@ export default function LeadStageTasks({ leadForms = [] }) {
   const [taskModalStageId, setTaskModalStageId] = useState(null);
   const [masterTask, setMasterTask] = useState(EMPTY_MASTER_TASK);
   const [saveSuccess, setSaveSuccess] = useState(false);
+  const [formError, setFormError] = useState("");
   const [isGuideOpen, setIsGuideOpen] = useState(false);
   const [stageDrafts, setStageDrafts] = useState({});
   const taskOptions = useMemo(() => getDynamicTaskOptions(storeMasterTasks), [storeMasterTasks]);
@@ -280,6 +270,10 @@ export default function LeadStageTasks({ leadForms = [] }) {
   }, [stages, storeStageTasks]);
 
   useEffect(() => {
+    useCrmStore.getState().refresh("masterTasks").catch(() => {});
+  }, []);
+
+  useEffect(() => {
     try {
       localStorage.setItem(PIPELINE_KEY, pipeline);
     } catch { /* ignore */ }
@@ -296,7 +290,7 @@ export default function LeadStageTasks({ leadForms = [] }) {
   function getDraft(stageId) {
     return (
       stageDrafts[stageId] || {
-        name: "Follow-up",
+        name: "",
         order: 0,
         required: true,
         autoCreate: true,
@@ -316,9 +310,29 @@ export default function LeadStageTasks({ leadForms = [] }) {
     }));
   }
 
+  function isDuplicateTaskName(stageId, name, excludeTaskId = null) {
+    if (!name?.trim()) return false;
+    const normalized = name.trim().toLowerCase();
+    const stage = stages.find((s) => s.id === stageId);
+    if (!stage) return false;
+    return (stage.tasks || []).some(
+      (t) => t.id !== excludeTaskId && (t.name || "").trim().toLowerCase() === normalized
+    );
+  }
+
   function addDraftTask(stageId) {
     const draft = getDraft(stageId);
-    const role = TASK_ROLE_MAP[draft.name] || "BDE";
+    if (!draft.name) return;
+    if (isDuplicateTaskName(stageId, draft.name)) {
+      setFormError(`"${draft.name.trim()}" already exists in this stage. Duplicate tasks are not allowed.`);
+      setTimeout(() => setFormError(""), 3500);
+      return;
+    }
+    const selectedMaster = (Array.isArray(storeMasterTasks) ? storeMasterTasks : []).find(
+      (m) => (m.name || m.title || "") === draft.name
+    );
+    const role = selectedMaster?.role || TASK_ROLE_MAP[draft.name] || "BDE";
+    const department = selectedMaster?.department || "Any";
     setStages((current) =>
       current.map((stage) => {
         if (stage.id !== stageId) return stage;
@@ -331,7 +345,7 @@ export default function LeadStageTasks({ leadForms = [] }) {
               name: draft.name,
               description: `${draft.name} task`,
               role,
-              department: "Any",
+              department,
               order: Number(draft.order) || 0,
               required: draft.required ?? true,
               autoCreate: draft.autoCreate ?? true,
@@ -345,7 +359,7 @@ export default function LeadStageTasks({ leadForms = [] }) {
     setStageDrafts((prev) => ({
       ...prev,
       [stageId]: {
-        name: "Follow-up",
+        name: "",
         order: 0,
         required: true,
         autoCreate: true,
@@ -365,15 +379,39 @@ export default function LeadStageTasks({ leadForms = [] }) {
 
   function closeTaskModal() {
     setTaskModalStageId(null);
+    setFormError("");
   }
 
   function updateMasterTask(key, value) {
     setMasterTask((current) => ({ ...current, [key]: value }));
   }
 
+  function handleMasterTaskSelect(name) {
+    const selected = (Array.isArray(storeMasterTasks) ? storeMasterTasks : []).find(
+      (m) => (m.name || m.title || "") === name
+    );
+    if (selected) {
+      setMasterTask((current) => ({
+        ...current,
+        name: selected.name || selected.title || "",
+        description: selected.description || current.description,
+        role: selected.role || current.role,
+        department: selected.department || current.department,
+        priority: selected.priority || current.priority,
+        dueIn: selected.dueIn ?? current.dueIn,
+      }));
+    } else {
+      setMasterTask((current) => ({ ...current, name }));
+    }
+  }
+
   function createMasterTask(event) {
     event.preventDefault();
     if (!masterTask.name.trim()) return;
+    if (isDuplicateTaskName(taskModalStageId, masterTask.name)) {
+      setFormError(`"${masterTask.name.trim()}" already exists in this stage. Duplicate tasks are not allowed.`);
+      return;
+    }
 
     setStages((current) =>
       current.map((stage) => {
@@ -404,7 +442,9 @@ export default function LeadStageTasks({ leadForms = [] }) {
     if (!openStages.includes(taskModalStageId)) {
       setOpenStages((prev) => [...prev, taskModalStageId]);
     }
+    setIsTaskRolesOpen(true);
     closeTaskModal();
+    setFormError("");
     triggerSaveToast();
   }
 
@@ -450,10 +490,36 @@ export default function LeadStageTasks({ leadForms = [] }) {
     setTimeout(() => setSaveSuccess(false), 2500);
   }
 
-  const allRoleTasks = stages.flatMap((stage) =>
-    stage.tasks.map((task) => ({ ...task, stageId: stage.id }))
-  );
-  const uniqueRoles = [...new Set(allRoleTasks.map((task) => task.role).filter(Boolean))];
+  const stageRoleTasks = useMemo(() => {
+    const seen = new Set();
+    const unique = [];
+    stages
+      .flatMap((stage) => stage.tasks.map((task) => ({ ...task, stageId: stage.id })))
+      .forEach((task) => {
+        const key = (task.name || "").trim().toLowerCase();
+        if (key && !seen.has(key)) {
+          seen.add(key);
+          unique.push(task);
+        }
+      });
+    return unique;
+  }, [stages]);
+
+  function updateTaskRoleForName(name, key, value) {
+    const normalized = (name || "").trim().toLowerCase();
+    if (!normalized) return;
+    setStages((current) =>
+      current.map((stage) => ({
+        ...stage,
+        tasks: stage.tasks.map((task) =>
+          (task.name || "").trim().toLowerCase() === normalized
+            ? { ...task, [key]: value }
+            : task
+        ),
+      }))
+    );
+  }
+  const uniqueRoles = [...new Set(stageRoleTasks.map((task) => task.role).filter(Boolean))];
 
   return (
     <section className="w-full space-y-4">
@@ -502,6 +568,13 @@ export default function LeadStageTasks({ leadForms = [] }) {
         text="These auto-create the right tasks when a lead enters a stage. You map tasks once, then every stage change creates follow-ups automatically."
       />
 
+      {formError && (
+        <div className="flex items-center gap-2 rounded-xl border border-rose-200 bg-rose-50 px-4 py-2.5 text-xs font-semibold text-rose-700">
+          <X size={14} className="shrink-0" />
+          <span>{formError}</span>
+        </div>
+      )}
+
       <div className="relative bg-gradient-to-br from-white via-white to-slate-50/70 rounded-2xl border border-slate-200 shadow-sm mb-8 overflow-hidden">
         <span aria-hidden="true" className="absolute inset-y-0 left-0 w-1 bg-gradient-to-b from-cyan-500 to-blue-600" />
         <div
@@ -519,11 +592,11 @@ export default function LeadStageTasks({ leadForms = [] }) {
               <div className="flex flex-wrap items-center gap-2">
                 <h3 className="text-sm font-bold text-slate-900">Task Roles</h3>
                 <span className="text-[11px] font-bold text-white bg-gradient-to-r from-blue-500 to-indigo-600 px-2 py-0.5 rounded-full shadow-sm">
-                  {allRoleTasks.length} Tasks
+                  {stageRoleTasks.length} Tasks
                 </span>
               </div>
               <p className="text-xs text-slate-500 mt-0.5">
-                Each task is done by one role. When a task is created on a lead it goes to whoever owns that role on the lead.
+                Tasks added to lead stages with their assigned roles and departments.
               </p>
               {uniqueRoles.length > 0 && (
                 <div className="mt-2 flex flex-wrap items-center gap-1.5">
@@ -549,20 +622,6 @@ export default function LeadStageTasks({ leadForms = [] }) {
               )}
             </div>
           </div>
-
-          <button
-            type="button"
-            onClick={(e) => {
-              e.stopPropagation();
-              addTask(stages[0]?.id);
-            }}
-            disabled={stages.length === 0}
-            title={stages.length === 0 ? "No stages configured yet" : "Add a task"}
-            className="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-semibold rounded-lg border border-blue-200 bg-gradient-to-r from-blue-50 to-indigo-50 text-blue-700 shadow-sm transition hover:-translate-y-px hover:border-blue-400 hover:shadow-md hover:shadow-blue-500/15 cursor-pointer shrink-0 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:translate-y-0"
-          >
-            <Plus size={14} />
-            Add Task
-          </button>
         </div>
 
         {isTaskRolesOpen && (
@@ -573,25 +632,24 @@ export default function LeadStageTasks({ leadForms = [] }) {
                   <th className="px-5 py-3">TASK</th>
                   <th className="px-4 py-3">ROLE</th>
                   <th className="px-4 py-3">DEPARTMENT</th>
-                  <th className="px-4 py-3">MAX REPEATS</th>
                   <th className="px-5 py-3 text-center">ACTION</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
-                {allRoleTasks.length === 0 && (
+                {stageRoleTasks.length === 0 && (
                   <tr>
-                    <td colSpan={5} className="px-5 py-9 text-center">
+                    <td colSpan={4} className="px-5 py-9 text-center">
                       <span className="mx-auto mb-2.5 grid h-10 w-10 place-items-center rounded-xl bg-gradient-to-br from-slate-100 to-slate-200/70 text-slate-400">
                         <ClipboardList size={18} />
                       </span>
                       <p className="text-xs text-slate-400">
-                        No stage tasks yet. Click <span className="font-semibold text-slate-500">“Add Task”</span> to create the first one.
+                        No stage tasks yet. Click <span className="font-semibold text-slate-500">Add Stage Task</span> and then Create to display a task here.
                       </p>
                     </td>
                   </tr>
                 )}
-                {allRoleTasks.map((task) => (
-                  <tr key={task.id} className="even:bg-slate-50/40 hover:bg-blue-50/40 transition">
+                {stageRoleTasks.map((task) => (
+                  <tr key={`${task.stageId}-${task.id}`} className="even:bg-slate-50/40 hover:bg-blue-50/40 transition">
                     <td className="px-5 py-3.5 font-bold text-slate-800 whitespace-nowrap">
                       {task.name}
                     </td>
@@ -599,13 +657,12 @@ export default function LeadStageTasks({ leadForms = [] }) {
                       <select
                         value={task.role}
                         onChange={(e) =>
-                          updateTask(task.stageId, task.id, "role", e.target.value)
+                          updateTaskRoleForName(task.name, "role", e.target.value)
                         }
                         className="w-full max-w-xs bg-white border border-slate-200 rounded-lg px-3 py-1.5 text-xs text-slate-700 focus:outline-none focus:border-blue-500 shadow-2xs cursor-pointer"
                       >
                         <option>BDE</option>
                         <option>Sales Support Executive</option>
-                        <option>BDE</option>
                         <option>Area Sales Manager</option>
                       </select>
                     </td>
@@ -613,7 +670,7 @@ export default function LeadStageTasks({ leadForms = [] }) {
                       <select
                         value={task.department || "Any"}
                         onChange={(e) =>
-                          updateTask(task.stageId, task.id, "department", e.target.value)
+                          updateTaskRoleForName(task.name, "department", e.target.value)
                         }
                         className="w-full max-w-xs bg-white border border-slate-200 rounded-lg px-3 py-1.5 text-xs text-slate-700 focus:outline-none focus:border-blue-500 shadow-2xs cursor-pointer"
                       >
@@ -621,13 +678,6 @@ export default function LeadStageTasks({ leadForms = [] }) {
                         <option>Sales</option>
                         <option>Support</option>
                       </select>
-                    </td>
-                    <td className="px-4 py-3.5">
-                      <NumberStepper
-                        value={task.repeats}
-                        onChange={(v) => updateTask(task.stageId, task.id, "repeats", v)}
-                        ariaLabel="max repeats"
-                      />
                     </td>
                     <td className="px-5 py-3.5 text-center whitespace-nowrap">
                       <div className="inline-flex items-center gap-2">
@@ -637,14 +687,6 @@ export default function LeadStageTasks({ leadForms = [] }) {
                           className="px-4 py-1.5 bg-gradient-to-r from-blue-700 to-indigo-700 hover:from-blue-800 hover:to-indigo-800 text-white text-xs font-semibold rounded-lg shadow-sm transition cursor-pointer"
                         >
                           Save
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => deleteTask(task.stageId, task.id)}
-                          className="p-1.5 text-rose-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition cursor-pointer"
-                          title="Delete task"
-                        >
-                          <Trash2 size={15} />
                         </button>
                       </div>
                     </td>
@@ -824,13 +866,22 @@ export default function LeadStageTasks({ leadForms = [] }) {
                                   value={task.name}
                                   onChange={(e) => {
                                     const newName = e.target.value;
-                                    const newRole = TASK_ROLE_MAP[newName] || task.role;
+                                    if (newName && isDuplicateTaskName(stage.id, newName, task.id)) {
+                                      setFormError(`"${newName.trim()}" already exists in this stage. Duplicate tasks are not allowed.`);
+                                      setTimeout(() => setFormError(""), 3500);
+                                      return;
+                                    }
+                                    const selectedMaster = (Array.isArray(storeMasterTasks) ? storeMasterTasks : []).find(
+                                      (m) => (m.name || m.title || "") === newName
+                                    );
+                                    const newRole = selectedMaster?.role || TASK_ROLE_MAP[newName] || task.role;
                                     updateTask(stage.id, task.id, "name", newName);
                                     updateTask(stage.id, task.id, "role", newRole);
                                   }}
                                   className="w-full bg-white border border-slate-200 rounded-lg px-3 py-1.5 text-xs text-slate-800 focus:outline-none focus:border-blue-500 shadow-2xs cursor-pointer"
                                 >
-                                  {taskOptions.map((opt) => (
+                                  <option value="">Select Task</option>
+                                  {[...new Set([...taskOptions, task.name].filter(Boolean))].map((opt) => (
                                     <option key={opt} value={opt}>
                                       {opt}
                                     </option>
@@ -918,6 +969,7 @@ export default function LeadStageTasks({ leadForms = [] }) {
                               onChange={(e) => updateDraft(stage.id, "name", e.target.value)}
                               className="w-full bg-white border border-slate-200 rounded-lg px-3 py-1.5 text-xs text-slate-800 focus:outline-none focus:border-blue-500 shadow-2xs cursor-pointer"
                             >
+                              <option value="">Select Task</option>
                               {taskOptions.map((opt) => (
                                 <option key={opt} value={opt}>
                                   {opt}
@@ -1008,7 +1060,7 @@ export default function LeadStageTasks({ leadForms = [] }) {
             onMouseDown={(e) => e.stopPropagation()}
           >
             <div className="flex items-center justify-between px-5 py-4 border-b border-slate-100">
-              <h2 className="text-sm font-bold text-slate-900">Create New Master Task</h2>
+              <h2 className="text-sm font-bold text-slate-900">Add Task to Stage</h2>
               <button
                 type="button"
                 onClick={closeTaskModal}
@@ -1020,18 +1072,32 @@ export default function LeadStageTasks({ leadForms = [] }) {
             </div>
 
             <div className="p-5 space-y-3.5 max-h-[75vh] overflow-y-auto text-xs">
+              {formError && taskModalStageId && (
+                <div className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-xs font-semibold text-rose-700">
+                  {formError}
+                </div>
+              )}
               <div>
                 <label className="block text-xs font-semibold text-slate-700 mb-1">
                   Task Name <span className="text-rose-500">*</span>
                 </label>
-                <input
+                <select
                   autoFocus
                   value={masterTask.name}
-                  onChange={(e) => updateMasterTask("name", e.target.value)}
-                  placeholder="Enter Task Name"
+                  onChange={(e) => handleMasterTaskSelect(e.target.value)}
                   required
-                  className="w-full px-3 py-1.5 bg-white border border-slate-200 rounded-lg focus:outline-none focus:border-blue-500 shadow-2xs text-slate-800"
-                />
+                  className="w-full px-3 py-1.5 bg-white border border-slate-200 rounded-lg focus:outline-none focus:border-blue-500 shadow-2xs text-slate-800 cursor-pointer"
+                >
+                  <option value="">Select Task</option>
+                  {(Array.isArray(storeMasterTasks) ? storeMasterTasks : []).map((m) => {
+                    const taskName = m.name || m.title || "";
+                    return (
+                      <option key={m.id} value={taskName}>
+                        {taskName}
+                      </option>
+                    );
+                  })}
+                </select>
               </div>
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -1046,7 +1112,6 @@ export default function LeadStageTasks({ leadForms = [] }) {
                   >
                     <option>BDE</option>
                     <option>Sales Support Executive</option>
-                    <option>BDE</option>
                     <option>Area Sales Manager</option>
                   </select>
                 </div>

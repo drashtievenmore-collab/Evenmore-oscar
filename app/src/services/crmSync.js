@@ -180,10 +180,13 @@ function taskFromApi(row) {
       'title', 'description', 'assigneeName', 'assigneeRole',
       'department', 'priority', 'status', 'source',
     ]),
+    id: row.id,
+    leadId: row.leadId || row.lead_id || undefined,
+    dealId: row.dealId || row.deal_id || undefined,
+    assigneeId: row.assigneeId || row.assignee_id || undefined,
+    assigneeName: row.assigneeName || '',
+    leadName: row.leadName || '',
     dueDate: displayIn(row.dueDate),
-    // The task tables read `lead` and `owner` as plain labels; the API names
-    // them `leadName` and `assigneeName`. Both have to be present, because a
-    // column whose value is `undefined` falls back to rendering the whole row.
     lead: row.leadName || '',
     owner: row.assigneeName || 'Unassigned',
     due: displayIn(row.dueDate),
@@ -191,7 +194,6 @@ function taskFromApi(row) {
     completedBy: typeof row.completedBy === 'object'
       ? (row.completedBy?.name || '')
       : (row.completedBy || ''),
-    // A nested task would otherwise be handed to a cell renderer as a value.
     followUpTaskId: row.followUpTask?.id || row.followUpTask || null,
     followUpTask: undefined,
     _synced: true,
@@ -285,7 +287,8 @@ export const CRM_RESOURCES = {
         stages: ids.length > 0 ? ids : undefined,
         isActive: t.isActive ?? (t.status != null ? t.status === 'Active' : undefined),
         icon: t.icon || undefined,
-        taskFormId: t.taskFormId || undefined,
+        // An explicit empty selection clears the link; omission preserves it.
+        taskFormId: t.taskFormId === undefined ? undefined : (t.taskFormId || null),
       });
     },
     fromApi: (row) => {
@@ -310,7 +313,7 @@ export const CRM_RESOURCES = {
         status: row.status ?? (isActive ? 'Active' : 'Inactive'),
         isActive,
         is_active: isActive,
-        icon: row.icon || 'call',
+        icon: row.icon || 'follow-up',
         taskFormId: row.taskFormId ?? row.task_form_id ?? '',
         _synced: true,
       };
@@ -345,15 +348,16 @@ export const CRM_RESOURCES = {
   taskAllocations: {
     path: '/crm/task-allocations/',
     toApi: (a) => compact({
-      taskId: a.taskId || undefined,
-      masterTaskId: a.masterTaskId || undefined,
-      assigneeId: a.assigneeId || undefined,
-      role: a.role || undefined,
-      department: a.department || undefined,
-      status: a.status || undefined,
-      dueDate: isoOut(a.dueDate),
+      title: a.title,
+      description: a.description,
+      assigneeId: a.assigneeId,
+      department: a.department,
+      priority: a.priority,
+      deadline: a.deadline,
+      status: a.status,
+      fileName: a.fileName,
     }),
-    fromApi: (row) => ({ ...row, dueDate: displayIn(row.dueDate), _synced: true }),
+    fromApi: (row) => ({ ...asText(row, ['assignee', 'assignedBy', 'department']), _synced: true }),
   },
 
   userAllocations: {

@@ -4,7 +4,8 @@ import AdministrationGuideButton from './AdministrationGuideButton';
 import KpiCard from '../../components/ui/KpiCard';
 import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { Link } from 'react-router-dom';
-import { adminSync, describeError } from '../../services/adminSync';
+import { adminSync, describeError, pullCustomerClients } from '../../services/adminSync';
+import { useERP } from '../../context/ERPContext';
 import {
   Users,
   UserCheck,
@@ -51,21 +52,6 @@ import {
 } from 'lucide-react';
 
 const CLIENTS_PER_PAGE = 12;
-
-const AVATAR_PRESETS = [
-  'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80',
-  'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=150&auto=format&fit=crop&q=80',
-  'https://images.unsplash.com/photo-1500648767791-00dcc994a43e?w=150&auto=format&fit=crop&q=80',
-  'https://images.unsplash.com/photo-1573496359142-b8d87734a5a2?w=150&auto=format&fit=crop&q=80',
-  'https://images.unsplash.com/photo-1622253692010-333f2da6031d?w=150&auto=format&fit=crop&q=80',
-  'https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?w=150&auto=format&fit=crop&q=80',
-  'https://images.unsplash.com/photo-1544005313-94ddf0286df2?w=150&auto=format&fit=crop&q=80',
-  'https://images.unsplash.com/photo-1519085360753-af0119f7cbe7?w=150&auto=format&fit=crop&q=80',
-  'https://images.unsplash.com/photo-1612349317150-e413f6a5b16d?w=150&auto=format&fit=crop&q=80',
-  'https://images.unsplash.com/photo-1539571696357-5a69c17a67c6?w=150&auto=format&fit=crop&q=80',
-  'https://images.unsplash.com/photo-1506794778202-cad84cf45f1d?w=150&auto=format&fit=crop&q=80',
-  'https://images.unsplash.com/photo-1580489944761-15a19d654956?w=150&auto=format&fit=crop&q=80',
-];
 
 /** Lower-cased text, safe on a field the server left unset. */
 function text(value) {
@@ -155,15 +141,32 @@ function ClientAvatar({ client, size = 'md', className = '' }) {
 }
 
 export function ClientsPage() {
-  // Tenants, from /admin/clients/.
+  const { refreshFromBackend } = useERP();
   const [clients, setClients] = useState([]);
+  const [loadError, setLoadError] = useState('');
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     let cancelled = false;
-    adminSync.pull('clients').then((rows) => {
-      if (!cancelled && rows) setClients(rows);
-    });
-    return () => { cancelled = true; };
+    const loadClients = async () => {
+      try {
+        const rows = await pullCustomerClients();
+        if (!cancelled) {
+          setClients(rows);
+          setLoadError('');
+        }
+      } catch (error) {
+        if (!cancelled) setLoadError(describeError(error));
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    };
+    loadClients();
+    window.addEventListener('focus', loadClients);
+    return () => {
+      cancelled = true;
+      window.removeEventListener('focus', loadClients);
+    };
   }, []);
 
   const [searchQuery, setSearchQuery] = useState('');
@@ -213,20 +216,14 @@ export function ClientsPage() {
   }, [clients]);
 
   const stats = useMemo(() => {
-    const totalClients = 128;
-    const activeClients = 46;
-    const clientsWithDeals = 24;
-    const clientsWithProjects = 18;
-    const clientSatisfaction = '96%';
-
     return {
-      total: totalClients,
-      active: activeClients,
-      withDeals: clientsWithDeals,
-      withProjects: clientsWithProjects,
-      satisfaction: clientSatisfaction,
+      total: clients.length,
+      active: clients.filter((client) => client.status === 'Active').length,
+      withDeals: clients.filter((client) => client.deals > 0).length,
+      withProjects: clients.filter((client) => client.projects > 0).length,
+      dualPartners: clients.filter((client) => client.type === 'Both').length,
     };
-  }, []);
+  }, [clients]);
 
   const filteredClients = useMemo(() => {
     return clients.filter((c) => {
@@ -234,6 +231,7 @@ export function ClientsPage() {
       const matchesSearch =
         !q ||
         text(c.name).includes(q) ||
+        text(c.code).includes(q) ||
         text(c.email).includes(q) ||
         text(c.phone).includes(q) ||
         text(c.company).includes(q) ||
@@ -260,6 +258,9 @@ export function ClientsPage() {
   }, [clients, searchQuery, selectedCategory, selectedStatus, selectedLocation, selectedTag]);
 
   const totalPages = Math.max(1, Math.ceil(filteredClients.length / CLIENTS_PER_PAGE));
+  useEffect(() => {
+    setCurrentPage((page) => Math.min(page, totalPages));
+  }, [totalPages]);
   const paginatedClients = useMemo(() => {
     const start = (currentPage - 1) * CLIENTS_PER_PAGE;
     return filteredClients.slice(start, start + CLIENTS_PER_PAGE);
@@ -268,14 +269,13 @@ export function ClientsPage() {
   const handleSaveClient = async (clientData) => {
     try {
       if (editingClient) {
-        setClients((prev) =>
-          prev.map((c) => (c.id === editingClient.id ? { ...c, ...clientData } : c))
-        );
-        const saved = await adminSync.update('clients', editingClient.id, clientData);
+        const saved = await adminSync.update('customerClients', editingClient.id, clientData);
+        if (!saved) throw new Error('The client could not be saved. Please sign in again.');
         if (saved) setClients((prev) => prev.map((c) => (c.id === saved.id ? saved : c)));
         showNotification(`Client "${clientData.name}" updated successfully!`);
       } else {
-        const created = await adminSync.create('clients', clientData);
+        const created = await adminSync.create('customerClients', clientData);
+        if (!created) throw new Error('The client could not be saved. Please sign in again.');
         if (created) {
           setClients((prev) => [created, ...prev]);
           showNotification(`New client "${created.name}" created successfully!`);
@@ -283,37 +283,26 @@ export function ClientsPage() {
       }
     } catch (err) {
       showNotification(`Client not saved — ${describeError(err)}`);
-      return;
+      return false;
     }
+    refreshFromBackend();
     setIsCreateModalOpen(false);
     setEditingClient(null);
+    return true;
   };
 
-  const handleDeleteClient = () => {
+  const handleDeleteClient = async () => {
     if (!clientToDelete) return;
-    setClients((prev) => prev.filter((c) => c.id !== clientToDelete.id));
-    adminSync.remove('clients', clientToDelete.id)
-      .catch((err) => showNotification(`Client not deleted — ${describeError(err)}`));
-    showNotification(`Client "${clientToDelete.name}" deleted.`);
-    setClientToDelete(null);
-  };
-
-  const handleToggleLogin = (client) => {
-    const updatedStatus = !client.loginEnabled;
-    setClients((prev) =>
-      prev.map((c) => (c.id === client.id ? { ...c, loginEnabled: updatedStatus } : c))
-    );
-    adminSync.update('clients', client.id, { loginEnabled: updatedStatus })
-      .catch((err) => showNotification(`Login access not saved — ${describeError(err)}`));
-    setOpenMenuClientId(null);
-    showNotification(
-      `Login access for ${client.name} is now ${updatedStatus ? 'Enabled' : 'Disabled'}.`
-    );
-  };
-
-  const handleResetPassword = (client) => {
-    setOpenMenuClientId(null);
-    showNotification(`Password reset instructions sent to ${client.email}`);
+    try {
+      const deleted = await adminSync.remove('customerClients', clientToDelete.id);
+      if (!deleted) throw new Error('The client could not be deleted. Please sign in again.');
+      setClients((prev) => prev.filter((c) => c.id !== clientToDelete.id));
+      refreshFromBackend();
+      showNotification(`Client "${clientToDelete.name}" deleted.`);
+      setClientToDelete(null);
+    } catch (error) {
+      showNotification(`Client not deleted: ${describeError(error)}`);
+    }
   };
 
   const handleAddNoteToClient = (noteText) => {
@@ -430,41 +419,14 @@ export function ClientsPage() {
         text="Keep client contact details and business information in one place. Review related deals and projects, update client records and use filters to find the customers you need."
       />
 
+      {loadError && <div role="alert" className="rounded-xl border border-rose-200 bg-rose-50 p-3 text-sm text-rose-700">Unable to load clients: {loadError}</div>}
+      {loading && <p role="status" className="text-sm text-slate-500">Loading clients...</p>}
       <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4">
-        <KpiCard label="Total Clients" value={stats.total} icon={Users} tone="blue">
-            <div className="text-[11px] font-semibold text-emerald-600 mt-1 flex items-center gap-1">
-              <span>↑ 12%</span>
-              <span className="text-slate-400 font-normal">vs last month</span>
-            </div>
-        </KpiCard>
-
-        <KpiCard label="Active Clients" value={stats.active} icon={UserCheck} tone="emerald">
-            <div className="text-[11px] font-semibold text-emerald-600 mt-1 flex items-center gap-1">
-              <span>↑ 18%</span>
-              <span className="text-slate-400 font-normal">vs last month</span>
-            </div>
-        </KpiCard>
-
-        <KpiCard label="Clients with Deals" value={stats.withDeals} icon={Handshake} tone="sky">
-            <div className="text-[11px] font-semibold text-emerald-600 mt-1 flex items-center gap-1">
-              <span>↑ 8%</span>
-              <span className="text-slate-400 font-normal">vs last month</span>
-            </div>
-        </KpiCard>
-
-        <KpiCard label="Clients with Projects" value={stats.withProjects} icon={Folder} tone="amber">
-            <div className="text-[11px] font-semibold text-emerald-600 mt-1 flex items-center gap-1">
-              <span>↑ 20%</span>
-              <span className="text-slate-400 font-normal">vs last month</span>
-            </div>
-        </KpiCard>
-
-        <KpiCard label="Client Satisfaction" value={stats.satisfaction} icon={Star} tone="orange">
-            <div className="text-[11px] font-semibold text-emerald-600 mt-1 flex items-center gap-1">
-              <span>↑ 4%</span>
-              <span className="text-slate-400 font-normal">vs last month</span>
-            </div>
-        </KpiCard>
+        <KpiCard label="Total Clients" value={stats.total} icon={Users} tone="blue" />
+        <KpiCard label="Active Clients" value={stats.active} icon={UserCheck} tone="emerald" />
+        <KpiCard label="Clients with Deals" value={stats.withDeals} icon={Handshake} tone="sky" />
+        <KpiCard label="Clients with Projects" value={stats.withProjects} icon={Folder} tone="amber" />
+        <KpiCard label="Dual Partners" value={stats.dualPartners} icon={Building2} tone="orange" />
       </div>
 
       <div className="bg-white border border-slate-200 rounded-2xl p-3.5 shadow-2xs flex flex-col md:flex-row items-stretch md:items-center justify-between gap-3">
@@ -473,7 +435,7 @@ export function ClientsPage() {
             <Search size={16} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" />
             <input
               type="text"
-              placeholder="Search clients by name, email, phone..."
+              placeholder="Search clients by name, code, email, phone..."
               value={searchQuery}
               onChange={(e) => {
                 setSearchQuery(e.target.value);
@@ -492,11 +454,8 @@ export function ClientsPage() {
             className="px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-medium text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500"
           >
             <option value="All">All Clients</option>
-            <option value="VIP">VIP Clients</option>
-            <option value="Regular">Regular Clients</option>
-            <option value="Doctors">Doctors</option>
-            <option value="Leads">Leads</option>
-            <option value="Testing">Testing</option>
+            <option value="Customer">Customers</option>
+            <option value="Dual Partner">Dual Partners</option>
           </select>
 
           <select
@@ -510,6 +469,7 @@ export function ClientsPage() {
             <option value="All">All Status</option>
             <option value="Active">Active</option>
             <option value="Inactive">Inactive</option>
+            <option value="On Hold">On Hold</option>
           </select>
 
           <select
@@ -613,11 +573,7 @@ export function ClientsPage() {
                       <div className="min-w-0">
                         <h3 className="text-sm font-bold text-slate-900 truncate leading-tight flex items-center gap-1.5">
                           <span>{client.name}</span>
-                          {!client.loginEnabled && (
-                            <span className="text-[10px] bg-rose-50 text-rose-600 font-semibold px-1.5 py-0.2 rounded">
-                              Disabled
-                            </span>
-                          )}
+                          <span className="text-[10px] font-medium text-slate-500">{client.status}</span>
                         </h3>
                         <div className="text-[11px] text-slate-400 truncate mt-0.5 flex items-center gap-1">
                           <Mail size={11} className="flex-shrink-0" />
@@ -675,35 +631,6 @@ export function ClientsPage() {
                           >
                             <Trash2 size={14} className="text-rose-500" />
                             <span>Delete</span>
-                          </button>
-
-                          <div className="my-1 border-t border-slate-100" />
-
-                          <button
-                            type="button"
-                            onClick={() => handleToggleLogin(client)}
-                            className="w-full px-3.5 py-2 text-left text-xs font-semibold text-slate-700 hover:bg-slate-50 flex items-center gap-2.5 transition-colors"
-                          >
-                            {client.loginEnabled ? (
-                              <>
-                                <Ban size={14} className="text-amber-600" />
-                                <span>Login Disable</span>
-                              </>
-                            ) : (
-                              <>
-                                <CheckCircle2 size={14} className="text-emerald-600" />
-                                <span>Login Enable</span>
-                              </>
-                            )}
-                          </button>
-
-                          <button
-                            type="button"
-                            onClick={() => handleResetPassword(client)}
-                            className="w-full px-3.5 py-2 text-left text-xs font-semibold text-slate-700 hover:bg-slate-50 flex items-center gap-2.5 transition-colors"
-                          >
-                            <KeyRound size={14} className="text-sky-600" />
-                            <span>Reset Password</span>
                           </button>
 
                           <div className="my-1 border-t border-slate-100" />
@@ -968,7 +895,7 @@ export function ClientsPage() {
             </div>
 
             <p className="text-xs text-slate-600 leading-relaxed">
-              Are you sure you want to delete <strong>{clientToDelete.name}</strong>? All associated notes and communication history will be archived.
+              Are you sure you want to delete <strong>{clientToDelete.name}</strong>? This also removes the customer from the party directory.
             </p>
 
             <div className="flex flex-wrap lg:flex-nowrap items-center justify-end gap-2 mt-6 pt-3 border-t border-slate-100 text-xs">
@@ -1029,349 +956,62 @@ export function ClientsPage() {
 }
 
 function CreateEditClientModal({ client, onClose, onSave }) {
-  const [name, setName] = useState(client?.name || '');
-  const [email, setEmail] = useState(client?.email || '');
-  const [countryCode, setCountryCode] = useState('+91');
-  const [phoneNumber, setPhoneNumber] = useState(
-    client?.phone ? client.phone.replace(/^\+\d+\s*/, '') : ''
-  );
-  const [company, setCompany] = useState(client?.company || '');
-  const [location, setLocation] = useState(client?.location || '');
-  const [tags, setTags] = useState(client?.tags ? client.tags.join(', ') : 'Regular');
-  const [avatar, setAvatar] = useState(
-    client?.avatar || AVATAR_PRESETS[Math.floor(Math.random() * AVATAR_PRESETS.length)]
-  );
-  const [loginEnabled, setLoginEnabled] = useState(
-    client ? Boolean(client.loginEnabled) : true
-  );
-  const [password, setPassword] = useState('');
-  const [confirmPassword, setConfirmPassword] = useState('');
-  const [showPassword, setShowPassword] = useState(false);
-  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
-  const [errorMsg, setErrorMsg] = useState('');
-
-  const fileInputRef = useRef(null);
-
-  const handleFileUpload = (e) => {
-    const file = e.target.files[0];
-    if (file) {
-      if (file.size > 2 * 1024 * 1024) {
-        setErrorMsg('Image size exceeds 2MB limit.');
-        return;
-      }
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        setAvatar(reader.result);
-      };
-      reader.readAsDataURL(file);
-    }
-  };
-
-  const handleSubmit = (e) => {
-    e.preventDefault();
-    if (!name.trim()) {
-      setErrorMsg('Please enter a valid client name.');
-      return;
-    }
-    if (!email.trim()) {
-      setErrorMsg('Please enter a valid email address.');
-      return;
-    }
-    if (loginEnabled && !client && password !== confirmPassword) {
-      setErrorMsg('Passwords do not match.');
-      return;
-    }
-
-    const formattedTags = tags
-      .split(',')
-      .map((t) => t.trim())
-      .filter(Boolean);
-
-    const fullPhone = phoneNumber ? `${countryCode} ${phoneNumber.trim()}` : '';
-
-    onSave({
-      name: name.trim(),
-      email: email.trim(),
-      phone: fullPhone || '+91 98765 43210',
-      company: company.trim(),
-      location: location.trim() || 'Surat, India',
-      tags: formattedTags.length > 0 ? formattedTags : ['Regular'],
-      avatar,
-      loginEnabled,
+  const [form, setForm] = useState({
+    name: client?.name || '',
+    email: client?.email || '',
+    phone: client?.phone || '',
+    location: client?.billingAddress?.city || '',
+    status: client?.status || 'Active',
+  });
+  const [saving, setSaving] = useState(false);
+  const handleSubmit = async (event) => {
+    event.preventDefault();
+    if (saving || !form.name.trim()) return;
+    setSaving(true);
+    const saved = await onSave({
+      name: form.name.trim(),
+      email: form.email.trim(),
+      phone: form.phone.trim(),
+      status: form.status,
+      billingAddress: { ...client?.billingAddress, city: form.location.trim() },
     });
+    if (!saved) setSaving(false);
   };
 
   return (
-    <div className="fixed inset-0 z-50 bg-slate-900/40 backdrop-blur-xs flex items-center justify-center p-2 sm:p-4 overflow-y-auto">
-      <div className="bg-white rounded-2xl max-w-lg w-full p-4 sm:p-6 shadow-2xl border border-slate-100 my-4 sm:my-8">
-        <div className="flex items-center justify-between pb-3 border-b border-slate-100">
-          <h3 className="text-base font-bold text-slate-900">
-            {client ? 'Edit Client' : 'Create New Client'}
-          </h3>
-          <button
-            onClick={onClose}
-            className="w-7 h-7 rounded-lg flex items-center justify-center text-slate-400 hover:text-slate-700"
-          >
-            <X size={16} />
+    <div className="fixed inset-0 z-50 bg-slate-900/40 backdrop-blur-xs flex items-center justify-center p-4">
+      <form onSubmit={handleSubmit} className="bg-white rounded-2xl max-w-lg w-full p-6 shadow-2xl space-y-4">
+        <div className="flex items-center justify-between">
+          <h3 className="text-base font-bold text-slate-900">{client ? 'Edit Client' : 'Create New Client'}</h3>
+          <button type="button" onClick={onClose} disabled={saving} aria-label="Close"><X size={18} /></button>
+        </div>
+        {[
+          ['name', 'Client Name', 'text'],
+          ['email', 'Email Address', 'email'],
+          ['phone', 'Phone Number', 'tel'],
+          ['location', 'City', 'text'],
+        ].map(([key, label, type]) => (
+          <label key={key} className="block text-xs font-semibold text-slate-700">
+            {label}{key === 'name' ? ' *' : ''}
+            <input type={type} required={key === 'name'} value={form[key]} disabled={saving}
+              onChange={(event) => setForm({ ...form, [key]: event.target.value })}
+              className="mt-1 w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl" />
+          </label>
+        ))}
+        <label className="block text-xs font-semibold text-slate-700">
+          Status
+          <select value={form.status} disabled={saving} onChange={(event) => setForm({ ...form, status: event.target.value })}
+            className="mt-1 w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl">
+            {['Active', 'On Hold', 'Inactive'].map((status) => <option key={status}>{status}</option>)}
+          </select>
+        </label>
+        <div className="flex justify-end gap-2">
+          <button type="button" onClick={onClose} disabled={saving} className="px-4 py-2 rounded-xl bg-slate-100 text-sm">Cancel</button>
+          <button type="submit" disabled={saving} className="px-4 py-2 rounded-xl bg-blue-600 text-white text-sm disabled:opacity-50">
+            {saving ? 'Saving...' : 'Save Client'}
           </button>
         </div>
-
-        {errorMsg && (
-          <div className="mt-3 p-2.5 bg-rose-50 border border-rose-200 text-rose-700 text-xs rounded-xl flex items-center gap-2">
-            <AlertTriangle size={14} />
-            <span>{errorMsg}</span>
-          </div>
-        )}
-
-        <form onSubmit={handleSubmit} className="space-y-4 mt-4 text-xs">
-          <div className="flex flex-col sm:flex-row items-center gap-4 p-3.5 bg-slate-50 rounded-2xl border border-slate-200/80">
-            <div className="relative group flex-shrink-0">
-              {avatar ? (
-                <img
-                  src={avatar}
-                  alt="Avatar preview"
-                  className="w-16 h-16 rounded-full object-cover border-2 border-white shadow-xs"
-                />
-              ) : (
-                <div className="w-16 h-16 rounded-full bg-blue-100 text-blue-700 font-bold flex items-center justify-center text-lg">
-                  {name ? getInitials(name) : 'CL'}
-                </div>
-              )}
-              <button
-                type="button"
-                onClick={() => fileInputRef.current?.click()}
-                className="absolute inset-0 bg-black/40 rounded-full flex items-center justify-center text-white opacity-0 group-hover:opacity-100 transition-opacity"
-              >
-                <Camera size={18} />
-              </button>
-              <input
-                type="file"
-                ref={fileInputRef}
-                onChange={handleFileUpload}
-                accept="image/*"
-                className="hidden"
-              />
-            </div>
-
-            <div className="flex-1 text-center sm:text-left">
-              <div className="flex items-center justify-center sm:justify-start gap-2">
-                <button
-                  type="button"
-                  onClick={() => fileInputRef.current?.click()}
-                  className="px-3 py-1.5 bg-white border border-slate-200 text-slate-700 font-semibold rounded-lg hover:bg-slate-100 flex items-center gap-1.5"
-                >
-                  <Upload size={13} />
-                  <span>Upload Photo</span>
-                </button>
-                <span className="text-[11px] text-slate-400">JPG, PNG (Max 2MB)</span>
-              </div>
-
-              <div className="flex items-center justify-center sm:justify-start gap-1.5 mt-2">
-                <span className="text-[10px] text-slate-400">Presets:</span>
-                {AVATAR_PRESETS.slice(0, 5).map((preset, idx) => (
-                  <img
-                    key={idx}
-                    src={preset}
-                    alt="Preset"
-                    onClick={() => setAvatar(preset)}
-                    className={`w-6 h-6 rounded-full object-cover cursor-pointer border hover:scale-110 transition-transform ${
-                      avatar === preset ? 'ring-2 ring-blue-500' : ''
-                    }`}
-                  />
-                ))}
-              </div>
-            </div>
-          </div>
-
-          <div>
-            <label className="block font-semibold text-slate-700 mb-1">
-              Name <span className="text-rose-500">*</span>
-            </label>
-            <input
-              type="text"
-              required
-              placeholder="Enter client name"
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 text-xs"
-            />
-          </div>
-
-          <div>
-            <label className="block font-semibold text-slate-700 mb-1">
-              Email Address <span className="text-rose-500">*</span>
-            </label>
-            <input
-              type="email"
-              required
-              placeholder="Enter client email"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 text-xs"
-            />
-          </div>
-
-          <div>
-            <label className="block font-semibold text-slate-700 mb-1">
-              Phone Number <span className="text-rose-500">*</span>
-            </label>
-            <div className="flex gap-2">
-              <select
-                value={countryCode}
-                onChange={(e) => setCountryCode(e.target.value)}
-                className="w-24 p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-blue-500"
-              >
-                <option value="+91">🇮🇳 +91</option>
-                <option value="+1">🇺🇸 +1</option>
-                <option value="+44">🇬🇧 +44</option>
-                <option value="+971">🇦🇪 +971</option>
-                <option value="+61">🇦🇺 +61</option>
-              </select>
-              <input
-                type="text"
-                placeholder="Enter phone number"
-                value={phoneNumber}
-                onChange={(e) => setPhoneNumber(e.target.value)}
-                className="flex-1 p-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 text-xs"
-              />
-            </div>
-          </div>
-
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <div>
-              <label className="block font-semibold text-slate-700 mb-1">Company (Optional)</label>
-              <input
-                type="text"
-                placeholder="Enter company name"
-                value={company}
-                onChange={(e) => setCompany(e.target.value)}
-                className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 text-xs"
-              />
-            </div>
-
-            <div>
-              <label className="block font-semibold text-slate-700 mb-1">Location</label>
-              <input
-                type="text"
-                placeholder="Enter location (e.g. Surat, India)"
-                value={location}
-                onChange={(e) => setLocation(e.target.value)}
-                className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 text-xs"
-              />
-            </div>
-          </div>
-
-          <div>
-            <label className="block font-semibold text-slate-700 mb-1">Tags</label>
-            <input
-              type="text"
-              placeholder="Select or type tags (comma separated, e.g. VIP, Regular)"
-              value={tags}
-              onChange={(e) => setTags(e.target.value)}
-              className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 text-xs"
-            />
-            <div className="flex flex-wrap gap-1 mt-1.5">
-              {['VIP', 'Regular', 'Doctor', 'New', 'Follow-up', 'International'].map((t) => (
-                <button
-                  type="button"
-                  key={t}
-                  onClick={() => {
-                    const current = tags.split(',').map((x) => x.trim()).filter(Boolean);
-                    if (!current.includes(t)) {
-                      setTags([...current, t].join(', '));
-                    }
-                  }}
-                  className="text-[10px] px-2 py-0.5 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded"
-                >
-                  + {t}
-                </button>
-              ))}
-            </div>
-          </div>
-
-          <div className="pt-2 border-t border-slate-100">
-            <div className="flex items-center justify-between gap-3 lg:gap-0">
-              <div>
-                <span className="font-bold text-slate-800">Login Enable</span>
-                <p className="text-[11px] text-slate-400">Allow this client to login to the client portal</p>
-              </div>
-              <label className="relative inline-flex items-center cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={loginEnabled}
-                  onChange={(e) => setLoginEnabled(e.target.checked)}
-                  className="sr-only peer"
-                />
-                <div className="w-11 h-6 bg-slate-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-[#1f6bff]"></div>
-              </label>
-            </div>
-          </div>
-
-          {loginEnabled && !client && (
-            <div className="space-y-3 pt-2">
-              <div>
-                <label className="block font-semibold text-slate-700 mb-1">
-                  Password <span className="text-rose-500">*</span>
-                </label>
-                <div className="relative">
-                  <input
-                    type={showPassword ? 'text' : 'password'}
-                    placeholder="Set login password"
-                    value={password}
-                    onChange={(e) => setPassword(e.target.value)}
-                    className="w-full p-2.5 pr-9 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 text-xs"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => setShowPassword(!showPassword)}
-                    className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
-                  >
-                    {showPassword ? <EyeOff size={15} /> : <Eye size={15} />}
-                  </button>
-                </div>
-              </div>
-
-              <div>
-                <label className="block font-semibold text-slate-700 mb-1">
-                  Confirm Password <span className="text-rose-500">*</span>
-                </label>
-                <div className="relative">
-                  <input
-                    type={showConfirmPassword ? 'text' : 'password'}
-                    placeholder="Confirm password"
-                    value={confirmPassword}
-                    onChange={(e) => setConfirmPassword(e.target.value)}
-                    className="w-full p-2.5 pr-9 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 text-xs"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => setShowConfirmPassword(!showConfirmPassword)}
-                    className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
-                  >
-                    {showConfirmPassword ? <EyeOff size={15} /> : <Eye size={15} />}
-                  </button>
-                </div>
-              </div>
-            </div>
-          )}
-
-          <div className="flex flex-wrap lg:flex-nowrap items-center justify-end gap-2 pt-4 border-t border-slate-100">
-            <button
-              type="button"
-              onClick={onClose}
-              className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl font-semibold transition-colors"
-            >
-              Cancel
-            </button>
-            <button
-              type="submit"
-              className="px-5 py-2 bg-[#1f6bff] hover:bg-blue-700 text-white rounded-xl font-semibold shadow-xs transition-all"
-            >
-              {client ? 'Save Changes' : 'Create Client'}
-            </button>
-          </div>
-        </form>
-      </div>
+      </form>
     </div>
   );
 }
@@ -1448,7 +1088,7 @@ function ClientDetailDrawer({ client, onClose, onEdit }) {
                 <div className="flex items-center gap-3 p-2.5 rounded-xl bg-slate-50">
                   <Shield size={15} className="text-indigo-600 flex-shrink-0" />
                   <span className="text-slate-700 font-medium">
-                    Portal Login: {client.loginEnabled ? 'Enabled' : 'Disabled'}
+                    Customer Code: {client.code}
                   </span>
                 </div>
               </div>
