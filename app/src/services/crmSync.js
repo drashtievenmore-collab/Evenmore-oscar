@@ -178,7 +178,7 @@ function taskFromApi(row) {
   return {
     ...asText(row, [
       'title', 'description', 'assigneeName', 'assigneeRole',
-      'department', 'priority', 'status', 'source',
+      'department', 'priority', 'status', 'source', 'dueTime', 'icon',
     ]),
     id: row.id,
     leadId: row.leadId || row.lead_id || undefined,
@@ -187,6 +187,11 @@ function taskFromApi(row) {
     assigneeName: row.assigneeName || '',
     leadName: row.leadName || '',
     dueDate: displayIn(row.dueDate),
+    dueTime: row.dueTime || row.due_time || '',
+    startedAt: row.startedAt || row.started_at || undefined,
+    endedAt: row.endedAt || row.ended_at || undefined,
+    durationSeconds: row.durationSeconds ?? row.duration_seconds ?? 0,
+    icon: row.icon || 'call',
     lead: row.leadName || '',
     owner: row.assigneeName || 'Unassigned',
     due: displayIn(row.dueDate),
@@ -210,6 +215,11 @@ function taskToApi(task) {
     assigneeRole: task.assigneeRole || task.role || undefined,
     department: task.department || undefined,
     dueDate: isoOut(task.dueDate),
+    dueTime: task.dueTime || task.taskTime || undefined,
+    startedAt: task.startedAt || undefined,
+    endedAt: task.endedAt || undefined,
+    durationSeconds: task.durationSeconds ?? undefined,
+    icon: task.icon || undefined,
     priority: task.priority || undefined,
     status: task.status || undefined,
     outcome: task.outcome || undefined,
@@ -287,8 +297,6 @@ export const CRM_RESOURCES = {
         stages: ids.length > 0 ? ids : undefined,
         isActive: t.isActive ?? (t.status != null ? t.status === 'Active' : undefined),
         icon: t.icon || undefined,
-        // An explicit empty selection clears the link; omission preserves it.
-        taskFormId: t.taskFormId === undefined ? undefined : (t.taskFormId || null),
       });
     },
     fromApi: (row) => {
@@ -314,7 +322,6 @@ export const CRM_RESOURCES = {
         isActive,
         is_active: isActive,
         icon: row.icon || 'follow-up',
-        taskFormId: row.taskFormId ?? row.task_form_id ?? '',
         _synced: true,
       };
     },
