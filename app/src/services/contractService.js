@@ -1,6 +1,9 @@
 export { formatContractMoney, formatContractDate } from '../utils/contractFormatting.js';
 import { loadDeals, DEALS_STORAGE_KEY } from './dealService.js';
 import { crmStorage } from './crmStorage.js';
+import { crmSync, isBackendEnabled, isServerId } from './crmSync.js';
+import { crmService } from './domainServices.js';
+import { toISODate } from '../utils/dateUtils.js';
 import { emitCrmEvent, CRM_EVENT_TYPES } from './crmEventNotifications.js';
 
 export const CONTRACT_TYPES = [
@@ -87,6 +90,104 @@ function enrich(deal, contract) {
 }
 
 export function loadContracts(storage = crmStorage) {
+  const local = readLocalContracts(storage);
+  if (serverContractCache.length === 0) return local;
+  const byBackend = new Map(serverContractCache.map((c) => [String(c.backendId || c.id), c]));
+  const merged = local.map((c) => {
+    const key = c.backendId ? String(c.backendId) : null;
+    return key && byBackend.has(key) ? { ...byBackend.get(key), id: c.backendId, backendId: c.backendId } : c;
+  });
+  const known = new Set([
+    ...local.map((c) => String(c.backendId || c.id)),
+    ...merged.map((c) => String(c.backendId || c.id)),
+  ]);
+  serverContractCache.forEach((c) => {
+    if (!known.has(String(c.backendId || c.id))) merged.push(c);
+  });
+  return merged.sort((a, b) => Date.parse(b.createdAt || 0) - Date.parse(a.createdAt || 0));
+}
+
+/**
+ * Backend-first persistence. Contracts always belong to a deal, and the
+ * server owns numbering (`CON-…`), so every row that can live in Postgres
+ * does: `loadContracts()` merges the server cache with deal-nested local
+ * rows (matched by `backendId`), and creates/updates/deletes write through
+ * `/crm/contracts/` first. Rows without a linkable party stay local-only
+ * instead of 400ing.
+ */
+
+/** Server rows fetched by the last `refreshContractsCache()` (service shape). */
+let serverContractCache = [];
+
+function apiContractToServiceRow(server, deals = []) {
+  const deal = deals.find((d) => sameId(d.id, server.dealId || server.deal));
+  return {
+    id: server.id,
+    backendId: server.id,
+    contractNumber: server.contractNumber || server.contract_number || `CN-${String(server.id).slice(0, 8).toUpperCase()}`,
+    title: server.title || '',
+    customer: server.customerName || '',
+    customerId: server.customerId || undefined,
+    contractType: server.contractType || server.contract_type || 'Other',
+    amount: server.value ?? 0,
+    startDate: toISODate(server.startDate) || '',
+    endDate: toISODate(server.endDate) || '',
+    description: server.description || '',
+    terms: server.body || '',
+    template: server.templateKey || server.template_key || '',
+    status: server.status || 'Active',
+    attachments: [],
+    notifyCustomer: false,
+    dealId: server.dealId || server.deal || deal?.id || '',
+    dealName: deal?.name || '',
+    dealNumber: deal?.dealNumber || '',
+    leadId: deal?.leadId || '',
+    leadNumber: deal?.leadNumber || '',
+    projectId: deal?.projectId || '',
+    client: server.customerName || deal?.client || '',
+    createdAt: server.createdAt || server.created_at || new Date().toISOString(),
+    _synced: true,
+  };
+}
+
+/** Pull `/crm/contracts/` into the merge cache. Pages call this on mount. */
+export async function refreshContractsCache() {
+  if (!isBackendEnabled()) return [];
+  try {
+    const rows = await crmSync.pull('contracts');
+    let deals = [];
+    try { deals = loadDeals(); } catch { deals = []; }
+    serverContractCache = (rows || []).map((row) => apiContractToServiceRow(row, deals));
+    return serverContractCache;
+  } catch {
+    return [];
+  }
+}
+
+function serviceContractToApiPayload(contract, deal) {
+  return {
+    title: [contract.contractType, contract.customer].filter(Boolean).join(' — ') || contract.title || undefined,
+    customerId: contract.customerId || (isServerId(deal?.customerId || deal?.partyId) ? (deal.customerId || deal.partyId) : undefined),
+    dealId: isServerId(contract.dealId || deal?.id) ? (contract.dealId || deal.id) : undefined,
+    contractType: contract.contractType || undefined,
+    value: contract.amount ?? undefined,
+    startDate: contract.startDate || undefined,
+    endDate: contract.endDate || undefined,
+    status: contract.status || undefined,
+    templateKey: contract.template || undefined,
+    description: contract.description || undefined,
+    body: contract.terms || undefined,
+  };
+}
+
+function annotateNestedBackendId(deals, dealId, contractId, backendId, storage) {
+  const next = deals.map((item) => sameId(item.id, dealId)
+    ? { ...item, contracts: (item.contracts || []).map((entry) => sameId(entry.id, contractId) ? { ...entry, backendId } : entry) }
+    : item);
+  storage.setItem(DEALS_STORAGE_KEY, JSON.stringify(next));
+}
+
+function readLocalContracts(storage = crmStorage) {
   const deals = loadDeals(storage);
   let sequence = 0;
   deals.forEach((deal) => (deal.contracts || []).forEach((contract) => {
@@ -111,10 +212,16 @@ export function loadContracts(storage = crmStorage) {
 }
 
 export function findContract(contractId, storage = crmStorage) {
-  const deals = loadDeals(storage);
-  for (const deal of deals) {
-    const contract = (deal.contracts || []).find((item) => sameId(item.id, contractId));
-    if (contract) return { contract: enrich(deal, contract), deal };
+  // Merged list first, so server rows from another device resolve too.
+  const flat = loadContracts(storage);
+  const hit = flat.find((item) => sameId(item.id, contractId) || sameId(item.backendId, contractId));
+  if (hit) {
+    let deal = null;
+    try {
+      const deals = loadDeals(storage);
+      deal = deals.find((d) => sameId(d.id, hit.dealId)) || null;
+    } catch { deal = null; }
+    return { contract: hit, deal };
   }
   return { contract: null, deal: null };
 }
@@ -124,7 +231,7 @@ function writeDeals(deals, storage) {
   notifyUpdated();
 }
 
-export function createContract(input = {}, { storage = crmStorage } = {}) {
+export async function createContract(input = {}, { storage = crmStorage } = {}) {
   const deals = loadDeals(storage);
   const deal = deals.find((item) => sameId(item.id, input.dealId));
   if (!deal) throw new Error('Select a deal for this contract.');
@@ -159,10 +266,28 @@ export function createContract(input = {}, { storage = crmStorage } = {}) {
   };
   writeDeals(deals.map((item) => sameId(item.id, deal.id) ? { ...item, contracts: [contract, ...(item.contracts || [])] } : item), storage);
   appendDealActivity(deal.id, `Contract ${contract.contractNumber} created for ${customer}.`, 'CRM User', { storage });
+  // Backend-first: same row, server-owned numbering. Needs a linkable party;
+  // without one the nested local row is the record (as before).
+  if (isBackendEnabled()) {
+    const payload = serviceContractToApiPayload(contract, deal);
+    if (payload.customerId) {
+      try {
+        const saved = await crmSync.create('contracts', payload);
+        if (saved?.id) {
+          contract.backendId = saved.id;
+          annotateNestedBackendId(loadDeals(storage), deal.id, contract.id, saved.id, storage);
+        }
+      } catch (err) {
+        console.warn('[CRM Contract] backend save failed, kept locally:', err?.message || err);
+      }
+    } else {
+      console.warn('[CRM Contract] no linkable party — kept locally only.');
+    }
+  }
   return enrich(deal, contract);
 }
 
-export function updateContract(dealId, contractId, patch = {}, { storage = crmStorage } = {}) {
+export async function updateContract(dealId, contractId, patch = {}, { storage = crmStorage } = {}) {
   const deals = loadDeals(storage);
   const deal = deals.find((item) => sameId(item.id, dealId));
   if (!deal) throw new Error('Deal was not found.');
@@ -187,6 +312,13 @@ export function updateContract(dealId, contractId, patch = {}, { storage = crmSt
   writeDeals(deals.map((item) => sameId(item.id, deal.id)
     ? { ...item, contracts: (item.contracts || []).map((entry) => sameId(entry.id, contractId) ? updated : entry) }
     : item), storage);
+  if (current.backendId && isBackendEnabled() && isServerId(current.backendId)) {
+    try {
+      await crmSync.update('contracts', current.backendId, serviceContractToApiPayload(updated, deal));
+    } catch (err) {
+      console.warn('[CRM Contract] backend update failed, kept locally:', err?.message || err);
+    }
+  }
   if (current.status !== 'Active' && updated.status === 'Active') {
     emitCrmEvent({
       type: CRM_EVENT_TYPES.CONTRACT_SIGNED,
@@ -203,12 +335,19 @@ export function updateContract(dealId, contractId, patch = {}, { storage = crmSt
   return enrich(deal, updated);
 }
 
-export function deleteContract(dealId, contractId, { storage = crmStorage } = {}) {
+export async function deleteContract(dealId, contractId, { storage = crmStorage } = {}) {
   const deals = loadDeals(storage);
   const deal = deals.find((item) => sameId(item.id, dealId));
   if (!deal) throw new Error('Deal was not found.');
   const removed = (deal.contracts || []).find((item) => sameId(item.id, contractId));
   if (!removed) throw new Error('Contract was not found.');
+  if (removed.backendId && isBackendEnabled() && isServerId(removed.backendId)) {
+    try {
+      await crmSync.remove('contracts', removed.backendId);
+    } catch (err) {
+      console.warn('[CRM Contract] backend delete failed:', err?.message || err);
+    }
+  }
   writeDeals(deals.map((item) => sameId(item.id, deal.id)
     ? { ...item, contracts: (item.contracts || []).filter((entry) => !sameId(entry.id, contractId)) }
     : item), storage);
@@ -224,6 +363,11 @@ export function appendDealActivity(dealId, title, actor = 'CRM User', { storage 
     title, actor, timestamp: new Date().toISOString(), type: 'contract',
   };
   writeDeals(deals.map((item) => sameId(item.id, deal.id) ? { ...item, activities: [activity, ...(item.activities || [])] } : item), storage);
+  // Best-effort mirror into the server timeline (the audit trail stays source).
+  if (isBackendEnabled() && isServerId(dealId)) {
+    crmService.postDealActivity(dealId, { type: 'contract', description: title })
+      .catch((err) => console.warn('[CRM] deal activity not saved:', err?.message || err));
+  }
 }
 
 export function addDealActivity(dealId, entry = {}, { storage = crmStorage } = {}) {
@@ -238,5 +382,9 @@ export function addDealActivity(dealId, entry = {}, { storage = crmStorage } = {
     ...entry,
   };
   writeDeals(deals.map((item) => sameId(item.id, deal.id) ? { ...item, activities: [activity, ...(item.activities || [])] } : item), storage);
+  if (isBackendEnabled() && isServerId(dealId)) {
+    crmService.postDealActivity(dealId, { type: entry.type || 'note', description: entry.title || '' })
+      .catch((err) => console.warn('[CRM] deal activity not saved:', err?.message || err));
+  }
   return activity;
 }

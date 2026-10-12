@@ -27,7 +27,7 @@ export default function Onboarding() {
     completeOnboarding,
     verifyDocuments,
   } = useRecruitmentStore();
-  const { showToast, addEmployee, employees } = useAppStore();
+  const { showToast, employees } = useAppStore();
   const navigate = useNavigate();
   const [guideOpen, setGuideOpen] = useState(false);
 
@@ -47,36 +47,20 @@ export default function Onboarding() {
         e.name?.toLowerCase() === c.name?.toLowerCase()
     );
 
+    // The server converts the candidate to a real employee row
+    // (`POST /hrms/onboarding/{id}/complete/`) — no fabricated directory
+    // entries. Afterwards both lists re-read from the backend.
+    completeOnboarding(c.id).then(() =>
+      Promise.all([
+        useRecruitmentStore.getState().hydrate().catch(() => {}),
+        useAppStore.getState().refreshHrms("employees").catch(() => {}),
+      ])
+    ).catch(() => {});
     if (!isAlreadyEmployee) {
-      const matchingOffer = offers.find((o) => o.candidateId === c.id);
-      const newEmp = {
-        id: `EMP${1035 + (employees.length % 50)}`,
-        name: c.name,
-        email: c.email || `${String(c.name ?? '').toLowerCase().replace(/\s+/g, ".")}@company.com`,
-        avatar: c.avatar || "https://i.pravatar.cc/100?img=15",
-        img: c.avatar || "https://i.pravatar.cc/100?img=15",
-        designation: c.position || "Software Engineer",
-        department: c.position?.includes("Design")
-          ? "Design"
-          : c.position?.includes("HR")
-          ? "HR"
-          : "Engineering",
-        manager: matchingOffer?.reportingManager || "David Park",
-        location: c.location || "New York",
-        joining:
-          matchingOffer?.joiningDate ||
-          new Date().toLocaleDateString("en-IN", {
-            month: "short",
-            day: "2-digit",
-            year: "numeric",
-          }),
-        status: "Active",
-      };
-      addEmployee(newEmp);
+      showToast(`Onboarding completed & ${c.name} added to Employee Directory!`);
+    } else {
+      showToast(`Onboarding completed for ${c.name}!`);
     }
-
-    completeOnboarding(c.id);
-    showToast(`Onboarding completed & ${c.name} added to Employee Directory!`);
   }
 
   const completedCount = hired.filter((c) => onboardedMap?.[c.id]).length;

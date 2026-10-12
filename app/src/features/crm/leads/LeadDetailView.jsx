@@ -1,7 +1,7 @@
 import { findDealForLead } from '../../../services/dealService';
 import CrmKpiCard from '../common/CrmKpiCard';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { useNavigate, Link } from 'react-router-dom';
+import { useNavigate, useSearchParams, Link } from 'react-router-dom';
 import { useERP } from '../../../context/ERPContext';
 import { formatCurrency } from '../../../utils/currencyUtils';
 import {
@@ -24,7 +24,6 @@ import {
   UserCheck,
   Building2,
   Paperclip,
-  Share2,
   ArrowRight,
   Sparkles,
   ShoppingBag,
@@ -34,7 +33,6 @@ import {
   Square,
   FileText,
   Truck,
-  Receipt,
   Printer,
   Download,
   Upload,
@@ -58,15 +56,15 @@ import {
   Users,
   XCircle,
 } from 'lucide-react';
-import LeadAvatar from './LeadAvatar';
 import LeadFormBuilder from './LeadFormBuilder';
 import { createFieldFromType } from '../../../data/crm/leadFormSchema';
 import { exportToCSV } from '../../../services/exportUtils';
-import { useEstimates, estimateMatchesLead, addEstimate } from '../../../services/estimateStore';
 import { useCrmStore } from '../../../stores/crmStore';
 import { withSampleTeam } from '../common/sampleTeam';
 import { useLeadDetailStore, EMPTY_DETAIL } from '../../../stores/leadDetailStore';
 import { isServerId, isBackendEnabled } from '../../../services/resourceSync';
+import { crmService } from '../../../services/domainServices';
+import { formatDateDDMMYYYY } from '../../../utils/dateUtils';
 import { WRITABLE_LEAD_SECTIONS } from '../../../services/leadDetailMap';
 import { loadForms, saveForms, TASK_FORM } from '../../../services/crmForms';
 import { LineItemEditor } from '../../../components/common/LineItemEditor';
@@ -75,16 +73,14 @@ import { emitCrmEvent, CRM_EVENT_TYPES } from '../../../services/crmEventNotific
 import { useAppStore } from '../../../stores/appStore';
 import { completeTaskWithOutcome, NEXT_ACTION_LABELS, getLeadStageOrder } from '../../../services/taskCompletionService';
 import CompleteTaskModal from '../tasks/CompleteTaskModal';
+import QuotationComposerPage from '../../sales/QuotationComposerPage';
 
 const DETAIL_TABS = [
   'General',
-  'Users & Products',
+  'Users & Requirements',
   'Sources & Emails',
-  'Discussion & Notes',
   'Files',
   'Tasks',
-  'Calls',
-  'Estimates',
   'Quotations',
   'Delivery Challans',
   'Activity',
@@ -92,13 +88,10 @@ const DETAIL_TABS = [
 
 const DETAIL_TAB_ICONS = {
   General: Info,
-  'Users & Products': UserCheck,
+  'Users & Requirements': UserCheck,
   'Sources & Emails': Globe,
-  'Discussion & Notes': Share2,
   Files: FileStack,
   Tasks: ListChecks,
-  Calls: Phone,
-  Estimates: Receipt,
   Quotations: FileText,
   'Delivery Challans': Truck,
   Activity: Sparkles,
@@ -194,7 +187,6 @@ const SOURCE_ICONS = {
   website: Globe,
   email: Mail,
   phone: Phone,
-  call: Phone,
   referral: Users,
   campaign: Megaphone,
   exhibition: Building2,
@@ -245,11 +237,6 @@ function getTaskFormFields(formId) {
   return (form.fields || []).map((label, index) => ({ id: `f-${index}`, label, type: 'text' }));
 }
 
-/** The master task templates a stage can draw on, from `/crm/master-tasks/`. */
-function getMasterTaskOptions() {
-  return useCrmStore.getState().masterTasks.map((task) => task.name || task.title).filter(Boolean);
-}
-
 /** `DD/MM/YYYY, hh:mm` — what the task rows render — and back again. */
 function parseLeadTaskDueAt(value) {
   if (!value) return null;
@@ -261,13 +248,126 @@ function parseLeadTaskDueAt(value) {
   return new Date(Number(yyyy), Number(mm) - 1, Number(dd), Number(hh), Number(min));
 }
 
-function formatLeadTaskDueAt(value) {
-  const date = parseLeadTaskDueAt(value);
-  if (!date) return String(value || '');
-  return date.toLocaleString('en-GB', {
-    day: '2-digit', month: '2-digit', year: 'numeric',
-    hour: '2-digit', minute: '2-digit', hour12: true,
-  });
+/** Drawer date/time inputs (`YYYY-MM-DD` / `HH:MM`) from a Date. */
+function toTaskDateInput(date) {
+  if (!(date instanceof Date) || Number.isNaN(date.getTime())) return '';
+  const pad = (n) => String(n).padStart(2, '0');
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
+}
+
+function toTaskTimeInput(date) {
+  if (!(date instanceof Date) || Number.isNaN(date.getTime())) return '';
+  const pad = (n) => String(n).padStart(2, '0');
+  return `${pad(date.getHours())}:${pad(date.getMinutes())}`;
+}
+
+/** Empty drawer task draft for the create/edit modal. */
+function emptyLeadTaskDraft(assignee = '') {
+  return {
+    defaultTask: 'custom',
+    title: '',
+    stage: 'New Lead',
+    priority: 'Medium',
+    status: 'Due',
+    assignee,
+    assigneeId: '',
+    description: '',
+    proposalId: '',
+    deliveryChallanId: '',
+    taskFormId: '',
+    customValues: {},
+    taskDate: '',
+    taskTime: '',
+  };
+}
+
+function resolveAssigneeSelection(value, options) {
+  const raw = String(value || '').trim();
+  if (!raw) return { id: '', name: '' };
+  if (isServerId(raw)) {
+    const match = (options || []).find((o) => String(o.id) === raw);
+    return { id: raw, name: match ? match.name : raw };
+  }
+  const lowered = raw.toLowerCase();
+  const match = (options || []).find((o) => String(o.name || '').trim().toLowerCase() === lowered || String(o.email || '').trim().toLowerCase() === lowered);
+  if (match && isServerId(match.id)) return { id: match.id, name: match.name };
+  return { id: '', name: raw };
+}
+
+/** `YYYY-MM-DD` + `HH:MM` inputs → `DD/MM/YYYY, HH:MM` drawer display. */
+function formatLeadTaskDueAt(taskDate, taskTime) {
+  if (!taskDate) return '';
+  const match = String(taskDate).match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!match) {
+    const date = parseLeadTaskDueAt(taskDate);
+    if (!date) return String(taskDate || '');
+    return date.toLocaleString('en-GB', {
+      day: '2-digit', month: '2-digit', year: 'numeric',
+      hour: '2-digit', minute: '2-digit', hour12: true,
+    });
+  }
+  const [, yyyy, mm, dd] = match;
+  const time = String(taskTime || '').match(/^(\d{2}):(\d{2})/);
+  return time ? `${dd}/${mm}/${yyyy}, ${time[1]}:${time[2]}` : `${dd}/${mm}/${yyyy}`;
+}
+
+/** Drawer statuses ('Due'/'Completed') <-> API statuses (api.md §9.3). */
+function drawerTaskStatusToServer(status) {
+  return status === 'Completed' ? 'Completed' : 'Open';
+}
+
+/**
+ * A `/crm/tasks/` row as a drawer task row. Fields the API has no column
+ * for (proposal links, form answers) stay empty — the drawer keeps those
+ * locally while the server owns the scheduled work itself.
+ */
+function serverTaskToDrawerRow(task) {
+  const dueDisplay = task.dueDate ? formatDateDDMMYYYY(task.dueDate) : '';
+  return {
+    id: `srv-${task.id}`,
+    serverTaskId: task.id,
+    defaultTask: 'custom',
+    title: task.title || '',
+    stage: 'New Lead',
+    status: task.status === 'Completed' ? 'Completed' : 'Due',
+    priority: task.priority || 'Medium',
+    dueAt: dueDisplay ? `${dueDisplay}, 09:00` : '',
+    process: task.status === 'Completed' ? 'Done' : 'Not Started',
+    assignee: task.assigneeName || '',
+    assigneeId: task.assigneeId || undefined,
+    assigneeName: task.assigneeName || '',
+    description: task.description || '',
+    proposalId: '',
+    deliveryChallanId: '',
+    taskFormId: '',
+    customValues: {},
+  };
+}
+
+async function mirrorDrawerTaskToBackend({ leadId, row, taskDate, assigneeName, assigneeId }) {
+  if (!isBackendEnabled() || !isServerId(leadId)) return null;
+  const store = useCrmStore.getState();
+  let resolvedId = isServerId(assigneeId) ? assigneeId : undefined;
+  if (!resolvedId && assigneeName) {
+    const target = String(assigneeName).trim().toLowerCase();
+    const member = (store.teamMembers || []).find((m) => String(m.name || '').trim().toLowerCase() === target || String(m.email || '').trim().toLowerCase() === target);
+    if (member && isServerId(member.id)) resolvedId = member.id;
+  }
+  const payload = {
+    title: row.title,
+    description: row.description || undefined,
+    leadId,
+    assigneeId: resolvedId,
+    dueDate: taskDate || undefined,
+    priority: ['Low', 'Medium', 'High', 'Urgent'].includes(row.priority) ? row.priority : 'Medium',
+    status: drawerTaskStatusToServer(row.status),
+  };
+  try {
+    return await store.createTask(payload);
+  } catch (err) {
+    console.warn('[CRM] drawer task not saved:', err?.message || err);
+    return null;
+  }
 }
 
 /**
@@ -284,7 +384,6 @@ function leadDetailState(detail) {
     emails: stored.emails || [],
     timeline: stored.timeline || [],
     files: stored.files || [],
-    calls: stored.calls || [],
     notes: stored.notes || [],
     threads: stored.threads || [],
     tasks: stored.tasks || [],
@@ -301,30 +400,6 @@ function useLeadDetailState(lead) {
     if (leadId) load(leadId);
   }, [leadId, load]);
   return useMemo(() => leadDetailState(detail), [detail]);
-}
-
-function DiscussionAvatar({ thread, lead }) {
-  if (thread?.kind === 'lead') {
-    return <LeadAvatar lead={lead} className="discussion-avatar lead" />;
-  }
-  return (
-    <span className="discussion-avatar discussion-avatar-badge" style={{ backgroundColor: thread?.color ?? '#2F6FED' }}>
-      {getInitials(thread?.name)}
-    </span>
-  );
-}
-
-function formatNoteValue(currentValue, textarea, prefix, suffix = prefix, fallback = 'text') {
-  const start = textarea?.selectionStart ?? currentValue.length;
-  const end = textarea?.selectionEnd ?? currentValue.length;
-  const selectedText = currentValue.slice(start, end);
-  const insertValue = `${prefix}${selectedText || fallback}${suffix}`;
-  const nextValue = `${currentValue.slice(0, start)}${insertValue}${currentValue.slice(end)}`;
-  return {
-    nextValue,
-    selectionStart: start + prefix.length,
-    selectionEnd: start + prefix.length + (selectedText || fallback).length,
-  };
 }
 
 function fieldRows(lead) {
@@ -415,20 +490,32 @@ function SourcesAndEmailsTab({ lead, onCountsChange, onActivity }) {
   const [sources, setSources] = useState(() => initialState.sources);
   const [emails, setEmails] = useState(() => initialState.emails);
   const [timeline, setTimeline] = useState(() => initialState.timeline);
+  const storeSources = useLeadDetailStore((s) => s.byLead[String(lead?.id || '')]?.sources);
+  const storeEmails = useLeadDetailStore((s) => s.byLead[String(lead?.id || '')]?.emails);
+
+  // Server is the source of truth once loaded. `initialState` is a snapshot
+  // at mount; without this the DATE / CREATED BY columns stay empty after
+  // the async load resolves.
+  React.useEffect(() => {
+    if (Array.isArray(storeSources)) setSources(storeSources);
+  }, [storeSources]);
+  React.useEffect(() => {
+    if (Array.isArray(storeEmails)) setEmails(storeEmails);
+  }, [storeEmails]);
 
   const [showAddSource, setShowAddSource] = useState(false);
   const [showSendEmail, setShowSendEmail] = useState(false);
   const [newSource, setNewSource] = useState({ source: 'Website', details: '' });
+  const [editingSourceId, setEditingSourceId] = useState(null);
+  const [editSource, setEditSource] = useState({ source: 'Website', details: '' });
+  const [savingSource, setSavingSource] = useState(false);
   const [newEmail, setNewEmail] = useState({ subject: '', message: '' });
   const [recipients, setRecipients] = useState([lead.email].filter(Boolean));
   const [mailTo, setMailTo] = useState(lead.email || '');
   const [mailError, setMailError] = useState('');
+  const [viewEmail, setViewEmail] = useState(null);
   const editorRef = React.useRef(null);
   const [editorEmpty, setEditorEmpty] = useState(true);
-
-  React.useEffect(() => {
-    updateStoredLeadDetail(lead?.id, { sources: sources.map((s) => ({ ...s, icon: sourceIconName(s.icon) })), emails, timeline });
-  }, [lead?.id, sources, emails, timeline]);
 
   React.useEffect(() => {
     onCountsChange?.({ sources: sources.length });
@@ -486,20 +573,31 @@ function SourcesAndEmailsTab({ lead, onCountsChange, onActivity }) {
     e.preventDefault();
     if (!newSource.details) return;
     const iconName = newSource.source === 'Referral' ? 'user' : newSource.source === 'Advertisement' ? 'megaphone' : 'globe';
-    const added = {
-      id: Date.now(),
+    const nowText = new Date().toLocaleDateString('en-GB') + ' ' + new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    const optimistic = {
+      id: `local-${Date.now()}`,
       source: newSource.source,
+      name: newSource.source,
       sourceType: String(newSource.source ?? '').toLowerCase(),
       details: newSource.details,
-      date: new Date().toLocaleDateString('en-GB') + ' ' + new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+      campaign: newSource.details,
+      date: nowText,
       createdBy: actorName,
       color: '#1f6bff',
       icon: iconName,
     };
-    setSources((current) => [added, ...current]);
+    // Optimistic row first so the table feels instant; replaced by the
+    // normalized server row (with `name`, `attributedAt`/`createdAt`,
+    // `createdByName`) once the POST resolves.
+    setSources((current) => [optimistic, ...current]);
     setNewSource({ source: 'Website', details: '' });
     setShowAddSource(false);
-    onActivity?.(`Source "${added.source}" added`, '#10b981');
+    onActivity?.(`Source "${optimistic.source}" added`, '#10b981');
+    useLeadDetailStore.getState().add(lead?.id, 'sources', optimistic).then((saved) => {
+      if (saved?.id) setSources((current) => current.map((s) => (s.id === optimistic.id ? saved : s)));
+    }).catch((err) => {
+      console.warn('[CRM] source not saved:', err?.message || err);
+    });
   };
 
   const handleSendEmail = (e) => {
@@ -512,9 +610,13 @@ function SourcesAndEmailsTab({ lead, onCountsChange, onActivity }) {
     if (!newEmail.subject.trim()) return;
     const bodyText = (editorRef.current?.innerText || newEmail.message || '').trim();
     const now = new Date().toLocaleDateString('en-GB') + ' ' + new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-    const addedEmail = {
-      id: Date.now(),
+    const optimisticEmail = {
+      id: `local-${Date.now()}`,
       subject: newEmail.subject,
+      body: bodyText,
+      message: bodyText,
+      to_addresses: [mailTo.trim()],
+      mailTo: mailTo.trim(),
       date: now,
       person: actorName,
       status: 'Sent',
@@ -529,24 +631,81 @@ function SourcesAndEmailsTab({ lead, onCountsChange, onActivity }) {
       author: actorName,
       dotColor: '#10b981',
     };
-    setEmails((current) => [addedEmail, ...current]);
+    setEmails((current) => [optimisticEmail, ...current]);
     setTimeline((current) => [addedTimeline, ...current]);
     setNewEmail({ subject: '', message: '' });
     setEditorEmpty(true);
     if (editorRef.current) editorRef.current.innerHTML = '';
     setShowSendEmail(false);
-    onActivity?.(`Email "${addedEmail.subject}" sent`, '#3b82f6');
+    onActivity?.(`Email "${optimisticEmail.subject}" sent`, '#3b82f6');
+    useLeadDetailStore.getState().add(lead?.id, 'emails', optimisticEmail).then((saved) => {
+      if (saved?.id) setEmails((current) => current.map((item) => (item.id === optimisticEmail.id ? { ...saved, person: saved.person || actorName } : item)));
+    }).catch((err) => {
+      console.warn('[CRM] email not saved:', err?.message || err);
+    });
   };
 
   const deleteSource = (id) => {
     const target = sources.find((s) => s.id === id);
     setSources((current) => current.filter((source) => source.id !== id));
     onActivity?.(`Source "${target?.source ?? 'entry'}" removed`, '#f59e0b');
+    // Server delete is best-effort; local-only rows have nothing to DELETE.
+    useLeadDetailStore.getState().removeSection(lead?.id, 'sources', id).catch((err) => {
+      console.warn('[CRM] source not deleted:', err?.message || err);
+    });
   };
+
+  function openEditSource(row) {
+    if (!row) return;
+    setEditingSourceId(row.id);
+    setEditSource({
+      source: row.source || row.name || 'Website',
+      details: row.details || row.campaign || row.medium || '',
+    });
+  }
+
+  function closeEditSource() {
+    setEditingSourceId(null);
+  }
+
+  async function saveEditSource(e) {
+    e?.preventDefault();
+    if (!editingSourceId || savingSource) return;
+    const details = String(editSource.details || '').trim();
+    if (!details) return;
+    const channel = String(editSource.source || 'Website');
+    const current = sources.find((s) => String(s.id) === String(editingSourceId));
+    const next = {
+      ...(current || {}),
+      source: channel,
+      name: channel,
+      details,
+      campaign: details,
+    };
+    // Optimistic update so the table reflects the edit instantly.
+    setSources((rows) => rows.map((s) => (String(s.id) === String(editingSourceId) ? next : s)));
+    setSavingSource(true);
+    try {
+      const saved = await useLeadDetailStore.getState().updateSection(lead?.id, 'sources', editingSourceId, next);
+      if (saved?.id) {
+        setSources((rows) => rows.map((s) => (String(s.id) === String(editingSourceId) ? saved : s)));
+      }
+      onActivity?.(`Source "${channel}" updated`, '#10b981');
+      closeEditSource();
+    } catch (err) {
+      console.warn('[CRM] source not updated:', err?.message || err);
+      onActivity?.('Source could not be saved to the server', '#f59e0b');
+    } finally {
+      setSavingSource(false);
+    }
+  }
   const deleteEmail = (id) => {
     const target = emails.find((e) => e.id === id);
     setEmails((current) => current.filter((email) => email.id !== id));
     onActivity?.(`Email "${target?.subject ?? 'entry'}" deleted`, '#f59e0b');
+    useLeadDetailStore.getState().removeSection(lead?.id, 'emails', id).catch((err) => {
+      console.warn('[CRM] email not deleted:', err?.message || err);
+    });
   };
 
   // Graph compatibility alias: old codebase exposed SourcesEmailsTab; current UI uses SourcesAndEmailsTab.
@@ -585,8 +744,7 @@ function SourcesAndEmailsTab({ lead, onCountsChange, onActivity }) {
                     <option value="Website">Website Form</option>
                     <option value="Referral">Client Referral</option>
                     <option value="Advertisement">Social Ads</option>
-                    <option value="Cold Call">Direct Inbound Call</option>
-                    <option value="Trade Fair">Trade Expo</option>
+                                        <option value="Trade Fair">Trade Expo</option>
                   </select>
                 </div>
                 <div>
@@ -627,6 +785,11 @@ function SourcesAndEmailsTab({ lead, onCountsChange, onActivity }) {
               <tbody>
                 {sources.map((s, idx) => {
                   const Icon = resolveSourceIcon(s.icon);
+                  const sourceLabel = s.source || s.name || '—';
+                  const detailsLabel = s.details || s.campaign || s.medium || '—';
+                  const dateLabel = s.date || '—';
+                  const byLabel = s.createdBy || '—';
+                  const byInitials = getInitials(s.createdBy) || '—';
                   return (
                     <tr key={s.id}>
                       <td className="text-slate-500 font-mono">{idx + 1}</td>
@@ -634,25 +797,26 @@ function SourcesAndEmailsTab({ lead, onCountsChange, onActivity }) {
                         <div className="inline-flex items-center gap-2">
                           <div
                             className="w-6 h-6 rounded-full flex items-center justify-center text-white shrink-0"
-                            style={{ background: s.color }}
+                            style={{ background: s.color || '#1f6bff' }}
                           >
                             <Icon size={12} />
                           </div>
-                          <span className="font-semibold">{s.source}</span>
+                          <span className="font-semibold">{sourceLabel}</span>
                         </div>
                       </td>
-                      <td className="font-semibold">{s.details}</td>
-                      <td className="text-slate-500 font-mono text-xs whitespace-nowrap">{s.date}</td>
+                      <td className="font-semibold">{detailsLabel}</td>
+                      <td className="text-slate-500 font-mono text-xs whitespace-nowrap">{dateLabel}</td>
                       <td>
                         <div className="flex items-center gap-1.5">
-                          <span className="w-5 h-5 rounded-full grid place-items-center text-[9px] font-bold text-white shrink-0" style={{ backgroundColor: '#2F6FED' }}>{getInitials(s.createdBy)}</span>
-                          <span className="text-xs font-medium">{s.createdBy}</span>
+                          <span className="w-5 h-5 rounded-full grid place-items-center text-[9px] font-bold text-white shrink-0" style={{ backgroundColor: '#2F6FED' }}>{byInitials}</span>
+                          <span className="text-xs font-medium">{byLabel}</span>
                         </div>
                       </td>
                       <td>
                         <div className="flex items-center justify-center gap-1">
                           <button
                             type="button"
+                            onClick={() => openEditSource(s)}
                             className="p-1 rounded text-blue-600 hover:bg-blue-50 transition cursor-pointer"
                             title="Edit"
                           >
@@ -674,6 +838,43 @@ function SourcesAndEmailsTab({ lead, onCountsChange, onActivity }) {
               </tbody>
             </table>
           </div>
+          {editingSourceId && (
+            <form onSubmit={saveEditSource} className="p-4 bg-blue-50/50 border-t border-blue-100 space-y-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="form-label text-xs">Source Channel</label>
+                  <select
+                    value={editSource.source}
+                    onChange={(e) => setEditSource({ ...editSource, source: e.target.value })}
+                    className="form-select text-xs"
+                  >
+                    <option value="Website">Website Form</option>
+                    <option value="Referral">Client Referral</option>
+                    <option value="Advertisement">Social Ads</option>
+                                        <option value="Trade Fair">Trade Expo</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="form-label text-xs">Specific Details / Notes</label>
+                  <input
+                    type="text"
+                    required
+                    value={editSource.details}
+                    onChange={(e) => setEditSource({ ...editSource, details: e.target.value })}
+                    className="form-input text-xs"
+                  />
+                </div>
+              </div>
+              <div className="flex justify-end gap-2">
+                <button type="button" onClick={closeEditSource} className="btn-ghost btn-sm">
+                  Cancel
+                </button>
+                <button type="submit" disabled={savingSource} className="btn-primary btn-sm">
+                  {savingSource ? 'Saving…' : 'Update Source'}
+                </button>
+              </div>
+            </form>
+          )}
         </div>
 
         {/* Right Column: Emails */}
@@ -767,20 +968,24 @@ function SourcesAndEmailsTab({ lead, onCountsChange, onActivity }) {
                 </tr>
               </thead>
               <tbody>
-                {emails.map((e, idx) => (
+                {emails.map((e, idx) => {
+                  const personLabel = e.person
+                    || (Array.isArray(e.to_addresses || e.toAddresses) && (e.to_addresses || e.toAddresses).join(', '))
+                    || '—';
+                  return (
                   <tr key={e.id}>
                     <td className="text-slate-500 font-mono">{idx + 1}</td>
                     <td>
                       <div className="inline-flex items-center gap-2">
                         <Mail size={13} className="text-blue-500 shrink-0" />
-                        <span className="font-bold">{e.subject}</span>
+                        <span className="font-bold">{e.subject || '—'}</span>
                       </div>
                     </td>
-                    <td className="text-slate-500 font-mono text-xs whitespace-nowrap">{e.date}</td>
+                    <td className="text-slate-500 font-mono text-xs whitespace-nowrap">{e.date || '—'}</td>
                     <td>
                       <div className="flex items-center gap-1.5">
-                        <span className="w-5 h-5 rounded-full grid place-items-center text-[9px] font-bold text-white shrink-0" style={{ backgroundColor: '#2F6FED' }}>{getInitials(e.person)}</span>
-                        <span className="text-xs font-medium">{e.person}</span>
+                        <span className="w-5 h-5 rounded-full grid place-items-center text-[9px] font-bold text-white shrink-0" style={{ backgroundColor: '#2F6FED' }}>{getInitials(e.person) || '—'}</span>
+                        <span className="text-xs font-medium">{personLabel}</span>
                       </div>
                     </td>
                     <td>
@@ -791,13 +996,14 @@ function SourcesAndEmailsTab({ lead, onCountsChange, onActivity }) {
                             : 'bg-slate-100 text-slate-700 border border-slate-200'
                         }`}
                       >
-                        {e.status}
+                        {e.status || 'Draft'}
                       </span>
                     </td>
                     <td>
                       <div className="flex items-center justify-center gap-1">
                         <button
                           type="button"
+                          onClick={() => setViewEmail(e)}
                           className="p-1 rounded text-blue-600 hover:bg-blue-50 transition cursor-pointer"
                           title="View Message"
                         >
@@ -814,10 +1020,36 @@ function SourcesAndEmailsTab({ lead, onCountsChange, onActivity }) {
                       </div>
                     </td>
                   </tr>
-                ))}
+                  );
+                })}
               </tbody>
             </table>
           </div>
+          {viewEmail && (
+            <div className="fixed inset-0 z-[70] flex items-center justify-center p-2 sm:p-4 bg-slate-950/50" onClick={() => setViewEmail(null)}>
+              <div className="bg-white rounded-2xl shadow-2xl w-full max-w-[560px] max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
+                <div className="flex items-center justify-between px-5 py-4 border-b border-slate-200">
+                  <h2 className="text-[15px] font-bold text-slate-800">{viewEmail.subject || 'Email'}</h2>
+                  <button type="button" onClick={() => setViewEmail(null)} className="text-slate-400 hover:text-slate-600 p-1" aria-label="Close">
+                    <X size={18} />
+                  </button>
+                </div>
+                <div className="px-5 py-4 space-y-3 text-[13px]">
+                  <div className="flex flex-wrap gap-x-6 gap-y-1 text-slate-500">
+                    <span><strong className="text-slate-700">To:</strong> {((viewEmail.to_addresses || viewEmail.toAddresses || []).join(', ')) || '—'}</span>
+                    <span><strong className="text-slate-700">Date:</strong> {viewEmail.date || '—'}</span>
+                    <span><strong className="text-slate-700">Status:</strong> {viewEmail.status || 'Draft'}</span>
+                  </div>
+                  <div className="rounded-xl border border-slate-200 bg-slate-50 p-3.5 text-slate-800 whitespace-pre-wrap leading-relaxed">
+                    {viewEmail.body || viewEmail.message || 'No message body.'}
+                  </div>
+                </div>
+                <div className="flex justify-end gap-2 px-5 py-4 border-t border-slate-100">
+                  <button type="button" onClick={() => setViewEmail(null)} className="h-10 px-6 rounded-lg bg-slate-500 hover:bg-slate-600 text-white text-sm font-semibold">Close</button>
+                </div>
+              </div>
+            </div>
+          )}
         </div>
       </div>
 
@@ -868,13 +1100,34 @@ function SourcesAndEmailsTab({ lead, onCountsChange, onActivity }) {
 
 // ── Files Tab ───────────────────────────────────────────────
 function FilesTab({ lead, onCountsChange, onActivity }) {
+  const leadId = lead?.id;
+  const storeFiles = useLeadDetailStore((s) => s.byLead[String(leadId || '')]?.files);
   const initialState = useLeadDetailState(lead);
   const currentUser = useAppStore((s) => s.currentUser);
   const actorName = currentUser?.name || currentUser?.fullName || lead?.owner || '—';
-  const [files, setFiles] = useState(() => initialState.files);
+  const [files, setFiles] = useState(() => initialState.files || []);
   const [fileSearch, setFileSearch] = useState('');
   const [fileType, setFileType] = useState('All');
   const [viewFile, setViewFile] = useState(null);
+  const [uploading, setUploading] = useState(false);
+
+  // Server is the source of truth. Sync only when the store actually has a
+  // list (after load/add/remove). `undefined` means "not loaded yet" — don't
+  // wipe local optimistic rows in that case.
+  React.useEffect(() => {
+    if (Array.isArray(storeFiles)) setFiles(storeFiles);
+  }, [storeFiles]);
+
+  // First server snapshot (useLeadDetailState loads async after mount).
+  React.useEffect(() => {
+    if (storeFiles === undefined && Array.isArray(initialState.files) && initialState.files.length > 0) {
+      setFiles(initialState.files);
+    }
+  }, [storeFiles, initialState.files]);
+
+  React.useEffect(() => {
+    onCountsChange?.({ files: files.length });
+  }, [files.length, onCountsChange]);
 
   const visibleFiles = useMemo(() => files.filter((f) => {
     if (fileType !== 'All' && f.type !== fileType) return false;
@@ -882,32 +1135,54 @@ function FilesTab({ lead, onCountsChange, onActivity }) {
     return true;
   }), [files, fileSearch, fileType]);
 
-  React.useEffect(() => {
-    updateStoredLeadDetail(lead?.id, { files });
-    onCountsChange?.({ files: files.length });
-  }, [lead?.id, files, files.length, onCountsChange]);
-
   async function handleUploadFiles(event) {
-    const selected = Array.from(event.target.files || []);
-    if (selected.length === 0) return;
-    const now = new Date().toLocaleDateString('en-GB');
-    const uploaded = await Promise.all(selected.map(async (file) => {
-      const imagePreview = file.type.startsWith('image/') ? await readFileAsDataUrl(file) : '';
-      return {
-        id: `file-upload-${Date.now()}-${file.name}`,
-        type: file.type.startsWith('image/') ? 'image' : 'document',
-        name: file.name,
-        size: `${Math.max(1, Math.round(file.size / 1024))} KB`,
-        sentOn: now,
-        sentBy: actorName,
-        preview: imagePreview,
-        downloadUrl: imagePreview,
-        description: 'Uploaded from Files tab.',
-      };
-    }));
-    setFiles((current) => [...uploaded, ...current]);
-    event.target.value = '';
-    onActivity?.(`${uploaded.length} file${uploaded.length > 1 ? 's' : ''} uploaded`, '#8b5cf6');
+    const input = event.target;
+    const selected = Array.from(input?.files || []);
+    // Reset immediately so choosing the same file twice still fires onChange.
+    // Reading it first avoids the double-fire that created twin rows.
+    input.value = '';
+    if (selected.length === 0 || uploading) return;
+    if (!isServerId(leadId)) {
+      onActivity?.('Save the lead first — files need a server lead', '#f59e0b');
+      return;
+    }
+    setUploading(true);
+    try {
+      const { uploadFileToBackend } = await import('../../../services/fileUploadService');
+      const store = useLeadDetailStore.getState();
+      for (const file of selected) {
+        const tempId = `file-upload-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+        const preview = file.type.startsWith('image/') ? await readFileAsDataUrl(file).catch(() => '') : '';
+        // Optimistic row so the UI feels instant; replaced by the server row below.
+        const optimistic = {
+          id: tempId,
+          type: file.type.startsWith('image/') ? 'image' : 'document',
+          name: file.name,
+          size: `${Math.max(1, Math.round(file.size / 1024))} KB`,
+          sentOn: new Date().toLocaleDateString('en-GB'),
+          sentBy: actorName,
+          preview,
+          downloadUrl: preview,
+          description: 'Uploading…',
+          _synced: false,
+        };
+        setFiles((current) => [optimistic, ...current]);
+        try {
+          const fileId = await uploadFileToBackend(file, file.name, 'crm_lead');
+          const saved = await store.add(leadId, 'files', { fileId, label: file.name });
+          // Swap the optimistic row for the normalized server row.
+          setFiles((current) => current.map((f) => (f.id === tempId ? (saved || { ...optimistic, description: 'Uploaded from Files tab.' }) : f)));
+        } catch (err) {
+          console.warn('[CRM] file not saved:', err?.message || err);
+          setFiles((current) => current.filter((f) => f.id !== tempId));
+          const reason = err?.payload?.field_errors?.scope?.[0] || err?.message || 'upload failed';
+          onActivity?.(`File "${file.name}" could not be uploaded — ${reason}`, '#f59e0b');
+        }
+      }
+      onActivity?.(`${selected.length} file${selected.length > 1 ? 's' : ''} uploaded`, '#8b5cf6');
+    } finally {
+      setUploading(false);
+    }
   }
 
   function handleViewFile(file) {
@@ -915,8 +1190,13 @@ function FilesTab({ lead, onCountsChange, onActivity }) {
   }
 
   function handleDownloadFile(file) {
-    const url = file.downloadUrl || file.preview;
+    const url = file.downloadUrl || file.preview || file.url;
     if (!url) return;
+    // Signed backend URLs (http) open directly; data-URL previews download.
+    if (/^https?:\/\//i.test(url)) {
+      window.open(url, '_blank', 'noopener');
+      return;
+    }
     const link = document.createElement('a');
     link.href = url;
     link.download = file.name;
@@ -926,10 +1206,22 @@ function FilesTab({ lead, onCountsChange, onActivity }) {
     link.remove();
   }
 
-  function handleRemoveFile(id) {
+  async function handleRemoveFile(id) {
     const target = files.find((f) => f.id === id);
+    // Optimistic removal, then the server delete. Without the server call
+    // the row comes back on refresh (GET /crm/leads/{id}/files/).
     setFiles((current) => current.filter((f) => f.id !== id));
-    onActivity?.(`File "${target?.name ?? 'entry'}" removed`, '#f59e0b');
+    try {
+      if (isServerId(leadId) && isServerId(id)) {
+        await useLeadDetailStore.getState().removeSection(leadId, 'files', id);
+      }
+      // Local-only / optimistic rows were never posted — nothing to DELETE.
+      onActivity?.(`File "${target?.name ?? 'entry'}" removed`, '#f59e0b');
+    } catch (err) {
+      console.warn('[CRM] file not deleted:', err?.message || err);
+      setFiles((current) => (target ? [target, ...current] : current));
+      onActivity?.('File could not be deleted on the server', '#f59e0b');
+    }
   }
 
   return (
@@ -943,9 +1235,9 @@ function FilesTab({ lead, onCountsChange, onActivity }) {
             <option value="image">Images</option>
             <option value="document">Documents</option>
           </select>
-          <label className="btn-primary btn-sm flex items-center gap-1 cursor-pointer">
-            <Upload size={13} /> Upload
-            <input type="file" multiple hidden onChange={handleUploadFiles} />
+          <label className={`btn-primary btn-sm flex items-center gap-1 cursor-pointer ${uploading ? 'opacity-60 pointer-events-none' : ''}`}>
+            <Upload size={13} /> {uploading ? 'Uploading…' : 'Upload'}
+            <input type="file" multiple hidden onChange={handleUploadFiles} disabled={uploading} />
           </label>
         </div>
       </div>
@@ -953,7 +1245,13 @@ function FilesTab({ lead, onCountsChange, onActivity }) {
         <table className="data-table text-xs min-w-[640px] lg:min-w-0">
           <thead><tr><th>Name</th><th>Size</th><th>Sent On</th><th>Sent By</th><th style={{ textAlign: 'center' }}>Action</th></tr></thead>
           <tbody>
-            {visibleFiles.map((f) => (
+            {visibleFiles.length === 0 ? (
+              <tr>
+                <td colSpan={5} className="text-center text-slate-400 py-6">
+                  {uploading ? 'Uploading…' : 'No files yet. Click Upload to attach one.'}
+                </td>
+              </tr>
+            ) : visibleFiles.map((f) => (
               <tr key={f.id}>
                 <td className="font-semibold">{f.name}</td>
                 <td className="text-slate-500">{f.size}</td>
@@ -988,270 +1286,6 @@ function FilesTab({ lead, onCountsChange, onActivity }) {
   );
 }
 
-function CallsTab({ lead, onCountsChange, onActivity }) {
-  const initialState = useLeadDetailState(lead);
-  const currentUser = useAppStore((s) => s.currentUser);
-  const actorName = currentUser?.name || currentUser?.fullName || lead?.owner || '—';
-  const [calls, setCalls] = useState(() => initialState.calls);
-  const [isLogOpen, setIsLogOpen] = useState(false);
-  const [isAddOpen, setIsAddOpen] = useState(false);
-  const [subject, setSubject] = useState('');
-  const [callType, setCallType] = useState('Outbound');
-  const [assignee, setAssignee] = useState(() => lead?.owner || '');
-  const [description, setDescription] = useState('');
-  const [outcome, setOutcome] = useState('Connected');
-  const [duration, setDuration] = useState('');
-  const [notes, setNotes] = useState('');
-  const assigneeOptions = useMemo(() => {
-    const names = [lead?.owner, ...useCrmStore.getState().teamMembers.map((e) => e.name)].map((n) => String(n || '').trim()).filter(Boolean);
-    return [...new Set(names)];
-  }, [lead?.owner]);
-  // One physical click must log at most one row. Touch devices, double-clicks
-  // and StrictMode re-runs can otherwise invoke the handler twice in the same
-  // tick, and `tel:` navigation never blocks the second call.
-  const lastDialAt = React.useRef(0);
-
-  React.useEffect(() => {
-    updateStoredLeadDetail(lead?.id, { calls });
-    onCountsChange?.({ calls: calls.length });
-  }, [lead?.id, calls, calls.length, onCountsChange]);
-
-  function dialNumber() {
-    const digits = String(lead?.phone || '').replace(/[^0-9]/g, '');
-    if (!digits) return;
-    const target = digits.length === 10 ? `+91${digits}` : `+${digits}`;
-    try {
-      window.location.href = `tel:${target}`;
-    } catch {
-      return;
-    }
-  }
-
-  function addCallLog(entry) {
-    const item = {
-      id: `call-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-      date: new Date().toLocaleDateString('en-GB') + ' ' + new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-      by: actorName,
-      phone: lead?.phone || '',
-      direction: 'Outgoing',
-      ...entry,
-    };
-    setCalls((current) => [item, ...current]);
-    onActivity?.(`Call ${entry.outcome || 'logged'} with ${lead?.name || 'lead'}`, '#10b981');
-  }
-
-  function callNow() {
-    const now = Date.now();
-    if (now - lastDialAt.current < 3000) return;
-    lastDialAt.current = now;
-    addCallLog({ outcome: 'Dialled', duration: '-', notes: 'Dialled from Calls tab.' });
-    dialNumber();
-  }
-
-  function saveAddCall(event) {
-    event?.preventDefault();
-    if (!String(subject || '').trim()) return;
-    if (!assignee) return;
-    addCallLog({ subject: subject.trim(), direction: callType, outcome: 'Connected', duration: '-', notes: description.trim() || subject.trim(), by: assignee, callType });
-    setSubject('');
-    setCallType('Outbound');
-    setDescription('');
-    setIsAddOpen(false);
-  }
-
-  function saveManualLog(event) {
-    event?.preventDefault();
-    addCallLog({ outcome, duration: duration ? `${duration} min` : '-', notes: notes.trim() || '-' });
-    setOutcome('Connected');
-    setDuration('');
-    setNotes('');
-    setIsLogOpen(false);
-  }
-
-  function removeCall(id) {
-    const target = calls.find((c) => c.id === id);
-    setCalls((current) => current.filter((c) => c.id !== id));
-    onActivity?.(`Call log with ${target?.by ?? 'lead'} removed`, '#f59e0b');
-  }
-
-  function outcomeStyle(value) {
-    if (value === 'Connected') return 'bg-emerald-50 text-emerald-700 border-emerald-200';
-    if (value === 'Dialled') return 'bg-blue-50 text-blue-700 border-blue-200';
-    if (value === 'Busy') return 'bg-amber-50 text-amber-700 border-amber-200';
-    if (value === 'Call Back') return 'bg-purple-50 text-purple-700 border-purple-200';
-    if (value === 'Wrong Number') return 'bg-rose-50 text-rose-700 border-rose-200';
-    return 'bg-slate-100 text-slate-600 border-slate-200';
-  }
-
-  return (
-    <div className="card">
-      <div className="card-header flex flex-wrap lg:flex-nowrap items-center justify-between gap-2 lg:gap-0">
-        <h3 className="font-bold text-sm">Calls ({calls.length})</h3>
-        <div className="flex flex-wrap lg:flex-nowrap items-center gap-2">
-          <button type="button" onClick={() => setIsLogOpen(true)} className="btn-outline btn-sm">
-            Log Call
-          </button>
-          <button type="button" onClick={callNow} className="btn-primary btn-sm flex items-center gap-1.5 !bg-emerald-600 hover:!bg-emerald-700">
-            <Phone size={13} /> Call Lead
-          </button>
-          <button type="button" onClick={() => { setSubject(''); setCallType('Outbound'); setAssignee(lead?.owner || assigneeOptions[0] || ''); setDescription(''); setIsAddOpen(true); }} title="Add Call" aria-label="Add Call" className="w-8 h-8 grid place-items-center rounded-md bg-[#1d3f6e] hover:bg-[#16325a] text-white transition">
-            <Plus size={16} />
-          </button>
-        </div>
-      </div>
-
-      <div className="table-scroll">
-        <table className="data-table text-xs min-w-[640px] lg:min-w-0">
-          <thead>
-            <tr>
-              <th style={{ width: 36 }}>#</th>
-              <th>Lead</th>
-              <th>Phone</th>
-              <th>Date & Time</th>
-              <th>Duration</th>
-              <th>Outcome</th>
-              <th>Called By</th>
-              <th style={{ width: 80, textAlign: 'center' }}>Action</th>
-            </tr>
-          </thead>
-          <tbody>
-            {calls.map((c, idx) => (
-              <React.Fragment key={c.id}>
-                <tr>
-                  <td className="text-slate-500 font-mono">{idx + 1}</td>
-                  <td className="font-semibold">{lead?.name}</td>
-                  <td>
-                    <span className="inline-flex items-center gap-1.5">
-                      <span className="font-medium">{c.phone || lead?.phone}</span>
-                      <button type="button" onClick={callNow} title="Call now" className="p-1 rounded text-emerald-600 hover:bg-emerald-50 transition cursor-pointer">
-                        <Phone size={13} />
-                      </button>
-                    </span>
-                  </td>
-                  <td className="text-slate-500 text-xs whitespace-nowrap">{c.date}</td>
-                  <td className="text-slate-600">{c.duration}</td>
-                  <td>
-                    <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold border ${outcomeStyle(c.outcome)}`}>
-                      {c.outcome}
-                    </span>
-                  </td>
-                  <td className="text-xs font-medium">{c.by}</td>
-                  <td>
-                    <div className="flex items-center justify-center gap-1">
-                      <button type="button" onClick={() => removeCall(c.id)} className="p-1 rounded text-rose-500 hover:bg-rose-50 transition cursor-pointer" title="Delete">
-                        <Trash2 size={13} />
-                      </button>
-                    </div>
-                  </td>
-                </tr>
-                {(c.subject || c.callType || c.direction || c.notes) && (
-                  <tr>
-                    <td />
-                    <td colSpan={7} className="!py-1.5">
-                      <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-[11px] text-slate-500">
-                        {c.subject && <span><span className="font-semibold text-slate-600">Subject:</span> {c.subject}</span>}
-                        {(c.callType || c.direction) && <span><span className="font-semibold text-slate-600">Call Type:</span> {c.callType || c.direction}</span>}
-                        {c.notes && c.notes !== '-' && c.notes !== c.subject && <span className="min-w-0"><span className="font-semibold text-slate-600">Description:</span> {c.notes}</span>}
-                      </div>
-                    </td>
-                  </tr>
-                )}
-              </React.Fragment>
-            ))}
-            {calls.length === 0 && (
-              <tr>
-                <td colSpan={8} className="empty-row">No calls logged yet. Click Call Lead to dial {lead?.name || 'this lead'}.</td>
-              </tr>
-            )}
-          </tbody>
-        </table>
-      </div>
-
-      {isLogOpen && (
-        <div className="fixed inset-0 z-50 bg-slate-950/40 flex items-center justify-center p-2 sm:p-4" onClick={() => setIsLogOpen(false)}>
-          <div className="bg-white rounded-xl border border-slate-200 shadow-2xl w-full max-w-md p-4 sm:p-5 max-h-[95vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
-            <div className="flex items-center justify-between mb-4">
-              <div>
-                <h4 className="text-sm font-bold text-slate-900">Log Call</h4>
-                <p className="text-xs text-slate-500 mt-1">Record a call with {lead?.name} ({lead?.phone}).</p>
-              </div>
-              <button type="button" className="text-slate-400 hover:text-slate-700 text-lg" onClick={() => setIsLogOpen(false)} aria-label="Close log call dialog">×</button>
-            </div>
-            <form onSubmit={saveManualLog} className="space-y-3">
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <div>
-                  <label className="form-label text-xs">Outcome *</label>
-                  <select value={outcome} onChange={(e) => setOutcome(e.target.value)} className="form-select text-xs">
-                    <option value="Connected">Connected</option>
-                    <option value="Not Answered">Not Answered</option>
-                    <option value="Busy">Busy</option>
-                    <option value="Call Back">Call Back</option>
-                    <option value="Wrong Number">Wrong Number</option>
-                  </select>
-                </div>
-                <div>
-                  <label className="form-label text-xs">Duration (min)</label>
-                  <input type="number" min="0" value={duration} onChange={(e) => setDuration(e.target.value)} placeholder="e.g. 5" className="form-input text-xs" />
-                </div>
-              </div>
-              <div>
-                <label className="form-label text-xs">Notes</label>
-                <textarea rows={3} value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="What was discussed..." className="form-textarea text-xs resize-none" />
-              </div>
-              <div className="flex justify-end gap-2 pt-1">
-                <button type="button" onClick={() => setIsLogOpen(false)} className="btn-ghost btn-sm">Cancel</button>
-                <button type="submit" className="btn-primary btn-sm">Save Log</button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
-
-      {isAddOpen && (
-        <div className="fixed inset-0 z-50 bg-slate-950/40 flex items-center justify-center p-2 sm:p-4" onClick={() => setIsAddOpen(false)}>
-          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[95vh] overflow-y-auto" onClick={(e) => e.stopPropagation()} role="dialog" aria-modal="true" aria-label="Add Call">
-            <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100">
-              <h4 className="text-[15px] font-semibold text-slate-900">Add Call</h4>
-              <button type="button" onClick={() => setIsAddOpen(false)} className="text-slate-400 hover:text-slate-600 transition" aria-label="Close add call dialog"><X size={20} /></button>
-            </div>
-            <form onSubmit={saveAddCall} className="px-6 py-5 space-y-4">
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-[13px] font-medium text-slate-700 mb-1.5">Subject<span className="text-rose-500">*</span></label>
-                  <input autoFocus value={subject} onChange={(e) => setSubject(e.target.value)} placeholder="Enter Subject" className="w-full h-11 px-4 bg-white border border-slate-300 rounded-lg text-[13px] text-slate-800 focus:outline-none focus:border-blue-500" />
-                </div>
-                <div>
-                  <label className="block text-[13px] font-medium text-slate-700 mb-1.5">Call Type<span className="text-rose-500">*</span></label>
-                  <select value={callType} onChange={(e) => setCallType(e.target.value)} className="w-full h-11 px-4 bg-white border border-slate-300 rounded-lg text-[13px] text-slate-800 focus:outline-none focus:border-blue-500">
-                    <option value="Outbound">Outbound</option>
-                    <option value="Inbound">Inbound</option>
-                    <option value="Missed">Missed</option>
-                  </select>
-                </div>
-              </div>
-              <div>
-                <label className="block text-[13px] font-medium text-slate-700 mb-1.5">Assignee<span className="text-rose-500">*</span></label>
-                <select value={assignee} onChange={(e) => setAssignee(e.target.value)} className="w-full h-11 px-4 bg-white border border-slate-300 rounded-lg text-[13px] text-slate-800 focus:outline-none focus:border-blue-500">
-                  <option value="">Select User</option>
-                  {assigneeOptions.map((n) => (<option key={n} value={n}>{n}</option>))}
-                </select>
-              </div>
-              <div>
-                <label className="block text-[13px] font-medium text-slate-700 mb-1.5">Description</label>
-                <textarea rows={7} value={description} onChange={(e) => setDescription(e.target.value)} placeholder="Enter Description" className="w-full px-4 py-3 bg-white border border-slate-300 rounded-lg text-[13px] text-slate-800 resize-y focus:outline-none focus:border-blue-500" />
-              </div>
-              <div className="flex items-center justify-end gap-2 pt-2">
-                <button type="button" onClick={() => setIsAddOpen(false)} className="h-10 px-5 rounded-lg bg-slate-500 hover:bg-slate-600 text-white text-[13px] font-semibold transition">Cancel</button>
-                <button type="submit" disabled={!String(subject || '').trim() || !assignee} className="h-10 px-6 rounded-lg bg-[#1d4a79] hover:bg-[#163a61] disabled:opacity-50 text-white text-[13px] font-semibold transition">Add</button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
-    </div>
-  );
-}
-
 function LeadTasksTab({ lead, onCountsChange, onActivity }) {
   const { quotations, deliveryChallans } = useERP() || {};
   const navigate = useNavigate();
@@ -1260,6 +1294,7 @@ function LeadTasksTab({ lead, onCountsChange, onActivity }) {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingId, setEditingId] = useState(null);
   const [deleteId, setDeleteId] = useState(null);
+  const storeForms = useCrmStore((s) => s.forms);
   const [taskForms, setTaskForms] = useState(() => getLeadTaskForms());
   const [showFormEditor, setShowFormEditor] = useState(false);
   const [taskFormName, setTaskFormName] = useState('');
@@ -1267,23 +1302,59 @@ function LeadTasksTab({ lead, onCountsChange, onActivity }) {
   const [builderSelectedFieldId, setBuilderSelectedFieldId] = useState(null);
   const [builderSaveSuccess, setBuilderSaveSuccess] = useState(false);
   const [taskFormDraftError, setTaskFormDraftError] = useState('');
+  const teamMembers = useCrmStore((s) => s.teamMembers);
   const assigneeOptions = useMemo(() => {
-    const names = [
-      lead?.owner,
-      ...(initialState.users || []).map((user) => user.name),
-      ...useCrmStore.getState().teamMembers.map((member) => member.name),
-      ...tasks.map((task) => task.assignee),
-    ]
-      .map((name) => String(name || '').trim())
-      .filter(Boolean);
-
-    return [...new Set(names)];
-  }, [initialState.users, lead?.owner, tasks]);
-  const defaultAssignee = assigneeOptions.includes('Utsav Faldu') ? 'Utsav Faldu' : (assigneeOptions[0] || '');
-  const [masterTaskOptions, setMasterTaskOptions] = useState(() => getMasterTaskOptions());
+    const byName = new Map();
+    (teamMembers || []).forEach((member) => {
+      const name = String(member?.name || '').trim();
+      if (!name) return;
+      byName.set(name.toLowerCase(), { id: member.id, name, email: member.email || '' });
+    });
+    if (lead?.owner && !byName.has(String(lead.owner).trim().toLowerCase())) {
+      byName.set(String(lead.owner).trim().toLowerCase(), { id: '', name: String(lead.owner).trim(), email: '' });
+    }
+    (initialState.users || []).forEach((user) => {
+      const name = String(user?.name || '').trim();
+      if (name && !byName.has(name.toLowerCase())) byName.set(name.toLowerCase(), { id: user.userId || '', name, email: user.email || '' });
+    });
+    tasks.forEach((task) => {
+      const name = String(task?.assignee || task?.assigneeName || '').trim();
+      if (name && !byName.has(name.toLowerCase())) {
+        const key = String(task.assigneeId || '').trim();
+        byName.set(name.toLowerCase(), { id: isServerId(key) ? key : '', name, email: '' });
+      }
+    });
+    return [...byName.values()];
+  }, [teamMembers, initialState.users, lead?.owner, tasks]);
+  const defaultAssignee = assigneeOptions.length > 0 ? (assigneeOptions[0].id && isServerId(assigneeOptions[0].id) ? assigneeOptions[0].id : assigneeOptions[0].name) : '';
+  const [form, setForm] = useState(() => emptyLeadTaskDraft(defaultAssignee));
+  const storeMasterTasks = useCrmStore((s) => s.masterTasks);
+  const masterTaskOptions = useMemo(
+    () => (Array.isArray(storeMasterTasks) ? storeMasterTasks : [])
+      .filter((task) => String(task?.status || 'Active') === 'Active')
+      .map((task) => ({ id: task.id, name: task.name || task.title || '', title: task.title || task.name || '', priority: task.priority || '', role: task.role || '', taskFormId: task.taskFormId || '', order: task.order || 0 }))
+      .filter((t) => t.id && t.name)
+      .sort((a, b) => (a.order - b.order) || String(a.name).localeCompare(String(b.name))),
+    [storeMasterTasks],
+  );
   React.useEffect(() => {
-    setMasterTaskOptions(getMasterTaskOptions());
+    setTaskForms(getLeadTaskForms());
+  }, [storeForms]);
+  React.useEffect(() => {
+    useCrmStore.getState().hydrate?.().then(() => {
+      setTaskForms(getLeadTaskForms());
+    }).catch(() => {});
   }, [isModalOpen]);
+  React.useEffect(() => {
+    if (!isModalOpen) return;
+    if (!form.defaultTask || form.defaultTask === 'custom') return;
+    if (form.taskFormId) return;
+    const preset = (storeMasterTasks || []).find((t) => String(t.id) === String(form.defaultTask));
+    const linked = preset?.taskFormId || '';
+    if (linked) {
+      setForm((current) => ({ ...current, taskFormId: linked, customValues: {} }));
+    }
+  }, [isModalOpen, form.defaultTask, form.taskFormId, storeMasterTasks]);
   const linkedQuotations = useMemo(
     () => (quotations || []).filter((quotation) => quotationMatchesLead(quotation, lead)),
     [lead, quotations]
@@ -1298,17 +1369,66 @@ function LeadTasksTab({ lead, onCountsChange, onActivity }) {
       return customer.includes(customerName) || (leadName && customer.includes(leadName));
     });
   }, [deliveryChallans, lead]);
-  const [form, setForm] = useState(() => createLeadTaskForm(defaultAssignee));
   const [formError, setFormError] = useState('');
   const [completeId, setCompleteId] = useState(null);
+  const [formFillId, setFormFillId] = useState(null);
+  const [formFillValues, setFormFillValues] = useState({});
+  const [formFillError, setFormFillError] = useState('');
   const currentUser = useAppStore((s) => s.currentUser);
+  const [drawerServerLoaded, setDrawerServerLoaded] = useState(false);
   const selectedTaskForm = useMemo(() => taskForms.find((f) => String(f.id) === String(form.taskFormId)) || null, [taskForms, form.taskFormId]);
-  const selectedTaskFormFields = useMemo(() => (selectedTaskForm ? getTaskFormFields(selectedTaskForm) : []), [selectedTaskForm]);
+  // Read fields off the selected form object itself: getTaskFormFields()
+  // takes an id, so passing the object re-looks-up "[object Object]" and
+  // always returns [] ("No fields defined in this form yet").
+  const selectedTaskFormFields = useMemo(() => {
+    if (!selectedTaskForm) return [];
+    const sections = Array.isArray(selectedTaskForm.sections) && selectedTaskForm.sections.length > 0
+      ? selectedTaskForm.sections
+      : (Array.isArray(selectedTaskForm.schema?.sections) ? selectedTaskForm.schema.sections : []);
+    if (sections.length > 0) return sections.flatMap((s) => s.fields || []);
+    return (selectedTaskForm.fields || []).map((label, index) => (
+      typeof label === 'string' ? { id: `f-${index}`, label, type: 'text' } : label
+    ));
+  }, [selectedTaskForm]);
+  const formFillTask = useMemo(() => tasks.find((t) => String(t.id) === String(formFillId)) || null, [tasks, formFillId]);
+  const formFillDefinition = useMemo(() => {
+    if (!formFillTask?.taskFormId) return null;
+    return taskForms.find((f) => String(f.id) === String(formFillTask.taskFormId)) || null;
+  }, [taskForms, formFillTask]);
+  const formFillFields = useMemo(() => {
+    if (!formFillDefinition) return [];
+    const sections = Array.isArray(formFillDefinition.sections) && formFillDefinition.sections.length > 0
+      ? formFillDefinition.sections
+      : (Array.isArray(formFillDefinition.schema?.sections) ? formFillDefinition.schema.sections : []);
+    if (sections.length > 0) return sections.flatMap((s) => s.fields || []);
+    return (formFillDefinition.fields || []).map((label, index) => (
+      typeof label === 'string' ? { id: `f-${index}`, label, type: 'text' } : label
+    ));
+  }, [formFillDefinition]);
 
   React.useEffect(() => {
     updateStoredLeadDetail(lead?.id, { tasks });
     onCountsChange?.({ openTasks: tasks.filter((t) => t.status !== 'Completed').length });
   }, [lead?.id, tasks, onCountsChange]);
+
+  // Backend-first for the scheduled work itself: rows already saved under
+  // `/crm/tasks/` for this lead load here (matched by `serverTaskId`), so a
+  // refresh keeps every persisted task. Local-only extras stay in-session.
+  React.useEffect(() => {
+    if (drawerServerLoaded || !isBackendEnabled() || !isServerId(lead?.id)) return;
+    setDrawerServerLoaded(true);
+    crmService.getTasks({ leadId: lead.id }).then((body) => {
+      const rows = Array.isArray(body) ? body : (body?.results || []);
+      if (rows.length === 0) return;
+      setTasks((prev) => {
+        const known = new Set(prev.map((t) => t.serverTaskId).filter(Boolean));
+        const incoming = rows
+          .filter((r) => r?.id && !known.has(String(r.id)))
+          .map((r) => serverTaskToDrawerRow(r));
+        return incoming.length > 0 ? [...incoming, ...prev] : prev;
+      });
+    }).catch(() => {});
+  }, [drawerServerLoaded, lead?.id]);
 
   React.useEffect(() => {
     function refreshTaskForms() {
@@ -1328,7 +1448,7 @@ function LeadTasksTab({ lead, onCountsChange, onActivity }) {
 
   function openCreate() {
     setEditingId(null);
-    setForm(createLeadTaskForm(defaultAssignee));
+    setForm(emptyLeadTaskDraft(defaultAssignee));
     setFormError('');
     setTaskForms(getLeadTaskForms());
     setShowFormEditor(false);
@@ -1341,21 +1461,23 @@ function LeadTasksTab({ lead, onCountsChange, onActivity }) {
 
   function openEdit(task) {
     const due = parseLeadTaskDueAt(task.dueAt);
+    const currentSelection = task.assigneeId && isServerId(task.assigneeId) ? task.assigneeId : (task.assignee || defaultAssignee);
     setEditingId(task.id);
     setForm({
       defaultTask: task.defaultTask || 'custom',
       title: task.title || '',
       stage: task.stage || 'New Lead',
-      priority: task.priority || 'Low',
-      status: task.status || 'Due',
-      assignee: task.assignee || defaultAssignee,
+      priority: task.priority || 'Medium',
+      status: task.status === 'Completed' ? 'Completed' : 'Due',
+      assignee: currentSelection,
+      assigneeId: task.assigneeId || '',
       description: task.description || '',
       proposalId: task.proposalId || '',
       deliveryChallanId: task.deliveryChallanId || '',
       taskFormId: task.taskFormId || '',
       customValues: task.customValues || {},
-      taskDate: due.taskDate,
-      taskTime: due.taskTime,
+      taskDate: toTaskDateInput(due),
+      taskTime: toTaskTimeInput(due),
     });
     setFormError('');
     setTaskForms(getLeadTaskForms());
@@ -1366,10 +1488,16 @@ function LeadTasksTab({ lead, onCountsChange, onActivity }) {
 
   function updateTaskForm(key, value) {
     setForm((current) => {
+      if (key === 'assignee') {
+        const resolved = resolveAssigneeSelection(value, assigneeOptions);
+        return { ...current, assignee: value, assigneeId: resolved.id, assigneeName: resolved.name };
+      }
       if (key === 'defaultTask' && value && value !== 'custom') {
-        const preset = masterTaskOptions.find((t) => String(t.id) === String(value));
+        const preset = (storeMasterTasks || []).find((t) => String(t.id) === String(value));
         if (preset) {
-          return { ...current, defaultTask: value, title: current.title || preset.name || '', priority: preset.priority || current.priority, assignee: current.assignee || preset.role || defaultAssignee };
+          const presetName = preset.name || preset.title || '';
+          const nextFormId = preset.taskFormId || '';
+          return { ...current, defaultTask: value, title: presetName, priority: preset.priority || current.priority, taskFormId: nextFormId, customValues: nextFormId !== current.taskFormId ? {} : current.customValues };
         }
       }
       if (key === 'taskFormId') {
@@ -1493,6 +1621,9 @@ function LeadTasksTab({ lead, onCountsChange, onActivity }) {
         return;
       }
     }
+    const resolvedAssignee = resolveAssigneeSelection(form.assignee, assigneeOptions);
+    const assigneeName = resolvedAssignee.name || String(form.assignee || '').trim();
+    const assigneeId = resolvedAssignee.id || (isServerId(form.assigneeId) ? form.assigneeId : '');
     const nextTask = {
       defaultTask: form.defaultTask,
       title: form.title.trim(),
@@ -1501,7 +1632,9 @@ function LeadTasksTab({ lead, onCountsChange, onActivity }) {
       priority: form.priority,
       dueAt: formatLeadTaskDueAt(form.taskDate, form.taskTime),
       process: form.status === 'Completed' ? 'Done' : 'Not Started',
-      assignee: form.assignee,
+      assignee: assigneeName,
+      assigneeId,
+      assigneeName,
       description: form.description.trim(),
       proposalId: form.proposalId,
       deliveryChallanId: form.deliveryChallanId,
@@ -1511,6 +1644,17 @@ function LeadTasksTab({ lead, onCountsChange, onActivity }) {
     };
     if (editingId) {
       setTasks((prev) => prev.map((t) => (t.id === editingId ? { ...t, ...nextTask } : t)));
+      const current = tasks.find((t) => t.id === editingId);
+      if (current?.serverTaskId && isBackendEnabled()) {
+        useCrmStore.getState().updateTask(current.serverTaskId, {
+          title: nextTask.title,
+          description: nextTask.description || undefined,
+          assigneeId: assigneeId || undefined,
+          dueDate: form.taskDate || undefined,
+          priority: ['Low', 'Medium', 'High', 'Urgent'].includes(nextTask.priority) ? nextTask.priority : 'Medium',
+          status: drawerTaskStatusToServer(nextTask.status),
+        }).catch((err) => console.warn('[CRM] drawer task not updated:', err?.message || err));
+      }
       onActivity?.(`Task "${form.title.trim()}" updated`, '#1d6bff');
     } else {
       const manualTask = { id: `lt-${Date.now()}`, ...nextTask };
@@ -1518,6 +1662,13 @@ function LeadTasksTab({ lead, onCountsChange, onActivity }) {
         manualTask,
         ...prev,
       ]);
+      mirrorDrawerTaskToBackend({
+        leadId: lead?.id, row: manualTask, taskDate: form.taskDate, assigneeName, assigneeId,
+      }).then((saved) => {
+        if (saved?.id) {
+          setTasks((prev) => prev.map((t) => (t.id === manualTask.id ? { ...t, serverTaskId: saved.id, assigneeId: saved.assigneeId || assigneeId, assigneeName: saved.assigneeName || assigneeName } : t)));
+        }
+      });
       onActivity?.(`Task "${form.title.trim()}" added`, '#16a34a');
       emitCrmEvent({
         type: CRM_EVENT_TYPES.TASK_CREATED,
@@ -1535,9 +1686,69 @@ function LeadTasksTab({ lead, onCountsChange, onActivity }) {
     setIsModalOpen(false);
   }
 
+  function getLinkedFormFields(task) {
+    if (!task?.taskFormId) return [];
+    const definition = taskForms.find((f) => String(f.id) === String(task.taskFormId)) || null;
+    if (!definition) return [];
+    const sections = Array.isArray(definition.sections) && definition.sections.length > 0
+      ? definition.sections
+      : (Array.isArray(definition.schema?.sections) ? definition.schema.sections : []);
+    if (sections.length > 0) return sections.flatMap((s) => s.fields || []);
+    return (definition.fields || []).map((label, index) => (
+      typeof label === 'string' ? { id: `f-${index}`, label, type: 'text' } : label
+    ));
+  }
+
+  function openTaskFormFill(task) {
+    setFormFillId(task.id);
+    setFormFillValues({ ...(task.customValues || {}) });
+    setFormFillError('');
+  }
+
+  function requestTaskCompletion(task) {
+    if (!task || task.status !== 'Due') return;
+    const fields = getLinkedFormFields(task);
+    if (task.taskFormId && fields.length > 0) {
+      openTaskFormFill(task);
+      return;
+    }
+    setCompleteId(task.id);
+  }
+
+  function updateFormFillValue(fieldId, value) {
+    setFormFillValues((current) => ({ ...current, [fieldId]: value }));
+  }
+
+  function cancelFormFill() {
+    setFormFillId(null);
+    setFormFillValues({});
+    setFormFillError('');
+  }
+
+  function submitFormFill(e) {
+    if (e) e.preventDefault();
+    const target = tasks.find((t) => String(t.id) === String(formFillId)) || formFillTask;
+    if (!target) {
+      cancelFormFill();
+      return;
+    }
+    for (const field of formFillFields) {
+      if (field.required && !String(formFillValues?.[field.id] ?? '').trim()) {
+        setFormFillError(`"${field.label}" is required.`);
+        return;
+      }
+    }
+    setTasks((prev) => prev.map((t) => (String(t.id) === String(target.id) ? { ...t, customValues: { ...(formFillValues || {}) } } : t)));
+    const filledId = target.id;
+    setFormFillId(null);
+    setFormFillValues({});
+    setFormFillError('');
+    setCompleteId(filledId);
+  }
+
   function toggleStatus(task) {
     if (task.status === 'Due') {
-      setCompleteId(task.id);
+      requestTaskCompletion(task);
       return;
     }
     // Reopen a completed task: clear completion metadata
@@ -1557,6 +1768,10 @@ function LeadTasksTab({ lead, onCountsChange, onActivity }) {
           : t
       )
     );
+    if (reopened?.serverTaskId && isBackendEnabled()) {
+      useCrmStore.getState().updateTask(reopened.serverTaskId, { status: 'Open' })
+        .catch((err) => console.warn('[CRM] drawer task reopen not saved:', err?.message || err));
+    }
     if (reopened?.crmTaskId) {
       try {
         const crmTasks = loadCrmTasks();
@@ -1579,53 +1794,113 @@ function LeadTasksTab({ lead, onCountsChange, onActivity }) {
     }
   }
 
-  async function submitCompleteTask(outcome, nextAction, note) {
+  async function submitCompleteTask(outcome, nextAction, note, nextFollowUpAt, targetStageId) {
     const detailTask = tasks.find((t) => t.id === completeId);
     if (!detailTask) {
       return { ok: false, message: 'Task could not be found.' };
     }
+    const actor = currentUser?.name || defaultAssignee || lead?.owner || 'CRM User';
+    const serverTaskId = detailTask.serverTaskId || detailTask.crmTaskId || null;
     let crmTask = null;
     try {
-      crmTask = loadCrmTasks().find((t) => String(t.id) === String(detailTask.crmTaskId)) || null;
+      const storeTasks = useCrmStore.getState().tasks || [];
+      const localCrmTasks = loadCrmTasks();
+      const combined = [...storeTasks, ...localCrmTasks];
+      if (serverTaskId) {
+        crmTask = combined.find((t) => String(t.id) === String(serverTaskId)) || null;
+      }
+      if (!crmTask && detailTask.title && lead?.id) {
+        crmTask = storeTasks.find((t) => String(t.leadId) === String(lead.id) && String(t.title) === String(detailTask.title) && String(t.status) !== 'Completed') || null;
+      }
     } catch (err) {
       console.error('[CRM Completion] Error loading Task List store:', err);
     }
-    const actor = currentUser?.name || defaultAssignee || lead?.owner || 'CRM User';
-    const result = completeTaskWithOutcome({
-      task: crmTask,
-      lead,
-      outcome,
-      nextAction,
-      note,
-      completedBy: actor,
-      leadDetailTask: detailTask,
-    });
-    if (Array.isArray(result.leadDetailTasks)) {
-      setTasks(result.leadDetailTasks);
-    } else {
-      setTasks((prev) =>
-        prev.map((t) =>
-          t.id === detailTask.id
-            ? {
-                ...t,
-                status: 'Completed',
-                process: 'Done',
-                completionOutcome: outcome,
-                nextAction,
-                completedAt: new Date().toISOString(),
-                completedBy: actor,
-              }
-            : t
-        )
-      );
+    if (crmTask?.id) {
+      const result = await completeTaskWithOutcome({
+        task: crmTask,
+        lead,
+        outcome,
+        nextAction,
+        note,
+        nextFollowUpAt,
+        targetStageId,
+        completedBy: actor,
+        leadDetailTask: detailTask,
+      });
+      if (result?.ok !== false) {
+        if (Array.isArray(result.leadDetailTasks)) {
+          setTasks(result.leadDetailTasks);
+        } else {
+          setTasks((prev) =>
+            prev.map((t) =>
+              t.id === detailTask.id
+                ? {
+                    ...t,
+                    status: 'Completed',
+                    process: 'Done',
+                    completionOutcome: outcome,
+                    nextAction,
+                    completedAt: new Date().toISOString(),
+                    completedBy: actor,
+                  }
+                : t
+            )
+          );
+        }
+        if (result?.stageChanged && isBackendEnabled() && isServerId(lead?.id)) {
+          crmService.getTasks({ leadId: lead.id }).then((body) => {
+            const rows = Array.isArray(body) ? body : (body?.results || []);
+            if (!Array.isArray(rows) || rows.length === 0) return;
+            setTasks((prev) => {
+              const known = new Set(prev.map((t) => t.serverTaskId).filter(Boolean).map((v) => String(v)));
+              const incoming = rows
+                .filter((r) => r?.id && !known.has(String(r.id)))
+                .map((r) => serverTaskToDrawerRow(r));
+              return incoming.length > 0 ? [...incoming, ...prev] : prev;
+            });
+          }).catch(() => {});
+        }
+      }
+      return result;
     }
-    return result;
+    setTasks((prev) =>
+      prev.map((t) =>
+        t.id === detailTask.id
+          ? {
+              ...t,
+              status: 'Completed',
+              process: 'Done',
+              completionOutcome: outcome,
+              nextAction,
+              completedAt: new Date().toISOString(),
+              completedBy: actor,
+            }
+          : t
+      )
+    );
+    if (detailTask.serverTaskId && isBackendEnabled()) {
+      useCrmStore.getState().updateTask(detailTask.serverTaskId, { status: 'Completed' })
+        .catch((err) => console.warn('[CRM] drawer task completion not saved:', err?.message || err));
+    }
+    return { ok: true, message: 'Task completed successfully.', warnings: [] };
+  }
+
+  function handleCompleteSuccess(result) {
+    setCompleteId(null);
+    const leadId = result?.leadId || result?.lead?.id || lead?.id || null;
+    if (result?.stageChanged && leadId) {
+      navigate(`/crm/leads/${encodeURIComponent(leadId)}?tab=tasks`);
+    }
   }
 
   function confirmDelete() {
     if (!deleteId) return;
     const target = tasks.find((t) => t.id === deleteId);
     setTasks((prev) => prev.filter((t) => t.id !== deleteId));
+    if (target?.serverTaskId && isBackendEnabled()) {
+      useCrmStore.getState().deleteTask(target.serverTaskId)
+        .catch((err) => console.warn('[CRM] drawer task not deleted:', err?.message || err));
+    }
     onActivity?.(`Task "${target?.title ?? 'entry'}" removed`, '#f59e0b');
     setDeleteId(null);
   }
@@ -1683,6 +1958,9 @@ function LeadTasksTab({ lead, onCountsChange, onActivity }) {
             )}
             {task.description && <p className="text-[11px] text-slate-500 mt-1">{task.description}</p>}
             <p className="text-[11px] text-slate-400 mt-1">Process: {task.process || 'Not Started'}</p>
+            {task.taskFormName && (
+              <p className="mt-1 text-[11px] font-semibold text-[#1d4a79]">Form: {task.taskFormName}</p>
+            )}
             {task.completionOutcome && (
               <p className="flex flex-wrap items-center gap-1.5 mt-1.5 text-[11px]">
                 <span className="px-2 py-0.5 rounded bg-emerald-50 text-emerald-700 border border-emerald-100 font-semibold">
@@ -1700,7 +1978,7 @@ function LeadTasksTab({ lead, onCountsChange, onActivity }) {
         </div>
         <div className="flex items-center gap-1.5 shrink-0">
           {!done && showNote && (
-            <button type="button" onClick={() => setCompleteId(task.id)} title="Fill Task Form" className="w-8 h-8 grid place-items-center rounded-md bg-lime-500 hover:bg-lime-600 text-white transition">
+            <button type="button" onClick={() => requestTaskCompletion(task)} title="Fill Task Form" className="w-8 h-8 grid place-items-center rounded-md bg-lime-500 hover:bg-lime-600 text-white transition">
               <ClipboardList size={14} />
             </button>
           )}
@@ -1752,12 +2030,87 @@ function LeadTasksTab({ lead, onCountsChange, onActivity }) {
         {doneTasks.map((t) => renderRow(t, false))}
       </div>
 
-      {isModalOpen && (
+      {isModalOpen && editingId && (
+        <div className="fixed inset-0 z-[70] flex items-center justify-center p-2 sm:p-4 bg-slate-950/50" onClick={() => setIsModalOpen(false)}>
+          <div className="bg-white rounded-xl shadow-2xl w-full max-w-md max-h-[95vh] overflow-y-auto" onClick={(e) => e.stopPropagation()} role="dialog" aria-modal="true" aria-label="Edit Task">
+            <div className="flex items-center justify-between px-5 py-4 border-b border-slate-100">
+              <h2 className="text-[15px] font-bold text-slate-900">Edit Task</h2>
+              <button type="button" onClick={() => setIsModalOpen(false)} className="text-slate-400 hover:text-slate-600 p-1" aria-label="Close">
+                <X size={18} />
+              </button>
+            </div>
+            <form onSubmit={submitTask} className="px-5 py-4 space-y-4">
+              <div>
+                <label className="block text-[13px] font-semibold text-slate-800 mb-1.5">Name <span className="text-rose-500">*</span></label>
+                <input autoFocus value={form.title} onChange={(e) => updateTaskForm('title', e.target.value)} placeholder="Enter Name" className="w-full h-11 px-4 bg-white border border-slate-300 rounded-lg text-[13px] text-slate-800 focus:outline-none focus:border-blue-500" />
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-[13px] font-semibold text-slate-800 mb-1.5">Date <span className="text-rose-500">*</span></label>
+                  <input type="date" value={form.taskDate} onChange={(e) => updateTaskForm('taskDate', e.target.value)} className="w-full h-11 px-4 bg-white border border-slate-300 rounded-lg text-[13px] text-slate-800 focus:outline-none focus:border-blue-500" />
+                </div>
+                <div>
+                  <label className="block text-[13px] font-semibold text-slate-800 mb-1.5">Time <span className="text-rose-500">*</span></label>
+                  <input type="time" value={form.taskTime} onChange={(e) => updateTaskForm('taskTime', e.target.value)} className="w-full h-11 px-4 bg-white border border-slate-300 rounded-lg text-[13px] text-slate-800 focus:outline-none focus:border-blue-500" />
+                </div>
+              </div>
+              <div>
+                <label className="block text-[13px] font-semibold text-slate-800 mb-1.5">Assign To</label>
+                <select value={form.assignee} onChange={(e) => updateTaskForm('assignee', e.target.value)} className="w-full h-11 px-4 bg-white border border-slate-300 rounded-lg text-[13px] text-slate-800 focus:outline-none focus:border-blue-500">
+                  <option value="">Select Staff</option>
+                  {assigneeOptions.map((option) => (<option key={option.id || option.name} value={option.id && isServerId(option.id) ? option.id : option.name}>{option.name}</option>))}
+                </select>
+              </div>
+              <div>
+                <label className="block text-[13px] font-semibold text-slate-800 mb-1.5">Description</label>
+                <textarea rows={4} value={form.description} onChange={(e) => updateTaskForm('description', e.target.value)} placeholder="Enter task related description or notes" className="w-full px-4 py-3 bg-white border border-slate-300 rounded-lg text-[13px] text-slate-800 resize-y focus:outline-none focus:border-blue-500" />
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-[13px] font-semibold text-slate-800 mb-1.5">Priority <span className="text-rose-500">*</span></label>
+                  <select value={form.priority} onChange={(e) => updateTaskForm('priority', e.target.value)} className="w-full h-11 px-4 bg-white border border-slate-300 rounded-lg text-[13px] text-slate-800 focus:outline-none focus:border-blue-500">
+                    {LEAD_TASK_PRIORITY_OPTIONS.map((priority) => (<option key={priority} value={priority}>{priority}</option>))}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-[13px] font-semibold text-slate-800 mb-1.5">Status <span className="text-rose-500">*</span></label>
+                  <select value={form.status} onChange={(e) => updateTaskForm('status', e.target.value)} className="w-full h-11 px-4 bg-white border border-slate-300 rounded-lg text-[13px] text-slate-800 focus:outline-none focus:border-blue-500">
+                    {['Due', 'Completed'].map((status) => (<option key={status} value={status}>{status}</option>))}
+                  </select>
+                </div>
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-[13px] font-semibold text-slate-800 mb-1.5">Proposal</label>
+                  <select value={form.proposalId} onChange={(e) => updateTaskForm('proposalId', e.target.value)} className="w-full h-11 px-4 bg-white border border-slate-300 rounded-lg text-[13px] text-slate-800 focus:outline-none focus:border-blue-500">
+                    <option value="">Select Proposal</option>
+                    {linkedQuotations.map((quotation) => (<option key={quotation.id} value={quotation.id}>{quotation.quoteNumber || quotation.quotationNumber || quotation.customer || 'Proposal'}</option>))}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-[13px] font-semibold text-slate-800 mb-1.5">Delivery Challan</label>
+                  <select value={form.deliveryChallanId} onChange={(e) => updateTaskForm('deliveryChallanId', e.target.value)} className="w-full h-11 px-4 bg-white border border-slate-300 rounded-lg text-[13px] text-slate-800 focus:outline-none focus:border-blue-500">
+                    <option value="">Select Delivery Challan</option>
+                    {linkedChallans.map((challan) => (<option key={challan.id} value={challan.id}>{challan.challanNumber || challan.linkedSo || challan.customer || 'Delivery Challan'}</option>))}
+                  </select>
+                </div>
+              </div>
+              {formError && <p className="text-xs font-semibold text-rose-600">{formError}</p>}
+              <div className="flex items-center justify-end gap-2.5 pt-1">
+                <button type="button" onClick={() => setIsModalOpen(false)} className="h-10 px-5 rounded-lg bg-white hover:bg-slate-50 text-slate-700 text-[13px] font-semibold border border-slate-200 transition">Cancel</button>
+                <button type="submit" className="h-10 px-6 rounded-lg bg-[#1d4a79] hover:bg-[#163a61] text-white text-[13px] font-semibold transition">Update Task</button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {isModalOpen && !editingId && (
         <div className="fixed inset-0 z-[70] flex items-start justify-center p-2 sm:p-4 bg-slate-950/50 overflow-y-auto" onClick={() => setIsModalOpen(false)}>
           <div className="bg-[#f1f5f9] rounded-xl shadow-2xl w-full max-w-5xl my-6 overflow-hidden border border-slate-200" onClick={(e) => e.stopPropagation()} role="dialog" aria-modal="true" aria-label={editingId ? 'Edit lead task' : 'Create lead task'}>
             <div className="bg-white px-6 pt-5 pb-4 border-b border-slate-100">
-              <h2 className="text-[15px] font-bold text-slate-900">Create Lead Task</h2>
-              <p className="text-[11px] text-slate-500 mt-1">Dashboard <span className="mx-1">&gt;</span> Lead Task <span className="mx-1">&gt;</span> Create Lead Task</p>
+              <h2 className="text-[15px] font-bold text-slate-900">{editingId ? 'Edit Lead Task' : 'Create Lead Task'}</h2>
+              <p className="text-[11px] text-slate-500 mt-1">Dashboard <span className="mx-1">&gt;</span> Lead Task <span className="mx-1">&gt;</span> {editingId ? 'Edit Lead Task' : 'Create Lead Task'}</p>
             </div>
 
             <form onSubmit={submitTask} className="px-6 py-5">
@@ -1797,7 +2150,7 @@ function LeadTasksTab({ lead, onCountsChange, onActivity }) {
                   <div>
                     <label className="block text-[13px] font-semibold text-slate-800 mb-1.5">Status</label>
                     <select value={form.status} onChange={(e) => updateTaskForm('status', e.target.value)} className="w-full h-11 px-4 bg-white border border-slate-300 rounded-lg text-[13px] text-slate-800 focus:outline-none focus:border-blue-500">
-                      {LEAD_TASK_STATUS_OPTIONS.map((status) => (<option key={status.value} value={status.value}>{status.label}</option>))}
+                      {['Due', 'Completed'].map((status) => (<option key={status} value={status}>{status}</option>))}
                     </select>
                   </div>
                 </div>
@@ -1805,7 +2158,7 @@ function LeadTasksTab({ lead, onCountsChange, onActivity }) {
                   <label className="block text-[13px] font-semibold text-slate-800 mb-1.5">Assign To</label>
                   <select value={form.assignee} onChange={(e) => updateTaskForm('assignee', e.target.value)} className="w-full h-11 px-4 bg-white border border-slate-300 rounded-lg text-[13px] text-slate-800 focus:outline-none focus:border-blue-500">
                     <option value="">Select Staff</option>
-                    {assigneeOptions.map((name) => (<option key={name} value={name}>{name}</option>))}
+                    {assigneeOptions.map((option) => (<option key={option.id || option.name} value={option.id && isServerId(option.id) ? option.id : option.name}>{option.name}</option>))}
                   </select>
                 </div>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -1899,191 +2252,62 @@ function LeadTasksTab({ lead, onCountsChange, onActivity }) {
         </div>
       )}
 
+      {formFillId && formFillTask && (
+        <div className="fixed inset-0 z-[75] flex items-center justify-center bg-slate-950/50 p-2 sm:p-4" onClick={cancelFormFill}>
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg max-h-[92vh] overflow-y-auto" onClick={(e) => e.stopPropagation()} role="dialog" aria-modal="true" aria-label="Complete Task Form">
+            <div className="flex items-center justify-between px-5 py-4 border-b border-slate-100">
+              <div>
+                <h2 className="text-[15px] font-bold text-slate-900">{formFillDefinition?.title || formFillTask.taskFormName || 'Task Form'}</h2>
+                <p className="text-[11px] text-slate-500 mt-0.5">{formFillTask.title} · Step 1 of 2</p>
+              </div>
+              <button type="button" onClick={cancelFormFill} className="text-slate-400 hover:text-slate-600 p-1" aria-label="Close">
+                <X size={18} />
+              </button>
+            </div>
+            <form onSubmit={submitFormFill} className="px-5 py-4 space-y-3">
+              {formFillDefinition?.description && (
+                <p className="text-[12px] text-slate-500">{formFillDefinition.description}</p>
+              )}
+              {formFillFields.length === 0 && (
+                <p className="text-[12px] text-slate-400">No fields defined in this form yet.</p>
+              )}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                {formFillFields.map((field) => (
+                  <label key={field.id} className={String(field.type).toLowerCase() === 'multi line' ? 'block sm:col-span-2' : 'block'}>
+                    <span className="block text-[12px] font-semibold text-slate-700 mb-1">{field.label} {field.required && <span className="text-rose-500">*</span>}</span>
+                    {String(field.type).toLowerCase() === 'multi line' ? (
+                      <textarea rows={3} value={formFillValues?.[field.id] || ''} onChange={(e) => updateFormFillValue(field.id, e.target.value)} placeholder={field.placeholder || `Enter ${String(field.label).toLowerCase()}`} className="w-full px-3 py-2 bg-white border border-slate-300 rounded-lg text-[13px] text-slate-800 focus:outline-none focus:border-blue-500" />
+                    ) : String(field.type).toLowerCase() === 'dropdown' || String(field.type).toLowerCase() === 'multi select' ? (
+                      <select value={formFillValues?.[field.id] || ''} onChange={(e) => updateFormFillValue(field.id, e.target.value)} className="w-full h-10 px-3 bg-white border border-slate-300 rounded-lg text-[13px] text-slate-800 focus:outline-none focus:border-blue-500">
+                        <option value="">{field.placeholder || 'Select option'}</option>
+                        {String(field.options || field.placeholder || '').split(',').map((o) => o.trim()).filter(Boolean).map((o) => (<option key={o} value={o}>{o}</option>))}
+                      </select>
+                    ) : (
+                      <input type={String(field.type).toLowerCase() === 'number' ? 'number' : String(field.type).toLowerCase() === 'date' ? 'date' : String(field.type).toLowerCase() === 'email' ? 'email' : String(field.type).toLowerCase() === 'phone' ? 'tel' : 'text'} value={formFillValues?.[field.id] || ''} onChange={(e) => updateFormFillValue(field.id, e.target.value)} placeholder={field.placeholder || `Enter ${String(field.label).toLowerCase()}`} className="w-full h-10 px-3 bg-white border border-slate-300 rounded-lg text-[13px] text-slate-800 focus:outline-none focus:border-blue-500" />
+                    )}
+                  </label>
+                ))}
+              </div>
+              {formFillError && <p className="text-xs font-semibold text-rose-600">{formFillError}</p>}
+              <div className="flex items-center justify-end gap-2.5 pt-2 border-t border-slate-100">
+                <button type="button" onClick={cancelFormFill} className="h-10 px-5 rounded-lg bg-white hover:bg-slate-50 text-slate-700 text-[13px] font-semibold border border-slate-200 transition">Cancel</button>
+                <button type="submit" className="h-10 px-6 rounded-lg bg-[#1d4a79] hover:bg-[#163a61] text-white text-[13px] font-semibold transition">Save and Continue</button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
       {completeId && (
         <CompleteTaskModal
           open={Boolean(completeId)}
           task={tasks.find((t) => t.id === completeId) || null}
           lead={lead}
+          blockingTasks={tasks.filter((t) => t.id !== completeId && t.status === 'Due').map((t) => t.title).filter(Boolean)}
           onCancel={() => setCompleteId(null)}
           onComplete={submitCompleteTask}
-          onSuccess={() => setCompleteId(null)}
+          onSuccess={handleCompleteSuccess}
         />
-      )}
-    </div>
-  );
-}
-
-function EstimatesTab({ lead, onCountsChange }) {
-  const all = useEstimates();
-  const { customers } = useERP() || {};
-  const linked = useMemo(() => all.filter((e) => estimateMatchesLead(e, lead)), [all, lead]);
-  const storedProducts = useLeadDetailState(lead).products;
-  const [isCreateOpen, setIsCreateOpen] = useState(false);
-  const [selectedCustomerId, setSelectedCustomerId] = useState('');
-  const [validUntil, setValidUntil] = useState('15 Days');
-  const [lineItems, setLineItems] = useState([]);
-
-  React.useEffect(() => {
-    onCountsChange?.({ estimates: linked.length });
-  }, [linked.length, onCountsChange]);
-
-  function openCreateModal() {
-    const preferredCustomer = (customers || []).find((c) => c.name === (lead?.company || lead?.name)) || (customers || [])[0];
-    setSelectedCustomerId(preferredCustomer?.id || '');
-    setValidUntil('15 Days');
-    setLineItems((storedProducts || []).map((p, index) => ({
-      id: `li-${Date.now()}-${index}`,
-      description: p.name,
-      qty: Number(p.qty) || 1,
-      rate: Number(String(p.price || '').replace(/[^0-9]/g, '')) || 0,
-      amount: (Number(String(p.price || '').replace(/[^0-9]/g, '')) || 0) * (Number(p.qty) || 1),
-    })));
-    setIsCreateOpen(true);
-  }
-
-  function handleCreateEstimate(event) {
-    event.preventDefault();
-    const cust = (customers || []).find((c) => c.id === selectedCustomerId) || (customers || [])[0];
-    const total = (lineItems || []).reduce((sum, item) => sum + ((item.amount) || (Number(item.qty || 1) * Number(item.rate || 0))), 0);
-    const created = {
-      id: `est-${Date.now()}`,
-      estimateNumber: `EST-2026-${String((all.length || 0) + 3).padStart(3, '0')}`,
-      customerId: cust?.id || '',
-      customer: cust?.name || lead?.company || lead?.name || 'Acme Corp',
-      leadId: String(lead?.id || ''),
-      leadName: lead?.name || '',
-      date: new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }),
-      validUntil: validUntil || '15 Days',
-      amount: total > 0 ? total : 1500,
-      status: 'Draft',
-      items: lineItems,
-    };
-
-    addEstimate(created);
-    setIsCreateOpen(false);
-    setLineItems([]);
-  }
-
-  function estimateTone(status) {
-    if (status === 'Converted') return 'bg-emerald-50 text-emerald-700 border-emerald-200';
-    if (status === 'Sent') return 'bg-blue-50 text-blue-700 border-blue-200';
-    return 'bg-slate-100 text-slate-600 border-slate-200';
-  }
-
-  return (
-    <div className="card">
-      <div className="card-header flex flex-wrap lg:flex-nowrap items-center justify-between gap-2 lg:gap-0">
-        <h3 className="font-bold text-sm">Estimates ({linked.length})</h3>
-        <button type="button" onClick={openCreateModal} className="btn-primary btn-sm flex items-center gap-1.5">
-          <Plus size={13} strokeWidth={2.4} /> New Estimate
-        </button>
-      </div>
-      <div className="table-scroll">
-        <table className="data-table text-xs min-w-[640px] lg:min-w-0">
-          <thead>
-            <tr>
-              <th style={{ width: 36 }}>#</th>
-              <th>Estimate Number</th>
-              <th>Customer</th>
-              <th>Date</th>
-              <th>Valid Until</th>
-              <th style={{ textAlign: 'right' }}>Total</th>
-              <th style={{ textAlign: 'center' }}>Status</th>
-              <th style={{ width: 80, textAlign: 'center' }}>Action</th>
-            </tr>
-          </thead>
-          <tbody>
-            {linked.map((e, idx) => (
-              <tr key={e.id}>
-                <td className="text-slate-500 font-mono">{idx + 1}</td>
-                <td>
-                  <button type="button" onClick={openCreateModal} className="font-mono font-bold text-blue-600 hover:underline">
-                    {e.estimateNumber}
-                  </button>
-                </td>
-                <td className="font-semibold">{e.customer}</td>
-                <td className="text-slate-500 text-xs whitespace-nowrap">{e.date}</td>
-                <td className="text-slate-500 text-xs">{e.validUntil}</td>
-                <td style={{ textAlign: 'right' }} className="font-bold font-mono">
-                  ${(e.amount || 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}
-                </td>
-                <td style={{ textAlign: 'center' }}>
-                  <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold border ${estimateTone(e.status)}`}>
-                    {e.status}
-                  </span>
-                </td>
-                <td>
-                  <div className="flex items-center justify-center gap-1">
-                    <button type="button" onClick={openCreateModal} className="p-1 rounded text-blue-600 hover:bg-blue-50 transition cursor-pointer" title="Open estimate details">
-                      <Eye size={13} />
-                    </button>
-                  </div>
-                </td>
-              </tr>
-            ))}
-            {linked.length === 0 && (
-              <tr>
-                <td colSpan={8} className="empty-row">No estimates for {lead?.name || 'this lead'} yet. Click New Estimate to create one.</td>
-              </tr>
-            )}
-          </tbody>
-        </table>
-      </div>
-
-      {isCreateOpen && (
-        <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-sm flex items-center justify-center p-2 sm:p-4" onClick={() => setIsCreateOpen(false)}>
-          <div className="bg-white rounded-xl border border-slate-200 max-w-3xl w-full p-4 sm:p-6 shadow-2xl text-xs max-h-[90vh] flex flex-col overflow-hidden" onClick={(event) => event.stopPropagation()}>
-            <div className="flex items-center justify-between pb-3 border-b border-slate-200">
-              <h3 className="font-bold text-base text-[#1F2E4A]">Create Sales Estimate</h3>
-              <button onClick={() => setIsCreateOpen(false)} className="text-slate-400 hover:text-slate-600 cursor-pointer">
-                <X size={18} />
-              </button>
-            </div>
-            <form onSubmit={handleCreateEstimate} className="space-y-4 mt-4 overflow-y-auto pr-1 flex-1">
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <div>
-                  <label className="font-semibold text-slate-700 block mb-1">Customer Account *</label>
-                  <select
-                    required
-                    value={selectedCustomerId}
-                    onChange={(event) => setSelectedCustomerId(event.target.value)}
-                    className="w-full p-2 border border-slate-300 rounded bg-white text-slate-800 font-medium"
-                  >
-                    {(customers || []).map((customer) => (
-                      <option key={customer.id} value={customer.id}>
-                        {customer.name} ({customer.code}) - Balance: ${customer.balance.toFixed(2)}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-                <div>
-                  <label className="font-semibold text-slate-700 block mb-1">Validity Period</label>
-                  <input
-                    type="text"
-                    value={validUntil}
-                    onChange={(event) => setValidUntil(event.target.value)}
-                    placeholder="e.g. 15 Days"
-                    className="w-full p-2 border border-slate-300 rounded bg-white text-slate-800"
-                  />
-                </div>
-              </div>
-
-              <div>
-                <label className="font-semibold text-slate-700 block mb-2">Estimate Line Items</label>
-                <LineItemEditor items={lineItems} onChange={setLineItems} type="sales" />
-              </div>
-
-              <div className="flex items-center justify-end gap-2 pt-4 border-t border-slate-200">
-                <button type="button" onClick={() => setIsCreateOpen(false)} className="px-3 py-1.5 border border-slate-300 rounded-lg text-slate-700 hover:bg-slate-100 font-medium cursor-pointer">
-                  Cancel
-                </button>
-                <button type="submit" className="px-3.5 py-1.5 bg-blue-600 text-white rounded-lg font-semibold hover:bg-blue-700 cursor-pointer">
-                  Generate Estimate
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
       )}
     </div>
   );
@@ -2092,6 +2316,16 @@ function EstimatesTab({ lead, onCountsChange }) {
 function quotationMatchesLead(q, lead) {
   if (!q || !lead) return false;
   if (q.leadId && String(q.leadId) === String(lead.id)) return true;
+  // Sales composer stores a typed "Deal / Lead Reference" (e.g. LEAD-0008)
+  // instead of the lead id when created directly in Sales — match it against
+  // the lead number so those quotations link back to this lead.
+  const leadNumbers = [lead.leadNumber, lead.lead_number, lead.id]
+    .map((v) => String(v || '').trim().toLowerCase())
+    .filter(Boolean);
+  const refs = [q.dealReference, q.dealId]
+    .map((v) => String(v || '').trim().toLowerCase())
+    .filter(Boolean);
+  if (leadNumbers.some((n) => refs.includes(n))) return true;
   const company = String(lead.company || '').trim().toLowerCase();
   const customer = String(q.customer || '').trim().toLowerCase();
   if (company && customer && (customer === company || customer.includes(company) || company.includes(customer))) return true;
@@ -2102,68 +2336,96 @@ function quotationMatchesLead(q, lead) {
 }
 
 function QuotationsTab({ lead, onActivity }) {
-  const { quotations, customers, updateQuotationStatus, addQuotation } = useERP() || {};
+  const { quotations, customers, updateQuotationStatus, approveQuotation } = useERP() || {};
   const linked = useMemo(() => (quotations || []).filter((q) => quotationMatchesLead(q, lead)), [quotations, lead]);
   const storedProducts = useLeadDetailState(lead).products;
-  const [isCreateOpen, setIsCreateOpen] = useState(false);
-  const [selectedCustomerId, setSelectedCustomerId] = useState((customers || [])[0]?.id || '');
-  const [validUntil, setValidUntil] = useState('30 Days');
-  const [lineItems, setLineItems] = useState([]);
+  const [approvingId, setApprovingId] = useState(null);
+  // Inline view state: list | create | edit — the form renders inside this
+  // tab's content area, never as a modal or a route change.
+  const [view, setView] = useState({ name: 'list' });
 
-  useEffect(() => {
-    if (!customers || customers.length === 0) return;
-    const match = (customers || []).find((customer) => customer.name === (lead?.company || lead?.name)) || (customers || [])[0];
-    if (match) setSelectedCustomerId(match.id);
-  }, [customers, lead]);
+  const isApprovedStatus = (status) => ['Accepted', 'Approved', 'Converted', 'Confirmed', 'Invoiced'].includes(status);
+  const canApprove = (q) => !isApprovedStatus(q.status) && !['Rejected', 'Cancelled', 'Expired'].includes(q.status);
 
-  function openCreateModal() {
-    const match = (customers || []).find((customer) => customer.name === (lead?.company || lead?.name)) || (customers || [])[0];
-    const nextItems = (storedProducts || []).map((product, index) => ({
-      id: `quote-item-${product.id ?? index}`,
-      description: product.name,
-      qty: 1,
-      rate: Number(String(product.price || '').replace(/[^0-9.]/g, '')) || 0,
-      amount: Number(String(product.price || '').replace(/[^0-9.]/g, '')) || 0,
-    }));
-
-    setSelectedCustomerId(match?.id || '');
-    setValidUntil('30 Days');
-    setLineItems(nextItems.length > 0 ? nextItems : [{
-      id: `quote-item-${Date.now()}`,
-      description: 'Commercial pricing proposal',
-      qty: 1,
-      rate: 0,
-      amount: 0,
-    }]);
-    setIsCreateOpen(true);
+  async function approveQuotationRow(q) {
+    if (!q || approvingId) return;
+    setApprovingId(q.id);
+    try {
+      if (isBackendEnabled() && isServerId(q.id) && approveQuotation) {
+        const envelope = await approveQuotation(q.id);
+        onActivity?.(`Quotation ${q.quoteNumber || ''} approved — lead converted to customer ${envelope?.customer?.name || ''}`.trim(), '#10b981');
+      } else {
+        updateQuotationStatus?.(q.id, 'Accepted');
+        onActivity?.(`Quotation ${q.quoteNumber || ''} approved`, '#10b981');
+      }
+    } catch {
+      // approveQuotation already toasted the reason; keep the row untouched.
+    } finally {
+      setApprovingId(null);
+    }
   }
 
-  function handleCreateQuotation(event) {
-    event.preventDefault();
-    const customer = (customers || []).find((entry) => entry.id === selectedCustomerId) || (customers || [])[0];
-    const computedTotal = (lineItems || []).reduce((sum, item) => {
-      const qty = Number(item.qty || 1);
-      const rate = Number(item.rate || 0);
-      const amount = Number(item.amount || (qty * rate));
-      return sum + amount;
-    }, 0);
-
-    const created = addQuotation?.({
-      customerId: customer?.id,
-      customer: customer?.name || lead?.company || lead?.name || 'Acme Corp',
+  // Prefill for the inline form: customer/lead identity plus the lead's
+  // fabric requirements as line items (master specs resolve in the form).
+  function leadPrefill() {
+    const match = (customers || []).find((customer) => customer.name === (lead?.company || lead?.name)) || (customers || [])[0];
+    return {
+      fromLead: true,
       leadId: String(lead?.id || ''),
       leadName: lead?.name || '',
-      date: new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }),
-      validUntil: validUntil || '30 Days',
-      amount: computedTotal > 0 ? computedTotal : 1500,
-      status: 'Draft',
-      items: lineItems,
-    });
+      company: lead?.company || lead?.name || '',
+      customerId: match?.id || '',
+      dealReference: lead?.leadNumber || lead?.lead_number || '',
+      items: (storedProducts || []).map((product) => ({
+        name: product.name,
+        qty: 1,
+        rate: Number(String(product.price || '').replace(/[^0-9.]/g, '')) || 0,
+      })),
+    };
+  }
 
-    setIsCreateOpen(false);
-    setLineItems([]);
-    setValidUntil('30 Days');
-    onActivity?.(`Quotation ${created?.quoteNumber || 'created'} generated for ${lead?.name || customer?.name || 'lead'}`, '#3b82f6');
+  // Only Draft server rows accept PATCH (api.md §1.9); local-only rows are
+  // always editable. Anything else opens in Sales (read-only view).
+  const canEditQuote = (q) => Boolean(q) && (!isServerId(q.id) || q.status === 'Draft');
+
+  const activeEdit = view.name === 'edit'
+    ? linked.find((q) => String(q.id) === String(view.id)) || null
+    : null;
+
+  function handleFormDone(saved, wasEdit) {
+    const number = saved?.quoteNumber || saved?.quotationNumber || activeEdit?.quoteNumber || '';
+    onActivity?.(
+      wasEdit
+        ? `Quotation ${number} updated`
+        : `Quotation ${number || 'created'} generated for ${lead?.name || 'lead'}`,
+      '#3b82f6',
+    );
+    setView({ name: 'list' });
+  }
+
+  if (view.name === 'create' || (view.name === 'edit' && activeEdit)) {
+    const isEdit = view.name === 'edit';
+    return (
+      <div className="space-y-4">
+        <div className="card">
+          <div className="card-header flex flex-wrap items-center justify-between gap-2">
+            <h3 className="font-bold text-sm">{isEdit ? `Edit ${activeEdit.quoteNumber}` : 'New Quotation'}</h3>
+            <span className="text-[11px] text-slate-500">
+              for {lead?.company || lead?.name || 'lead'}{isEdit ? ` • ${activeEdit.status}` : ''}
+            </span>
+          </div>
+        </div>
+        <QuotationComposerPage
+          key={isEdit ? `edit-${activeEdit.id}` : 'create'}
+          embedded={{
+            prefill: isEdit ? null : leadPrefill(),
+            editQuote: isEdit ? activeEdit : null,
+            onDone: (saved) => handleFormDone(saved, isEdit),
+            onCancel: () => setView({ name: 'list' }),
+          }}
+        />
+      </div>
+    );
   }
 
   function sendQuotation(q) {
@@ -2180,9 +2442,14 @@ function QuotationsTab({ lead, onActivity }) {
     <div className="card">
       <div className="card-header flex flex-wrap lg:flex-nowrap items-center justify-between gap-2 lg:gap-0">
         <h3 className="font-bold text-sm">Quotations ({linked.length})</h3>
-        <button type="button" onClick={openCreateModal} className="btn-primary btn-sm flex items-center gap-1.5">
-          <Plus size={13} strokeWidth={2.4} /> New Quotation
-        </button>
+        <div className="flex items-center gap-2">
+          <Link to="/sales/quotations" className="btn-sm inline-flex items-center gap-1.5 rounded-lg border border-[#dce5f4] bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-600 hover:text-blue-600 hover:bg-blue-50 transition" title="Open all quotations in Sales">
+            View in Sales <ArrowRight size={13} />
+          </Link>
+          <button type="button" onClick={() => setView({ name: 'create' })} className="btn-primary btn-sm flex items-center gap-1.5" title="Create quotation inline">
+            <Plus size={13} strokeWidth={2.4} /> New Quotation
+          </button>
+        </div>
       </div>
       <div className="table-scroll">
         <table className="data-table text-xs min-w-[640px] lg:min-w-0">
@@ -2190,6 +2457,7 @@ function QuotationsTab({ lead, onActivity }) {
             <tr>
               <th style={{ width: 36 }}>#</th>
               <th>Quotation No.</th>
+              <th>Lead Name</th>
               <th>Customer</th>
               <th>Date</th>
               <th>Valid Until</th>
@@ -2203,10 +2471,17 @@ function QuotationsTab({ lead, onActivity }) {
               <tr key={q.id}>
                 <td className="text-slate-500 font-mono">{idx + 1}</td>
                 <td>
-                  <button type="button" onClick={openCreateModal} className="font-mono font-bold text-blue-600 hover:underline">
-                    {q.quoteNumber}
-                  </button>
+                  {canEditQuote(q) ? (
+                    <button type="button" onClick={() => setView({ name: 'edit', id: q.id })} className="font-mono font-bold text-blue-600 hover:underline" title="Edit quotation">
+                      {q.quoteNumber}
+                    </button>
+                  ) : (
+                    <Link to={`/sales/quotations/${q.id}`} className="font-mono font-bold text-blue-600 hover:underline" title="Open in Sales Quotations">
+                      {q.quoteNumber}
+                    </Link>
+                  )}
                 </td>
+                <td className="text-slate-600">{q.leadName || lead?.name || '—'}</td>
                 <td className="font-semibold">{q.customer}</td>
                 <td className="text-slate-500 text-xs whitespace-nowrap">{q.date}</td>
                 <td className="text-slate-500 text-xs">{q.validUntil}</td>
@@ -2220,10 +2495,42 @@ function QuotationsTab({ lead, onActivity }) {
                 </td>
                 <td>
                   <div className="flex items-center justify-center gap-1">
-                    <button type="button" onClick={openCreateModal} className="p-1 rounded text-blue-600 hover:bg-blue-50 transition cursor-pointer" title="Open quotation details">
-                      <Eye size={13} />
-                    </button>
-                    {q.status !== 'Sent' && (
+                    {canEditQuote(q) ? (
+                      <button type="button" onClick={() => setView({ name: 'edit', id: q.id })} className="p-1 rounded text-blue-600 hover:bg-blue-50 transition cursor-pointer inline-flex" title="Edit quotation">
+                        <Eye size={13} />
+                      </button>
+                    ) : (
+                      <Link to={`/sales/quotations/${q.id}`} className="p-1 rounded text-blue-600 hover:bg-blue-50 transition cursor-pointer inline-flex" title="Open quotation in Sales">
+                        <Eye size={13} />
+                      </Link>
+                    )}
+                    {canEditQuote(q) && (
+                      <button type="button" onClick={() => setView({ name: 'edit', id: q.id })} className="p-1 rounded text-slate-500 hover:text-blue-600 hover:bg-blue-50 transition cursor-pointer inline-flex" title="Edit quotation">
+                        <Pencil size={13} />
+                      </button>
+                    )}
+                    {canApprove(q) && (
+                      <button
+                        type="button"
+                        onClick={() => approveQuotationRow(q)}
+                        disabled={approvingId === q.id}
+                        className="inline-flex items-center gap-1 px-2 py-1 rounded-md bg-blue-600 text-white text-[11px] font-bold hover:bg-blue-700 transition cursor-pointer disabled:opacity-60"
+                        title="Approve quotation — converts this lead to a customer automatically"
+                      >
+                        <Check size={11} /> {approvingId === q.id ? 'Approving…' : 'Approve'}
+                      </button>
+                    )}
+                    {isApprovedStatus(q.status) && (lead?.party || lead?.partyId || lead?.company) && (
+                      <button
+                        type="button"
+                        onClick={() => window.location.assign('/crm/customers')}
+                        className="inline-flex items-center gap-1 px-2 py-1 rounded-md bg-emerald-50 text-emerald-700 border border-emerald-200 text-[11px] font-bold hover:bg-emerald-100 transition cursor-pointer"
+                        title="Open the converted customer record"
+                      >
+                        View Customer
+                      </button>
+                    )}
+                    {q.status !== 'Sent' && !isApprovedStatus(q.status) && (
                       <button type="button" onClick={() => sendQuotation(q)} className="inline-flex items-center gap-1 px-2 py-1 rounded-md bg-emerald-50 text-emerald-700 border border-emerald-200 text-[11px] font-bold hover:bg-emerald-100 transition cursor-pointer" title="Send quotation to lead">
                         <Send size={11} /> Send
                       </button>
@@ -2234,68 +2541,12 @@ function QuotationsTab({ lead, onActivity }) {
             ))}
             {linked.length === 0 && (
               <tr>
-                <td colSpan={8} className="empty-row">No quotations for {lead?.name || 'this lead'} yet. Convert an estimate to create one automatically.</td>
+                <td colSpan={9} className="empty-row">No quotations for {lead?.name || 'this lead'} yet. <Link to="/sales/quotations" className="font-bold text-blue-600 hover:underline">Open Sales Quotations</Link> to create one.</td>
               </tr>
             )}
           </tbody>
         </table>
       </div>
-
-      {isCreateOpen && (
-        <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-sm flex items-center justify-center p-2 sm:p-4" onClick={() => setIsCreateOpen(false)}>
-          <div className="bg-white rounded-xl border border-slate-200 max-w-3xl w-full p-4 sm:p-6 shadow-2xl text-xs max-h-[90vh] flex flex-col overflow-hidden" onClick={(event) => event.stopPropagation()}>
-            <div className="flex items-center justify-between pb-3 border-b border-slate-200">
-              <h3 className="font-bold text-base text-[#1F2E4A]">Create Quotation Estimate</h3>
-              <button type="button" onClick={() => setIsCreateOpen(false)} className="text-slate-400 hover:text-slate-600 cursor-pointer" aria-label="Close quotation dialog">
-                <X size={18} />
-              </button>
-            </div>
-            <form onSubmit={handleCreateQuotation} className="space-y-4 mt-4 overflow-y-auto pr-1 flex-1">
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <div>
-                  <label className="font-semibold text-slate-700 block mb-1">Customer Account *</label>
-                  <select
-                    required
-                    value={selectedCustomerId}
-                    onChange={(event) => setSelectedCustomerId(event.target.value)}
-                    className="w-full p-2 border border-slate-300 rounded bg-white text-slate-800 font-medium"
-                  >
-                    {(customers || []).map((customer) => (
-                      <option key={customer.id} value={customer.id}>
-                        {customer.name} ({customer.code}) - Balance: ${customer.balance.toFixed(2)}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-                <div>
-                  <label className="font-semibold text-slate-700 block mb-1">Validity Period</label>
-                  <input
-                    type="text"
-                    value={validUntil}
-                    onChange={(event) => setValidUntil(event.target.value)}
-                    placeholder="e.g. 30 Days"
-                    className="w-full p-2 border border-slate-300 rounded bg-white text-slate-800"
-                  />
-                </div>
-              </div>
-
-              <div>
-                <label className="font-semibold text-slate-700 block mb-2">Quotation Line Items</label>
-                <LineItemEditor items={lineItems} onChange={setLineItems} type="sales" />
-              </div>
-
-              <div className="flex items-center justify-end gap-2 pt-4 border-t border-slate-200">
-                <button type="button" onClick={() => setIsCreateOpen(false)} className="px-3 py-1.5 border border-slate-300 rounded-lg text-slate-700 hover:bg-slate-100 font-medium cursor-pointer">
-                  Cancel
-                </button>
-                <button type="submit" className="px-3.5 py-1.5 bg-blue-600 text-white rounded-lg font-semibold hover:bg-blue-700 cursor-pointer">
-                  Generate Quotation
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
     </div>
   );
 }
@@ -2528,12 +2779,9 @@ function DeliveryChallansTab({ lead, onCountsChange, onActivity }) {
 
 function ActivityTab({ lead, items }) {
   const entries = items ?? [];
-  const allEstimates = useEstimates();
   const { quotations } = useERP() || {};
-  const linkedEstimates = (allEstimates || []).filter((e) => estimateMatchesLead(e, lead));
   const linkedQuotations = (quotations || []).filter((q) => quotationMatchesLead(q, lead));
   const systemEntries = [
-    ...linkedEstimates.map((e) => ({ id: `sys-est-${e.id}`, title: `Estimate ${e.estimateNumber} • ${e.status}`, time: e.date || '', color: '#f59e0b' })),
     ...linkedQuotations.map((q) => ({ id: `sys-q-${q.id}`, title: `Quotation ${q.quoteNumber} • ${q.status}`, time: q.date || '', color: '#10b981' })),
   ];
   systemEntries.push(...linkedQuotations.flatMap(q => (q.activity || []).map(event => ({ id: event.id, title: `${q.quoteNumber} ? ${event.type}`, time: event.timestamp, color: '#10b981' }))));
@@ -2586,102 +2834,6 @@ function ActivityTab({ lead, items }) {
             </div>
           </div>
         ))}
-      </div>
-    </div>
-  );
-}
-
-// ── Discussion & Notes Tab ────────────────────────────────────
-function DiscussionNotesTab({ lead, onActivity }) {
-  const [noteDraft, setNoteDraft] = useState('');
-  const [pendingAttachments, setPendingAttachments] = useState([]);
-  const [notesList, setNotesList] = useState([]);
-
-  function handleSaveNote(event) {
-    event?.preventDefault();
-    const text = noteDraft.trim();
-    if (!text && pendingAttachments.length === 0) return;
-    const entry = {
-      id: `note-${Date.now()}`,
-      body: text,
-      attachments: [...pendingAttachments],
-      time: new Date().toLocaleString([], { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' }),
-      author: 'You',
-    };
-    setNotesList((current) => [entry, ...current]);
-    setNoteDraft('');
-    setPendingAttachments([]);
-    onActivity?.('Note saved in discussion', '#8b5cf6');
-  }
-
-  function handleAttachmentSelect(event) {
-    const selected = Array.from(event.target.files || []).map((f) => ({ name: f.name, size: f.size }));
-    setPendingAttachments((current) => [...current, ...selected]);
-    event.target.value = '';
-  }
-
-  function removePendingAttachment(name) {
-    setPendingAttachments((current) => current.filter((a) => a.name !== name));
-  }
-
-  return (
-    <div className="space-y-4">
-      <div className="card p-4">
-        <h3 className="font-bold text-sm text-slate-900 mb-3">Notes</h3>
-        <form onSubmit={handleSaveNote} className="space-y-2">
-          <textarea
-            rows={3}
-            value={noteDraft}
-            onChange={(e) => setNoteDraft(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) handleSaveNote(e);
-            }}
-            placeholder="Write a note..."
-            className="form-textarea text-xs w-full"
-          />
-          {pendingAttachments.length > 0 && (
-            <div className="flex gap-1 flex-wrap">
-              {pendingAttachments.map((a) => (
-                <span key={a.name} className="text-[11px] bg-slate-100 rounded-full px-2 py-0.5 flex items-center gap-1">
-                  <Paperclip size={11} /> {a.name}
-                  <button type="button" onClick={() => removePendingAttachment(a.name)} aria-label={`Remove ${a.name}`}>
-                    ×
-                  </button>
-                </span>
-              ))}
-            </div>
-          )}
-          <div className="flex justify-between items-center">
-            <label className="btn-ghost btn-sm cursor-pointer flex items-center gap-1">
-              <Paperclip size={12} /> Attach
-              <input type="file" multiple hidden onChange={handleAttachmentSelect} />
-            </label>
-            <button type="submit" disabled={!noteDraft.trim() && pendingAttachments.length === 0} className="btn-outline btn-sm disabled:opacity-50">
-              Save Note
-            </button>
-          </div>
-        </form>
-        {notesList.length > 0 && (
-          <div className="mt-4 space-y-2">
-            {notesList.map((n) => (
-              <div key={n.id} className="rounded-lg border border-slate-200 bg-slate-50 p-3 text-xs">
-                {n.body && <p className="text-slate-800 whitespace-pre-wrap">{n.body}</p>}
-                {n.attachments.length > 0 && (
-                  <div className="flex gap-1 flex-wrap mt-2">
-                    {n.attachments.map((a) => (
-                      <span key={a.name} className="text-[11px] bg-white border border-slate-200 rounded-full px-2 py-0.5 flex items-center gap-1 text-slate-600">
-                        <Paperclip size={11} /> {a.name}
-                      </span>
-                    ))}
-                  </div>
-                )}
-                <p className="text-[10px] text-slate-400 mt-1.5">
-                  {n.author} · {n.time}
-                </p>
-              </div>
-            ))}
-          </div>
-        )}
       </div>
     </div>
   );
@@ -2819,20 +2971,201 @@ function GeneralTab({ lead }) {
   );
 }
 
-// ── 3. Users | Products Tab ──────────────────────────────────
+// ── 3. Users | Requirements Tab ──────────────────────────────────
+const REQUIREMENT_UOM_OPTIONS = ['Meter', 'Kg', 'Taka', 'Roll'];
+const REQUIREMENT_STATUS_OPTIONS = ['Active', 'Draft'];
+
+const EMPTY_REQUIREMENT_DRAFT = {
+  fabricQuality: '',
+  fabricCode: '',
+  fabricType: '',
+  design: '',
+  colour: '',
+  width: '',
+  gsm: '',
+  qty: '1',
+  uom: 'Meter',
+  expectedRate: '',
+  remarks: '',
+  status: 'Active',
+};
+
+function tempRequirementId() {
+  return `req-${Date.now()}-${Math.random().toString(16).slice(2, 6)}`;
+}
+
+function formatExpectedRate(value) {
+  if (value === null || value === undefined || value === '') return '—';
+  const num = Number(value);
+  if (!Number.isFinite(num)) return '—';
+  return `Rs. ${num.toLocaleString('en-IN')}`;
+}
+
+function formatFabricDim(value, suffix = '') {
+  if (value === null || value === undefined || value === '') return '—';
+  return `${value}${suffix}`;
+}
+
+/**
+ * Fabric requirement form fields, shared by the add and edit requirement
+ * dialogs. Same input styling as the rest of the drawer; the draft object
+ * uses UI keys (`fabricQuality`, `colour`, `expectedRate`, ...) and the
+ * mapping layer translates them to the API payload.
+ */
+function RequirementFormFields({ draft, onChange, autoFocus = false }) {
+  const set = (key) => (event) => onChange({ ...draft, [key]: event.target.value });
+  const inputCls = 'mt-2 w-full rounded-lg border border-slate-200 px-3 py-2 text-xs font-normal text-slate-700 focus:outline-none focus:border-blue-500';
+  return (
+    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+      <label className="text-xs font-semibold text-slate-700 sm:col-span-2">
+        Fabric Quality / Item Name *
+        <input
+          type="text"
+          value={draft.fabricQuality}
+          onChange={set('fabricQuality')}
+          placeholder="e.g. Cotton Voile"
+          className={inputCls}
+          autoFocus={autoFocus}
+        />
+      </label>
+      <label className="text-xs font-semibold text-slate-700">
+        Fabric Code / SKU
+        <input
+          type="text"
+          value={draft.fabricCode}
+          onChange={set('fabricCode')}
+          placeholder="e.g. CTV-60-120"
+          className={inputCls}
+        />
+      </label>
+      <label className="text-xs font-semibold text-slate-700">
+        Fabric Type
+        <input
+          type="text"
+          value={draft.fabricType}
+          onChange={set('fabricType')}
+          placeholder="e.g. Cotton"
+          className={inputCls}
+        />
+      </label>
+      <label className="text-xs font-semibold text-slate-700">
+        Design
+        <input
+          type="text"
+          value={draft.design}
+          onChange={set('design')}
+          placeholder="e.g. Floral"
+          className={inputCls}
+        />
+      </label>
+      <label className="text-xs font-semibold text-slate-700">
+        Colour / Shade
+        <input
+          type="text"
+          value={draft.colour}
+          onChange={set('colour')}
+          placeholder="e.g. Red"
+          className={inputCls}
+        />
+      </label>
+      <label className="text-xs font-semibold text-slate-700">
+        Width (inches)
+        <input
+          type="number"
+          min="0"
+          step="0.01"
+          value={draft.width}
+          onChange={set('width')}
+          placeholder="e.g. 58"
+          className={inputCls}
+        />
+      </label>
+      <label className="text-xs font-semibold text-slate-700">
+        GSM
+        <input
+          type="number"
+          min="0"
+          step="0.01"
+          value={draft.gsm}
+          onChange={set('gsm')}
+          placeholder="e.g. 120"
+          className={inputCls}
+        />
+      </label>
+      <label className="text-xs font-semibold text-slate-700">
+        Required Quantity *
+        <input
+          type="number"
+          min="0"
+          step="0.01"
+          value={draft.qty}
+          onChange={set('qty')}
+          placeholder="e.g. 150"
+          className={inputCls}
+        />
+      </label>
+      <label className="text-xs font-semibold text-slate-700">
+        UOM
+        <select value={draft.uom} onChange={set('uom')} className={`${inputCls} bg-white`}>
+          {REQUIREMENT_UOM_OPTIONS.map((opt) => (
+            <option key={opt} value={opt}>{opt}</option>
+          ))}
+        </select>
+      </label>
+      <label className="text-xs font-semibold text-slate-700">
+        Expected Rate
+        <input
+          type="number"
+          min="0"
+          step="0.01"
+          value={draft.expectedRate}
+          onChange={set('expectedRate')}
+          placeholder="Indicative rate (not final price)"
+          className={inputCls}
+        />
+      </label>
+      <label className="text-xs font-semibold text-slate-700">
+        Status
+        <select value={draft.status} onChange={set('status')} className={`${inputCls} bg-white`}>
+          {REQUIREMENT_STATUS_OPTIONS.map((opt) => (
+            <option key={opt} value={opt}>{opt}</option>
+          ))}
+        </select>
+      </label>
+      <label className="text-xs font-semibold text-slate-700 sm:col-span-2">
+        Remarks
+        <input
+          type="text"
+          value={draft.remarks}
+          onChange={set('remarks')}
+          placeholder="Any additional notes"
+          className={inputCls}
+        />
+      </label>
+    </div>
+  );
+}
+
 function UsersProductsTab({ lead, onCountsChange, onActivity }) {
   const initialState = useLeadDetailState(lead);
   const [users, setUsers] = useState(() => (Array.isArray(initialState.users) ? initialState.users : []));
-  const [products, setProducts] = useState(() => (Array.isArray(initialState.products) ? initialState.products : []));
+  // Requirements are the store's `products` section (LeadProduct rows) read
+  // live, so saves through the API appear without a remount and survive a
+  // page refresh. The section key stays `products` — only labels changed.
+  const storedRequirements = useLeadDetailStore((s) => s.byLead[String(lead?.id || '')]?.products);
+  const requirements = useMemo(() => {
+    if (Array.isArray(storedRequirements)) return storedRequirements;
+    return Array.isArray(initialState.products) ? initialState.products : [];
+  }, [storedRequirements, initialState.products]);
   const [isAddUserOpen, setIsAddUserOpen] = useState(false);
   const [selectedEmployeeId, setSelectedEmployeeId] = useState('');
-  const [isAddProductOpen, setIsAddProductOpen] = useState(false);
-  const [productDraft, setProductDraft] = useState({ name: '', sku: '', price: '', qty: 1, status: 'Active', image: '' });
-  const [editingProduct, setEditingProduct] = useState(null);
+  const [isAddRequirementOpen, setIsAddRequirementOpen] = useState(false);
+  const [requirementDraft, setRequirementDraft] = useState({ ...EMPTY_REQUIREMENT_DRAFT });
+  const [editingRequirement, setEditingRequirement] = useState(null);
   const [userSearch, setUserSearch] = useState('');
   const [userFilter, setUserFilter] = useState('All Users');
-  const [productSearch, setProductSearch] = useState('');
-  const [productFilter, setProductFilter] = useState('All Products');
+  const [requirementSearch, setRequirementSearch] = useState('');
+  const [requirementFilter, setRequirementFilter] = useState('All Requirements');
 
   const filteredUsers = useMemo(() => (Array.isArray(users) ? users : []).filter((u) => {
     if (!u) return false;
@@ -2841,12 +3174,12 @@ function UsersProductsTab({ lead, onCountsChange, onActivity }) {
     return true;
   }), [users, userSearch, userFilter]);
 
-  const filteredProducts = useMemo(() => (Array.isArray(products) ? products : []).filter((p) => {
+  const filteredRequirements = useMemo(() => (Array.isArray(requirements) ? requirements : []).filter((p) => {
     if (!p) return false;
-    if (productFilter !== 'All Products' && p.status !== productFilter) return false;
-    if (productSearch && !`${p.name || ''} ${p.sku || ''}`.toLowerCase().includes(productSearch.toLowerCase())) return false;
+    if (requirementFilter !== 'All Requirements' && p.status !== requirementFilter) return false;
+    if (requirementSearch && !`${p.productName || p.name || ''} ${p.fabricCode || p.sku || ''} ${p.fabricType || ''} ${p.fabricDesign || ''} ${p.fabricColor || ''}`.toLowerCase().includes(requirementSearch.toLowerCase())) return false;
     return true;
-  }), [products, productSearch, productFilter]);
+  }), [requirements, requirementSearch, requirementFilter]);
 
   const availableEmployees = useMemo(
     () => withSampleTeam(useCrmStore.getState().teamMembers).filter((member) => !(Array.isArray(users) ? users : []).some((user) => user && user.name === member.name)),
@@ -2854,101 +3187,143 @@ function UsersProductsTab({ lead, onCountsChange, onActivity }) {
   );
 
   React.useEffect(() => {
-    updateStoredLeadDetail(lead?.id, { users, products });
-    onCountsChange?.({ users: users.length, products: products.length });
-  }, [lead?.id, users, products, users.length, products.length, onCountsChange]);
+    // Users and requirements persist through explicit add/remove calls
+    // below (server ids come back from the POST); nothing auto-posts here.
+    onCountsChange?.({ users: users.length, products: requirements.length });
+  }, [lead?.id, users, users.length, requirements.length, onCountsChange]);
 
-  function addUser() {
+  async function addUser() {
     const employee = withSampleTeam(useCrmStore.getState().teamMembers).find((item) => item.id === selectedEmployeeId);
     if (!employee) return;
-    setUsers((current) => [
-      ...current,
-      {
-        id: employee.id,
-        initials: getInitials(employee.name),
-        name: employee.name,
-        email: employee.email,
-        role: employee.designation,
-        status: employee.status === 'Active' ? 'Active' : 'Inactive',
-        bg: '#3b82f6',
-      },
-    ]);
+    // The POST needs the backend user id — the row id stays temporary until
+    // the server answers with the assignment id.
+    const tempId = `lu-${Date.now()}-${Math.random().toString(16).slice(2, 6)}`;
+    const row = {
+      id: tempId,
+      userId: employee.id,
+      initials: getInitials(employee.name),
+      name: employee.name,
+      email: employee.email,
+      role: employee.role || employee.designation || '',
+      status: 'Active',
+      bg: '#3b82f6',
+    };
+    setUsers((current) => [...current, row]);
     setSelectedEmployeeId('');
     setIsAddUserOpen(false);
     onActivity?.(`${employee.name} assigned to lead`, '#10b981');
+    try {
+      const saved = await useLeadDetailStore.getState().add(lead?.id, 'users', row);
+      if (saved?.id && saved.id !== tempId) {
+        setUsers((current) => current.map((u) => (
+          u.id === tempId
+            ? { ...saved, id: saved.id, initials: row.initials, bg: row.bg, status: 'Active' }
+            : u
+        )));
+      }
+    } catch (err) {
+      console.warn('[CRM] user not saved:', err?.message || err);
+      onActivity?.(`${employee.name} could not be saved to the server`, '#f59e0b');
+    }
   }
 
-  function deleteUser(id) {
+  async function deleteUser(id) {
     const target = users.find((u) => u.id === id);
     setUsers((current) => current.filter((u) => u.id !== id));
     onActivity?.(`User "${target?.name ?? 'entry'}" removed`, '#f59e0b');
+    try {
+      await useLeadDetailStore.getState().removeSection(lead?.id, 'users', id);
+    } catch (err) {
+      console.warn('[CRM] user not removed:', err?.message || err);
+    }
   }
 
-  function addProduct() {
-    if (!productDraft.name.trim() || !productDraft.sku.trim() || !productDraft.price || Number(productDraft.qty) < 1) return;
-    setProducts((current) => [
-      ...current,
-      {
-        id: Date.now(),
-        name: productDraft.name.trim(),
-        sku: productDraft.sku.trim().toUpperCase(),
-        price: `Rs. ${Number(productDraft.price).toLocaleString('en-IN')}`,
-        qty: Number(productDraft.qty),
-        status: productDraft.status,
-        image: productDraft.image,
-      },
-    ]);
-    setProductDraft({ name: '', sku: '', price: '', qty: 1, status: 'Active', image: '' });
-    setIsAddProductOpen(false);
-    onActivity?.(`Product "${productDraft.name.trim()}" added`, '#ec4899');
+  /** Fabric requirement payload in the mapping layer's UI shape. */
+  function requirementRowFromDraft(draft, id) {
+    const quality = String(draft.fabricQuality || '').trim();
+    const qty = Number(draft.qty);
+    return {
+      id: id || tempRequirementId(),
+      productName: quality,
+      fabricCode: String(draft.fabricCode || '').trim(),
+      fabricType: String(draft.fabricType || '').trim(),
+      fabricDesign: String(draft.design || '').trim(),
+      fabricColor: String(draft.colour || '').trim(),
+      fabricWidth: draft.width === '' ? '' : draft.width,
+      fabricGsm: draft.gsm === '' ? '' : draft.gsm,
+      qty: Number.isFinite(qty) && qty > 0 ? qty : 1,
+      uom: draft.uom || 'Meter',
+      expectedRate: draft.expectedRate === '' ? null : Number(draft.expectedRate),
+      status: draft.status || 'Active',
+      notes: String(draft.remarks || ''),
+    };
   }
 
-  function openEditProduct(product) {
-    setEditingProduct({
-      id: product.id,
-      name: product.name || '',
-      sku: product.sku || '',
-      price: String(product.price || '').replace(/[^0-9]/g, '') || '',
-      qty: product.qty || 1,
-      status: product.status || 'Active',
-      image: product.image || '',
-    });
+  function requirementDraftFromRow(row) {
+    return {
+      fabricQuality: row.productName || row.name || '',
+      fabricCode: row.fabricCode || '',
+      fabricType: row.fabricType || '',
+      design: row.fabricDesign || '',
+      colour: row.fabricColor || '',
+      width: row.fabricWidth ?? '',
+      gsm: row.fabricGsm ?? '',
+      qty: row.qty ?? 1,
+      uom: row.uom || 'Meter',
+      expectedRate: row.expectedRate ?? '',
+      remarks: row.notes || row.remarks || '',
+      status: row.status || 'Active',
+    };
   }
 
-  function saveEditProduct() {
-    if (!editingProduct) return;
-    if (!editingProduct.name.trim() || !editingProduct.sku.trim() || !editingProduct.price || Number(editingProduct.qty) < 1) return;
-    setProducts((current) => current.map((p) => (p.id === editingProduct.id ? {
-      ...p,
-      name: editingProduct.name.trim(),
-      sku: editingProduct.sku.trim().toUpperCase(),
-      price: `Rs. ${Number(editingProduct.price).toLocaleString('en-IN')}`,
-      qty: Number(editingProduct.qty),
-      status: editingProduct.status,
-      image: editingProduct.image,
-    } : p)));
-    setEditingProduct(null);
-    onActivity?.(`Product "${editingProduct.name.trim()}" updated`, '#3b82f6');
+  function isRequirementDraftValid(draft) {
+    return String(draft.fabricQuality || '').trim() !== '' && Number(draft.qty) > 0;
   }
 
-  function deleteProduct(id) {
-    const target = products.find((p) => p.id === id);
-    setProducts((current) => current.filter((p) => p.id !== id));
-    onActivity?.(`Product "${target?.name ?? 'entry'}" removed`, '#f59e0b');
+  async function addRequirement() {
+    if (!isRequirementDraftValid(requirementDraft)) return;
+    const quality = String(requirementDraft.fabricQuality).trim();
+    try {
+      await useLeadDetailStore.getState().add(
+        lead?.id, 'products', requirementRowFromDraft(requirementDraft),
+      );
+      setRequirementDraft({ ...EMPTY_REQUIREMENT_DRAFT });
+      setIsAddRequirementOpen(false);
+      onActivity?.(`Fabric requirement "${quality}" added`, '#ec4899');
+    } catch (err) {
+      console.warn('[CRM] requirement not saved:', err?.message || err);
+      onActivity?.(`Fabric requirement "${quality}" could not be saved`, '#f59e0b');
+    }
   }
 
-  async function handleProductImageChange(event) {
-    const file = event.target.files?.[0];
-    if (!file) return;
-    const image = await readFileAsDataUrl(file);
-    setProductDraft((current) => ({ ...current, image }));
+  function openEditRequirement(row) {
+    setEditingRequirement({ id: row.id, ...requirementDraftFromRow(row) });
   }
 
-  async function handleEditProductImageChange(event) {
-    const file = event.target.files?.[0];
-    if (!file) return;
-    const image = await readFileAsDataUrl(file);
-    setEditingProduct((current) => (current ? { ...current, image } : current));
+  async function saveEditRequirement() {
+    if (!editingRequirement) return;
+    if (!isRequirementDraftValid(editingRequirement)) return;
+    const quality = String(editingRequirement.fabricQuality).trim();
+    try {
+      await useLeadDetailStore.getState().updateSection(
+        lead?.id, 'products', editingRequirement.id, requirementRowFromDraft(editingRequirement, editingRequirement.id),
+      );
+      setEditingRequirement(null);
+      onActivity?.(`Fabric requirement "${quality}" updated`, '#3b82f6');
+    } catch (err) {
+      console.warn('[CRM] requirement not updated:', err?.message || err);
+      onActivity?.(`Fabric requirement "${quality}" could not be updated`, '#f59e0b');
+    }
+  }
+
+  async function deleteRequirement(id) {
+    const target = requirements.find((p) => String(p?.id) === String(id));
+    try {
+      await useLeadDetailStore.getState().removeSection(lead?.id, 'products', id);
+      onActivity?.(`Fabric requirement "${target?.productName || target?.name || 'entry'}" removed`, '#f59e0b');
+    } catch (err) {
+      console.warn('[CRM] requirement not deleted:', err?.message || err);
+    }
   }
 
   return (
@@ -3099,195 +3474,74 @@ function UsersProductsTab({ lead, onCountsChange, onActivity }) {
         </div>
       </div>
 
-      {/* Products Card */}
+      {/* Requirements Card */}
       <div className="bg-white rounded-2xl border border-slate-200/90 p-5 sm:p-6 shadow-xs">
         <div className="flex items-center justify-between mb-4">
-          <h3 className="font-bold text-sm text-slate-900">Products ({filteredProducts.length})</h3>
+          <h3 className="font-bold text-sm text-slate-900">Requirements ({filteredRequirements.length})</h3>
           <button
             type="button"
-            onClick={() => setIsAddProductOpen(true)}
+            onClick={() => setIsAddRequirementOpen(true)}
             className="inline-flex items-center gap-1.5 px-3.5 py-1.5 bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold rounded-lg shadow-xs transition cursor-pointer"
           >
-            <Plus size={14} /> Add Product
+            <Plus size={14} /> Add Fabric Requirement
           </button>
         </div>
 
-        {isAddProductOpen && (
-          <div className="fixed inset-0 z-50 bg-slate-950/30 flex items-center justify-center p-2 sm:p-4" onClick={() => setIsAddProductOpen(false)}>
-            <div className="bg-white rounded-xl border border-slate-200 shadow-2xl w-full max-w-lg p-4 sm:p-5 max-h-[95vh] overflow-y-auto" onClick={(event) => event.stopPropagation()}>
+        {isAddRequirementOpen && (
+          <div className="fixed inset-0 z-50 bg-slate-950/30 flex items-center justify-center p-2 sm:p-4" onClick={() => setIsAddRequirementOpen(false)}>
+            <div className="bg-white rounded-xl border border-slate-200 shadow-2xl w-full max-w-xl p-4 sm:p-5 max-h-[95vh] overflow-y-auto" onClick={(event) => event.stopPropagation()}>
               <div className="flex items-center justify-between mb-5">
                 <div>
-                  <h4 className="text-sm font-bold text-slate-900">Add Product</h4>
-                  <p className="text-xs text-slate-500 mt-1">Enter the product details for this lead.</p>
+                  <h4 className="text-sm font-bold text-slate-900">Add Fabric Requirement</h4>
+                  <p className="text-xs text-slate-500 mt-1">Enter the fabric requirement details for this lead. The expected rate is indicative, not a confirmed price.</p>
                 </div>
-                <button type="button" className="text-slate-400 hover:text-slate-700 text-lg" onClick={() => setIsAddProductOpen(false)} aria-label="Close add product dialog">×</button>
+                <button type="button" className="text-slate-400 hover:text-slate-700 text-lg" onClick={() => setIsAddRequirementOpen(false)} aria-label="Close add fabric requirement dialog">×</button>
               </div>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <label className="text-xs font-semibold text-slate-700 sm:col-span-2">
-                  Product Name
-                  <input
-                    type="text"
-                    value={productDraft.name}
-                    onChange={(event) => setProductDraft((current) => ({ ...current, name: event.target.value }))}
-                    placeholder="Enter product name"
-                    className="mt-2 w-full rounded-lg border border-slate-200 px-3 py-2 text-xs font-normal text-slate-700 focus:outline-none focus:border-blue-500"
-                    autoFocus
-                  />
-                </label>
-                <label className="text-xs font-semibold text-slate-700 sm:col-span-2">
-                  Product Image
-                  <input
-                    type="file"
-                    accept="image/*"
-                    onChange={handleProductImageChange}
-                    className="mt-2 block w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-normal text-slate-600 file:mr-3 file:rounded-md file:border-0 file:bg-blue-50 file:px-2.5 file:py-1 file:text-xs file:font-semibold file:text-blue-700"
-                  />
-                  {productDraft.image && <img src={productDraft.image} alt="Product preview" className="mt-3 h-16 w-16 rounded-lg border border-slate-200 object-cover" />}
-                </label>
-                <label className="text-xs font-semibold text-slate-700">
-                  SKU
-                  <input
-                    type="text"
-                    value={productDraft.sku}
-                    onChange={(event) => setProductDraft((current) => ({ ...current, sku: event.target.value }))}
-                    placeholder="e.g. PRD-001"
-                    className="mt-2 w-full rounded-lg border border-slate-200 px-3 py-2 text-xs font-normal text-slate-700 focus:outline-none focus:border-blue-500"
-                  />
-                </label>
-                <label className="text-xs font-semibold text-slate-700">
-                  Price
-                  <input
-                    type="number"
-                    min="0"
-                    value={productDraft.price}
-                    onChange={(event) => setProductDraft((current) => ({ ...current, price: event.target.value }))}
-                    placeholder="Enter price"
-                    className="mt-2 w-full rounded-lg border border-slate-200 px-3 py-2 text-xs font-normal text-slate-700 focus:outline-none focus:border-blue-500"
-                  />
-                </label>
-                <label className="text-xs font-semibold text-slate-700">
-                  Quantity
-                  <input
-                    type="number"
-                    min="1"
-                    value={productDraft.qty}
-                    onChange={(event) => setProductDraft((current) => ({ ...current, qty: event.target.value }))}
-                    className="mt-2 w-full rounded-lg border border-slate-200 px-3 py-2 text-xs font-normal text-slate-700 focus:outline-none focus:border-blue-500"
-                  />
-                </label>
-                <label className="text-xs font-semibold text-slate-700">
-                  Status
-                  <select
-                    value={productDraft.status}
-                    onChange={(event) => setProductDraft((current) => ({ ...current, status: event.target.value }))}
-                    className="mt-2 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-normal text-slate-700 focus:outline-none focus:border-blue-500"
-                  >
-                    <option value="Active">Active</option>
-                    <option value="Draft">Draft</option>
-                  </select>
-                </label>
-              </div>
+              <RequirementFormFields
+                draft={requirementDraft}
+                autoFocus
+                onChange={setRequirementDraft}
+              />
               <div className="flex justify-end gap-2 mt-6">
-                <button type="button" className="px-3 py-2 rounded-lg text-xs font-semibold text-slate-600 hover:bg-slate-100" onClick={() => setIsAddProductOpen(false)}>
+                <button type="button" className="px-3 py-2 rounded-lg text-xs font-semibold text-slate-600 hover:bg-slate-100" onClick={() => setIsAddRequirementOpen(false)}>
                   Cancel
                 </button>
                 <button
                   type="button"
                   className="px-3 py-2 rounded-lg bg-blue-600 text-white text-xs font-semibold hover:bg-blue-700 disabled:opacity-50"
-                  onClick={addProduct}
-                  disabled={!productDraft.name.trim() || !productDraft.sku.trim() || !productDraft.price || Number(productDraft.qty) < 1}
+                  onClick={addRequirement}
+                  disabled={!isRequirementDraftValid(requirementDraft)}
                 >
-                  Add Product
+                  Add Requirement
                 </button>
               </div>
             </div>
           </div>
         )}
 
-        {editingProduct && (
-          <div className="fixed inset-0 z-50 bg-slate-950/30 flex items-center justify-center p-2 sm:p-4" onClick={() => setEditingProduct(null)}>
-            <div className="bg-white rounded-xl border border-slate-200 shadow-2xl w-full max-w-lg p-4 sm:p-5 max-h-[95vh] overflow-y-auto" onClick={(event) => event.stopPropagation()}>
+        {editingRequirement && (
+          <div className="fixed inset-0 z-50 bg-slate-950/30 flex items-center justify-center p-2 sm:p-4" onClick={() => setEditingRequirement(null)}>
+            <div className="bg-white rounded-xl border border-slate-200 shadow-2xl w-full max-w-xl p-4 sm:p-5 max-h-[95vh] overflow-y-auto" onClick={(event) => event.stopPropagation()}>
               <div className="flex items-center justify-between mb-5">
                 <div>
-                  <h4 className="text-sm font-bold text-slate-900">Edit Product</h4>
-                  <p className="text-xs text-slate-500 mt-1">Update the product details for this lead.</p>
+                  <h4 className="text-sm font-bold text-slate-900">Edit Fabric Requirement</h4>
+                  <p className="text-xs text-slate-500 mt-1">Update the fabric requirement details for this lead.</p>
                 </div>
-                <button type="button" className="text-slate-400 hover:text-slate-700 text-lg" onClick={() => setEditingProduct(null)} aria-label="Close edit product dialog">×</button>
+                <button type="button" className="text-slate-400 hover:text-slate-700 text-lg" onClick={() => setEditingRequirement(null)} aria-label="Close edit fabric requirement dialog">×</button>
               </div>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <label className="text-xs font-semibold text-slate-700 sm:col-span-2">
-                  Product Name
-                  <input
-                    type="text"
-                    value={editingProduct.name}
-                    onChange={(event) => setEditingProduct((current) => (current ? { ...current, name: event.target.value } : current))}
-                    placeholder="Enter product name"
-                    className="mt-2 w-full rounded-lg border border-slate-200 px-3 py-2 text-xs font-normal text-slate-700 focus:outline-none focus:border-blue-500"
-                    autoFocus
-                  />
-                </label>
-                <label className="text-xs font-semibold text-slate-700 sm:col-span-2">
-                  Product Image
-                  <input
-                    type="file"
-                    accept="image/*"
-                    onChange={handleEditProductImageChange}
-                    className="mt-2 block w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-normal text-slate-600 file:mr-3 file:rounded-md file:border-0 file:bg-blue-50 file:px-2.5 file:py-1 file:text-xs file:font-semibold file:text-blue-700"
-                  />
-                  {editingProduct.image && <img src={editingProduct.image} alt="Product preview" className="mt-3 h-16 w-16 rounded-lg border border-slate-200 object-cover" />}
-                </label>
-                <label className="text-xs font-semibold text-slate-700">
-                  SKU
-                  <input
-                    type="text"
-                    value={editingProduct.sku}
-                    onChange={(event) => setEditingProduct((current) => (current ? { ...current, sku: event.target.value } : current))}
-                    placeholder="e.g. PRD-001"
-                    className="mt-2 w-full rounded-lg border border-slate-200 px-3 py-2 text-xs font-normal text-slate-700 focus:outline-none focus:border-blue-500"
-                  />
-                </label>
-                <label className="text-xs font-semibold text-slate-700">
-                  Price
-                  <input
-                    type="number"
-                    min="0"
-                    value={editingProduct.price}
-                    onChange={(event) => setEditingProduct((current) => (current ? { ...current, price: event.target.value } : current))}
-                    placeholder="Enter price"
-                    className="mt-2 w-full rounded-lg border border-slate-200 px-3 py-2 text-xs font-normal text-slate-700 focus:outline-none focus:border-blue-500"
-                  />
-                </label>
-                <label className="text-xs font-semibold text-slate-700">
-                  Quantity
-                  <input
-                    type="number"
-                    min="1"
-                    value={editingProduct.qty}
-                    onChange={(event) => setEditingProduct((current) => (current ? { ...current, qty: event.target.value } : current))}
-                    className="mt-2 w-full rounded-lg border border-slate-200 px-3 py-2 text-xs font-normal text-slate-700 focus:outline-none focus:border-blue-500"
-                  />
-                </label>
-                <label className="text-xs font-semibold text-slate-700">
-                  Status
-                  <select
-                    value={editingProduct.status}
-                    onChange={(event) => setEditingProduct((current) => (current ? { ...current, status: event.target.value } : current))}
-                    className="mt-2 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-normal text-slate-700 focus:outline-none focus:border-blue-500"
-                  >
-                    <option value="Active">Active</option>
-                    <option value="Draft">Draft</option>
-                  </select>
-                </label>
-              </div>
+              <RequirementFormFields
+                draft={editingRequirement}
+                onChange={setEditingRequirement}
+              />
               <div className="flex justify-end gap-2 mt-6">
-                <button type="button" className="px-3 py-2 rounded-lg text-xs font-semibold text-slate-600 hover:bg-slate-100" onClick={() => setEditingProduct(null)}>
+                <button type="button" className="px-3 py-2 rounded-lg text-xs font-semibold text-slate-600 hover:bg-slate-100" onClick={() => setEditingRequirement(null)}>
                   Cancel
                 </button>
                 <button
                   type="button"
                   className="px-3 py-2 rounded-lg bg-blue-600 text-white text-xs font-semibold hover:bg-blue-700 disabled:opacity-50"
-                  onClick={saveEditProduct}
-                  disabled={!editingProduct.name.trim() || !editingProduct.sku.trim() || !editingProduct.price || Number(editingProduct.qty) < 1}
+                  onClick={saveEditRequirement}
+                  disabled={!isRequirementDraftValid(editingRequirement)}
                 >
                   Save Changes
                 </button>
@@ -3302,19 +3556,19 @@ function UsersProductsTab({ lead, onCountsChange, onActivity }) {
             <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
             <input
               type="text"
-              placeholder="Search products..."
-              value={productSearch}
-              onChange={(e) => setProductSearch(e.target.value)}
+              placeholder="Search requirements..."
+              value={requirementSearch}
+              onChange={(e) => setRequirementSearch(e.target.value)}
               className="w-full pl-8.5 pr-3 py-1.5 text-xs bg-white border border-slate-200 rounded-lg placeholder:text-slate-400 text-slate-800 focus:outline-none focus:border-blue-500 transition"
             />
           </div>
           <div className="relative">
             <select
-              value={productFilter}
-              onChange={(e) => setProductFilter(e.target.value)}
+              value={requirementFilter}
+              onChange={(e) => setRequirementFilter(e.target.value)}
               className="appearance-none pl-3 pr-7 py-1.5 text-xs bg-white border border-slate-200 rounded-lg text-slate-700 font-medium focus:outline-none focus:border-blue-500 cursor-pointer"
             >
-              <option value="All Products">All Products</option>
+              <option value="All Requirements">All Requirements</option>
               <option value="Active">Active</option>
               <option value="Draft">Draft</option>
             </select>
@@ -3324,33 +3578,41 @@ function UsersProductsTab({ lead, onCountsChange, onActivity }) {
 
         {/* Table */}
         <div className="overflow-x-auto">
-          <table className="w-full min-w-[560px] lg:min-w-0 text-left text-xs">
+          <table className="w-full min-w-[900px] lg:min-w-0 text-left text-xs">
             <thead>
               <tr className="border-b border-slate-100 text-[11px] font-bold text-slate-700">
                 <th className="py-2.5 px-2 w-7 font-bold">#</th>
-                <th className="py-2.5 px-2 font-bold">Product Name</th>
-                <th className="py-2.5 px-2 font-bold">SKU</th>
-                <th className="py-2.5 px-2 font-bold">Price</th>
+                <th className="py-2.5 px-2 font-bold">Fabric Quality</th>
+                <th className="py-2.5 px-2 font-bold">Fabric Code</th>
+                <th className="py-2.5 px-2 font-bold">Fabric Type</th>
+                <th className="py-2.5 px-2 font-bold">Colour/Shade</th>
+                <th className="py-2.5 px-2 font-bold">Width</th>
+                <th className="py-2.5 px-2 font-bold">GSM</th>
                 <th className="py-2.5 px-2 font-bold">Quantity</th>
+                <th className="py-2.5 px-2 font-bold">UOM</th>
+                <th className="py-2.5 px-2 font-bold">Expected Rate</th>
                 <th className="py-2.5 px-2 text-center font-bold">Status</th>
                 <th className="py-2.5 px-2 text-center font-bold">Action</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
-              {filteredProducts.map((p, idx) => (
+              {filteredRequirements.map((p, idx) => (
                 <tr key={p.id} className="hover:bg-slate-50/70 transition">
                   <td className="py-3 px-2 text-slate-400 font-normal">{idx + 1}</td>
                   <td className="py-3 px-2">
-                    <div className="flex items-center gap-2.5">
-                      <div className="w-6 h-6 rounded-md bg-blue-100/70 border border-blue-200/50 flex items-center justify-center shrink-0 overflow-hidden">
-                        {p.image ? <img src={p.image} alt="" className="w-full h-full object-cover" /> : <div className="w-2.5 h-2.5 bg-slate-700 rounded-[2px]" />}
-                      </div>
-                      <span className="font-semibold text-slate-900">{p.name}</span>
-                    </div>
+                    <span className="font-semibold text-slate-900">{p.productName || p.name || '—'}</span>
+                    {(p.fabricDesign) && (
+                      <span className="block text-[11px] text-slate-400 font-normal">{p.fabricDesign}</span>
+                    )}
                   </td>
-                  <td className="py-3 px-2 text-slate-500 font-mono text-[11px]">{p.sku}</td>
-                  <td className="py-3 px-2 text-slate-600 font-medium">{p.price}</td>
-                  <td className="py-3 px-2 text-slate-700">{p.qty}</td>
+                  <td className="py-3 px-2 text-slate-500 font-mono text-[11px]">{p.fabricCode || p.sku || '—'}</td>
+                  <td className="py-3 px-2 text-slate-600">{p.fabricType || '—'}</td>
+                  <td className="py-3 px-2 text-slate-600">{p.fabricColor || '—'}</td>
+                  <td className="py-3 px-2 text-slate-600">{formatFabricDim(p.fabricWidth, '"')}</td>
+                  <td className="py-3 px-2 text-slate-600">{formatFabricDim(p.fabricGsm)}</td>
+                  <td className="py-3 px-2 text-slate-700">{p.qty ?? '—'}</td>
+                  <td className="py-3 px-2 text-slate-600">{p.uom || '—'}</td>
+                  <td className="py-3 px-2 text-slate-600 font-medium">{formatExpectedRate(p.expectedRate ?? p.expected_rate)}</td>
                   <td className="py-3 px-2 text-center">
                     <span
                       className={`inline-flex items-center justify-center px-2.5 py-0.5 rounded-full text-[11px] font-medium ${
@@ -3366,17 +3628,17 @@ function UsersProductsTab({ lead, onCountsChange, onActivity }) {
                     <div className="inline-flex items-center justify-center gap-1.5">
                       <button
                         type="button"
-                        onClick={() => openEditProduct(p)}
+                        onClick={() => openEditRequirement(p)}
                         className="w-7 h-7 rounded-lg border border-blue-200 text-blue-500 bg-white flex items-center justify-center hover:bg-blue-50 hover:border-blue-300 transition cursor-pointer shadow-2xs"
-                        title="Edit Product"
+                        title="Edit Requirement"
                       >
                         <Pencil size={12} />
                       </button>
                       <button
                         type="button"
-                        onClick={() => deleteProduct(p.id)}
+                        onClick={() => deleteRequirement(p.id)}
                         className="w-7 h-7 rounded-lg border border-rose-200 text-rose-400 bg-white flex items-center justify-center hover:bg-rose-50 hover:text-rose-600 hover:border-rose-300 transition cursor-pointer shadow-2xs"
-                        title="Delete Product"
+                        title="Delete Requirement"
                       >
                         <Trash2 size={12} />
                       </button>
@@ -3389,7 +3651,7 @@ function UsersProductsTab({ lead, onCountsChange, onActivity }) {
         </div>
 
         <div className="pt-3.5 mt-2 border-t border-slate-100 text-[11px] text-slate-400">
-          Showing 1 to {filteredProducts.length} of {filteredProducts.length} entries
+          Showing 1 to {filteredRequirements.length} of {filteredRequirements.length} entries
         </div>
       </div>
     </div>
@@ -3402,7 +3664,18 @@ export default function LeadDetailView({ lead, onBackToLeads }) {
   const [isEditOpen, setIsEditOpen] = useState(false);
   const [editForm, setEditForm] = useState(null);
   const storedDetailState = useLeadDetailState(lead);
-  const [activeTab, setActiveTab] = useState('Users & Products');
+  const [searchParams, setSearchParams] = useSearchParams();
+  const activeTab = DETAIL_TABS.find(
+    (tab) => tab.toLowerCase() === searchParams.get('tab')?.toLowerCase()
+  ) || 'Users & Requirements';
+
+  function setActiveTab(tab) {
+    setSearchParams((current) => {
+      const next = new URLSearchParams(current);
+      next.set('tab', tab.toLowerCase());
+      return next;
+    }, { replace: true });
+  }
   const { addCustomer, showToast, customers, refreshFromBackend } = useERP() || {};
   const isLeadConverted = Boolean(
     lead?.isConverted ||
@@ -3438,8 +3711,6 @@ export default function LeadDetailView({ lead, onBackToLeads }) {
     sources: storedDetailState.sources.length,
     files: storedDetailState.files.length,
     openTasks: (storedDetailState.tasks || []).filter((t) => t.status !== 'Completed').length || lead?.openTasksCount || 0,
-    calls: (storedDetailState.calls || []).length,
-    estimates: lead?.estimatesCount ?? 0,
     challans: lead?.deliveryChallansCount ?? 0,
   }));
   const [activities, setActivities] = useState(() => storedDetailState.activities || []);
@@ -3580,12 +3851,10 @@ export default function LeadDetailView({ lead, onBackToLeads }) {
   const activeLeadData = viewLead ?? lead;
 
   const metrics = [
-    { label: 'Products', value: detailCounts.products, icon: ShoppingBag, color: '#ec4899', bg: '#fdf2f8' },
+    { label: 'Requirements', value: detailCounts.products, icon: ShoppingBag, color: '#ec4899', bg: '#fdf2f8' },
     { label: 'Source', value: detailCounts.sources, icon: Globe, color: '#10b981', bg: '#f0fdf4' },
     { label: 'Files', value: detailCounts.files, icon: FileStack, color: '#8b5cf6', bg: '#f5f3ff' },
     { label: 'Open Tasks', value: detailCounts.openTasks, icon: ListChecks, color: '#f59e0b', bg: '#fffbeb' },
-    { label: 'Calls', value: detailCounts.calls, icon: Phone, color: '#3b82f6', bg: '#eff6ff' },
-    { label: 'Estimates', value: detailCounts.estimates, icon: Receipt, color: '#06b6d4', bg: '#ecfeff' },
     { label: 'Delivery Challans', value: detailCounts.challans, icon: Truck, color: '#f97316', bg: '#fff7ed' },
   ];
 
@@ -3720,7 +3989,7 @@ export default function LeadDetailView({ lead, onBackToLeads }) {
   return (
     <div className="space-y-4">
       <div className="card p-3 text-xs text-slate-600">
-        {convertedDeal ? <>Converted to Deal: {convertedDeal.id} <Link className="ml-2 text-blue-600 hover:underline" to={`/crm/deals?deal=${encodeURIComponent(convertedDeal.id)}`}>View Deal</Link></> : (isConverted ? <span className="text-emerald-600 font-semibold">Converted to Customer</span> : (isLost ? <span className="text-rose-600 font-semibold">Lost — not converted / no deal</span> : 'Not converted / No Deal'))}
+        {convertedDeal ? <>Converted to Deal: {convertedDeal.id} <Link className="ml-2 text-blue-600 hover:underline" to={`/crm/deals?deal=${encodeURIComponent(convertedDeal.id)}`}>View Deal</Link></> : (isConverted ? <span className="inline-flex items-center gap-2"><span className="text-emerald-600 font-semibold">Converted to Customer</span><button type="button" onClick={() => navigate('/crm/customers')} className="inline-flex items-center gap-1 px-2 py-1 rounded-md bg-emerald-600 text-white text-[11px] font-bold hover:bg-emerald-700 transition cursor-pointer">View Customer <ArrowRight size={11} /></button></span> : (isLost ? <span className="text-rose-600 font-semibold">Lost — not converted / no deal</span> : 'Not converted / No Deal'))}
       </div>
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pt-0.5">
         <div className="flex flex-wrap lg:flex-nowrap items-center gap-2 min-w-0 lg:min-w-auto text-xs font-medium text-slate-500">
@@ -3888,16 +4157,13 @@ export default function LeadDetailView({ lead, onBackToLeads }) {
       {/* Tab Content Display */}
       {activeTab === 'Sources & Emails' && <SourcesAndEmailsTab lead={activeLeadData} onCountsChange={updateDetailCounts} onActivity={logActivity} />}
       {activeTab === 'General' && <GeneralTab lead={activeLeadData} />}
-      {activeTab === 'Users & Products' && <UsersProductsTab lead={activeLeadData} onCountsChange={updateDetailCounts} onActivity={logActivity} />}
-      {activeTab === 'Discussion & Notes' && <DiscussionNotesTab lead={activeLeadData} onActivity={logActivity} />}
+      {activeTab === 'Users & Requirements' && <UsersProductsTab lead={activeLeadData} onCountsChange={updateDetailCounts} onActivity={logActivity} />}
       {activeTab === 'Files' && <FilesTab lead={activeLeadData} onCountsChange={updateDetailCounts} onActivity={logActivity} />}
       {activeTab === 'Tasks' && <LeadTasksTab lead={activeLeadData} onCountsChange={updateDetailCounts} onActivity={logActivity} />}
-      {activeTab === 'Calls' && <CallsTab lead={activeLeadData} onCountsChange={updateDetailCounts} onActivity={logActivity} />}
-      {activeTab === 'Estimates' && <EstimatesTab lead={activeLeadData} onCountsChange={updateDetailCounts} />}
       {activeTab === 'Quotations' && <QuotationsTab lead={activeLeadData} onActivity={logActivity} />}
       {activeTab === 'Delivery Challans' && <DeliveryChallansTab lead={activeLeadData} onCountsChange={updateDetailCounts} onActivity={logActivity} />}
       {activeTab === 'Activity' && <ActivityTab lead={activeLeadData} items={activities} />}
-      {!['Sources & Emails', 'General', 'Users & Products', 'Discussion & Notes', 'Files', 'Tasks', 'Calls', 'Estimates', 'Quotations', 'Delivery Challans', 'Activity'].includes(activeTab) && (
+      {!['Sources & Emails', 'General', 'Users & Requirements', 'Files', 'Tasks', 'Quotations', 'Delivery Challans', 'Activity'].includes(activeTab) && (
         <div className="card p-8 text-center space-y-2">
           <Info size={28} className="text-blue-500 mx-auto" />
           <h4 className="font-bold text-sm text-slate-800 dark:text-slate-200">{activeTab} Details</h4>

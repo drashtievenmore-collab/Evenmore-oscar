@@ -37,6 +37,8 @@ export default function TaskFormPage() {
   const [editingId, setEditingId] = useState(null);
   const [formName, setFormName] = useState('');
   const [formDescription, setFormDescription] = useState('');
+  const [saveError, setSaveError] = useState('');
+  const [saving, setSaving] = useState(false);
   const [deleteId, setDeleteId] = useState(null);
   const [statusFilter, setStatusFilter] = useState('All Status');
   const [sortOrder, setSortOrder] = useState('Newest First');
@@ -63,37 +65,72 @@ export default function TaskFormPage() {
     setEditingId(null);
     setFormName('');
     setFormDescription('');
+    setSaveError('');
   }
 
-  function handleSubmit(e) {
+  function saveFailureMessage(res) {
+    const first = res && res.errors && res.errors[0];
+    const message = first && first.error && first.error.message;
+    return message || 'Could not save the form to the server. Your input is kept — try again.';
+  }
+
+  async function handleSubmit(e) {
     e.preventDefault();
     const title = formName.trim();
-    if (!title) return;
+    if (!title || saving) return;
     const desc = formDescription.trim() || 'No description provided';
     const today = new Date().toLocaleDateString('en-GB');
 
-    if (editingId) {
-      saveForms(forms.map((f) => (f.id === editingId ? { ...f, title, description: desc, lastUpdated: today } : f)), TASK_FORM);
-      closeModal();
-    } else {
-      const newId = `task-form-${Date.now()}`;
-      const newForm = {
-        id: newId,
-        kind: TASK_FORM,
-        title,
-        description: desc,
-        fields: [],
-        sections: [{ id: 'task-information', title: 'Task Information', fields: [] }],
-        lastUpdated: today,
-        status: 'ACTIVE',
-        iconName: 'call',
-      };
-      saveForms([...forms, newForm], TASK_FORM);
-      closeModal();
-      try {
-        localStorage.setItem('activeTaskFormId', newId);
-      } catch { /* ignore */ }
-      navigate(`/crm/leads/task-form/builder?formId=${newId}`);
+    setSaving(true);
+    setSaveError('');
+    try {
+      if (editingId) {
+        const res = await saveForms(forms.map((f) => (f.id === editingId ? { ...f, title, description: desc, lastUpdated: today } : f)), TASK_FORM);
+        if (res && !res.ok) {
+          setSaveError(saveFailureMessage(res));
+          return;
+        }
+        closeModal();
+      } else {
+        const newId = `task-form-${Date.now()}`;
+        const newForm = {
+          id: newId,
+          kind: TASK_FORM,
+          title,
+          description: desc,
+          fields: [],
+          sections: [{ id: 'task-information', title: 'Task Information', fields: [] }],
+          lastUpdated: today,
+          status: 'ACTIVE',
+          iconName: 'call',
+        };
+        const res = await saveForms([...forms, newForm], TASK_FORM);
+        const confirmed = res && (res.results || []).find((r) => String(r.id) === String(newId) && r.saved && r.saved.id);
+        if (confirmed) {
+          // Open the builder on the confirmed server id — opening it on the
+          // temp id orphans every field edit (saves silently no-op and a
+          // refresh discards the fields).
+          const serverId = confirmed.saved.id;
+          closeModal();
+          try {
+            localStorage.setItem('activeTaskFormId', serverId);
+          } catch { /* ignore */ }
+          navigate(`/crm/leads/task-form/builder?formId=${serverId}`);
+          return;
+        }
+        if (res && res.ok) {
+          // Offline: the temp id is the record.
+          closeModal();
+          try {
+            localStorage.setItem('activeTaskFormId', newId);
+          } catch { /* ignore */ }
+          navigate(`/crm/leads/task-form/builder?formId=${newId}`);
+          return;
+        }
+        setSaveError(saveFailureMessage(res));
+      }
+    } finally {
+      setSaving(false);
     }
   }
 
@@ -105,7 +142,7 @@ export default function TaskFormPage() {
 
   function fieldInfo(form) {
     if (form.sections && Array.isArray(form.sections)) {
-      const labels = form.sections.flatMap((s) => s.fields.map((fl) => fl.label));
+      const labels = form.sections.flatMap((s) => (s.fields || []).map((fl) => fl.label));
       return {
         count: labels.length,
         text: labels.length > 0 ? labels.join(', ') : 'No fields defined',
@@ -460,6 +497,8 @@ export default function TaskFormPage() {
                 />
               </div>
 
+              {saveError && <p role="alert" className="text-[11px] font-semibold text-rose-600">{saveError}</p>}
+
               <div className="flex items-center justify-end gap-2.5 pt-3 border-t border-slate-100">
                 <button
                   type="button"
@@ -470,10 +509,10 @@ export default function TaskFormPage() {
                 </button>
                 <button
                   type="submit"
-                  disabled={!formName.trim()}
+                  disabled={!formName.trim() || saving}
                   className="px-4 py-2 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white font-semibold rounded-lg shadow-xs transition cursor-pointer text-xs"
                 >
-                  {editingId ? 'Save Changes' : 'Create Form'}
+                  {saving ? 'Saving…' : (editingId ? 'Save Changes' : 'Create Form')}
                 </button>
               </div>
             </form>

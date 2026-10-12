@@ -25,7 +25,7 @@ import {
 /* ── Outcome options for "What Happened?" ───────────────────── */
 export const TASK_OUTCOMES = [
   { value: 'Connected', label: 'Connected', description: 'Successfully reached the contact.' },
-  { value: 'No Answer', label: 'No Answer', description: 'Contact did not answer the call.' },
+  { value: 'No Answer', label: 'No Answer', description: 'Contact did not answer.' },
   { value: 'Interested', label: 'Interested', description: 'Contact showed interest in the offering.' },
   { value: 'Not Interested', label: 'Not Interested', description: 'Contact declined the offering.' },
   { value: 'Follow-up Required', label: 'Follow-up Required', description: 'Needs another touch point later.' },
@@ -33,11 +33,9 @@ export const TASK_OUTCOMES = [
 
 /* ── Next action options for "What's Next?" ─────────────────── */
 export const NEXT_ACTIONS = [
-  { value: 'call-again', label: 'Call Again', description: 'Creates a follow-up call task for this lead.' },
-  { value: 'schedule-demo', label: 'Schedule Demo', description: 'Creates the demo task for this lead.' },
-  { value: 'send-quotation', label: 'Send Quotation', description: 'Creates the quotation task for this lead.' },
-  { value: 'move-next-stage', label: 'Move to Next Stage', description: 'Moves the lead to its next configured stage.' },
-  { value: 'finish', label: 'Finish', description: 'Only completes the current task.' },
+  { value: 'needs-another-attempt', label: 'Needs another attempt', description: 'Creates another attempt in this same stage.' },
+  { value: 'ready-to-move-on', label: 'Ready to move on', description: 'Moves the lead to the next stage and creates that stage\u2019s task.' },
+  { value: 'finished-with-lead', label: 'Finished with this lead', description: 'Closes every open task on it. The lead stays in its current stage.' },
 ];
 
 export const NEXT_ACTION_LABELS = NEXT_ACTIONS.reduce((map, item) => {
@@ -104,7 +102,7 @@ export function getNextStageName(currentStage) {
  * Complete a task. The server decides what follows; this returns the same
  * `{ok, message, createdTask, stageChanged}` shape the screens already read.
  */
-export async function completeTaskWithOutcome({ task, outcome, nextAction, note }) {
+export async function completeTaskWithOutcome({ task, outcome, nextAction, note, nextFollowUpAt, targetStageId }) {
   if (!task?.id) {
     return { ok: false, message: 'No task selected.', createdTask: null, stageChanged: false };
   }
@@ -114,24 +112,34 @@ export async function completeTaskWithOutcome({ task, outcome, nextAction, note 
       outcome,
       nextAction,
       note: String(note || '').trim() || undefined,
+      nextFollowUpAt: nextFollowUpAt || undefined,
+      targetStageId: targetStageId || undefined,
     });
 
-    // A stage change or a follow-up means other collections moved too.
     const store = useCrmStore.getState();
     await store.refresh('tasks');
-    if (result?.stageChanged) await store.refresh('leads');
+    if (result?.stageChanged || result?.lead || result?.leadId) await store.refresh('leads');
     notifyCrmDataChanged();
 
-    const createdTask = result?.followUpTask || (result?.createdTasks || [])[0] || null;
+    const createdTasks = result?.createdTasks || [];
+    const createdTask = result?.followUpTask || createdTasks[0] || null;
+    const lead = result?.lead || null;
+    const leadId = result?.leadId || lead?.id || task?.leadId || null;
+    const stageChanged = Boolean(result?.stageChanged);
+    const taskCount = createdTasks.length;
     return {
       ok: true,
-      message: createdTask
-        ? `Task completed. ${createdTask.title} created.`
-        : 'Task completed.',
+      message: stageChanged && lead
+        ? `Lead moved to ${lead.status || lead.stageName || 'the new stage'}. ${taskCount} task${taskCount === 1 ? '' : 's'} created.`
+        : createdTask
+          ? `Task completed. ${createdTask.title} created.`
+          : 'Task completed successfully.',
       createdTask,
-      createdTasks: result?.createdTasks || [],
-      stageChanged: Boolean(result?.stageChanged),
+      createdTasks,
+      stageChanged,
       task: result?.task || null,
+      lead,
+      leadId: leadId ? String(leadId) : null,
     };
   } catch (err) {
     return {

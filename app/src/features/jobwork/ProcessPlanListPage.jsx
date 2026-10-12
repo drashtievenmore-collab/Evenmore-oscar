@@ -634,17 +634,28 @@ export default function ProcessPlanListPage() {
     savePlans(next);
   };
 
-  // Backend-first loader: pull from GET /jobwork/process-plans/
+  // Backend-first loader: pull from GET /jobwork/process-plans/, retry
+  // offline creates, and merge — local unsynced rows are never wiped.
   useEffect(() => {
     let live = true;
-    import('../../services/jobWorkSync').then(({ pullPlans, isJobWorkBackendEnabled }) => {
+    import('../../services/jobWorkSync').then(async ({ pullPlans, pushCreatePlan, reconcilePendingCreates, mergeServerRows, isJobWorkBackendEnabled }) => {
       if (!isJobWorkBackendEnabled()) return;
-      pullPlans().then((rows) => {
-        if (live && Array.isArray(rows) && rows.length > 0) {
-          setPlans(rows);
-          savePlans(rows);
+      try {
+        const reconciled = await reconcilePendingCreates(loadPlans(), pushCreatePlan);
+        if (live) {
+          const rows = await pullPlans();
+          if (Array.isArray(rows)) {
+            const merged = mergeServerRows(reconciled, rows);
+            setPlans(merged);
+            savePlans(merged);
+          } else {
+            setPlans(reconciled);
+            savePlans(reconciled);
+          }
+        } else {
+          savePlans(reconciled);
         }
-      });
+      } catch { /* offline — keep cache */ }
     });
     return () => {
       live = false;
@@ -729,7 +740,7 @@ export default function ProcessPlanListPage() {
         if (isJobWorkBackendEnabled()) {
           const saved = await pushCreatePlan(newPlan);
           if (saved) {
-            persist([saved, ...plans]);
+            persist([{ ...newPlan, ...saved }, ...plans]);
           }
         }
       } catch (err) {
@@ -758,7 +769,8 @@ export default function ProcessPlanListPage() {
     try {
       const { pushCreatePlan, isJobWorkBackendEnabled } = await import('../../services/jobWorkSync');
       if (isJobWorkBackendEnabled()) {
-        await pushCreatePlan(newPlan);
+        const saved = await pushCreatePlan(newPlan);
+        if (saved) persist([{ ...newPlan, ...saved }, ...plans]);
       }
     } catch {}
   };

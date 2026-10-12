@@ -1,6 +1,12 @@
 import { create } from "zustand";
 import { lazyStore } from "../services/lazyModules";
-import { writeThrough, pullTracked } from "../services/hrmsSync";
+import {
+  writeThrough,
+  pullTracked,
+  acknowledgePolicy as acknowledgePolicyOnServer,
+  isBackendEnabled,
+  isServerId,
+} from "../services/hrmsSync";
 
 const POLICIES_STORAGE_KEY = "hrms_company_policies_v1";
 const CATEGORIES_STORAGE_KEY = "hrms_policy_categories_v1";
@@ -311,6 +317,9 @@ const usePolicyStoreBase = create((set, get) => ({
   },
 
   // ── Acknowledgements Actions ───────────────────────────────
+  // Compliance-critical: the tick is recorded in Postgres
+  // (`POST /hrms/policies/{id}/acknowledge/`, stamped for the signed-in
+  // employee) as well as locally for instant display.
   acknowledgePolicy: (policyId, employeeName = "Adarsh Gupta", employeeId = "EMP-USR", dept = "Operations") => {
     const state = get();
     const policy = state.policies.find((p) => p.id === policyId);
@@ -345,6 +354,11 @@ const usePolicyStoreBase = create((set, get) => ({
 
     set({ acknowledgements: updatedAcks });
     get().persistAcks(updatedAcks);
+    if (isBackendEnabled() && isServerId(policyId)) {
+      acknowledgePolicyOnServer(policyId).catch((err) => {
+        console.warn("[HRMS] acknowledgement not saved:", err?.message || err);
+      });
+    }
   },
 
   // Resets to initial sample fixtures if user clears or wants clean reset

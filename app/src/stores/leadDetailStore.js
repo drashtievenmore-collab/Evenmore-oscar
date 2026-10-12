@@ -4,7 +4,7 @@
  * These lived in a single `evenmore-crm-lead-details-v1` blob in localStorage,
  * alongside a set of `build*` helpers that invented sources, emails, files and
  * a timeline whenever the blob was empty. Every one of those sections has a
- * real endpoint (`/crm/leads/{id}/notes/`, `/calls/`, `/files/`, …), so the
+ * real endpoint (`/crm/leads/{id}/notes/`, `/emails/`, `/files/`, …), so the
  * drawer now shows what the server has — including nothing, when there is
  * nothing.
  *
@@ -12,13 +12,13 @@
  * can stay synchronous reads of a snapshot.
  */
 import { create } from 'zustand';
-import { pullLeadDetail, pushLeadDetail } from '../services/crmSync';
+import { pullLeadDetail, pushLeadDetail, patchLeadSection, deleteLeadSection } from '../services/crmSync';
 import { isServerId, mapWithLimit } from '../services/resourceSync';
 
 /** The sections the drawer renders, in the order it loads them. */
 export const LEAD_SECTIONS = [
   'users', 'products', 'sources', 'emails',
-  'timeline', 'files', 'calls', 'notes', 'threads',
+  'timeline', 'files', 'notes', 'threads',
 ];
 
 const EMPTY_SECTIONS = Object.freeze(
@@ -93,6 +93,56 @@ export const useLeadDetailStore = create((set, get) => ({
       byLead: { ...s.byLead, [key]: { ...(s.byLead[key] || EMPTY_DETAIL), [section]: rows } },
     }));
     return rows;
+  },
+
+  /**
+   * Update one section row, server first, then the cache. The patch is
+   * merged over the stored row so partial edits still map to a complete
+   * API payload. Local-only rows stay local.
+   */
+  updateSection: async (leadId, section, rowId, patch) => {
+    const key = String(leadId || '');
+    const current = get().byLead[key] || EMPTY_DETAIL;
+    const rows = current[section] || [];
+    const existing = rows.find((row) => String(row?.id) === String(rowId));
+    if (!existing) return null;
+    const next = { ...existing, ...patch };
+    const saved = await patchLeadSection(leadId, section, rowId, next);
+    const row = saved || { ...next, _synced: false };
+    set((s) => {
+      const now = s.byLead[key] || EMPTY_DETAIL;
+      return {
+        byLead: {
+          ...s.byLead,
+          [key]: {
+            ...now,
+            [section]: (now[section] || []).map((item) =>
+              (String(item?.id) === String(rowId) ? row : item)),
+          },
+        },
+      };
+    });
+    return row;
+  },
+
+  /** Delete one section row, server first, then the cache. */
+  removeSection: async (leadId, section, rowId) => {
+    const key = String(leadId || '');
+    await deleteLeadSection(leadId, section, rowId);
+    set((s) => {
+      const now = s.byLead[key] || EMPTY_DETAIL;
+      return {
+        byLead: {
+          ...s.byLead,
+          [key]: {
+            ...now,
+            [section]: (now[section] || []).filter(
+              (item) => String(item?.id) !== String(rowId)),
+          },
+        },
+      };
+    });
+    return true;
   },
 
   clear: () => set({ byLead: {}, loading: {} }),

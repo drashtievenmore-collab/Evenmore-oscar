@@ -15,7 +15,7 @@ const GUIDES = {
     steps: [
       "Open the Lead Stage Tasks page, choose the pipeline, and click any stage such as New Lead, Details Collected, Quotation Shared, Demo Pending, Demo Done, Negotiation, Won, or Lost.",
       "Click \"+ Add Task\" inside the selected stage and enter a task name with a short description that clearly tells the assignee what action to take.",
-      "For New Lead, create a task like \"Call\" with a description such as \"Initial call to understand requirement and qualify the lead.\"",
+      "For New Lead, create a task like \"Follow-up\" with a description such as \"Initial follow-up to understand requirement and qualify the lead.\"",
       "For Details Collected, create a task like \"Send email\" with a description such as \"Share brochure, confirm collected details, and plan the next step.\"",
       "For Quotation Shared, Demo Pending, and Demo Done, create tasks like \"Send quotation\", \"Schedule demo\", or \"Client meeting\" with descriptions for proposal sharing, demo planning, and post-demo follow-up.",
       "For Negotiation, Won, and Lost, create tasks like \"Negotiate pricing\", \"Handover to onboarding\", or \"Capture lost reason\" so the team can close, convert, or report the lead properly.",
@@ -28,7 +28,7 @@ const GUIDES = {
     subtitle: "हर लीड स्टेज में टास्क map करने के लिए ये स्टेप अपनाएं।",
     steps: [
       "Lead Stage Tasks पेज पर Pipeline Sales चुनें और ऊपर-दाईं ओर \"+ Add Stage Task\" बटन पर क्लिक करें।",
-      "Task Roles सेक्शन expand करके roles देखें, फिर \"+ Add Task\" पर क्लिक करके role टास्क जोड़ें।",
+      "Task Roles सेक्शन expand करके roles और उनके tasks देखें।",
       "New Lead, Details Collected, Quotation Shared, Demo Pending जैसे stage pill पर क्लिक करके स्टेज खोलें।",
       "स्टेज row में \"+ Add Task\" पर क्लिक करें, Task Name, Role, Order, Required, Auto Create, Max Repeats और Due In Days भरें।",
       "Create या Save पर क्लिक करें। टास्क उस स्टेज के नीचे दिखेगा और लीड के स्टेज में आते ही auto-create होगा।",
@@ -39,7 +39,7 @@ const GUIDES = {
     subtitle: "દરેક લીડ સ્ટેજમાં ટાસ્ક map કરવા માટે આ સ્ટેપ અનુસરો.",
     steps: [
       "Lead Stage Tasks પેજ પર Pipeline Sales પસંદ કરો અને ઉપર-જમણી બાજુ \"+ Add Stage Task\" બટન પર ક્લિક કરો.",
-      "Task Roles સેક્શન expand કરીને roles જુઓ, પછી \"+ Add Task\" પર ક્લિક કરીને role ટાસ્ક ઉમેરો.",
+      "Task Roles સેક્શન expand કરીને roles અને તેમના tasks જુઓ.",
       "New Lead, Details Collected, Quotation Shared, Demo Pending જેવા stage pill પર ક્લિક કરીને સ્ટેજ ખોલો.",
       "સ્ટેજ row માં \"+ Add Task\" પર ક્લિક કરો, Task Name, Role, Order, Required, Auto Create, Max Repeats અને Due In Days ભરો.",
       "Create અથવા Save પર ક્લિક કરો. ટાસ્ક તે સ્ટેજ નીચે દેખાશે અને લીડ સ્ટેજમાં આવે ત્યારે auto-create થશે.",

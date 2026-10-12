@@ -180,10 +180,13 @@ function taskFromApi(row) {
       'title', 'description', 'assigneeName', 'assigneeRole',
       'department', 'priority', 'status', 'source',
     ]),
+    id: row.id,
+    leadId: row.leadId || row.lead_id || undefined,
+    dealId: row.dealId || row.deal_id || undefined,
+    assigneeId: row.assigneeId || row.assignee_id || undefined,
+    assigneeName: row.assigneeName || '',
+    leadName: row.leadName || '',
     dueDate: displayIn(row.dueDate),
-    // The task tables read `lead` and `owner` as plain labels; the API names
-    // them `leadName` and `assigneeName`. Both have to be present, because a
-    // column whose value is `undefined` falls back to rendering the whole row.
     lead: row.leadName || '',
     owner: row.assigneeName || 'Unassigned',
     due: displayIn(row.dueDate),
@@ -191,7 +194,6 @@ function taskFromApi(row) {
     completedBy: typeof row.completedBy === 'object'
       ? (row.completedBy?.name || '')
       : (row.completedBy || ''),
-    // A nested task would otherwise be handed to a cell renderer as a value.
     followUpTaskId: row.followUpTask?.id || row.followUpTask || null,
     followUpTask: undefined,
     _synced: true,
@@ -285,6 +287,8 @@ export const CRM_RESOURCES = {
         stages: ids.length > 0 ? ids : undefined,
         isActive: t.isActive ?? (t.status != null ? t.status === 'Active' : undefined),
         icon: t.icon || undefined,
+        // An explicit empty selection clears the link; omission preserves it.
+        taskFormId: t.taskFormId === undefined ? undefined : (t.taskFormId || null),
       });
     },
     fromApi: (row) => {
@@ -309,7 +313,8 @@ export const CRM_RESOURCES = {
         status: row.status ?? (isActive ? 'Active' : 'Inactive'),
         isActive,
         is_active: isActive,
-        icon: row.icon || 'call',
+        icon: row.icon || 'follow-up',
+        taskFormId: row.taskFormId ?? row.task_form_id ?? '',
         _synced: true,
       };
     },
@@ -343,15 +348,16 @@ export const CRM_RESOURCES = {
   taskAllocations: {
     path: '/crm/task-allocations/',
     toApi: (a) => compact({
-      taskId: a.taskId || undefined,
-      masterTaskId: a.masterTaskId || undefined,
-      assigneeId: a.assigneeId || undefined,
-      role: a.role || undefined,
-      department: a.department || undefined,
-      status: a.status || undefined,
-      dueDate: isoOut(a.dueDate),
+      title: a.title,
+      description: a.description,
+      assigneeId: a.assigneeId,
+      department: a.department,
+      priority: a.priority,
+      deadline: a.deadline,
+      status: a.status,
+      fileName: a.fileName,
     }),
-    fromApi: (row) => ({ ...row, dueDate: displayIn(row.dueDate), _synced: true }),
+    fromApi: (row) => ({ ...asText(row, ['assignee', 'assignedBy', 'department']), _synced: true }),
   },
 
   userAllocations: {
@@ -368,27 +374,83 @@ export const CRM_RESOURCES = {
 
   forms: {
     path: '/crm/forms/',
-    toApi: (f) => compact({
-      name: f.name || f.title,
-      description: f.description || undefined,
-      fields: f.fields || undefined,
-      isPublished: f.isPublished ?? undefined,
-    }),
-    fromApi: (row) => ({ ...row, _synced: true }),
+    // The builder edits `sections`/`fields` in the browser; the server keeps
+    // the whole layout tree in the `schema` jsonb column (db.md §9.5), so
+    // both directions translate here — sending the raw row would drop the
+    // layout and wipe the form on round-trip. Display-only keys the table
+    // reads (`description`, `status`, `iconName`, `lastUpdated`) have no
+    // backend column either, so they ride inside `schema` too — otherwise a
+    // refresh resets them to fallbacks like "No description provided".
+    toApi: (f) => {
+      const schemaSections = Array.isArray(f.sections)
+        ? f.sections
+        : (f.schema && Array.isArray(f.schema.sections) ? f.schema.sections : []);
+      const schemaFields = Array.isArray(f.fields)
+        ? f.fields
+        : (f.schema && Array.isArray(f.schema.fields) ? f.schema.fields : []);
+      const str = (value) => {
+        const text = String(value ?? '').trim();
+        return text || undefined;
+      };
+      return compact({
+        name: f.name || f.title,
+        slug: f.slug || undefined,
+        kind: f.kind || 'lead',
+        schema: {
+          sections: schemaSections,
+          fields: schemaFields,
+          description: str(f.description ?? f.schema?.description) || '',
+          status: str(f.status ?? f.schema?.status) || '',
+          iconName: str(f.iconName ?? f.schema?.iconName) || '',
+          lastUpdated: str(f.lastUpdated ?? f.schema?.lastUpdated) || '',
+        },
+        isPublished: f.isPublished ?? undefined,
+      });
+    },
+    fromApi: (row) => {
+      const schema = row.schema && typeof row.schema === 'object' ? row.schema : {};
+      const sections = Array.isArray(row.sections)
+        ? row.sections
+        : (Array.isArray(schema.sections) ? schema.sections : []);
+      const fields = Array.isArray(row.fields)
+        ? row.fields
+        : (Array.isArray(schema.fields)
+          ? schema.fields
+          : sections.flatMap((s) => (s.fields || []).map((f) => f.label)));
+      const name = row.name || row.title || '';
+      return {
+        ...row,
+        name,
+        title: name,
+        sections,
+        fields,
+        description: row.description || schema.description || '',
+        status: row.status || schema.status || (row.isPublished ? 'ACTIVE' : 'INACTIVE'),
+        iconName: row.iconName || schema.iconName || 'call',
+        lastUpdated: row.lastUpdated || schema.lastUpdated || '',
+        _synced: true,
+      };
+    },
   },
 
   projects: {
     path: '/crm/projects/',
     toApi: (p) => compact({
       name: p.name || p.title,
-      dealId: p.dealId || undefined,
+      code: p.code || p.projectNumber || undefined,
+      dealId: p.dealId || p.sourceDealId || undefined,
       partyId: p.partyId || p.customerId || undefined,
       ownerId: p.ownerId || undefined,
       status: p.status || undefined,
       startDate: isoOut(p.startDate),
-      endDate: isoOut(p.endDate),
+      endDate: isoOut(p.endDate || p.expectedEndDate),
       value: p.value !== undefined ? num(p.value) : undefined,
-      notes: p.notes || undefined,
+      progress: p.progress ?? undefined,
+      description: p.description || p.notes || undefined,
+      customerText: p.customerText || p.customer_text || undefined,
+      ownerText: p.ownerText || p.owner_text || undefined,
+      team: p.team || p.teamId || undefined,
+      projectType: p.projectType || undefined,
     }),
     fromApi: (row) => ({
       ...row,
@@ -401,17 +463,18 @@ export const CRM_RESOURCES = {
   contracts: {
     path: '/crm/contracts/',
     toApi: (c) => compact({
-      title: c.title || c.name,
+      title: c.title || c.name || [c.contractType, c.customer].filter(Boolean).join(' — ') || undefined,
+      customerId: c.customerId || c.partyId || undefined,
       dealId: c.dealId || undefined,
-      partyId: c.partyId || c.customerId || undefined,
-      projectId: c.projectId || undefined,
-      templateId: c.templateId || undefined,
+      templateKey: c.templateKey || c.template || undefined,
+      contractType: c.contractType || c.contract_type || undefined,
       status: c.status || undefined,
-      value: c.value !== undefined ? num(c.value) : undefined,
+      value: c.value !== undefined ? num(c.value) : (c.amount !== undefined ? num(c.amount) : undefined),
       startDate: isoOut(c.startDate),
       endDate: isoOut(c.endDate),
-      body: c.body || c.content || undefined,
-      terms: c.terms || undefined,
+      body: c.body || c.terms || undefined,
+      description: c.description || undefined,
+      expiringSoonDays: c.expiringSoonDays ?? undefined,
     }),
     fromApi: (row) => ({
       ...row,
@@ -506,6 +569,27 @@ export async function pushLeadDetail(leadId, section, payload) {
   const saved = await api.post(`/crm/leads/${leadId}/${section}/`, body);
   const normalized = normalizeSection(section, [saved]);
   return normalized[0] || saved;
+}
+
+/** Edit one row in a lead's sub-collection (fabric requirements). */
+export async function patchLeadSection(leadId, section, rowId, payload) {
+  if (!isBackendEnabled() || !isServerId(leadId) || !isServerId(rowId)) return null;
+  if (!WRITABLE_LEAD_SECTIONS.has(section)) return null;
+  const body = toApiSection(section, payload);
+  if (!body) return null;
+  const saved = await api.patch(`/crm/leads/${leadId}/${section}/${rowId}/`, body);
+  const normalized = normalizeSection(section, [saved]);
+  return normalized[0] || saved;
+}
+
+/** Remove one row from a lead's sub-collection (lead users, …). */
+export async function deleteLeadSection(leadId, section, rowId) {
+  if (!isBackendEnabled() || !isServerId(leadId)) return null;
+  // Local-only rows were never posted — there is nothing to DELETE.
+  if (!isServerId(rowId)) return true;
+  if (!WRITABLE_LEAD_SECTIONS.has(section)) return null;
+  await api.delete(`/crm/leads/${leadId}/${section}/${rowId}/`);
+  return true;
 }
 
 /** Edit or remove one row in a lead's sub-collection. */

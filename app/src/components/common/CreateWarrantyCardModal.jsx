@@ -425,7 +425,7 @@ export const CreateWarrantyCardModal = ({
                     {activeTab === 'coverage' && (
                         <div className="space-y-5">
                             
-                            {/* Policy Configuration Card */}
+                            {/* Policy Configuration Card — hidden per request
                             <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-2xs space-y-4">
                                 <div className="flex items-center justify-between pb-3 border-b border-slate-100">
                                     <div className="flex items-center gap-2">
@@ -517,6 +517,7 @@ export const CreateWarrantyCardModal = ({
                                     </div>
                                 )}
                             </div>
+                            */}
 
                             {/* Executive Coverage Calculation Tiles */}
                             <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">

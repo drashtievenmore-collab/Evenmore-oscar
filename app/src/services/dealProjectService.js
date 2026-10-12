@@ -1,11 +1,104 @@
 import { loadDeals, DEALS_STORAGE_KEY } from './dealService.js';
 import { crmStorage } from './crmStorage.js';
+import { crmSync, isBackendEnabled, isServerId } from './crmSync.js';
+import { crmService } from './domainServices.js';
+import { toISODate } from '../utils/dateUtils.js';
 
 export const PROJECTS_STORAGE_KEY = 'evenmore-crm-projects-v1';
 const DETAILS_KEY = 'evenmore-crm-lead-details-v1';
 const sameId = (a, b) => a != null && b != null && String(a) === String(b);
 
+/**
+ * Backend-first persistence. The pages keep calling the functions below with
+ * the same shapes, but every row that can live in Postgres does:
+ *
+ *   - `loadProjects()` merges the server cache (UUID rows) with the
+ *     localStorage fallback (offline rows), matched by `backendId`.
+ *   - creates/updates/deletes write through `/crm/projects/` (or the deal
+ *     hand-off action) first and annotate the local row with `backendId`.
+ *   - rows that cannot be represented server-side (no session, no linkable
+ *     party/owner) keep the legacy local-only path instead of 400ing.
+ */
+
+/** Server rows fetched by the last `refreshProjectsCache()` (service shape). */
+let serverProjectCache = [];
+
+function apiProjectToServiceRow(server) {
+  return {
+    id: server.id,
+    backendId: server.id,
+    projectNumber: server.code || `P-${String(server.id).slice(0, 8).toUpperCase()}`,
+    name: server.name || '',
+    customer: server.customerName || server.customerText || server.customer_text || '',
+    customerId: server.customerId || undefined,
+    owner: server.ownerText || server.owner_text || '',
+    ownerId: server.ownerId || server.owner || undefined,
+    team: server.team || '',
+    projectType: server.projectType || server.project_type || '',
+    startDate: toISODate(server.startDate) || '',
+    expectedEndDate: toISODate(server.endDate) || '',
+    description: server.description || '',
+    status: server.status || 'Active',
+    sourceDealId: server.dealId || server.deal || null,
+    value: server.value ?? undefined,
+    progress: server.progress ?? 0,
+    createdAt: server.createdAt || server.created_at || new Date().toISOString(),
+    _synced: true,
+  };
+}
+
+/** Pull `/crm/projects/` into the merge cache. Pages call this on mount. */
+export async function refreshProjectsCache() {
+  if (!isBackendEnabled()) return [];
+  try {
+    const rows = await crmSync.pull('projects');
+    serverProjectCache = (rows || []).map(apiProjectToServiceRow);
+    return serverProjectCache;
+  } catch {
+    return [];
+  }
+}
+
+function serviceRowToApiPayload(project) {
+  return {
+    name: project.name,
+    code: project.projectNumber?.startsWith('P-') ? undefined : project.projectNumber,
+    dealId: isServerId(project.sourceDealId) ? project.sourceDealId : undefined,
+    partyId: isServerId(project.customerId || project.partyId) ? (project.customerId || project.partyId) : undefined,
+    ownerId: isServerId(project.ownerId) ? project.ownerId : undefined,
+    status: project.status || undefined,
+    startDate: project.startDate || undefined,
+    endDate: project.expectedEndDate || undefined,
+    description: project.description || undefined,
+    customerText: project.customer || undefined,
+    ownerText: project.owner || undefined,
+    team: project.team || undefined,
+    projectType: project.projectType || undefined,
+  };
+}
+
 export function loadProjects(storage = crmStorage) {
+  const local = readLocalProjects(storage);
+  if (serverProjectCache.length === 0) return local;
+  const byBackend = new Map(serverProjectCache.map((p) => [String(p.id), p]));
+  const merged = local.map((p) => {
+    if (p.backendId && byBackend.has(String(p.backendId))) {
+      const server = byBackend.get(String(p.backendId));
+      return { ...server, backendId: p.backendId };
+    }
+    return p;
+  });
+  const known = new Set([
+    ...local.map((p) => String(p.backendId || p.id)),
+    ...merged.map((p) => String(p.backendId || p.id)),
+  ]);
+  serverProjectCache.forEach((p) => {
+    if (!known.has(String(p.id))) merged.push(p);
+  });
+  return merged;
+}
+
+function readLocalProjects(storage = crmStorage) {
   const value = JSON.parse(storage.getItem(PROJECTS_STORAGE_KEY) || '[]');
   if (!Array.isArray(value)) throw new Error('Saved project data is invalid.');
   let sequence = Math.max(0, ...value.map((project) => Number(/^P-(\d+)$/.exec(project.projectNumber || '')?.[1]) || 0));
@@ -68,7 +161,7 @@ export function projectDefaults(deal) {
   };
 }
 
-export function createProjectFromDeal(dealId, input = {}, { storage = crmStorage, actor = 'CRM User' } = {}) {
+export async function createProjectFromDeal(dealId, input = {}, { storage = crmStorage, actor = 'CRM User' } = {}) {
   if (dealId == null || dealId === '') throw new Error('Deal ID is required.');
   const deals = loadDeals(storage);
   const deal = deals.find((item) => sameId(item.id, dealId));
@@ -132,10 +225,34 @@ export function createProjectFromDeal(dealId, input = {}, { storage = crmStorage
     throw error;
   }
   if (typeof window !== 'undefined') window.dispatchEvent(new Event('crm:data-updated'));
+  // Backend-first: the server links party/deal/owner/value itself and owns
+  // the project row. The local row keeps its display number and carries the
+  // server id for later updates. A 409 means another device already created
+  // it — refresh and return the linked row instead of duplicating.
+  if (!existing && isBackendEnabled() && isServerId(deal.id)) {
+    try {
+      const saved = await crmService.createDealProject(deal.id, { name });
+      if (saved?.id) {
+        project.backendId = saved.id;
+        const rows = readLocalProjects(storage).map((item) =>
+          sameId(item.id, project.id) ? { ...item, backendId: saved.id } : item,
+        );
+        storage.setItem(PROJECTS_STORAGE_KEY, JSON.stringify(rows));
+        await refreshProjectsCache().catch(() => {});
+      }
+    } catch (err) {
+      if (err?.status === 409) {
+        await refreshProjectsCache().catch(() => {});
+        const linked = findDealProject(deal, storage);
+        if (linked) return { project: linked, created: false };
+      }
+      console.warn('[CRM Project] backend hand-off failed, kept locally:', err?.message || err);
+    }
+  }
   return { project, created: !existing };
 }
 
-export function createStandaloneProject(input = {}, { storage = crmStorage } = {}) {
+export async function createStandaloneProject(input = {}, { storage = crmStorage } = {}) {
   const name = String(input.name ?? '').trim();
   if (!name) throw new Error('Project name is required.');
   const customer = String(input.customer ?? input.client ?? '').trim();
@@ -165,11 +282,27 @@ export function createStandaloneProject(input = {}, { storage = crmStorage } = {
     updatedAt: timestamp,
   };
   storage.setItem(PROJECTS_STORAGE_KEY, JSON.stringify([project, ...projects]));
+  // Backend-first: same row, server-owned. Free-text names ride along in
+  // customer_text/owner_text; linked ids resolve to party/user rows.
+  if (isBackendEnabled()) {
+    try {
+      const saved = await crmSync.create('projects', serviceRowToApiPayload(project));
+      if (saved?.id) {
+        project.backendId = saved.id;
+        const rows = readLocalProjects(storage).map((item) =>
+          sameId(item.id, project.id) ? { ...item, backendId: saved.id } : item,
+        );
+        storage.setItem(PROJECTS_STORAGE_KEY, JSON.stringify(rows));
+      }
+    } catch (err) {
+      console.warn('[CRM Project] backend save failed, kept locally:', err?.message || err);
+    }
+  }
   notifyUpdated();
   return project;
 }
 
-export function updateProject(projectId, patch = {}, { storage = crmStorage } = {}) {
+export async function updateProject(projectId, patch = {}, { storage = crmStorage } = {}) {
   const projects = loadProjects(storage);
   const index = projects.findIndex((item) => sameId(item.id, projectId));
   if (index === -1) throw new Error('Project was not found.');
@@ -186,16 +319,31 @@ export function updateProject(projectId, patch = {}, { storage = crmStorage } = 
   if (!updated.startDate) throw new Error('Start date is required.');
   assertValidDates(updated.startDate, updated.expectedEndDate);
   updated.updatedAt = new Date().toISOString();
+  if (current.backendId && isBackendEnabled() && isServerId(current.backendId)) {
+    try {
+      const saved = await crmSync.update('projects', current.backendId, serviceRowToApiPayload(updated));
+      if (saved) Object.assign(updated, apiProjectToServiceRow({ ...saved, id: current.backendId }), { id: current.id, backendId: current.backendId, projectNumber: current.projectNumber });
+    } catch (err) {
+      console.warn('[CRM Project] backend update failed, kept locally:', err?.message || err);
+    }
+  }
   const next = projects.map((item, i) => (i === index ? updated : item));
   storage.setItem(PROJECTS_STORAGE_KEY, JSON.stringify(next));
   notifyUpdated();
   return updated;
 }
 
-export function deleteProject(projectId, { storage = crmStorage } = {}) {
+export async function deleteProject(projectId, { storage = crmStorage } = {}) {
   const projects = loadProjects(storage);
   const project = projects.find((item) => sameId(item.id, projectId));
   if (!project) throw new Error('Project was not found.');
+  if (project.backendId && isBackendEnabled() && isServerId(project.backendId)) {
+    try {
+      await crmSync.remove('projects', project.backendId);
+    } catch (err) {
+      console.warn('[CRM Project] backend delete failed:', err?.message || err);
+    }
+  }
   storage.setItem(PROJECTS_STORAGE_KEY, JSON.stringify(projects.filter((item) => !sameId(item.id, projectId))));
   // Unlink from deal if linked
   try {

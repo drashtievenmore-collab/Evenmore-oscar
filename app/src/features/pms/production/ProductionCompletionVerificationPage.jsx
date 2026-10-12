@@ -1,21 +1,21 @@
 import React, { useMemo, useState, useSyncExternalStore } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { ArrowLeft, Printer, MoreHorizontal, Eye, ListChecks } from 'lucide-react';
+import {
+  ClipboardList,
+  Package,
+  XCircle,
+  CheckCircle2,
+  AlertTriangle,
+  IndianRupee,
+} from 'lucide-react';
 import { useERP } from '../../../context/ERPContext';
 import { dailyEntriesStore } from './dailyEntriesStore';
 import PageHeader from '../../../components/ui/PageHeader';
+import KpiCard from '../../../components/ui/KpiCard';
 
 const fmtM = (n) => `${Number(n || 0).toLocaleString('en-IN')} M`;
 const fmtDate = (d) => d || '-';
-
-function StatCard({ label, value, valueClass = 'text-[#17294e]', boxClass = 'bg-[#f4f6ff] border-[#e4e9f7]' }) {
-  return (
-    <div className={`rounded-lg border px-3 py-2.5 text-center ${boxClass}`}>
-      <p className="text-[11px] font-semibold text-slate-500">{label}</p>
-      <p className={`mt-1 text-[16px] font-extrabold tracking-tight ${valueClass}`}>{value}</p>
-    </div>
-  );
-}
 
 export default function ProductionCompletionVerificationPage() {
   const navigate = useNavigate();
@@ -153,12 +153,12 @@ export default function ProductionCompletionVerificationPage() {
 
         {/* Stat boxes */}
         <div className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-3 xl:grid-cols-6">
-          <StatCard label="Order Quantity" value={hasData ? fmtM(orderQty) : '—'} valueClass="text-[#3b5bff]" boxClass="bg-[#eef1ff] border-[#dfe6ff]" />
-          <StatCard label="Total Produced" value={hasData ? fmtM(totalProduced) : '—'} valueClass="text-emerald-600" boxClass="bg-[#eefaf1] border-[#d3efdd]" />
-          <StatCard label="Rejected Qty" value={hasData ? fmtM(rejectedQty) : '—'} valueClass="text-rose-500" boxClass="bg-[#fdeef0] border-[#f8d3d8]" />
-          <StatCard label="Accepted Qty" value={hasData ? fmtM(acceptedQty) : '—'} valueClass="text-[#3b5bff]" boxClass="bg-[#eef1ff] border-[#dfe6ff]" />
-          <StatCard label="Shortage / Difference" value={hasData ? fmtM(shortage) : '—'} valueClass="text-[#9a6b1f]" boxClass="bg-[#fdf3e0] border-[#f5e0b8]" />
-          <StatCard label="Agreed Job Rate" value={jobRateLabel} valueClass="text-[#7c3aed]" boxClass="bg-[#f3edff] border-[#e2d4ff]" />
+          <KpiCard label="Order Quantity" value={hasData ? fmtM(orderQty) : '—'} icon={ClipboardList} tone="blue" />
+          <KpiCard label="Total Produced" value={hasData ? fmtM(totalProduced) : '—'} icon={Package} tone="emerald" />
+          <KpiCard label="Rejected Qty" value={hasData ? fmtM(rejectedQty) : '—'} icon={XCircle} tone="rose" />
+          <KpiCard label="Accepted Qty" value={hasData ? fmtM(acceptedQty) : '—'} icon={CheckCircle2} tone="blue" />
+          <KpiCard label="Shortage / Difference" value={hasData ? fmtM(shortage) : '—'} icon={AlertTriangle} tone="amber" />
+          <KpiCard label="Agreed Job Rate" value={jobRateLabel} icon={IndianRupee} tone="purple" />
         </div>
       </div>
 

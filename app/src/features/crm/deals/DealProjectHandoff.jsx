@@ -37,12 +37,12 @@ export default function DealProjectHandoff({ deal, onNotify, renderTrigger }) {
     } catch (failure) { onNotify(failure.message); }
   }
 
-  function submit(event) {
+  async function submit(event) {
     event.preventDefault();
     if (busy) return;
     setBusy(true);
     try {
-      const result = createProjectFromDeal(deal.id, form);
+      const result = await createProjectFromDeal(deal.id, form);
       setForm(null);
       setSuccess(result);
       onNotify(result.created ? `Project ${result.project.projectNumber} created and linked to Deal ${deal.id}.` : `Project already exists: ${result.project.projectNumber}`);

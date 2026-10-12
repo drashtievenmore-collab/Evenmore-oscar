@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from "react";
-import { hrmsSync, isBackendEnabled } from '../../../services/hrmsSync';
+import { hrmsSync, isBackendEnabled, isServerId, pullHrmsSettings, pushHrmsSettings } from '../../../services/hrmsSync';
 import { Link, useSearchParams } from "react-router-dom";
 import {
   ShieldCheck,
@@ -60,6 +60,68 @@ import GenerateOfferModal from "./GenerateOfferModal";
 import PageHeader from "../../../components/ui/PageHeader";
 import { hrmsGuides } from "../../../data/hrms/hrmsGuides";
 
+/** Merge server rows into a local list: same server id wins, local-only rows stay. */
+function mergeServerRows(previous, serverRows) {
+  const prev = Array.isArray(previous) ? previous : [];
+  const server = Array.isArray(serverRows) ? serverRows : [];
+  if (server.length === 0) return prev;
+  const byId = new Map(prev.map((r) => [String(r?.serverOfferId || r?.backendId || r?.id), r]));
+  const merged = prev.map((row) => {
+    const key = String(row?.serverOfferId || row?.backendId || '');
+    if (key && server.some((s) => String(s.id) === key)) {
+      const fresh = server.find((s) => String(s.id) === key);
+      return { ...row, ...fresh, id: row.id, serverOfferId: key, backendId: key };
+    }
+    return row;
+  });
+  const known = new Set(merged.map((r) => String(r?.serverOfferId || r?.backendId || r?.id)));
+  server.forEach((s) => {
+    if (!known.has(String(s.id))) merged.push(s);
+  });
+  return merged;
+}
+
+/** A `/hrms/offers/` row in the offer-letter table shape. */
+function serverOfferToRow(offer, applications = []) {
+  const app = (applications || []).find((a) => String(a?.id) === String(offer.applicationId));
+  return {
+    id: offer.id,
+    serverOfferId: offer.id,
+    applicationId: offer.applicationId,
+    candidateId: app?.candidateId || offer.candidateId || '',
+    candidateName: offer.candidateName || '',
+    email: '',
+    position: offer.position || '',
+    dept: offer.dept || offer.department || '',
+    jobType: offer.jobType || 'Full-time',
+    salary: offer.salary || '',
+    location: offer.location || '',
+    joiningDate: offer.joiningDate || '',
+    expiryDate: offer.expiryDate || '',
+    reportingManager: offer.reportingManager || '',
+    probationPeriod: offer.probationPeriod || '',
+    sentDate: offer.sentDate || '',
+    status: offer.status === 'Sent' ? 'Pending' : (offer.status || 'Pending'),
+    notes: offer.notes || '',
+  };
+}
+
+/** Find (or open) the job application behind a candidate, for offer linkage. */
+async function resolveApplicationId(candidateId, candidates) {
+  if (!isServerId(candidateId)) return null;
+  try {
+    const existing = await hrmsSync.pull('applications', { candidateId });
+    if (existing && existing[0]?.id) return existing[0].id;
+    const cand = (candidates || []).find((c) => String(c?.id) === String(candidateId));
+    const jobId = cand?.jobId && isServerId(cand.jobId) ? cand.jobId : null;
+    if (!jobId) return null;
+    const created = await hrmsSync.create('applications', { candidateId, jobId });
+    return created?.id || null;
+  } catch {
+    return null;
+  }
+}
+
 export default function HRAdminPage({ defaultTab }) {
   const showToast = useAppStore((s) => s.showToast);
   const employees = useAppStore((s) => s.employees || []);
@@ -108,7 +170,7 @@ export default function HRAdminPage({ defaultTab }) {
 
   useEffect(() => {
     let cancelled = false;
-    hrmsSync.pullMany(['teams', 'approvalChains', 'terminations', 'complaints', 'departments'])
+    hrmsSync.pullMany(['teams', 'approvalChains', 'terminations', 'complaints', 'departments', 'offers', 'resignations', 'holidays', 'applications'])
       .then((rows) => {
         if (cancelled) return;
         if (rows.teams) setTeams(rows.teams);
@@ -116,7 +178,26 @@ export default function HRAdminPage({ defaultTab }) {
         if (rows.terminations) setTerminations(rows.terminations);
         if (rows.complaints) setComplaints(rows.complaints);
         if (rows.departments) setDepartmentsConfig(rows.departments);
+        // Tabs that used to start empty: seed them from the server. Rows
+        // already on screen (local creates) win over the same server row.
+        if (rows.resignations) {
+          setResignations((prev) => mergeServerRows(prev, rows.resignations));
+        }
+        if (rows.holidays) {
+          setHolidays((prev) => mergeServerRows(prev, rows.holidays));
+        }
+        if (rows.offers) {
+          setOffersList((prev) => mergeServerRows(
+            prev, rows.offers.map((o) => serverOfferToRow(o, rows.applications || [])),
+          ));
+        }
       });
+    // Org configuration itself lives under the `hrms` settings key.
+    pullHrmsSettings().then((settings) => {
+      if (!cancelled && settings && settings.org) {
+        setOrgSettings((prev) => ({ ...prev, ...settings.org }));
+      }
+    }).catch(() => {});
     return () => { cancelled = true; };
   }, []);
   const [offersList, setOffersList] = useState([]);
@@ -427,25 +508,53 @@ export default function HRAdminPage({ defaultTab }) {
   };
 
   // ── Offer Letters Handlers ──────────────────────────────────
-  const handleCreateOffer = (newOffer) => {
-    setOffersList([newOffer, ...offersList]);
+  // Offers persist in `/hrms/offers/` linked to the candidate's application;
+  // the local row keeps the letter fields and carries `serverOfferId`.
+  const handleCreateOffer = async (newOffer) => {
+    const row = { ...newOffer, serverOfferId: null };
+    setOffersList((prev) => [row, ...prev]);
     addOffer?.(newOffer);
-    setActiveOfferLetter(newOffer);
+    setActiveOfferLetter(row);
     setIsOfferLetterModalOpen(true);
     showToast(`Offer letter generated for ${newOffer.candidateName}`);
+    if (!isBackendEnabled() || !isServerId(newOffer.candidateId)) return;
+    try {
+      const applicationId = newOffer.applicationId
+        || await resolveApplicationId(newOffer.candidateId, candidates);
+      if (!applicationId) return;
+      try {
+        useRecruitmentStore.getState().updateCandidate?.(newOffer.candidateId, { stage: 'Offer' });
+      } catch { /* stage sync is best-effort */ }
+      const saved = await hrmsSync.create('offers', { ...newOffer, applicationId });
+      if (saved?.id) {
+        setOffersList((prev) => prev.map((o) =>
+          (o.id === newOffer.id ? { ...o, serverOfferId: saved.id } : o)));
+      }
+    } catch (err) {
+      console.warn('[HRMS] offer not saved:', err?.message || err);
+    }
   };
 
   const handleUpdateOffer = (updated) => {
     setOffersList((prev) =>
       prev.map((o) => (o.id === updated.id ? updated : o))
     );
+    if (updated?.serverOfferId && isBackendEnabled()) {
+      hrmsSync.update('offers', updated.serverOfferId, updated).catch(console.warn);
+    }
     setActiveOfferLetter(updated);
     showToast(`Offer letter updated`);
   };
 
   const toggleOfferStatus = (id, newStatus) => {
     setOffersList((prev) =>
-      prev.map((o) => (o.id === id ? { ...o, status: newStatus } : o))
+      prev.map((o) => {
+        if (o.id !== id) return o;
+        if (o.serverOfferId && isBackendEnabled()) {
+          hrmsSync.update('offers', o.serverOfferId, { status: newStatus }).catch(console.warn);
+        }
+        return { ...o, status: newStatus };
+      })
     );
     showToast(`Offer status updated to ${newStatus}`);
   };
@@ -459,6 +568,15 @@ export default function HRAdminPage({ defaultTab }) {
       ...newResignation,
       status: "Pending Manager Review",
     };
+    // Link the real employee row so the backend accepts the record: match
+    // by name/email/chat id, otherwise the row stays local-only.
+    if (isBackendEnabled() && !isServerId(created.employeeId)) {
+      const match = (employees || []).find((x) =>
+        (x?.name && x.name.toLowerCase() === String(created.employee).toLowerCase()) ||
+        (created.employeeId && (String(x?.id) === String(created.employeeId) ||
+          String(x?.email || '').toLowerCase() === String(created.employeeId).toLowerCase())));
+      if (match && isServerId(match.id)) created.employeeId = match.id;
+    }
     setResignations([created, ...resignations]);
     if (isBackendEnabled()) {
       hrmsSync.create('resignations', created).then((saved) => {
@@ -633,9 +751,21 @@ export default function HRAdminPage({ defaultTab }) {
   };
 
   // ── Org Settings ───────────────────────────────────────────
-  const handleSaveOrgSettings = (e) => {
+  // The configuration itself is stored server-side under the `hrms`
+  // settings key, so it survives refresh and other devices.
+  const handleSaveOrgSettings = async (e) => {
     e.preventDefault();
-    showToast("Organization configuration updated successfully");
+    if (!isBackendEnabled()) {
+      showToast("Organization configuration updated successfully");
+      return;
+    }
+    try {
+      const current = await pullHrmsSettings().catch(() => ({}));
+      await pushHrmsSettings({ ...(current || {}), org: orgSettings });
+      showToast("Organization configuration updated successfully");
+    } catch (err) {
+      showToast(err?.message || "Organization configuration could not be saved.");
+    }
   };
 
   // Unique departments for filter

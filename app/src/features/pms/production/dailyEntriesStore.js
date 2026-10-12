@@ -29,6 +29,18 @@ function loadCache() {
   return null;
 }
 
+/** Upload a proof photo first; returns the server file id (or undefined). */
+async function uploadProofPhoto(photoFile) {
+  if (!photoFile || typeof photoFile === 'string') return undefined;
+  try {
+    const { uploadFileToBackend } = await import('../../../services/fileUploadService');
+    const name = photoFile.name || `proof-${Date.now()}.jpg`;
+    return await uploadFileToBackend(photoFile, name, 'jobwork_proof');
+  } catch {
+    return undefined;
+  }
+}
+
 export const dailyEntriesStore = {
   get() {
     return entries;
@@ -38,32 +50,61 @@ export const dailyEntriesStore = {
     persistCache();
     emit();
   },
-  add(entry) {
-    entries = [...entries, entry];
+  async add(entry) {
+    const photoFileId = await uploadProofPhoto(entry.photoFile);
+    const row = {
+      ...entry,
+      photoFileId: photoFileId || entry.photoFileId || undefined,
+      // Until the server answers, keep the local file name so the row renders.
+      photo: typeof entry.photoFile?.name === 'string' ? entry.photoFile.name : (entry.photo || ''),
+    };
+    delete row.photoFile;
+    entries = [...entries, row];
     persistCache();
     emit();
     // Push to backend; reconcile UUID when the server answers.
-    import('../../../services/jobWorkSync').then(({ pushCreateVPIEntry, isJobWorkBackendEnabled }) => {
-      if (!isJobWorkBackendEnabled()) return;
-      pushCreateVPIEntry({
-        instructionId: entry.instructionId || entry.piId || loadedFor,
-        date: entry.date,
-        produced: entry.produced ?? entry.producedQty ?? 0,
-        by: entry.by,
-        remarks: entry.remarks,
-      }).then((saved) => {
-        if (saved) {
-          entries = entries.map((e) => (e.id === entry.id ? { ...e, ...saved, produced: saved.produced ?? e.produced } : e));
-          persistCache();
-          emit();
-        }
-      }).catch(() => {});
-    });
+    try {
+      const { pushCreateVPIEntry, isJobWorkBackendEnabled } = await import('../../../services/jobWorkSync');
+      if (!isJobWorkBackendEnabled()) return row;
+      const saved = await pushCreateVPIEntry({
+        instructionId: row.instructionId || row.piId || loadedFor,
+        date: row.date,
+        produced: row.produced ?? row.producedQty ?? 0,
+        by: row.by,
+        remarks: row.remarks,
+        photoFileId: row.photoFileId,
+      });
+      if (saved) {
+        entries = entries.map((e) => (e.id === row.id ? { ...e, ...saved, produced: saved.produced ?? e.produced } : e));
+        persistCache();
+        emit();
+        return { ...row, ...saved };
+      }
+    } catch { /* offline — the cached row retries on next load */ }
+    return row;
   },
-  update(id, patch) {
-    entries = entries.map((e) => (e.id === id ? { ...e, ...patch } : e));
+  async update(id, patch) {
+    const photoFileId = await uploadProofPhoto(patch.photoFile);
+    const clean = { ...patch };
+    delete clean.photoFile;
+    if (photoFileId) {
+      clean.photoFileId = photoFileId;
+      clean.photo = patch.photoFile?.name || clean.photo;
+    }
+    entries = entries.map((e) => (e.id === id ? { ...e, ...clean } : e));
     persistCache();
     emit();
+    try {
+      const { pushUpdateVPIEntry, isJobWorkBackendEnabled } = await import('../../../services/jobWorkSync');
+      if (!isJobWorkBackendEnabled()) return;
+      const current = entries.find((e) => e.id === id) || clean;
+      const saved = await pushUpdateVPIEntry(id, current);
+      if (saved) {
+        entries = entries.map((e) => (e.id === id ? { ...e, ...saved } : e));
+        persistCache();
+        emit();
+      }
+    } catch { /* offline — the cached edit stays until the next load */ }
   },
   remove(id) {
     entries = entries.filter((e) => e.id !== id);
@@ -81,20 +122,49 @@ export const dailyEntriesStore = {
       emit();
     }
     try {
-      const { pullVPIEntries, isJobWorkBackendEnabled } = await import('../../../services/jobWorkSync');
+      const { pullVPIEntries, pushCreateVPIEntry, isJobWorkBackendEnabled } = await import('../../../services/jobWorkSync');
       if (!isJobWorkBackendEnabled()) return entries;
       const rows = await pullVPIEntries(instructionId);
       if (Array.isArray(rows)) {
-        entries = rows.map((r) => ({
-          id: r.id,
-          instructionId: r.instructionId,
-          piId: r.instructionId,
-          date: r.date,
-          produced: r.produced ?? 0,
-          by: r.by || '',
-          remarks: r.remarks || '',
-          _synced: true,
-        }));
+        const serverIds = new Set(rows.map((r) => String(r.id)));
+        // Rows the server has never seen (created offline) are pushed now
+        // instead of being dropped by the refresh.
+        const unsynced = (cached || []).filter((e) => e && !e._synced && !serverIds.has(String(e.id)));
+        const justPushed = [];
+        const stillPending = [];
+        for (const local of unsynced) {
+          try {
+            const saved = await pushCreateVPIEntry({
+              instructionId: local.instructionId || local.piId || loadedFor,
+              date: local.date,
+              produced: local.produced ?? local.producedQty ?? 0,
+              by: local.by,
+              remarks: local.remarks,
+              photoFileId: local.photoFileId,
+            });
+            if (saved) justPushed.push({ ...local, ...saved });
+            else stillPending.push(local);
+          } catch {
+            stillPending.push(local);
+          }
+        }
+        entries = [
+          ...rows.map((r) => ({
+            id: r.id,
+            instructionId: r.instructionId,
+            piId: r.instructionId,
+            date: r.date,
+            produced: r.produced ?? 0,
+            by: r.by || '',
+            remarks: r.remarks || '',
+            photoFileId: r.photoFileId,
+            photo: r.photo || '',
+            photoUrl: r.photoUrl || '',
+            _synced: true,
+          })),
+          ...justPushed,
+          ...stillPending,
+        ];
         persistCache();
         emit();
       }

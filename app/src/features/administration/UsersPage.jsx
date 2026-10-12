@@ -42,6 +42,7 @@ import {
   ShieldCheck,
   Eye,
   AlertTriangle,
+  Briefcase,
 } from 'lucide-react';
 
 const USERS_PER_PAGE = 16;
@@ -106,6 +107,7 @@ export function UsersPage() {
   const [selectedRole, setSelectedRole] = useState('All Roles');
   const [selectedDepartment, setSelectedDepartment] = useState('All Departments');
   const [selectedStatus, setSelectedStatus] = useState('All Status');
+  const [selectedSource, setSelectedSource] = useState('All Sources');
   const [viewMode, setViewMode] = useState('grid');
   const [currentPage, setCurrentPage] = useState(1);
 
@@ -126,7 +128,7 @@ export function UsersPage() {
     name: '',
     email: '',
     phone: '',
-    role: 'Tele Caller Executive',
+    role: 'BDE',
     department: 'Sales',
     status: 'Active',
     employeeId: '',
@@ -172,15 +174,22 @@ export function UsersPage() {
         matches(u.email, q) ||
         matches(u.role, q) ||
         matches(u.department, q) ||
+        matches(u.designation, q) ||
         matches(u.employeeId, q);
 
       const matchesRole = selectedRole === 'All Roles' || u.role === selectedRole;
       const matchesDept = selectedDepartment === 'All Departments' || u.department === selectedDepartment;
       const matchesStatus = selectedStatus === 'All Status' || u.status === selectedStatus;
+      // Staff who came in through HRMS are the employees; the rest were
+      // created on this screen. Neither set is hidden, they are just a cut.
+      const matchesSource =
+        selectedSource === 'All Sources'
+          || (selectedSource === 'From HRMS' && u.isFromHrms)
+          || (selectedSource === 'Direct Accounts' && !u.isFromHrms);
 
-      return matchesSearch && matchesRole && matchesDept && matchesStatus;
+      return matchesSearch && matchesRole && matchesDept && matchesStatus && matchesSource;
     });
-  }, [users, searchQuery, selectedRole, selectedDepartment, selectedStatus]);
+  }, [users, searchQuery, selectedRole, selectedDepartment, selectedStatus, selectedSource]);
 
   // ── Pagination Calculation ───────────────────────────────────
   const totalPages = Math.max(1, Math.ceil(filteredUsers.length / USERS_PER_PAGE));
@@ -203,7 +212,9 @@ export function UsersPage() {
         matches(u.role, 'director') ||
         matches(u.department, 'executive')
     ).length;
-    return { total, active, inactive, admins };
+    // Synced from HRMS: an account exists for this many of your employees.
+    const employees = users.filter((u) => u.isFromHrms).length;
+    return { total, active, inactive, admins, employees };
   }, [users]);
 
   // ── Handlers ─────────────────────────────────────────────────
@@ -212,6 +223,7 @@ export function UsersPage() {
     setSelectedRole('All Roles');
     setSelectedDepartment('All Departments');
     setSelectedStatus('All Status');
+    setSelectedSource('All Sources');
     setCurrentPage(1);
   };
 
@@ -429,11 +441,12 @@ export function UsersPage() {
         text="Create user accounts, assign roles and manage active or inactive status. Keep team details up to date so each person has the right access for their responsibilities."
       />
 
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
         <KpiCard label="Total Users" value={stats.total} icon={Users} tone="blue" />
         <KpiCard label="Active Users" value={stats.active} icon={UserCheck} tone="emerald" />
         <KpiCard label="Inactive Users" value={stats.inactive} icon={UserX} tone="rose" />
         <KpiCard label="Administrators" value={stats.admins} icon={Shield} tone="purple" />
+        <KpiCard label="Synced from HRMS" value={stats.employees} icon={Briefcase} tone="purple" />
       </div>
 
       {/* ── Search & Filter Bar ────────────────────────────────── */}
@@ -508,6 +521,23 @@ export function UsersPage() {
               <option value="All Status">All Status</option>
               <option value="Active">Active</option>
               <option value="Inactive">Inactive</option>
+            </select>
+            <ChevronDown size={14} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
+          </div>
+
+          {/* Source Dropdown — employees synced from HRMS vs accounts made here */}
+          <div className="relative min-w-[140px]">
+            <select
+              value={selectedSource}
+              onChange={(e) => {
+                setSelectedSource(e.target.value);
+                setCurrentPage(1);
+              }}
+              className="w-full appearance-none bg-slate-50 border border-slate-200 rounded-xl px-3 py-1.5 pr-8 text-xs font-medium text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500"
+            >
+              <option value="All Sources">All Sources</option>
+              <option value="From HRMS">From HRMS</option>
+              <option value="Direct Accounts">Direct Accounts</option>
             </select>
             <ChevronDown size={14} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
           </div>
@@ -703,6 +733,12 @@ export function UsersPage() {
                     />
                     {activeUser.status}
                   </span>
+                  {activeUser.isFromHrms && (
+                    <span className="inline-flex items-center gap-1 text-[11px] font-semibold px-2 py-0.5 rounded-full border border-violet-200 bg-violet-50 text-violet-700">
+                      <Briefcase size={10} />
+                      Synced from HRMS
+                    </span>
+                  )}
                 </div>
                 <div className="text-xs text-slate-500 mt-1 truncate">
                   {activeUser.role} | {activeUser.department}
@@ -744,8 +780,39 @@ export function UsersPage() {
                   <Building2 size={15} className="text-blue-600 flex-shrink-0" />
                   <span>{activeUser.department} Department</span>
                 </div>
+                {activeUser.designation && (
+                  <div className="flex items-center gap-2.5 text-slate-700 bg-white border border-slate-200 px-3 py-2 rounded-xl font-medium">
+                    <Briefcase size={15} className="text-blue-600 flex-shrink-0" />
+                    <span>{activeUser.designation}</span>
+                  </div>
+                )}
               </div>
             </div>
+
+            {/* HRMS record — the employee row this login was synced from.
+                Read-only: HR owns it, and the next employee edit carries the
+                change back here. */}
+            {activeUser.isFromHrms && (
+              <div>
+                <h4 className="text-xs font-bold uppercase tracking-wider text-slate-400 mb-2">
+                  HRMS Record
+                </h4>
+                <div className="space-y-2 text-xs divide-y divide-slate-100 border border-slate-200 rounded-xl px-3">
+                  <div className="flex items-center justify-between py-2">
+                    <span className="text-slate-500">Employee ID</span>
+                    <span className="font-semibold text-slate-800">{activeUser.employeeId || '—'}</span>
+                  </div>
+                  <div className="flex items-center justify-between py-2">
+                    <span className="text-slate-500">Designation</span>
+                    <span className="font-semibold text-slate-800">{activeUser.designation || '—'}</span>
+                  </div>
+                  <div className="flex items-center justify-between py-2">
+                    <span className="text-slate-500">Employment Status</span>
+                    <span className="font-semibold text-slate-800">{activeUser.employeeStatus || '—'}</span>
+                  </div>
+                </div>
+              </div>
+            )}
 
             {/* Permissions */}
             <div>
@@ -788,10 +855,6 @@ export function UsersPage() {
                 Additional Information
               </h4>
               <div className="space-y-2 text-xs divide-y divide-slate-100">
-                <div className="flex items-center justify-between py-1">
-                  <span className="text-slate-500">Employee ID</span>
-                  <span className="font-semibold text-slate-800">{activeUser.employeeId}</span>
-                </div>
                 <div className="flex items-center justify-between py-1">
                   <span className="text-slate-500">Location</span>
                   <span className="font-semibold text-slate-800">{activeUser.location}</span>
@@ -925,7 +988,7 @@ export function UsersPage() {
                     className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500"
                   >
                     <option value="Accountant">Accountant</option>
-                    <option value="Tele Caller Executive">Tele Caller Executive</option>
+                    <option value="BDE">BDE</option>
                     <option value="Tele sales coordinator">Tele sales coordinator</option>
                     <option value="Relation ship manager">Relation ship manager</option>
                     <option value="Sales support execut.">Sales support execut.</option>
@@ -1097,7 +1160,7 @@ export function UsersPage() {
                     className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500"
                   >
                     <option value="Accountant">Accountant</option>
-                    <option value="Tele Caller Executive">Tele Caller Executive</option>
+                    <option value="BDE">BDE</option>
                     <option value="Tele sales coordinator">Tele sales coordinator</option>
                     <option value="Relation ship manager">Relation ship manager</option>
                     <option value="Sales support execut.">Sales support execut.</option>
@@ -1536,14 +1599,25 @@ function UserCardItem({
           }}
         />
         <div className="min-w-0 flex-1">
-          <h4 className="font-bold text-slate-900 text-sm leading-tight group-hover:text-blue-600 transition-colors truncate">
-            {user.name}
-          </h4>
+          <div className="flex flex-wrap items-center gap-1.5">
+            <h4 className="font-bold text-slate-900 text-sm leading-tight group-hover:text-blue-600 transition-colors truncate">
+              {user.name}
+            </h4>
+            {user.isFromHrms && (
+              <span
+                className="inline-flex items-center gap-1 rounded-full border border-violet-200 bg-violet-50 px-2 py-0.5 text-[10px] font-semibold text-violet-700"
+                title={user.employeeId ? `Employee ${user.employeeId}` : 'Synced from HRMS'}
+              >
+                <Briefcase size={10} />
+                HR
+              </span>
+            )}
+          </div>
           <p className="text-xs text-slate-500 truncate mt-0.5" title={user.email}>
             {user.email}
           </p>
           <p className="text-[11px] text-slate-400 font-medium mt-0.5 truncate">
-            {user.department}
+            {[user.department, user.designation].filter(Boolean).join(' • ') || '—'}
           </p>
         </div>
       </div>
@@ -1628,10 +1702,24 @@ function UserListItem({
               >
                 {user.role}
               </span>
+              {user.isFromHrms && (
+                <span
+                  className="inline-flex items-center gap-1 rounded-full border border-violet-200 bg-violet-50 px-2.5 py-0.5 text-[11px] font-semibold text-violet-700"
+                  title={user.employeeId ? `Employee ${user.employeeId}` : 'Synced from HRMS'}
+                >
+                  <Briefcase size={10} />
+                  HR
+                </span>
+              )}
             </div>
             <p className="text-xs text-slate-500 truncate mt-0.5" title={user.email}>
               {user.email}
             </p>
+            {user.designation && (
+              <p className="text-[11px] text-slate-400 font-medium mt-0.5 truncate">
+                {user.designation}
+              </p>
+            )}
           </div>
         </div>
 

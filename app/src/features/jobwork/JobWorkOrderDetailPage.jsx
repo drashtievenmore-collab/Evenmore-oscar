@@ -224,8 +224,18 @@ export default function JobWorkOrderDetailPage() {
     try {
       const changed = (Array.isArray(next) ? next : []).find((o) => o && jwo && String(o.id) === String(jwo.id));
       if (changed) {
-        import('../../services/jobWorkSync').then(({ pushUpdateJWO, isJobWorkBackendEnabled }) => {
-          if (isJobWorkBackendEnabled()) pushUpdateJWO(changed.id, changed).catch(() => {});
+        import('../../services/jobWorkSync').then(async ({ pushUpdateJWO, uploadPendingJWODocs, isJobWorkBackendEnabled }) => {
+          if (!isJobWorkBackendEnabled()) return;
+          try {
+            // Documents attached while offline finally upload here.
+            const ready = await uploadPendingJWODocs(changed);
+            if (ready !== changed) {
+              const reconciled = (Array.isArray(next) ? next : []).map((o) => (o && jwo && String(o.id) === String(jwo.id) ? ready : o));
+              setOrders(reconciled);
+              try { saveJWOs(reconciled); } catch { /* ignore */ }
+            }
+            await pushUpdateJWO(ready.id, ready);
+          } catch { /* offline — local cache already saved */ }
         });
       }
     } catch {

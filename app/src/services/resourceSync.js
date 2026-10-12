@@ -201,8 +201,14 @@ export function createSync(registry, { label = 'sync' } = {}) {
 
   async function remove(key, id) {
     const resource = get(key);
-    if (!resource || !isBackendEnabled() || !isServerId(id)) return null;
-    await api.delete(`${resource.path}${id}/`);
+    if (!resource || !isBackendEnabled() || id === undefined || id === null || id === "") return null;
+    const idStr = String(id);
+    // Local optimistic rows (e.g. `emp-local-…`) were never persisted —
+    // dropping them locally is the whole delete; anything else must reach
+    // the server, even legacy codes like `EMP0002`, or the UI shows a
+    // success the server never applied.
+    if (idStr.includes("-local-")) return null;
+    await api.delete(`${resource.path}${idStr}/`);
     return true;
   }
 

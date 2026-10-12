@@ -1391,11 +1391,21 @@ export function filterProjects(projects = [], filters = {}, now = Date.now()) {
 }
 
 /** Project-manager options for dropdowns: flagged employees, deduped by id
- * (the team roster lists a person once per role, so a manager can arrive twice). */
+ * (the team roster lists a person once per role, so a manager can arrive twice).
+ * Falls back to the whole roster when nobody carries the PM flag, so the
+ * dropdown is never an empty dead-end. */
 export function getProjectManagers(employees = []) {
   const seen = new Map();
   for (const e of employees) {
     if (e?.isProjectManager && e?.id != null && !seen.has(e.id)) seen.set(e.id, e);
+  }
+  if (seen.size > 0) {
+    return [...seen.values()].sort((a, b) =>
+      String(a.name ?? '').localeCompare(String(b.name ?? ''))
+    );
+  }
+  for (const e of employees) {
+    if (e?.id != null && !seen.has(e.id)) seen.set(e.id, e);
   }
   return [...seen.values()].sort((a, b) =>
     String(a.name ?? '').localeCompare(String(b.name ?? ''))
@@ -1828,7 +1838,9 @@ const usePmsStoreBase = create((set, get) => ({
         .map((c, i) => ({ ...c, sequence: i + 1 }));
       pmsSync.remove("stageConfigs", id)
         .catch((err) => {
-          console.warn("[PMS] stage template not deleted:", describeError(err));
+          const msg = describeError(err);
+          console.warn("[PMS] stage template not deleted:", msg);
+          get().showToast(`Not deleted — ${msg}`, "error");
           get().hydrate({ force: true });
         });
       return { stageConfigs };
@@ -1925,7 +1937,8 @@ const usePmsStoreBase = create((set, get) => ({
     specifications = "",
   }) => {
     if (!order) throw new Error("A CRM order is required to create a project.");
-    if (!projectManager) throw new Error("A project manager is required.");
+    // The server accepts a null manager (fresh workspaces may have no PM user
+    // yet) — the modal only requires one when managers exist to choose from.
 
     // `POST /pms/projects/from-order/` allocates the sequential project code,
     // copies the order's commercial detail and instantiates the chosen stage
@@ -1934,7 +1947,7 @@ const usePmsStoreBase = create((set, get) => ({
       salesOrderId: order.id ?? order.orderNumber,
       orderId: order.id ?? order.orderNumber,
       orderNumber: order.orderNumber ?? order.id,
-      projectManagerId: projectManager.id,
+      projectManagerId: projectManager?.id ?? null,
       priority,
       startDate: startDate || new Date().toISOString(),
       stageConfigIds,

@@ -40,13 +40,27 @@ import {
   ShoppingCart,
 } from 'lucide-react';
 
-import { loadDeals, saveDeals, buildDeal, EMPTY_DEAL_FORM, getInitialsFromName, getAvatarColorFromName } from '../../../services/dealService';
+import { loadDeals, buildDeal, EMPTY_DEAL_FORM, getInitialsFromName, getAvatarColorFromName } from '../../../services/dealService';
 import { useCrmStore } from '../../../stores/crmStore';
 import { useERP } from '../../../context/ERPContext';
 
-const STAGES = ['Draft', 'Sent', 'Open', 'Won', 'Lost'];
+// Fallback columns, used only until /crm/deal-stages/ answers. Once the
+// catalogue loads, the board is driven by DealStage rows in `sequence` order,
+// so stages such as Revised and Declined are no longer invisible.
+const FALLBACK_STAGES = ['Draft', 'Sent', 'Open', 'Won', 'Lost'];
+
+// Deal.stage is a TextField enum, but a lead's lost state comes from a Stage FK,
+// so the name has to be checked as a fallback when `is_lost` is not set.
+const LOST_STAGE_PATTERN = /lost|closed|declined/i;
+
+// Tailwind cannot see classes built at runtime, so the responsive grid widths
+// are enumerated here and picked by index.
+const GRID_CLASSES = [
+  'lg:grid-cols-1', 'lg:grid-cols-2', 'lg:grid-cols-3', 'lg:grid-cols-4',
+  'lg:grid-cols-5', 'lg:grid-cols-6', 'lg:grid-cols-7', 'lg:grid-cols-8',
+];
 const PRODUCTS = ['All Products', 'Diamond Jewelry', 'Gold Ornaments', 'Silver Collection', 'Laser Machine', 'CNC Spindle', 'AMC Service'];
-const SOURCES = ['All Sources', 'Website', 'Referral', 'Walk-in', 'Trade Show', 'Cold Call', 'Social Media'];
+const SOURCES = ['All Sources', 'Website', 'Referral', 'Walk-in', 'Trade Show', 'Social Media'];
 const USERS = ['All Users', 'Priya Patel', 'Jayesh Patel', 'Kavita Desai', 'Hetal Patel', 'Rohit Sharma', 'Amit Kumar', 'Utsav Faldu', 'Dr. Meera', 'Ankush Jain', 'Nikhil Patil', 'Mr. Kamlesh Dhumadiya'];
 
 const STAGE_STYLES = {
@@ -124,18 +138,44 @@ function formatStageSummary(totalAmount, count) {
   return `${count} deals • ${formatted}`;
 }
 
+/** A column summary that also accounts for lost leads sharing the column. */
+function formatColumnSummary(totalAmount, dealCount, leadCount) {
+  const base = formatStageSummary(totalAmount, dealCount);
+  return leadCount > 0 ? `${base} • ${leadCount} lead${leadCount === 1 ? '' : 's'}` : base;
+}
+
+// Stages beyond the hardcoded five (Revised, Declined, or anything a tenant
+// configures) fall back to a neutral palette rather than to Draft's blue, so a
+// custom stage is not mistaken for one of the built-in ones.
+const NEUTRAL_STAGE_STYLE = {
+  icon: Flag,
+  iconColor: 'bg-slate-50 text-slate-600 border border-slate-200',
+  topBar: 'bg-slate-400',
+  headerBadge: 'bg-slate-50 text-slate-700 border border-slate-200',
+  countBadge: 'bg-slate-50 text-slate-700 border border-slate-200 font-bold',
+  accentColor: 'text-slate-600',
+};
+
+function getStageStyle(name) {
+  return STAGE_STYLES[name] || { ...NEUTRAL_STAGE_STYLE, title: name };
+}
+
 export default function DealsPage() {
   const { addQuotation, addSalesOrder, customers } = useERP() || {};
   const navigate = useNavigate();
   const storeDeals = useCrmStore((s) => s.deals);
+  const dealStages = useCrmStore((s) => s.dealStages);
+  const leadStages = useCrmStore((s) => s.stages);
+  const allLeads = useCrmStore((s) => s.leads);
   const [deals, setDeals] = useState([]);
 
   useEffect(() => { setDeals(storeDeals); }, [storeDeals]);
 
-  // Anything the board changed is written back to `/crm/deals/`.
-  useEffect(() => {
-    if (deals.length > 0 || storeDeals.length > 0) saveDeals(deals);
-  }, [deals, storeDeals]);
+  // NOTE: no blanket write-back here. Every mutation below writes through the
+  // CRM store explicitly (createRecord / updateRecord / deleteRecord), so the
+  // server is hit exactly once per user action. A whole-list write-back on
+  // every render used to re-POST the row whose server id had just replaced
+  // its local id, minting an identical duplicate deal on each create.
 
   const [searchParams, setSearchParams] = useSearchParams();
   const linkedDealId = searchParams.get('deal');
@@ -197,6 +237,85 @@ export default function DealsPage() {
       return true;
     });
   }, [deals, searchQuery, selectedProduct, selectedStage, selectedSource, selectedUser]);
+
+  /**
+   * Board columns come from the DealStage catalogue, not a hardcoded array, so
+   * stages such as Revised and Declined get a column instead of silently
+   * dropping their deals. Inactive stages are hidden unless a deal still sits
+   * in one. `Deal.stage` values with no catalogue row are appended rather than
+   * hidden -- a partially configured board must never lose records.
+   */
+  const pipelineStages = useMemo(() => {
+    const configured = (dealStages || [])
+      .filter((s) => s && s.name && (s.is_active ?? s.isActive) !== false)
+      .map((s) => ({
+        key: s.name,
+        order: s.order ?? s.sequence ?? 0,
+        isWon: Boolean(s.is_won ?? s.isWon),
+        isLost: Boolean(s.is_lost ?? s.isLost),
+      }))
+      .sort((a, b) => a.order - b.order);
+
+    const seen = new Set();
+    const columns = configured.filter((s) => {
+      if (seen.has(s.key)) return false;
+      seen.add(s.key);
+      return true;
+    });
+
+    if (columns.length === 0) {
+      return FALLBACK_STAGES.map((name, index) => ({
+        key: name,
+        order: index,
+        isWon: name === 'Won',
+        isLost: name === 'Lost',
+      }));
+    }
+
+    const orphans = [...new Set(deals.map((d) => d.stage).filter((s) => s && !seen.has(s)))];
+    return [
+      ...columns,
+      ...orphans.map((name) => ({
+        key: name,
+        order: columns.length + orphans.indexOf(name),
+        isWon: name === 'Won',
+        isLost: LOST_STAGE_PATTERN.test(name),
+      })),
+    ];
+  }, [dealStages, deals]);
+
+  const STAGES = useMemo(() => pipelineStages.map((s) => s.key), [pipelineStages]);
+
+  const lostStageNames = useMemo(
+    () => pipelineStages.filter((s) => s.isLost).map((s) => s.key),
+    [pipelineStages],
+  );
+
+  const gridClass = GRID_CLASSES[Math.min(pipelineStages.length, GRID_CLASSES.length) - 1];
+
+  /**
+   * Leads sitting in a stage flagged `is_lost` on the lead catalogue. The
+   * backend models lost state as a Stage FK, so the flag is authoritative and
+   * the name regex is only a fallback for stages created without one.
+   */
+  const lostLeads = useMemo(() => {
+    const lostStageIds = new Set(
+      (leadStages || []).filter((s) => s && (s.is_lost ?? s.isLost)).map((s) => s.id),
+    );
+    return (allLeads || []).filter((lead) => {
+      if (!lead || lead.isConverted) return false;
+      if (lead.stageId && lostStageIds.has(lead.stageId)) return true;
+      return LOST_STAGE_PATTERN.test(String(lead.status || ''));
+    });
+  }, [allLeads, leadStages]);
+
+  const visibleLostLeads = useMemo(() => {
+    const q = searchQuery.trim().toLowerCase();
+    if (!q) return lostLeads;
+    return lostLeads.filter((lead) =>
+      `${lead.name} ${lead.company} ${lead.phone} ${lead.email}`.toLowerCase().includes(q),
+    );
+  }, [lostLeads, searchQuery]);
 
   const stats = useMemo(() => {
     const totalDeals = deals.length;
@@ -561,13 +680,21 @@ export default function DealsPage() {
       )}
 
       {linkedDealId ? <DealDetailView key={linkedDealId} deal={deals.find((item) => String(item.id) === linkedDealId)} onEdit={handleOpenEditModal} onNotify={showNotification} onDelete={setDealToDelete} onUpdate={(patch) => {
+        // Header fields reach `/crm/deals/` through an explicit update —
+        // nested arrays have their own endpoints (wired in the view).
         const updated = loadDeals().map((item) => String(item.id) === linkedDealId ? { ...item, ...patch } : item);
         setDeals(updated);
+        useCrmStore.getState().updateRecord('deals', linkedDealId, patch).catch((err) => {
+          console.warn('[CRM Deals] Server update error:', err?.message || err);
+        });
         window.dispatchEvent(new Event('crm:data-updated'));
       }} onDuplicate={(deal) => {
         const copy = buildDeal({ name: `${deal.name} (copy)`, client: deal.client, phone: deal.phone, price: deal.price, product: deal.product, products: deal.products, source: deal.source, assignedUser: deal.assignedUser, team: deal.team, description: deal.description, stage: 'Draft', createdAt: new Date().toISOString() }, `dl-${crypto.randomUUID()}`);
         const updated = [copy, ...loadDeals()];
         setDeals(updated);
+        useCrmStore.getState().createRecord('deals', copy).catch((err) => {
+          console.warn('[CRM Deals] Server save error:', err?.message || err);
+        });
         setSearchParams({ deal: copy.id });
         showNotification('Deal duplicated as a new draft.');
       }} /> : <>
@@ -822,16 +949,22 @@ export default function DealsPage() {
 
       {/* Kanban Pipeline / List View */}
       {viewMode === 'kanban' ? (
-        <div className="flex snap-x snap-mandatory lg:grid lg:grid-cols-5 lg:snap-none gap-4 items-start overflow-x-auto pb-4 pt-1">
-          {STAGES.map((st) => {
+        <div className={`flex snap-x snap-mandatory lg:grid ${gridClass} lg:snap-none gap-4 items-start overflow-x-auto pb-4 pt-1`}>
+          {pipelineStages.map((column) => {
+            const st = column.key;
             const items = filteredDeals.filter((d) => d.stage === st);
-            const stageStyle = STAGE_STYLES[st] || STAGE_STYLES.Draft;
+            // Lost columns double as the home for lost leads, so a lead marked
+            // Lost is visible here without being converted into a deal.
+            const leadItems = column.isLost ? visibleLostLeads : [];
+            const stageStyle = getStageStyle(st);
             const StageIcon = stageStyle.icon;
             const totalStageAmount = items.reduce((sum, d) => sum + (Number(d.price) || 0), 0);
             const isDragOver = dragOverStage === st;
             const isExpanded = Boolean(expandedColumns[st]);
             const visibleItems = isExpanded ? items : items.slice(0, 3);
+            const visibleLeadItems = isExpanded ? leadItems : leadItems.slice(0, 3);
             const remainingCount = items.length - 3;
+            const recordCount = items.length + leadItems.length;
 
             return (
               <div
@@ -869,29 +1002,20 @@ export default function DealsPage() {
                     <div className="min-w-0">
                       <h3 className="text-sm font-bold text-slate-900 leading-tight">{stageStyle.title}</h3>
                       <p className="text-[11px] text-slate-500 font-medium truncate">
-                        {formatStageSummary(totalStageAmount, items.length)}
+                        {formatColumnSummary(totalStageAmount, items.length, leadItems.length)}
                       </p>
                     </div>
                   </div>
 
                   <span className={`px-2 py-0.5 rounded-full text-[11px] ${stageStyle.countBadge}`}>
-                    {items.length}
+                    {recordCount}
                   </span>
                 </div>
 
-                {/* Add Deal Button */}
-                <button
-                  type="button"
-                  onClick={() => handleOpenCreateModal(st)}
-                  className="w-full py-1.5 bg-white hover:bg-slate-50 border border-dashed border-slate-300 hover:border-blue-400 rounded-xl text-xs font-semibold text-blue-600 flex items-center justify-center gap-1.5 shadow-2xs transition-colors cursor-pointer"
-                >
-                  <Plus size={14} />
-                  <span>Add Deal</span>
-                </button>
 
                 {/* Deal Cards Container */}
                 <div className="space-y-3 min-h-[120px]">
-                  {items.length === 0 ? (
+                  {recordCount === 0 ? (
                     <div
                       className="border border-dashed rounded-xl p-6 text-center"
                       style={{
@@ -1063,6 +1187,45 @@ export default function DealsPage() {
                       );
                     })
                   )}
+
+                  {/* Lost leads -- read-only, they link out to the lead record */}
+                  {visibleLeadItems.map((lead) => (
+                    <div
+                      key={`lead-${lead.id}`}
+                      className="bg-rose-50/40 border border-dashed border-rose-200 rounded-xl p-3.5 space-y-2.5 hover:border-rose-400 transition-colors"
+                    >
+                      <div className="flex items-start justify-between gap-2">
+                        <h4 className="text-sm font-bold text-slate-900 leading-snug truncate flex-1" title={lead.name}>
+                          <Link to={`/crm/leads/${encodeURIComponent(lead.id)}`} className="hover:text-rose-700 hover:underline">
+                            {lead.name}
+                          </Link>
+                        </h4>
+                        <span className="flex-shrink-0 text-[10px] font-bold px-2 py-0.5 rounded-full border bg-white text-rose-600 border-rose-200">
+                          Lead
+                        </span>
+                      </div>
+
+                      {lead.company && (
+                        <div>
+                          <span className="inline-flex items-center gap-1 text-[11px] font-medium text-slate-500 bg-white border border-rose-100 px-2 py-0.5 rounded-md truncate max-w-full">
+                            <Building2 size={10} className="text-slate-400 flex-shrink-0" />
+                            <span className="truncate">{lead.company}</span>
+                          </span>
+                        </div>
+                      )}
+
+                      <div className="flex items-center justify-between gap-2 pt-2 border-t border-rose-100 text-xs text-slate-500">
+                        <span className="truncate">
+                          {lead.phone || lead.email || 'No contact'}
+                        </span>
+                        {lead.lostReason && (
+                          <span className="text-[11px] text-rose-500 flex-shrink-0 truncate max-w-[45%]">
+                            {lead.lostReason}
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                  ))}
                 </div>
 
                 {/* Show More/Less Button */}
@@ -1115,7 +1278,7 @@ export default function DealsPage() {
                     <td className="py-3.5 px-4">
                       <span
                         className={`text-[11px] font-semibold px-2.5 py-0.5 rounded-full border ${
-                          STAGE_STYLES[deal.stage]?.headerBadge || 'bg-slate-100 text-slate-600 border-slate-200'
+                          getStageStyle(deal.stage).headerBadge
                         }`}
                       >
                         {deal.stage}
@@ -1164,6 +1327,48 @@ export default function DealsPage() {
                     </td>
                   </tr>
                 ))}
+
+                {/* Lost leads, so the table matches what the Lost column shows */}
+                {(selectedStage === 'All Stages' || lostStageNames.includes(selectedStage)) &&
+                  visibleLostLeads.map((lead) => (
+                    <tr key={`lead-${lead.id}`} className="bg-rose-50/40 hover:bg-rose-50/70 transition-colors">
+                      <td className="py-3.5 px-4 font-bold text-slate-900">
+                        <Link to={`/crm/leads/${encodeURIComponent(lead.id)}`} className="hover:text-rose-700 hover:underline">
+                          {lead.name}
+                        </Link>
+                      </td>
+                      <td className="py-3.5 px-4">
+                        <div className="flex items-center gap-2">
+                          <div
+                            className={`w-6 h-6 rounded-full flex items-center justify-center font-bold text-[10px] flex-shrink-0 ${
+                              lead.avatarColor || 'bg-rose-100 text-rose-700'
+                            }`}
+                          >
+                            {(lead.name || '?').slice(0, 2).toUpperCase()}
+                          </div>
+                          <span className="font-medium text-slate-700">{lead.company || '—'}</span>
+                        </div>
+                      </td>
+                      <td className="py-3.5 px-4 text-slate-600">—</td>
+                      <td className="py-3.5 px-4">
+                        <span className="text-[11px] font-semibold px-2.5 py-0.5 rounded-full border bg-white text-rose-600 border-rose-200">
+                          Lost · Lead
+                        </span>
+                      </td>
+                      <td className="py-3.5 px-4 text-right text-slate-400">—</td>
+                      <td className="py-3.5 px-4 text-slate-500">{lead.phone || lead.email || '—'}</td>
+                      <td className="py-3.5 px-4 text-right">
+                        <Link
+                          to={`/crm/leads/${encodeURIComponent(lead.id)}`}
+                          className="inline-flex p-1.5 bg-rose-50 hover:bg-rose-100 text-rose-700 rounded-lg border border-rose-200"
+                          title="View Lead"
+                          aria-label={`View lead ${lead.name}`}
+                        >
+                          <Edit2 size={13} />
+                        </Link>
+                      </td>
+                    </tr>
+                  ))}
               </tbody>
             </table>
           </div>

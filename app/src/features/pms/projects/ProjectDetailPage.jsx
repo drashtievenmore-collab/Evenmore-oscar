@@ -1,14 +1,12 @@
 import React, { useMemo, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { Info, GitBranch, ListChecks, FileText, ShieldCheck, History } from 'lucide-react';
+import { Info, GitBranch, ShieldCheck, History } from 'lucide-react';
 import { Button } from '../../../components/ui/Button';
 import { EmptyStatePms } from '../components/EmptyStatePms';
 import { usePmsStore, getProjectRowMeta } from '../../../stores/pmsStore';
 import { ProjectHeader } from './components/ProjectHeader';
 import { ProjectInfoTab } from './components/ProjectInfoTab';
 import { StageTimelineTab } from './components/StageTimelineTab';
-import { StageTasksTab } from './components/StageTasksTab';
-import { DocumentsProofTab } from './components/DocumentsProofTab';
 import { ApprovalsTab } from './components/ApprovalsTab';
 import { ActivityAuditTab } from './components/ActivityAuditTab';
 import { AssignStageModal } from './components/AssignStageModal';
@@ -19,15 +17,12 @@ import { PmsToast } from '../components/PmsToast';
 /**
  * ProjectDetailPage (/pms/projects/:id) — the project workspace.
  *
- * Six tabs over one project. All figures derive from the store, so an edit in
- * the Tasks tab moves the stage bar in Timeline and the hero gauge at once.
+ * Four tabs over one project.
  */
 
 const TABS = [
   { id: 'overview', label: 'Overview', icon: Info },
   { id: 'timeline', label: 'Stage Timeline', icon: GitBranch },
-  { id: 'tasks', label: 'Tasks', icon: ListChecks },
-  { id: 'documents', label: 'Design Proofs', icon: FileText },
   { id: 'approvals', label: 'Approvals', icon: ShieldCheck },
   { id: 'activity', label: 'Activity', icon: History },
 ];
@@ -40,10 +35,8 @@ export default function ProjectDetailPage() {
   const stageConfigs = usePmsStore((s) => s.stageConfigs);
   const startStage = usePmsStore((s) => s.startStage);
   const setStageStatus = usePmsStore((s) => s.setStageStatus);
-  const updateTask = usePmsStore((s) => s.updateTask);
 
   const [tab, setTab] = useState('timeline');
-  const [focusStageId, setFocusStageId] = useState(null);
   const [confirmComplete, setConfirmComplete] = useState(false);
   const [assignStageId, setAssignStageId] = useState(null); // null = closed
   const [handoffStageId, setHandoffStageId] = useState(null);
@@ -55,8 +48,6 @@ export default function ProjectDetailPage() {
     if (!project) return {};
     const stages = project.stages ?? [];
     return {
-      tasks: stages.reduce((n, s) => n + (s.tasks?.length ?? 0), 0),
-      documents: stages.reduce((n, s) => n + (s.documents?.length ?? 0), 0),
       approvals: stages.reduce((n, s) => n + (s.approvals?.length ?? 0), 0),
       activity: project.activityLog?.length ?? 0,
       timeline: stages.length,
@@ -77,11 +68,6 @@ export default function ProjectDetailPage() {
   }
 
   const currentStage = meta?.currentStage ?? null;
-
-  function handleManageTasks(stage) {
-    setFocusStageId(stage.id);
-    setTab('tasks');
-  }
 
   function handleSubmitStage(stage) {
     setStageStatus(project.id, stage.id, 'Submitted', project.projectManager);
@@ -148,28 +134,11 @@ export default function ProjectDetailPage() {
             project={project}
             stageConfigs={stageConfigs}
             onStart={(stage) => startStage(project.id, stage.id, project.projectManager)}
-            onManageTasks={handleManageTasks}
             onSubmit={handleSubmitStage}
             onHandoff={(stage) => setHandoffStageId(stage.id)}
           />
         )}
 
-        {tab === 'tasks' && (
-          <StageTasksTab
-            project={project}
-            focusStageId={focusStageId}
-            onToggleTask={(stageId, task) =>
-              updateTask(project.id, stageId, task.id, {
-                status: task.status === 'Completed' ? 'In Progress' : 'Completed',
-              })
-            }
-            onTaskProgress={(stageId, task, pct) =>
-              updateTask(project.id, stageId, task.id, { completionPct: pct })
-            }
-          />
-        )}
-
-        {tab === 'documents' && <DocumentsProofTab project={project} />}
         {tab === 'approvals' && <ApprovalsTab project={project} />}
         {tab === 'activity' && <ActivityAuditTab project={project} />}
       </div>
@@ -186,7 +155,6 @@ export default function ProjectDetailPage() {
         stageId={handoffStageId}
         project={project}
         onClose={() => setHandoffStageId(null)}
-        onHandedOff={(nextId) => setFocusStageId(nextId)}
       />
 
       <CompleteProjectModal

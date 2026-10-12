@@ -1,71 +1,84 @@
 import CrmKpiCard from '../common/CrmKpiCard';
-import React, { useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { Users, UserPlus, Search, CheckCircle2, Award, Clock, ArrowUpRight, ShieldCheck, Mail, Phone, MapPin, ListChecks } from 'lucide-react';
 import PageHeader from '../../../components/ui/PageHeader';
 import { useERP } from '../../../context/ERPContext';
 import UserLocationTracking from './UserLocationTracking';
+import { useCrmStore } from '../../../stores/crmStore';
+import { adminSync, isBackendEnabled } from '../../../services/adminSync';
 
 /** Lower-cased text, safe on a field the server left unset. */
 function text(value) {
   return String(value ?? '').toLowerCase();
 }
 
+/**
+ * Representatives come from `/admin/users/` when logged in — the same rows
+ * the Users module manages — with workload stats computed live from the CRM
+ * store (assigned leads, won deals, open pipeline). Nothing here is
+ * hardcoded: a representative added on another device appears after reload.
+ */
+function memberStats(member, leads, deals) {
+  const id = String(member?.id || '');
+  const name = String(member?.name || '').toLowerCase();
+  const assigned = (leads || []).filter((l) =>
+    (l?.ownerId && String(l.ownerId) === id) ||
+    (l?.owner && String(l.owner).toLowerCase() === name),
+  );
+  const owned = (deals || []).filter((d) =>
+    (d?.ownerId && String(d.ownerId) === id) ||
+    (d?.assignedUser && String(d.assignedUser).toLowerCase() === name),
+  );
+  const closed = owned.filter((d) => String(d?.stage).toLowerCase() === 'won');
+  const openValue = owned
+    .filter((d) => !['won', 'lost'].includes(String(d?.stage).toLowerCase()))
+    .reduce((sum, d) => sum + (Number(d?.value ?? d?.price) || 0), 0);
+  const conversion = owned.length > 0 ? (closed.length / owned.length) * 100 : 0;
+  return {
+    leadsAssigned: assigned.length,
+    dealsClosed: closed.length,
+    conversionRate: `${conversion.toFixed(1)}%`,
+    activePipeline: openValue,
+  };
+}
+
 export default function UserAllocationPage() {
   const { formatCurrency } = useERP();
-  const [teamMembers, setTeamMembers] = useState([
-    {
-      id: 1,
-      name: 'David Patel',
-      role: 'Senior Sales Account Manager',
-      email: 'david@evenmore.io',
-      phone: '+91 98234 11223',
-      leadsAssigned: 28,
-      dealsClosed: 14,
-      conversionRate: '50.0%',
-      activePipeline: 485000,
-      avatar: 'https://i.pravatar.cc/160?img=68',
-      status: 'Online',
-    },
-    {
-      id: 2,
-      name: 'Priya Mehta',
-      role: 'Enterprise Accounts Executive',
-      email: 'priya@evenmore.io',
-      phone: '+91 98455 33445',
-      leadsAssigned: 32,
-      dealsClosed: 18,
-      conversionRate: '56.2%',
-      activePipeline: 620000,
-      avatar: 'https://i.pravatar.cc/160?img=47',
-      status: 'In Meeting',
-    },
-    {
-      id: 3,
-      name: 'Rohit Sharma',
-      role: 'Technical Pre-Sales Specialist',
-      email: 'rohit@evenmore.io',
-      phone: '+91 98777 88990',
-      leadsAssigned: 19,
-      dealsClosed: 9,
-      conversionRate: '47.4%',
-      activePipeline: 280000,
-      avatar: 'https://i.pravatar.cc/160?img=12',
-      status: 'Offline',
-    },
-    {
-      id: 4,
-      name: 'Ananya Deshmukh',
-      role: 'Customer Success & Inbound Leads',
-      email: 'ananya@evenmore.io',
-      phone: '+91 98111 22334',
-      leadsAssigned: 24,
-      dealsClosed: 11,
-      conversionRate: '45.8%',
-      activePipeline: 265000,
-      avatar: 'https://i.pravatar.cc/160?img=32',
-      status: 'Online',
-    },
-  ]);
+  const storeLeads = useCrmStore((s) => s.leads);
+  const storeDeals = useCrmStore((s) => s.deals);
+  const hydrateCrm = useCrmStore((s) => s.hydrate);
+  const [serverMembers, setServerMembers] = useState(null);
+  const [membersError, setMembersError] = useState('');
+  const [savingMember, setSavingMember] = useState(false);
+
+  // Backend-first: the user directory is the source of truth when logged in.
+  useEffect(() => {
+    hydrateCrm().catch(() => {});
+    if (!isBackendEnabled()) return;
+    adminSync.pull('users').then((rows) => {
+      if (rows) {
+        setServerMembers(rows);
+        setMembersError('');
+      }
+    }).catch((err) => {
+      setMembersError(err?.message || 'Could not load representatives.');
+    });
+  }, [hydrateCrm]);
+
+  const teamMembers = useMemo(() => {
+    const base = Array.isArray(serverMembers) ? serverMembers : [];
+    return base.map((m) => ({
+      id: m.id,
+      name: m.name || '',
+      // CRM roster roles double as the sales designation shown here.
+      role: (Array.isArray(m.crmRoles) && m.crmRoles[0]) || m.crm_roles?.[0] || m.role || m.department || 'Sales Representative',
+      email: m.email || '',
+      phone: m.phone || '',
+      avatar: m.avatar || '',
+      status: m.status === 'Active' ? 'Online' : 'Offline',
+      ...memberStats(m, storeLeads, storeDeals),
+    }));
+  }, [serverMembers, storeLeads, storeDeals]);
 
   const [search, setSearch] = useState('');
   const [isAddOpen, setIsAddOpen] = useState(false);
@@ -74,12 +87,15 @@ export default function UserAllocationPage() {
     role: 'Sales Representative',
     email: '',
     phone: '',
-    avatar: 'https://i.pravatar.cc/160?img=33',
+    avatar: '',
   });
 
   const totalLeads = teamMembers.reduce((sum, m) => sum + m.leadsAssigned, 0);
   const totalDeals = teamMembers.reduce((sum, m) => sum + m.dealsClosed, 0);
   const totalPipeline = teamMembers.reduce((sum, m) => sum + m.activePipeline, 0);
+  const avgConversion = teamMembers.length > 0
+    ? `${(teamMembers.reduce((sum, m) => sum + (parseFloat(m.conversionRate) || 0), 0) / teamMembers.length).toFixed(1)}%`
+    : '0.0%';
   const [view, setView] = useState('tracking');
 
   const filtered = teamMembers.filter(
@@ -89,23 +105,38 @@ export default function UserAllocationPage() {
       text(m.email).includes(search.toLowerCase())
   );
 
-  const handleAddMember = (e) => {
+  const handleAddMember = async (e) => {
     e.preventDefault();
-    if (!newMember.name || !newMember.email) return;
-
-    const created = {
-      id: teamMembers.length + 1,
-      ...newMember,
-      leadsAssigned: 0,
-      dealsClosed: 0,
-      conversionRate: '0.0%',
-      activePipeline: 0,
-      status: 'Online',
-    };
-
-    setTeamMembers([...teamMembers, created]);
-    setNewMember({ name: '', role: 'Sales Representative', email: '', phone: '', avatar: 'https://i.pravatar.cc/160?img=33' });
-    setIsAddOpen(false);
+    if (!newMember.name || !newMember.email || savingMember) return;
+    if (!isBackendEnabled()) {
+      setMembersError('Sign in to add a representative — members are stored in the backend.');
+      return;
+    }
+    setSavingMember(true);
+    setMembersError('');
+    try {
+      // A real backend user (unusable password until reset) carrying the CRM
+      // role, so the new representative immediately appears here and in the
+      // Lead Users / assignee dropdowns served from the team roster.
+      const saved = await adminSync.create('users', {
+        name: newMember.name.trim(),
+        email: newMember.email.trim(),
+        phone: newMember.phone.trim() || undefined,
+        department: 'Sales',
+        status: 'Active',
+        crmRoles: [newMember.role.trim() || 'Sales Representative'],
+      });
+      if (saved) {
+        setServerMembers((prev) => [...(prev || []), saved]);
+        await hydrateCrm({ force: true }).catch(() => {});
+      }
+      setNewMember({ name: '', role: 'Sales Representative', email: '', phone: '', avatar: '' });
+      setIsAddOpen(false);
+    } catch (err) {
+      setMembersError(err?.message || 'Representative could not be saved.');
+    } finally {
+      setSavingMember(false);
+    }
   };
 
   return (
@@ -183,10 +214,13 @@ export default function UserAllocationPage() {
             <button type="button" onClick={() => setIsAddOpen(false)} className="btn-secondary btn-sm">
               Cancel
             </button>
-            <button type="submit" className="btn-primary btn-sm">
-              Save Representative
+            <button type="submit" className="btn-primary btn-sm" disabled={savingMember}>
+              {savingMember ? 'Saving…' : 'Save Representative'}
             </button>
           </div>
+          {membersError && (
+            <p className="text-xs font-semibold text-rose-600" role="alert">{membersError}</p>
+          )}
         </form>
       )}
 
@@ -198,9 +232,12 @@ export default function UserAllocationPage() {
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3.5 my-4">
         <CrmKpiCard label="Active Representatives" value={teamMembers.length} icon={Users} tone="blue" />
         <CrmKpiCard label="Total Won Deals" value={totalDeals} icon={CheckCircle2} tone="emerald" />
-        <CrmKpiCard label="Avg. Conversion Rate" value="48.2%" icon={Award} tone="amber" />
+        <CrmKpiCard label="Avg. Conversion Rate" value={avgConversion} icon={Award} tone="amber" />
         <CrmKpiCard label="Allocated Pipeline" value={formatCurrency(totalPipeline, { noDecimals: true })} icon={ArrowUpRight} tone="purple" />
       </div>
+      {membersError && !isAddOpen && (
+        <p className="text-xs font-semibold text-rose-600" role="alert">{membersError}</p>
+      )}
 
       {/* Team Roster & Allocation Table */}
       <div className="card">
@@ -237,7 +274,13 @@ export default function UserAllocationPage() {
                 <tr key={m.id}>
                   <td>
                     <div className="flex items-center gap-2.5">
-                      <img src={m.avatar} alt={m.name} className="w-8 h-8 rounded-full object-cover shadow-xs" />
+                      {m.avatar ? (
+                        <img src={m.avatar} alt={m.name} className="w-8 h-8 rounded-full object-cover shadow-xs" />
+                      ) : (
+                        <span className="w-8 h-8 rounded-full bg-blue-600 text-white flex items-center justify-center text-xs font-bold shadow-xs">
+                          {String(m.name || '?').split(' ').filter(Boolean).slice(0, 2).map((p) => p[0]).join('').toUpperCase()}
+                        </span>
+                      )}
                       <div>
                         <strong className="font-bold text-slate-800 dark:text-slate-200 block">{m.name}</strong>
                       </div>

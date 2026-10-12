@@ -19,7 +19,6 @@ import {
   CreateLeadTaskModal,
   IssueSampleModal,
   ConvertDealModal,
-  LogCallModal,
   ConvertPartyModal,
 } from './LeadRowActionModals';
 import { useNavigate } from 'react-router-dom';
@@ -113,7 +112,7 @@ const leadsGuide = {
     { term: 'Lead Source', definition: 'The channel that generated the lead, such as a referral, campaign, or website.' },
     { term: 'Lead Owner', definition: 'The team member responsible for follow-up and progress.' },
     { term: 'Qualification', definition: 'The process of confirming need, fit, timing, and purchase intent.' },
-    { term: 'Follow-up', definition: 'A planned call, email, note, or task used to move the lead forward.' },
+    { term: 'Follow-up', definition: 'A planned visit, email, note, or task used to move the lead forward.' },
     { term: 'Conversion', definition: 'Turning a qualified lead into a customer or active sales opportunity.' },
   ],
 };
@@ -244,7 +243,7 @@ export default function LeadsPage() {
     return `${prefix}-local-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
   }
 
-  // Write one row to a lead sub-collection (products / files / calls).
+  // Write one row to a lead sub-collection (products / files).
   // Server-first; on failure the row is still kept in the local cache so
   // nothing the user entered is lost.
   async function saveLeadSection(leadId, section, row) {
@@ -565,29 +564,8 @@ export default function LeadsPage() {
     closeQuickAction();
   }
 
-  // 4. Log Call — outcome + notes to the lead's call log.
-  async function saveQuickCall({ outcome, notes }) {
-    const lead = quickAction?.lead;
-    if (!lead) return;
-    try {
-      await saveLeadSection(lead.id, 'calls', {
-        id: tempRowId('call'),
-        direction: 'outbound',
-        outcome,
-        notes,
-        called_at: new Date().toISOString(),
-        duration_seconds: 0,
-        by: actorName,
-      });
-      showToast?.(`Call logged (${outcome})`);
-    } catch (err) {
-      showToast?.(`Call not saved — ${describeError(err)}`);
-      return;
-    }
-    closeQuickAction();
-  }
 
-  // 5. Convert to Party — regular buyer becomes a Customer party for Sales
+  // 4. Convert to Party — regular buyer becomes a Customer party for Sales
   // Orders, linked on Lead.party.
   async function saveQuickParty({ name, phone, email }) {
     const lead = quickAction?.lead;
@@ -1116,7 +1094,6 @@ export default function LeadsPage() {
                 onCreateTask={(lead) => openQuickAction('task', lead)}
                 onIssueSample={(lead) => openQuickAction('sample', lead)}
                 onConvertDeal={(lead) => openQuickAction('deal', lead)}
-                onLogCall={(lead) => openQuickAction('call', lead)}
                 onConvertParty={(lead) => openQuickAction('party', lead)}
                 onDelete={deleteLead}
               />
@@ -1152,7 +1129,6 @@ export default function LeadsPage() {
                 onCreateTask={(lead) => openQuickAction('task', lead)}
                 onIssueSample={(lead) => openQuickAction('sample', lead)}
                 onConvertDeal={(lead) => openQuickAction('deal', lead)}
-                onLogCall={(lead) => openQuickAction('call', lead)}
                 onConvertParty={(lead) => openQuickAction('party', lead)}
                 variant="grid"
                 onDelete={deleteLead}
@@ -1238,12 +1214,6 @@ export default function LeadsPage() {
         lead={quickAction?.lead}
         onClose={closeQuickAction}
         onSave={saveQuickDeal}
-      />
-      <LogCallModal
-        isOpen={quickAction?.type === 'call'}
-        lead={quickAction?.lead}
-        onClose={closeQuickAction}
-        onSave={saveQuickCall}
       />
       <ConvertPartyModal
         isOpen={quickAction?.type === 'party'}

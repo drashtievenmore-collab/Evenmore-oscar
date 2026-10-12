@@ -473,7 +473,7 @@ export default function CRMReportsPage() {
         <div className="space-y-4">
           <ReportBlock
             title="Leads by Source"
-            subtitle="Website, Cold Call, Referral and other acquisition channels"
+            subtitle="Website, Referral, Walk-in and other acquisition channels"
             actions={<DownloadButton onClick={exportBySource} />}
             columns={['Source', 'Lead Count', 'Pipeline Value', 'Share %']}
             rows={sourceTableRows}

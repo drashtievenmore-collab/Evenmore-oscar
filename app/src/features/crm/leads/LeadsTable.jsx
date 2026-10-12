@@ -142,7 +142,7 @@ function LeadColumnCell({ lead, column, onUpdateLead, onOpenLead, pinnedLeadIds,
   );
 }
 
-export default function LeadsTable({ rows = [], selected = [], pinnedLeadIds = [], columns = [], onToggleOne, onToggleAll, onTogglePin, onRequestDelete, onRequestDeleteAll, onAddNote, onOpenLead, onUpdateLead, onEditLead, onToggleCloseLead, onCreateTask, onIssueSample, onConvertDeal, onLogCall, onConvertParty, variant = "list" }) {
+export default function LeadsTable({ rows = [], selected = [], pinnedLeadIds = [], columns = [], onToggleOne, onToggleAll, onTogglePin, onRequestDelete, onRequestDeleteAll, onAddNote, onOpenLead, onUpdateLead, onEditLead, onToggleCloseLead, onCreateTask, onIssueSample, onConvertDeal, onConvertParty, variant = "list" }) {
   const allChecked = rows.length > 0 && rows.every((row) => selected.includes(row.id));
   // Floating row menu — rendered in a portal with fixed positioning so the
   // scrollable table body can never clip it. Always opens under the ⋮ button.
@@ -381,24 +381,6 @@ export default function LeadsTable({ rows = [], selected = [], pinnedLeadIds = [
             <span className="lead-row-menu-text">
               <strong>Convert to Deal</strong>
               <small>Rate offer for design + colour</small>
-            </span>
-          </button>
-          <button
-            type="button"
-            role="menuitem"
-            className="lead-row-menu-item"
-            onClick={() => {
-              const target = menuRow;
-              closeMenu();
-              onLogCall?.(target);
-            }}
-          >
-            <span className="lead-row-menu-ico lead-row-menu-ico-teal">
-              <Phone size={15} />
-            </span>
-            <span className="lead-row-menu-text">
-              <strong>Log Call</strong>
-              <small>Outcome and follow-up</small>
             </span>
           </button>
           <button

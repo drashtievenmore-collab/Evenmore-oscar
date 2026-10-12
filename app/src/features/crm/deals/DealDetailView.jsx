@@ -4,6 +4,9 @@ import { ArrowLeft, Copy, FileText, Menu, MoreHorizontal, Pencil, Plus, Trophy, 
 import Modal from '../../../components/ui/Modal';
 import { useERP } from '../../../context/ERPContext';
 import { loadCrmTasks, saveCrmTasks, CRM_EVENT } from '../../../services/leadStageAutomation';
+import { crmService } from '../../../services/domainServices';
+import { isServerId, isBackendEnabled } from '../../../services/resourceSync';
+import { useCrmStore } from '../../../stores/crmStore';
 import './DealDetailView.css';
 import { ActivitiesTimeline, DocumentsTable, ProductsTable, QuotationsTable, RelatedCards, TasksTable, dealTotals } from './DealTabContent';
 import { useAppStore } from '../../../stores/appStore';
@@ -19,6 +22,66 @@ function Panel({ title, action, children }) {
 }
 function Empty({ children }) { return <p className="deal-detail-empty">{children}</p>; }
 
+/**
+ * Backend mirrors for the deal workspace tabs. The deal object carries
+ * local-only arrays (`products`, `documents`, `activities`); every row that
+ * can live in Postgres is written through `/crm/deals/{id}/…` (or
+ * `/crm/tasks/` for tasks) and annotated with its server id so later edits,
+ * completion and deletes reach the same row. Rows that cannot be represented
+ * server-side stay local instead of 400ing.
+ */
+const backendDealOn = (deal) => isBackendEnabled() && deal && isServerId(deal.id);
+
+const serverDealLineToRow = (r) => ({
+  id: r.id,
+  serverLineId: r.id,
+  name: r.name || '',
+  description: r.description || '',
+  details: r.description || '',
+  qty: Number(r.qty ?? 1),
+  rate: Number(r.rate ?? 0),
+  unit: r.unit || 'Qty',
+  amount: Number(r.qty ?? 1) * Number(r.rate ?? 0),
+});
+
+const serverDealDocToRow = (r) => ({
+  id: r.id,
+  serverDocumentId: r.id,
+  name: r.fileName || r.label || '',
+  fileName: r.fileName || '',
+  size: r.fileSize ?? null,
+  mimeType: '',
+  uploadedBy: '',
+  url: r.url || '',
+  downloadUrl: r.url || '',
+  label: r.label || '',
+  createdAt: r.createdAt || r.created_at,
+});
+
+const serverDealActivityToRow = (r) => ({
+  id: r.id,
+  serverActivityId: r.id,
+  title: r.description || r.type || 'Update',
+  description: r.description || '',
+  actor: r.actorName || '',
+  timestamp: r.createdAt || r.created_at,
+  type: 'activity',
+});
+
+const serverDealTaskToRow = (t, dealId) => ({
+  id: `srv-${t.id}`,
+  serverTaskId: t.id,
+  title: t.title || '',
+  dealId,
+  owner: t.assigneeName || t.owner || 'Unassigned',
+  dueDate: t.dueDate || '',
+  priority: t.priority || 'Medium',
+  status: t.status || 'Open',
+  source: 'Deal',
+  description: t.description || '',
+  updatedAt: t.updatedAt || new Date().toISOString(),
+});
+
 export default function DealDetailView({ deal, onEdit, onNotify, onUpdate, onDuplicate, onDelete }) {
   const navigate = useNavigate();
   const { quotations, customers } = useERP();
@@ -28,6 +91,9 @@ export default function DealDetailView({ deal, onEdit, onNotify, onUpdate, onDup
   const [editor, setEditor] = useState(null);
   const [error, setError] = useState('');
   const [removal, setRemoval] = useState(null);
+  // Latest deal rows for server-id remaps after optimistic saves resolve.
+  const dealRef = useRef(deal);
+  dealRef.current = deal;
   // The floating "Menu" button drives the app-wide mobile navigation drawer
   // (backdrop, Escape and route-change dismissal live in MainLayout).
   const navigationOpen = useAppStore((state) => state.mobileSidebarOpen);
@@ -38,6 +104,56 @@ export default function DealDetailView({ deal, onEdit, onNotify, onUpdate, onDup
     window.addEventListener('storage', sync);
     return () => { window.removeEventListener(CRM_EVENT, sync); window.removeEventListener('storage', sync); };
   }, []);
+  // Backend-first for the workspace tabs: rows already saved under this deal
+  // load here (matched by their server ids), so a refresh keeps everything.
+  useEffect(() => {
+    if (!backendDealOn(deal)) return;
+    let live = true;
+    (async () => {
+      try {
+        const [linesBody, docsBody, actsBody, tasksBody] = await Promise.all([
+          crmService.getDealLines(deal.id).catch(() => null),
+          crmService.getDealDocuments(deal.id).catch(() => null),
+          crmService.getDealActivities(deal.id).catch(() => null),
+          crmService.getTasks({ dealId: deal.id }).catch(() => null),
+        ]);
+        if (!live) return;
+        const rowsOf = (body) => (Array.isArray(body) ? body : (body?.results || []));
+        const lines = rowsOf(linesBody);
+        const docs = rowsOf(docsBody);
+        const acts = rowsOf(actsBody);
+        const dealTasks = rowsOf(tasksBody);
+        if (lines.length) {
+          const known = new Set((deal.products || []).map((p) => p.serverLineId).filter(Boolean));
+          const incoming = lines.filter((r) => r?.id && !known.has(String(r.id))).map(serverDealLineToRow);
+          if (incoming.length) onUpdate({ products: [...(deal.products || []), ...incoming] });
+        }
+        if (docs.length) {
+          const known = new Set((deal.documents || []).map((d) => d.serverDocumentId).filter(Boolean));
+          const incoming = docs.filter((r) => r?.id && !known.has(String(r.id))).map(serverDealDocToRow);
+          if (incoming.length) onUpdate({ documents: [...(deal.documents || []), ...incoming] });
+        }
+        if (acts.length) {
+          const known = new Set((deal.activities || []).map((a) => a.serverActivityId).filter(Boolean));
+          const incoming = acts.filter((r) => r?.id && !known.has(String(r.id))).map(serverDealActivityToRow);
+          if (incoming.length) onUpdate({ activities: [...incoming, ...(deal.activities || [])] });
+        }
+        if (dealTasks.length) {
+          setTasks((prev) => {
+            const known = new Set(prev.map((t) => t.serverTaskId).filter(Boolean));
+            const incoming = dealTasks
+              .filter((r) => r?.id && !known.has(String(r.id)))
+              .map((r) => serverDealTaskToRow(r, deal.id));
+            if (!incoming.length) return prev;
+            saveCrmTasks([...incoming, ...prev]);
+            return [...incoming, ...prev];
+          });
+        }
+      } catch { /* offline — local workspace stays */ }
+    })();
+    return () => { live = false; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [deal?.id]);
   if (!deal) return <div className="card p-8"><h1 className="text-xl font-bold mb-4">Deal not found</h1><Link to="/crm/deals" className="btn-outline">Back to Deals</Link></div>;
 
   const products = Array.isArray(deal.products) ? deal.products.map((item, index) => ({ ...item, id: item.id || `product-${index}`, name: item.name || item.description || item.product || item.id, qty: item.qty ?? item.quantity ?? 1, rate: item.rate ?? item.price ?? 0 })) : deal.product ? [{ id: 'legacy-product', name: deal.product, qty: deal.quantity || 1, unit: 'Qty', rate: Number(deal.price || 0) / (deal.quantity || 1) }] : [];
@@ -83,6 +199,27 @@ export default function DealDetailView({ deal, onEdit, onNotify, onUpdate, onDup
           delete task.completedBy;
         }
         if (!saveCrmTasks(editor.id ? existing.map((item) => item.id === editor.id ? task : item) : [task, ...existing])) throw new Error('Task could not be saved.');
+        if (backendDealOn(deal)) {
+          const store = useCrmStore.getState();
+          const member = (store.teamMembers || []).find((m) => m.name === task.owner);
+          const payload = {
+            title: task.title,
+            description: task.description || undefined,
+            dealId: deal.id,
+            assigneeId: member && isServerId(member.id) ? member.id : undefined,
+            dueDate: task.dueDate || undefined,
+            priority: task.priority || 'Medium',
+            status: task.status || 'Open',
+          };
+          const req = task.serverTaskId
+            ? store.updateTask(task.serverTaskId, payload)
+            : store.createTask(payload);
+          req.then((saved) => {
+            if (saved?.id) {
+              saveCrmTasks(loadCrmTasks().map((t) => (t.id === task.id ? { ...t, serverTaskId: saved.id } : t)));
+            }
+          }).catch((err) => console.warn('[CRM] deal task not saved:', err?.message || err));
+        }
         setTab('Tasks');
         onNotify(editor.id ? 'Task updated.' : 'Task created and linked to this deal.');
       } else if (editor.type === 'Product') {
@@ -91,6 +228,18 @@ export default function DealDetailView({ deal, onEdit, onNotify, onUpdate, onDup
         const updated = editor.id ? products.map((product) => product.id === editor.id ? item : product) : [...products, item];
         const totals = dealTotals(updated, deal.discount, deal.taxRate);
         save({ products: updated, discount: totals.discount, price: totals.total }, 'Products and deal value updated');
+        if (backendDealOn(deal)) {
+          const payload = { name: item.name, description: item.description || '', qty: item.qty, rate: item.rate, unit: item.unit || 'Qty' };
+          const req = item.serverLineId
+            ? crmService.updateDealLine(deal.id, item.serverLineId, payload)
+            : crmService.addDealLine(deal.id, payload);
+          req.then((saved) => {
+            if (saved?.id) {
+              const latest = dealRef.current?.products || [];
+              onUpdate({ products: latest.map((p) => (p.id === item.id ? { ...p, serverLineId: saved.id } : p)) });
+            }
+          }).catch((err) => console.warn('[CRM] deal line not saved:', err?.message || err));
+        }
         setTab('Products');
       } else if (editor.type === 'Contract') {
         save({ contracts: [{ id: crypto.randomUUID(), title, terms: editor.terms || '', status: 'Draft', createdAt: new Date().toISOString() }, ...contracts] }, 'Contract draft saved');
@@ -98,7 +247,16 @@ export default function DealDetailView({ deal, onEdit, onNotify, onUpdate, onDup
       } else if (editor.type === 'Summary') {
         save({ description: title }, 'Summary updated');
       } else {
-        onUpdate({ activities: [{ id: crypto.randomUUID(), title, description: editor.description || '', activityType: editor.activityType || 'Note Added', actor, timestamp: new Date().toISOString(), type: 'activity' }, ...activities] });
+        const entry = { id: crypto.randomUUID(), title, description: editor.description || '', activityType: editor.activityType || 'Note Added', actor, timestamp: new Date().toISOString(), type: 'activity' };
+        onUpdate({ activities: [entry, ...activities] });
+        if (backendDealOn(deal)) {
+          crmService.postDealActivity(deal.id, { type: entry.activityType, description: title }).then((saved) => {
+            if (saved?.id) {
+              const latest = dealRef.current?.activities || [];
+              onUpdate({ activities: latest.map((a) => (a.id === entry.id ? { ...a, serverActivityId: saved.id } : a)) });
+            }
+          }).catch((err) => console.warn('[CRM] deal activity not saved:', err?.message || err));
+        }
         onNotify('Activity added');
         setTab('Activities');
       }
@@ -117,7 +275,22 @@ export default function DealDetailView({ deal, onEdit, onNotify, onUpdate, onDup
         reader.onerror = () => reject(new Error('The document could not be read.'));
         reader.readAsDataURL(file);
       });
-      save({ documents: [...documents, { id: crypto.randomUUID(), name: file.name, size: file.size, mimeType: file.type, uploadedBy: actor, data, createdAt: new Date().toISOString() }] }, `Document added: ${file.name}`);
+      const row = { id: crypto.randomUUID(), name: file.name, size: file.size, mimeType: file.type, uploadedBy: actor, data, createdAt: new Date().toISOString() };
+      save({ documents: [...documents, row] }, `Document added: ${file.name}`);
+      // Persist the bytes first, then pin the file record to the deal.
+      if (backendDealOn(deal)) {
+        try {
+          const { uploadFileToBackend } = await import('../../../services/fileUploadService');
+          const fileId = await uploadFileToBackend(file, file.name, 'deal_document');
+          const saved = await crmService.addDealDocument(deal.id, { fileId, label: file.name });
+          if (saved?.id) {
+            const latest = dealRef.current?.documents || [];
+            onUpdate({ documents: latest.map((d) => (d.id === row.id ? { ...d, serverDocumentId: saved.id, url: saved.url || d.url, downloadUrl: saved.url || d.downloadUrl } : d)) });
+          }
+        } catch (err) {
+          console.warn('[CRM] deal document not saved:', err?.message || err);
+        }
+      }
     } catch (failure) { notifyFailure(failure); }
   }
   function removeRecord() {
@@ -126,10 +299,22 @@ export default function DealDetailView({ deal, onEdit, onNotify, onUpdate, onDup
         const updated = products.filter((item) => item.id !== removal.item.id);
         const totals = dealTotals(updated, deal.discount, deal.taxRate);
         save({ products: updated, discount: totals.discount, price: totals.total }, 'Product removed');
+        if (backendDealOn(deal) && removal.item.serverLineId) {
+          crmService.deleteDealLine(deal.id, removal.item.serverLineId)
+            .catch((err) => console.warn('[CRM] deal line not deleted:', err?.message || err));
+        }
       } else if (removal.type === 'Document') {
         save({ documents: documents.filter((item) => item.id !== removal.item.id) }, 'Document removed');
+        if (backendDealOn(deal) && removal.item.serverDocumentId) {
+          crmService.deleteDealDocument(deal.id, removal.item.serverDocumentId)
+            .catch((err) => console.warn('[CRM] deal document not deleted:', err?.message || err));
+        }
       } else {
         if (!saveCrmTasks(loadCrmTasks().filter((item) => item.id !== removal.item.id))) throw new Error('Task could not be removed.');
+        if (backendDealOn(deal) && removal.item.serverTaskId) {
+          useCrmStore.getState().deleteTask(removal.item.serverTaskId)
+            .catch((err) => console.warn('[CRM] deal task not deleted:', err?.message || err));
+        }
         onNotify('Task removed');
       }
       setRemoval(null);
@@ -163,7 +348,7 @@ export default function DealDetailView({ deal, onEdit, onNotify, onUpdate, onDup
         {editor.type === 'Product' && <><label>Description<textarea rows={2} value={editor.description || ''} onChange={(event) => setEditor({ ...editor, description: event.target.value })} /></label><div className="deal-form-grid">{[['qty', 'Quantity', 'number'], ['rate', 'Rate (₹)', 'number'], ['unit', 'Unit', 'text']].map(([key, label, type]) => <label key={key}>{label}<input required={key !== 'unit'} type={type} min={key === 'qty' ? '0.001' : '0'} step="any" value={editor[key] ?? ''} onChange={(event) => setEditor({ ...editor, [key]: event.target.value })} /></label>)}</div></>}
         {editor.type === 'Task' && <><label>Assigned to<input value={editor.owner || ''} onChange={(event) => setEditor({ ...editor, owner: event.target.value })} /></label><div className="deal-form-grid"><label>Due date *<input required type="date" value={editor.dueDate || ''} onChange={(event) => setEditor({ ...editor, dueDate: event.target.value })} /></label><label>Priority<select value={editor.priority || 'Medium'} onChange={(event) => setEditor({ ...editor, priority: event.target.value })}>{['Low', 'Medium', 'High', 'Urgent'].map((priority) => <option key={priority}>{priority}</option>)}</select></label></div><label>Status<select value={editor.status || 'Open'} onChange={(event) => setEditor({ ...editor, status: event.target.value })}>{['Open', 'In Progress', 'Waiting', 'Completed'].map((status) => <option key={status}>{status}</option>)}</select></label></>}
         {editor.type === 'Pricing' && <div className="deal-form-grid"><label>Discount (₹)<input aria-label="Discount" type="number" min="0" step="0.01" value={editor.discount} onChange={(event) => setEditor({ ...editor, discount: event.target.value })} /></label><label>Tax (%)<input aria-label="Tax rate" type="number" min="0" max="100" step="0.01" value={editor.taxRate} onChange={(event) => setEditor({ ...editor, taxRate: event.target.value })} /></label></div>}
-        {editor.type === 'Activity' && <><label>Activity type<select value={editor.activityType || 'Note Added'} onChange={(event) => setEditor({ ...editor, activityType: event.target.value })}>{['Note Added', 'Call Completed', 'Meeting', 'Follow-up', 'Email'].map((type) => <option key={type}>{type}</option>)}</select></label><label>Details<textarea rows={3} value={editor.description || ''} onChange={(event) => setEditor({ ...editor, description: event.target.value })} /></label></>}
+        {editor.type === 'Activity' && <><label>Activity type<select value={editor.activityType || 'Note Added'} onChange={(event) => setEditor({ ...editor, activityType: event.target.value })}>{['Note Added', 'Meeting', 'Follow-up', 'Email'].map((type) => <option key={type}>{type}</option>)}</select></label><label>Details<textarea rows={3} value={editor.description || ''} onChange={(event) => setEditor({ ...editor, description: event.target.value })} /></label></>}
         {editor.type === 'Contract'  && <label>Terms *<textarea required rows={6} value={editor.terms || ''} onChange={(event) => setEditor({ ...editor, terms: event.target.value })} /></label>}
         {error && <p role="alert" className="text-rose-600">{error}</p>}<div className="deal-form-footer"><button type="button" className="btn-outline btn-sm" onClick={() => setEditor(null)}>Cancel</button><button className="btn-primary btn-sm" type="submit">Save {editor.type === 'Contract' ? 'Draft' : editor.type}</button></div></form>}
     </Modal>

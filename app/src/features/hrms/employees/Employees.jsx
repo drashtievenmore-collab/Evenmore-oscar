@@ -131,6 +131,7 @@ export default function Employees() {
     designation: "Senior Engineer",
     dept: "Engineering",
     location: "Mumbai",
+    managerId: "",
   });
 
   const filtered = useMemo(
@@ -149,32 +150,42 @@ export default function Employees() {
 
   function handleAdd() {
     if (!form.name || !form.email) return setToast("Name and email are required.", "error");
+    const managerRow = employees.find((x) => String(x.id) === String(form.managerId));
     const next = {
-      id: `EMP${1000 + employees.length + 1}`,
       name: form.name,
       email: form.email,
       designation: form.designation,
       department: form.dept,
       location: form.location,
-      joining: new Date().toLocaleDateString("en-IN", { month: "short", day: "2-digit", year: "numeric" }),
+      managerId: form.managerId || undefined,
+      manager: managerRow?.name || undefined,
+      reportingManager: managerRow?.name || undefined,
+      reportingManagerId: form.managerId || undefined,
+      joiningDate: new Date().toISOString().slice(0, 10),
       status: "Active",
       avatar: `https://randomuser.me/api/portraits/${employees.length % 2 === 0 ? "women" : "men"}/${(employees.length * 7) % 90}.jpg`,
-      img: `https://randomuser.me/api/portraits/${employees.length % 2 === 0 ? "women" : "men"}/${(employees.length * 7) % 90}.jpg`,
     };
-    addStoreEmployee(next);
-    setToast("Employee added successfully.");
+    addStoreEmployee(next).then((saved) => {
+      if (saved) setToast("Employee added successfully.");
+    }).catch(() => {});
     setShowForm(false);
-    setForm({ name: "", email: "", designation: "Senior Engineer", dept: "Engineering", location: "Mumbai" });
+    setForm({ name: "", email: "", designation: "Senior Engineer", dept: "Engineering", location: "Mumbai", managerId: "" });
   }
 
-  function handleDelete(id, name) {
-    deleteStoreEmployee(id);
-    setToast(`Employee ${name} removed.`);
+  async function handleDelete(id, name) {
+    if (!id) return setToast("Cannot delete — missing employee id.", "error");
+    if (typeof window !== "undefined" && !window.confirm(`Delete employee ${name}? This cannot be undone.`)) return;
+    try {
+      await deleteStoreEmployee(id);
+      setToast(`Employee ${name} removed.`);
+    } catch {
+      // `deleteEmployee` already restored the row and toasted the reason.
+    }
   }
 
   const handleExport = () => {
-    const header = "ID,Name,Email,Designation,Department,Status";
-    const rows = filtered.map((e) => `"${e.id}","${e.name}","${e.email}","${e.designation}","${e.department}","${e.status}"`);
+    const header = "ID,Name,Email,Designation,Department,Manager,Status";
+    const rows = filtered.map((e) => `"${e.id}","${e.name}","${e.email}","${e.designation}","${e.department}","${e.manager || e.reportingManager || ""}","${e.status}"`);
     const blob = new Blob([[header, ...rows].join("\n")], { type: "text/csv" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
@@ -299,6 +310,7 @@ export default function Employees() {
                   <th>ID</th>
                   <th>DESIGNATION</th>
                   <th>DEPARTMENT</th>
+                  <th>MANAGER</th>
                   <th>STATUS</th>
                   <th style={{ width: 40 }}></th>
                 </tr>
@@ -317,9 +329,10 @@ export default function Employees() {
                         </div>
                       </div>
                     </td>
-                    <td className="emp-id">{row.id}</td>
+                    <td className="emp-id">{row.empId || row.employeeCode || row.id}</td>
                     <td style={{ color: "#374151" }}>{row.designation}</td>
                     <td style={{ color: "#374151" }}>{row.department}</td>
+                    <td style={{ color: "#374151" }}>{row.manager || row.reportingManager || "—"}</td>
                     <td>
                       <span className="emp-status" style={{ ...statusStyles[row.status] }}>
                         {row.status}
@@ -339,7 +352,7 @@ export default function Employees() {
                 ))}
                 {paginatedEmployees.length === 0 && (
                   <tr>
-                    <td colSpan={6} style={{ textAlign: "center", color: "#6b7280", padding: "32px" }}>
+                    <td colSpan={7} style={{ textAlign: "center", color: "#6b7280", padding: "32px" }}>
                       No employees match the selected filters.
                     </td>
                   </tr>
@@ -367,10 +380,10 @@ export default function Employees() {
                 </h3>
                 <p style={{ margin: 0, fontSize: "12.5px", color: "#6b7280" }}>{row.email}</p>
                 <div style={{ margin: "12px 0 10px", fontSize: "13px", color: "#374151" }}>
-                  <strong>{row.designation}</strong> • {row.department}
+                  <strong>{row.designation}</strong> • {row.department}{(row.manager || row.reportingManager) ? ` • Mgr: ${row.manager || row.reportingManager}` : ""}
                 </div>
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 12 }}>
-                  <span className="emp-id">{row.id}</span>
+                  <span className="emp-id">{row.empId || row.employeeCode || row.id}</span>
                   <span className="emp-status" style={{ ...statusStyles[row.status] }}>
                     {row.status}
                   </span>
@@ -465,6 +478,23 @@ export default function Employees() {
               </select>
             </div>
             <div className="form-group">
+              <label className="form-label">Manager (Reporting To)</label>
+              <select
+                className="form-select"
+                value={form.managerId}
+                onChange={(e) => setForm({ ...form, managerId: e.target.value })}
+              >
+                <option value="">No manager</option>
+                {employees.map((m) => (
+                  <option key={m.id} value={m.id}>
+                    {m.name}{m.department ? ` • ${m.department}` : ""}
+                  </option>
+                ))}
+              </select>
+            </div>
+          </div>
+          <div className="form-row">
+            <div className="form-group">
               <label className="form-label">Designation</label>
               <input
                 className="form-input"
@@ -472,14 +502,14 @@ export default function Employees() {
                 onChange={(e) => setForm({ ...form, designation: e.target.value })}
               />
             </div>
-          </div>
-          <div className="form-group">
-            <label className="form-label">Location</label>
-            <input
-              className="form-input"
-              value={form.location}
-              onChange={(e) => setForm({ ...form, location: e.target.value })}
-            />
+            <div className="form-group">
+              <label className="form-label">Location</label>
+              <input
+                className="form-input"
+                value={form.location}
+                onChange={(e) => setForm({ ...form, location: e.target.value })}
+              />
+            </div>
           </div>
         </div>
       </Modal>

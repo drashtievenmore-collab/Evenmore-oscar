@@ -59,14 +59,15 @@ export const syncJWOToBackend = async (jwo) => {
 export const loadJWOsAsync = async () => {
   const cached = loadJWOs();
   try {
-    const { pullJWOs, isJobWorkBackendEnabled } = await import('../../services/jobWorkSync');
+    const { pullJWOs, pushCreateJWO, reconcilePendingCreates, mergeServerRows, isJobWorkBackendEnabled } = await import('../../services/jobWorkSync');
     if (!isJobWorkBackendEnabled()) return cached;
+    // Offline creates finally reach the server here; edits made while
+    // offline ride along because the whole current row is pushed.
+    const reconciled = await reconcilePendingCreates(cached, pushCreateJWO);
+    try { saveJWOs(reconciled); } catch { /* ignore */ }
     const rows = await pullJWOs();
-    if (rows === null) return cached;
-    const serverIds = new Set(rows.map((r) => String(r.id)));
-    // Local rows the server doesn't know yet (created offline / awaiting POST).
-    const unsynced = cached.filter((o) => !serverIds.has(String(o.id)));
-    const merged = [...unsynced, ...rows];
+    if (rows === null) return reconciled;
+    const merged = mergeServerRows(reconciled, rows);
     saveJWOs(merged);
     return merged;
   } catch {

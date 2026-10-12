@@ -67,7 +67,7 @@ const GUIDE_MODULES = [
       },
       {
         heading: 'Tasks & Activity Reminders',
-        content: 'Schedule follow-up calls, meetings, and client reviews with priority flags and automated notifications.'
+        content: 'Schedule follow-ups, meetings, and client reviews with priority flags and automated notifications.'
       }
     ],
     tips: [

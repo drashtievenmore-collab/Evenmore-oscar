@@ -1,10 +1,10 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { X } from 'lucide-react';
 import LeadFormBuilder from '../leads/LeadFormBuilder';
 import { createFieldFromType } from '../../../data/crm/leadFormSchema';
 import { useCrmStore } from '../../../stores/crmStore';
-import { loadForms, saveForms, findForm, TASK_FORM } from '../../../services/crmForms';
+import { loadForms, saveForms, findForm, resolveFormId, TASK_FORM } from '../../../services/crmForms';
 
 
 
@@ -32,7 +32,7 @@ export default function TaskFormBuilderPage() {
 
   const storeForms = useCrmStore((s) => s.forms);
   const currentForm = useMemo(
-    () => (formId ? findForm(formId) : null) || loadForms(TASK_FORM)[0] || null,
+    () => (formId ? findForm(resolveFormId(formId)) : null) || loadForms(TASK_FORM)[0] || null,
     [formId, storeForms],
   );
 
@@ -41,27 +41,54 @@ export default function TaskFormBuilderPage() {
     return taskFormToSections(currentForm);
   });
 
+  // Same route instance serves every formId: re-seed the editor when the
+  // opened form changes, or edits leak into the wrong form's save. A
+  // temp -> server id handoff for the SAME form keeps in-progress edits.
+  const prevFormIdRef = useRef(currentForm?.id ?? null);
+  useEffect(() => {
+    const prevId = prevFormIdRef.current;
+    const nextId = currentForm?.id ?? null;
+    prevFormIdRef.current = nextId;
+    if (prevId === nextId || nextId == null) return;
+    if (prevId != null && String(resolveFormId(prevId)) === String(nextId)) return;
+    setSections(taskFormToSections(currentForm));
+    setSelectedFieldId(null);
+  }, [currentForm]);
+
   const [selectedFieldId, setSelectedFieldId] = useState(() => sections[0]?.fields?.[0]?.id ?? null);
   const [saveSuccess, setSaveSuccess] = useState(false);
+  const [saveError, setSaveError] = useState('');
   const [previewOpen, setPreviewOpen] = useState(false);
 
   const selectedField = sections.flatMap((s) => s.fields).find((f) => f.id === selectedFieldId) ?? null;
 
+  function firstSaveMessage(res) {
+    const first = res && res.errors && res.errors[0];
+    return (first && first.error && first.error.message) || '';
+  }
+
   // Single source of truth: persist every sections change (add/edit/delete/reorder)
   useEffect(() => {
     if (!currentForm?.id) return;
-    persistSections();
+    let cancelled = false;
+    persistSections()?.then((res) => {
+      if (cancelled) return;
+      setSaveError(res && !res.ok
+        ? `${firstSaveMessage(res) || 'Auto-save failed.'} Edits are kept in this browser until a save succeeds.`
+        : '');
+    });
+    return () => { cancelled = true; };
   }, [sections, currentForm?.id]);
 
   function persistSections() {
-    if (!currentForm?.id) return;
+    if (!currentForm?.id) return Promise.resolve({ ok: true, noop: true, results: [] });
     const fieldNames = sections.flatMap((sec) => (sec.fields || []).map((f) => f.label));
     const updated = loadForms(TASK_FORM).map((f) =>
       f.id === currentForm.id
         ? { ...f, sections, fields: fieldNames, lastUpdated: new Date().toLocaleDateString('en-GB') }
         : f
     );
-    saveForms(updated, TASK_FORM);
+    return saveForms(updated, TASK_FORM);
   }
 
   function updateField(fieldId, updates) {
@@ -158,12 +185,18 @@ export default function TaskFormBuilderPage() {
   }
 
   function handleSave() {
-    persistSections();
-    setSaveSuccess(true);
-    setTimeout(() => {
-      setSaveSuccess(false);
-      navigate('/crm/leads/task-form');
-    }, 600);
+    persistSections()?.then((res) => {
+      if (res && !res.ok) {
+        setSaveError(`${firstSaveMessage(res) || 'Could not save to the server.'} Your edits are kept — try again.`);
+        return;
+      }
+      setSaveError('');
+      setSaveSuccess(true);
+      setTimeout(() => {
+        setSaveSuccess(false);
+        navigate('/crm/leads/task-form');
+      }, 600);
+    });
   }
 
   if (!currentForm) {
@@ -183,6 +216,11 @@ export default function TaskFormBuilderPage() {
 
   return (
     <>
+      {saveError && (
+        <div role="alert" className="mx-auto mt-3 max-w-6xl rounded-xl border border-rose-200 bg-rose-50 px-4 py-2.5 text-xs font-semibold text-rose-700">
+          {saveError}
+        </div>
+      )}
       <LeadFormBuilder
         sections={sections}
         selectedFieldId={selectedFieldId}

@@ -11,6 +11,7 @@ import {
   GripVertical,
   X,
   Info,
+  AlertCircle,
   User,
   FileText,
   FileCheck,
@@ -27,31 +28,41 @@ import {
 } from 'lucide-react';
 import PageHeader from '../../../components/ui/PageHeader';
 import { useCrmStore } from '../../../stores/crmStore';
-import { isServerId } from '../../../services/resourceSync';
+import { isServerId, describeError } from '../../../services/resourceSync';
 
 /**
  * Write a reordered / edited pipeline back. Rows the server has not seen are
- * created, changed rows are patched and removed rows are deleted, so a drag or
- * a rename is saved without the screen having to know about HTTP.
+ * created and changed rows are patched, so a drag or a rename is saved without
+ * the screen having to know about HTTP.
+ *
+ * Deletion is deliberately NOT inferred here. This used to treat "a row in
+ * the store that is missing from the local list" as a delete, which meant any
+ * transient disagreement between the two lists -- an HMR reload, a re-login,
+ * a pull that failed -- was executed as a mass DELETE against the pipeline.
+ * Deleting is now explicit: `confirmDelete` awaits `deleteRecord` and reports
+ * the result.
  */
-function syncStages(key, next, previous) {
+function syncStages(key, next, previous, onError) {
   const store = useCrmStore.getState();
   const before = new Map(previous.map((row) => [String(row.id), row]));
-  const after = new Set(next.map((row) => String(row.id)));
+
+  // A rejected write used to end at `console.warn`, so a stage silently failed
+  // to save with no trace on screen. Report it instead.
+  const report = (err) => {
+    warn(err);
+    if (onError) onError(err);
+  };
 
   next.forEach((row, index) => {
     const withOrder = { ...row, order: index + 1 };
     const existing = before.get(String(row.id));
     if (!existing) {
-      store.createRecord(key, withOrder).catch(warn);
+      // A row the server already knows cannot be "new". Without this guard a
+      // transient list mismatch re-POSTs it and mints a duplicate stage.
+      if (isServerId(row.id)) return;
+      store.createRecord(key, withOrder).catch(report);
     } else if (isServerId(row.id) && JSON.stringify({ ...existing, order: index + 1 }) !== JSON.stringify(withOrder)) {
-      store.updateRecord(key, row.id, withOrder).catch(warn);
-    }
-  });
-
-  previous.forEach((row) => {
-    if (!after.has(String(row.id)) && isServerId(row.id)) {
-      store.deleteRecord(key, row.id).catch(warn);
+      store.updateRecord(key, row.id, withOrder).catch(report);
     }
   });
 }
@@ -128,6 +139,7 @@ export default function CRMSystemSetupPage() {
   const [leadModal, setLeadModal] = useState(null);
   const [dealModal, setDealModal] = useState(null);
   const [deleteModal, setDeleteModal] = useState(null);
+  const [actionError, setActionError] = useState('');
   const [showDifferenceModal, setShowDifferenceModal] = useState(false);
   const [dragLead, setDragLead] = useState(null);
   const [dragDeal, setDragDeal] = useState(null);
@@ -135,22 +147,36 @@ export default function CRMSystemSetupPage() {
   const leadSyncedRef = useRef('');
   const dealSyncedRef = useRef('');
 
-  // Edits are written back to the pipelines they came from.
+  // Declared before the sync effects below that call it.
+  const reportActionError = (err) =>
+    setActionError(describeError(err) || 'Could not save the stage change. Please try again.');
+
+  /**
+   * Hold the write-back closed until the store has actually loaded. Before
+   * that the two lists can legitimately disagree (a failed pull leaves the
+   * previous rows in place), and syncing a half-filled list against a full one
+   * is how a transient state turned into real writes.
+   */
+  const syncStatus = useCrmStore((s) => s.status);
+  const pipelinesHydrated = Boolean(syncStatus?.loaded) && !syncStatus?.loading;
+
   useEffect(() => {
+    if (!pipelinesHydrated) return;
     if (leadStages.length === 0) return;
     const key = JSON.stringify(leadStages);
     if (key === leadSyncedRef.current) return;
     leadSyncedRef.current = key;
-    syncStages('stages', leadStages, storeLeadStages);
-  }, [leadStages, storeLeadStages]);
+    syncStages('stages', leadStages, storeLeadStages, reportActionError);
+  }, [leadStages, storeLeadStages, pipelinesHydrated]);
 
   useEffect(() => {
+    if (!pipelinesHydrated) return;
     if (dealStages.length === 0) return;
     const key = JSON.stringify(dealStages);
     if (key === dealSyncedRef.current) return;
     dealSyncedRef.current = key;
-    syncStages('dealStages', dealStages, storeDealStages);
-  }, [dealStages, storeDealStages]);
+    syncStages('dealStages', dealStages, storeDealStages, reportActionError);
+  }, [dealStages, storeDealStages, pipelinesHydrated]);
 
   const leadActive = useMemo(() => leadStages.filter((s) => s.status === 'Active').length, [leadStages]);
   const leadInactive = leadStages.length - leadActive;
@@ -235,11 +261,36 @@ export default function CRMSystemSetupPage() {
     setDealStages((prev) => [...prev, { ...found, id: `dl-${Date.now()}`, name: `${found.name} Copy`, count: 0 }]);
   }
 
-  function confirmDelete() {
-    if (!deleteModal) return;
-    if (deleteModal.type === 'lead') setLeadStages((prev) => prev.filter((s) => s.id !== deleteModal.id));
-    if (deleteModal.type === 'deal') setDealStages((prev) => prev.filter((s) => s.id !== deleteModal.id));
+  /**
+   * Delete now calls the server directly and awaits it. It used to only drop
+   * the row from local state and leave the DELETE to the sync effect above,
+   * where every failure was swallowed by `warn()` -- so a rejected request
+   * (server down, expired token, no permission) made the row quietly reappear
+   * with nothing on screen to explain why. Awaiting the call lets the error
+   * surface and the row be restored deliberately rather than by side effect.
+   */
+  async function confirmDelete() {
+    const modal = deleteModal;
+    if (!modal) return;
+
+    const resource = modal.type === 'lead' ? 'stages' : 'dealStages';
+    const setter = modal.type === 'lead' ? setLeadStages : setDealStages;
+
     setDeleteModal(null);
+    setter((prev) => prev.filter((s) => s.id !== modal.id));
+
+    // A local id was never persisted, so there is nothing to ask the server.
+    if (!isServerId(modal.id)) return;
+
+    setActionError('');
+    try {
+      await useCrmStore.getState().deleteRecord(resource, modal.id);
+    } catch (err) {
+      // deleteRecord already put the row back in the store; mirror it into the
+      // local list so the table matches even if the store effect has not run.
+      setter((prev) => (prev.some((s) => s.id === modal.id) ? prev : [...prev, modal.row]));
+      setActionError(describeError(err) || 'Could not delete the stage. Please try again.');
+    }
   }
 
   function toggleLeadStatus(id) {
@@ -304,6 +355,21 @@ export default function CRMSystemSetupPage() {
           { label: 'CRM System Setup' }
         ]}
       />
+
+      {actionError && (
+        <div className="bg-rose-50 border border-rose-200 rounded-xl px-4 py-3 flex items-start gap-3">
+          <span className="w-7 h-7 rounded-full bg-white border border-rose-200 text-rose-600 flex items-center justify-center shrink-0 mt-0.5">
+            <AlertCircle size={15} />
+          </span>
+          <div className="flex-1 min-w-0">
+            <p className="text-[13px] font-bold text-rose-900">Stage change not saved</p>
+            <p className="text-xs text-rose-700 mt-0.5 leading-relaxed break-words">{actionError}</p>
+          </div>
+          <button type="button" onClick={() => setActionError('')} className="text-rose-400 hover:text-rose-600 p-1" aria-label="Dismiss">
+            <X size={15} />
+          </button>
+        </div>
+      )}
 
       {showBanner && (
         <div className="bg-[#eef6ff] border border-blue-100 rounded-xl px-4 py-3 flex items-start gap-3">
@@ -392,7 +458,7 @@ export default function CRMSystemSetupPage() {
                       <span className="flex items-center gap-1.5">
                         <button type="button" onClick={() => openEditLead(s)} className="w-7 h-7 rounded-md bg-blue-50 text-blue-600 flex items-center justify-center hover:bg-blue-100" title="Edit"><Pencil size={13} /></button>
                         <button type="button" onClick={() => duplicateLead(s.id)} className="w-7 h-7 rounded-md bg-slate-100 text-slate-500 flex items-center justify-center hover:bg-slate-200" title="Duplicate"><Copy size={13} /></button>
-                        <button type="button" onClick={() => setDeleteModal({ type: 'lead', id: s.id, name: s.name })} className="w-7 h-7 rounded-md bg-red-50 text-red-500 flex items-center justify-center hover:bg-red-100" title="Delete"><Trash2 size={13} /></button>
+                        <button type="button" onClick={() => setDeleteModal({ type: 'lead', id: s.id, name: s.name, row: s })} className="w-7 h-7 rounded-md bg-red-50 text-red-500 flex items-center justify-center hover:bg-red-100" title="Delete"><Trash2 size={13} /></button>
                       </span>
                     </td>
                   </tr>
@@ -480,7 +546,7 @@ export default function CRMSystemSetupPage() {
                       <span className="flex items-center gap-1.5">
                         <button type="button" onClick={() => openEditDeal(s)} className="w-7 h-7 rounded-md bg-blue-50 text-blue-600 flex items-center justify-center hover:bg-blue-100" title="Edit"><Pencil size={13} /></button>
                         <button type="button" onClick={() => duplicateDeal(s.id)} className="w-7 h-7 rounded-md bg-slate-100 text-slate-500 flex items-center justify-center hover:bg-slate-200" title="Duplicate"><Copy size={13} /></button>
-                        <button type="button" onClick={() => setDeleteModal({ type: 'deal', id: s.id, name: s.name })} className="w-7 h-7 rounded-md bg-red-50 text-red-500 flex items-center justify-center hover:bg-red-100" title="Delete"><Trash2 size={13} /></button>
+                        <button type="button" onClick={() => setDeleteModal({ type: 'deal', id: s.id, name: s.name, row: s })} className="w-7 h-7 rounded-md bg-red-50 text-red-500 flex items-center justify-center hover:bg-red-100" title="Delete"><Trash2 size={13} /></button>
                       </span>
                     </td>
                   </tr>
