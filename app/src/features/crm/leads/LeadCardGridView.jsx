@@ -1,8 +1,8 @@
-import { Building2, Mail, MapPin, Phone, Pin, Trash2, UserRound } from "lucide-react";
+import { Building2, Mail, MapPin, Phone, Pin, TrendingDown, UserRound } from "lucide-react";
 import LeadAvatar from "./LeadAvatar";
 import { formatCurrency } from "../../../utils/currencyUtils";
 
-export default function LeadCardGridView({ rows = [], selected = [], pinnedLeadIds = [], onTogglePin, onToggleOne, onRequestDelete, onAddNote, onOpenLead, onDelete }) {
+export default function LeadCardGridView({ rows = [], selected = [], pinnedLeadIds = [], onTogglePin, onToggleOne, onRequestMarkLost, onAddNote, onOpenLead, onMarkLost }) {
   const activeCurrency = (typeof localStorage !== 'undefined' && localStorage.getItem('evenmore_currency')) || 'USD ($)';
   return (
     <div className="lead-grid">
@@ -14,7 +14,7 @@ export default function LeadCardGridView({ rows = [], selected = [], pinnedLeadI
             checked={selected.includes(row.id)}
             onChange={() => {
               onToggleOne?.(row.id);
-              onRequestDelete?.(row);
+              onRequestMarkLost?.(row);
             }}
             aria-label={`Select ${row.name}`}
           />
@@ -47,11 +47,11 @@ export default function LeadCardGridView({ rows = [], selected = [], pinnedLeadI
           <button
             type="button"
             className="lead-grid-delete row-action-icon row-delete-action"
-            onClick={() => onDelete?.(row.id)}
-            aria-label={`Delete ${row.name}`}
+            onClick={() => onMarkLost?.(row.id)}
+            aria-label={`Mark ${row.name} as lost`}
           >
-            <Trash2 size={15} />
-            <span className="toolbar-tooltip">Delete</span>
+            <TrendingDown size={15} />
+            <span className="toolbar-tooltip">Mark as Lost</span>
           </button>
 
           <div className="lead-grid-company">

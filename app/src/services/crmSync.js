@@ -15,6 +15,7 @@ import { createSync, compact, asText, isServerId, describeError, isBackendEnable
 import { normalizeSection, toApiSection, WRITABLE_LEAD_SECTIONS } from './leadDetailMap';
 import { api } from './api';
 import { formatDateDDMMYYYY, toISODate } from '../utils/dateUtils';
+import { isLostLead } from './leadStatus';
 
 export { isServerId, describeError, isBackendEnabled, normalizeSection, toApiSection, WRITABLE_LEAD_SECTIONS };
 
@@ -61,6 +62,7 @@ export function avatarColorFor(seed) {
 // ── leads ───────────────────────────────────────────────────────────────────
 
 function leadFromApi(row) {
+  const isLost = isLostLead(row);
   const customValues = (row.customValues && typeof row.customValues === 'object')
     ? row.customValues
     : (row.custom_values && typeof row.custom_values === 'object' ? row.custom_values : undefined);
@@ -81,7 +83,8 @@ function leadFromApi(row) {
     id: row.id,
     leadNumber: row.leadNumber || row.lead_number || '',
     stageId: row.stageId || row.stage_id || '',
-    status: isConverted ? 'Converted' : (row.status || row.stageName || ''),
+    status: isLost ? (row.status || row.stageName || 'Lost') : (isConverted ? 'Converted' : (row.status || row.stageName || '')),
+    isLost,
     isConverted,
     sourceId: row.sourceId || row.source_id || undefined,
     ownerId: row.ownerId || row.owner_id || undefined,
@@ -633,6 +636,16 @@ export async function reorderStages(orderedIds) {
 export async function bulkDeleteLeads(ids) {
   if (!isBackendEnabled()) return null;
   return api.post('/crm/leads/bulk-delete/', { ids });
+}
+
+export async function markLeadLost(leadId, payload = {}) {
+  if (!isBackendEnabled()) return null;
+  return crmSync.act('leads', leadId, 'mark-lost', payload, { raw: true });
+}
+
+export async function bulkMarkLeadsLost(ids, payload = {}) {
+  if (!isBackendEnabled()) return null;
+  return api.post('/crm/leads/bulk-mark-lost/', { ids, ...payload });
 }
 
 export default crmSync;

@@ -7,7 +7,6 @@ import {
 } from "lucide-react";
 import { useMemo } from 'react';
 import { useCrmStore, leadTabsFrom } from '../../../stores/crmStore';
-import SortPopover from "./SortPopover";
 import RecordActionPanel from "./RecordActionPanel";
 
 function ViewButton({ label, active, onClick, children }) {
@@ -81,17 +80,6 @@ export default function LeadsTabs({
             <Filter size={18} />
             Filter
           </button>
-          <SortPopover
-            isOpen={isSortOpen}
-            sortDraft={sortDraft}
-            sortApplied={sortApplied}
-            options={sortOptions}
-            onToggle={onToggleSort}
-            onDraftChange={onSortDraftChange}
-            onApply={onApplySort}
-            onCancel={onCancelSort}
-            onClear={onClearSort}
-          />
           <ViewButton label="Print Leads" onClick={onPrint}>
             <Printer size={18} />
           </ViewButton>

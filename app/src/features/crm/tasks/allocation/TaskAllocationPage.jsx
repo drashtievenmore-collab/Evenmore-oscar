@@ -42,11 +42,13 @@ const selectCls = 'w-full h-11 px-3.5 bg-slate-50/60 border border-slate-200 rou
 
 export default function TaskAllocationPage() {
   const navigate = useNavigate();
-  const tasks = useCrmStore((s) => s.taskAllocations);
+  const allocations = useCrmStore((s) => s.taskAllocations);
+  const leadTasks = useCrmStore((s) => s.tasks);
   const employees = useCrmStore((s) => s.teamMembers);
   const loading = useCrmStore((s) => s.status.loading);
   const createRecord = useCrmStore((s) => s.createRecord);
   const deleteRecord = useCrmStore((s) => s.deleteRecord);
+  const refresh = useCrmStore((s) => s.refresh);
   const departments = useMemo(() => [...new Set(employees.map((e) => e.department).filter(Boolean))], [employees]);
   const [error, setError] = useState('');
   const [deleting, setDeleting] = useState(false);
@@ -62,7 +64,27 @@ export default function TaskAllocationPage() {
   const [sortKey, setSortKey] = useState('');
   const [sortDir, setSortDir] = useState('asc');
   const [isModalOpen, setIsModalOpen] = useState(false);
-  const [deleteId, setDeleteId] = useState(null);
+  const [deleteTarget, setDeleteTarget] = useState(null);
+
+  const tasks = useMemo(() => {
+    const mappedAllocations = (allocations || []).map((t) => ({
+      ...t,
+      kind: 'allocation',
+      typeLabel: 'Allocation',
+      deadline: t.deadline || '',
+    }));
+    const mappedLeadTasks = (leadTasks || []).map((t) => ({
+      ...t,
+      kind: 'lead',
+      typeLabel: 'Lead Task',
+      assignee: t.assignee || t.owner || t.assigneeName || 'Unassigned',
+      assignedBy: t.assignedBy || t.source || '',
+      department: t.department || '',
+      deadline: t.deadline || t.dueDate || t.due || '',
+      leadName: t.leadName || t.lead || '',
+    }));
+    return [...mappedAllocations, ...mappedLeadTasks];
+  }, [allocations, leadTasks]);
   const [showFilters, setShowFilters] = useState(false);
 
   useEffect(() => {
@@ -76,8 +98,8 @@ export default function TaskAllocationPage() {
     const out = tasks.filter((t) => {
       if (statusFilter !== 'Any' && t.status !== statusFilter) return false;
       if (assigneeFilter !== 'Anyone' && t.assignee !== assigneeFilter) return false;
-      if (deptFilter !== 'Any' && t.department !== deptFilter) return false;
-      if (q && !`${t.title} ${t.assignee} ${t.assignedBy} ${t.department}`.toLowerCase().includes(q)) return false;
+      if (deptFilter !== 'Any' && (t.department || '') !== deptFilter) return false;
+      if (q && !`${t.title} ${t.assignee} ${t.assignedBy} ${t.department} ${t.leadName || ''} ${t.typeLabel || ''}`.toLowerCase().includes(q)) return false;
       return true;
     });
     if (!sortKey) return out;
@@ -133,15 +155,18 @@ export default function TaskAllocationPage() {
     resetFilters();
     setPage(1);
     setIsModalOpen(false);
+    refresh('taskAllocations');
   }
 
   async function confirmDelete() {
-    if (!deleteId || deleting) return;
+    if (!deleteTarget || deleting) return;
     setError('');
     setDeleting(true);
     try {
-      await deleteRecord('taskAllocations', deleteId);
-      setDeleteId(null);
+      const key = deleteTarget.kind === 'lead' ? 'tasks' : 'taskAllocations';
+      await deleteRecord(key, deleteTarget.id);
+      setDeleteTarget(null);
+      refresh(key);
     } catch (err) {
       setError(describeError(err));
     } finally {
@@ -149,8 +174,11 @@ export default function TaskAllocationPage() {
     }
   }
 
-  function openDetail(id) {
-    navigate(`/crm/tasks/allocation/${id}`);
+  function openDetail(row) {
+    const id = typeof row === 'object' ? row.id : row;
+    const kind = typeof row === 'object' ? row.kind : null;
+    if (kind === 'lead') navigate(`/crm/tasks/allocation/${id}?kind=lead`);
+    else navigate(`/crm/tasks/allocation/${id}`);
   }
 
   const hasActiveFilters = statusFilter !== 'Any' || assigneeFilter !== 'Anyone' || deptFilter !== 'Any' || search.trim() !== '';
@@ -183,7 +211,7 @@ export default function TaskAllocationPage() {
 
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3.5 my-4">
         <KpiCard label="Total Tasks" value={tasks.length} icon={ClipboardList} tone="blue" />
-        <KpiCard label="Pending" value={tasks.filter((task) => task.status === 'Pending').length} icon={Clock} tone="amber" />
+        <KpiCard label="Pending" value={tasks.filter((task) => task.status === 'Pending' || task.status === 'Open' || task.status === 'Waiting').length} icon={Clock} tone="amber" />
         <KpiCard label="In Progress" value={tasks.filter((task) => task.status === 'In Progress').length} icon={Activity} tone="purple" />
         <KpiCard label="Completed" value={tasks.filter((task) => task.status === 'Completed').length} icon={CheckCircle2} tone="emerald" />
       </div>
@@ -195,7 +223,7 @@ export default function TaskAllocationPage() {
             <label className="block text-xs font-semibold text-slate-500 mb-1.5">Status</label>
             <select value={draftStatus} onChange={(e) => setDraftStatus(e.target.value)} className={selectCls}>
               <option value="Any">All statuses</option>
-              {STATUSES.map((s) => (
+              {[...new Set([...STATUSES, 'Open', 'Waiting'])].map((s) => (
                 <option key={s} value={s}>{s}</option>
               ))}
             </select>
@@ -307,17 +335,20 @@ export default function TaskAllocationPage() {
             </thead>
             <tbody className="divide-y divide-slate-100">
               {pageItems.map((t) => {
-                const overdue = t.status === 'Pending' && t.deadline;
+                const overdue = (t.status === 'Pending' || t.status === 'Open' || t.status === 'Waiting') && t.deadline;
                 return (
-                  <tr key={t.id} className="hover:bg-blue-50/40 transition-colors group">
+                  <tr key={`${t.kind}-${t.id}`} className="hover:bg-blue-50/40 transition-colors group">
                     <td className="px-5 py-4">
-                      <button type="button" disabled={t._pending} onClick={() => openDetail(t.id)} className="flex items-start gap-3 text-left w-full disabled:opacity-50">
+                      <button type="button" disabled={t._pending} onClick={() => openDetail(t)} className="flex items-start gap-3 text-left w-full disabled:opacity-50">
                         <span className="w-9 h-9 shrink-0 grid place-items-center rounded-xl bg-blue-50 border border-blue-100 text-[12px] font-bold text-blue-600">
                           {initials(t.title)}
                         </span>
                         <span className="min-w-0">
-                          <span className="block font-bold text-slate-800 group-hover:text-blue-700 text-[13px] leading-snug truncate transition">{t.title}</span>
-                          <span className="block text-xs text-slate-400 mt-1 font-medium">{t.department}</span>
+                          <span className="flex items-center gap-2 min-w-0">
+                            <span className="block font-bold text-slate-800 group-hover:text-blue-700 text-[13px] leading-snug truncate transition">{t.title}</span>
+                            <span className={`shrink-0 px-2 py-0.5 rounded-full text-[10px] font-bold border ${t.kind === 'lead' ? 'bg-violet-50 text-violet-600 border-violet-200' : 'bg-blue-50 text-blue-600 border-blue-100'}`}>{t.typeLabel}</span>
+                          </span>
+                          <span className="block text-xs text-slate-400 mt-1 font-medium">{t.kind === 'lead' ? (t.leadName || t.department || 'Lead Task') : (t.department || 'Allocation')}</span>
                         </span>
                       </button>
                     </td>
@@ -352,10 +383,10 @@ export default function TaskAllocationPage() {
                     </td>
                     <td className="px-5 py-4">
                       <div className="flex items-center justify-end gap-2">
-                        <button type="button" disabled={t._pending} onClick={() => openDetail(t.id)} title="View details" className="w-8 h-8 grid place-items-center bg-white text-slate-400 hover:text-blue-600 hover:border-blue-200 hover:bg-blue-50 border border-slate-200 rounded-lg transition disabled:opacity-50">
+                        <button type="button" disabled={t._pending} onClick={() => openDetail(t)} title="View details" className="w-8 h-8 grid place-items-center bg-white text-slate-400 hover:text-blue-600 hover:border-blue-200 hover:bg-blue-50 border border-slate-200 rounded-lg transition disabled:opacity-50">
                           <Eye size={15} />
                         </button>
-                        <button type="button" disabled={t._pending} onClick={() => { setError(''); setDeleteId(t.id); }} title="Delete task" className="w-8 h-8 grid place-items-center bg-white text-slate-400 hover:text-rose-600 hover:border-rose-200 hover:bg-rose-50 border border-slate-200 rounded-lg transition disabled:opacity-50">
+                        <button type="button" disabled={t._pending} onClick={() => { setError(''); setDeleteTarget(t); }} title="Delete task" className="w-8 h-8 grid place-items-center bg-white text-slate-400 hover:text-rose-600 hover:border-rose-200 hover:bg-rose-50 border border-slate-200 rounded-lg transition disabled:opacity-50">
                           <Trash2 size={15} />
                         </button>
                       </div>
@@ -393,8 +424,8 @@ export default function TaskAllocationPage() {
 
       {isModalOpen && <AssignTaskModal isOpen onClose={() => setIsModalOpen(false)} onSubmit={handleCreate} />}
 
-      {deleteId && (
-        <div className="fixed inset-0 bg-slate-900/45 backdrop-blur-[2px] flex items-center justify-center z-[70] p-2 sm:p-4" onClick={() => setDeleteId(null)}>
+      {deleteTarget && (
+        <div className="fixed inset-0 bg-slate-900/45 backdrop-blur-[2px] flex items-center justify-center z-[70] p-2 sm:p-4" onClick={() => setDeleteTarget(null)}>
           <div onClick={(e) => e.stopPropagation()} className="bg-white rounded-2xl shadow-2xl w-full max-w-sm border border-slate-200 p-4 sm:p-6">
             <div className="w-10 h-10 grid place-items-center rounded-xl bg-rose-50 border border-rose-100 text-rose-500 mb-3">
               <AlertTriangle size={18} />
@@ -403,7 +434,7 @@ export default function TaskAllocationPage() {
             {error && <p role="alert" className="text-xs text-rose-600 mt-2">{error}</p>}
             <p className="text-[13px] text-slate-500 mt-1 leading-relaxed">This action cannot be undone. The task will be permanently removed.</p>
             <div className="flex items-center justify-end gap-2 mt-5">
-              <button type="button" onClick={() => setDeleteId(null)} className="h-9 px-4 bg-white hover:bg-slate-50 text-slate-600 text-[13px] font-semibold rounded-xl border border-slate-200 transition">Cancel</button>
+              <button type="button" onClick={() => setDeleteTarget(null)} className="h-9 px-4 bg-white hover:bg-slate-50 text-slate-600 text-[13px] font-semibold rounded-xl border border-slate-200 transition">Cancel</button>
               <button type="button" disabled={deleting} onClick={confirmDelete} className="h-9 px-4 bg-rose-600 hover:bg-rose-700 active:scale-[0.98] text-white text-[13px] font-semibold rounded-xl shadow-sm shadow-rose-600/25 transition">{deleting ? 'Deleting...' : 'Delete'}</button>
             </div>
           </div>

@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
-import { Archive, ArrowUpDown, Building2, ClipboardList, Handshake, MoreVertical, NotebookPen, Pencil, Phone, Pin, RotateCcw, Scissors } from "lucide-react";
+import { Archive, Building2, ChevronDown, ChevronUp, ChevronsUpDown, ClipboardList, Handshake, MoreVertical, NotebookPen, Pencil, Pin, RotateCcw, Scissors } from "lucide-react";
 import LeadAvatar from "./LeadAvatar";
 import { leadColumnPatch, leadColumnValue } from "./leadColumns";
 
@@ -117,7 +117,6 @@ function LeadColumnCell({ lead, column, onUpdateLead, onOpenLead, pinnedLeadIds,
         renderValue={(row) => (
           <span className="phone-cell">
             <span>{leadColumnValue(row, column)}</span>
-            <Phone size={15} strokeWidth={1.8} />
           </span>
         )}
       />
@@ -142,7 +141,7 @@ function LeadColumnCell({ lead, column, onUpdateLead, onOpenLead, pinnedLeadIds,
   );
 }
 
-export default function LeadsTable({ rows = [], selected = [], pinnedLeadIds = [], columns = [], onToggleOne, onToggleAll, onTogglePin, onRequestDelete, onRequestDeleteAll, onAddNote, onOpenLead, onUpdateLead, onEditLead, onToggleCloseLead, onCreateTask, onIssueSample, onConvertDeal, onConvertParty, variant = "list" }) {
+export default function LeadsTable({ rows = [], selected = [], pinnedLeadIds = [], columns = [], sortField = "", sortDirection = "ascending", onSort, onToggleOne, onToggleAll, onTogglePin, onRequestMarkLost, onRequestMarkLostAll, onAddNote, onOpenLead, onUpdateLead, onEditLead, onToggleCloseLead, onCreateTask, onIssueSample, onConvertDeal, onConvertParty, onMarkLost, variant = "list" }) {
   const allChecked = rows.length > 0 && rows.every((row) => selected.includes(row.id));
   // Floating row menu — rendered in a portal with fixed positioning so the
   // scrollable table body can never clip it. Always opens under the ⋮ button.
@@ -206,21 +205,34 @@ export default function LeadsTable({ rows = [], selected = [], pinnedLeadIds = [
                   checked={allChecked}
                   onChange={() => {
                     onToggleAll?.();
-                    onRequestDeleteAll?.(rows);
+                    onRequestMarkLostAll?.(rows);
                   }}
                   aria-label="Select all"
                 />
               </th>
-              {columns.map((column) => (
-                <th key={column.key}>
-                  {column.kind === "name" || column.rowKey === "createdOn" ? (
-                    <span className="th-inner">{column.label} <ArrowUpDown size={13} className="sort-ico" /></span>
-                  ) : (
-                    column.label
-                  )}
-                </th>
-              ))}
-              <th className="col-more"><MoreVertical size={15} /></th>
+              {columns.map((column) => {
+                const isActive = sortField === column.key;
+                const isAscending = sortDirection !== "descending";
+                return (
+                  <th key={column.key} aria-sort={isActive ? (isAscending ? "ascending" : "descending") : "none"}>
+                    <button
+                      type="button"
+                      className="th-sort-btn"
+                      onClick={() => onSort?.(column.key)}
+                      aria-label={`Sort by ${column.label}${isActive ? (isAscending ? ", ascending" : ", descending") : ""}`}
+                    >
+                      <span className="th-inner">{column.label}
+                        {isActive ? (
+                          isAscending ? <ChevronUp size={13} className="sort-ico active" /> : <ChevronDown size={13} className="sort-ico active" />
+                        ) : (
+                          <ChevronsUpDown size={13} className="sort-ico" />
+                        )}
+                      </span>
+                    </button>
+                  </th>
+                );
+              })}
+              <th className="col-more" scope="col">Action</th>
             </tr>
           </thead>
           <tbody>
@@ -234,7 +246,7 @@ export default function LeadsTable({ rows = [], selected = [], pinnedLeadIds = [
                       checked={selected.includes(row.id)}
                       onChange={() => {
                         onToggleOne?.(row.id);
-                        onRequestDelete?.(row);
+                        onRequestMarkLost?.(row);
                       }}
                       aria-label={`Select ${row.name}`}
                     />
