@@ -13,6 +13,9 @@ import { DocumentTimeline } from '../../components/common/DocumentTimeline';
 import { RelatedDocumentsCard } from '../../components/common/RelatedDocumentsCard';
 import { PrintPurchaseOrderModal } from '../../components/common/PrintPurchaseOrderModal';
 import PageHeader from '../../components/ui/PageHeader';
+import UomSelect from '../../components/common/UomSelect';
+import useUnits from '../../hooks/useUnits';
+import { formatQty, formatUnitTotals, sumByUnit, unitKey, resolveUnit } from '../../utils/uom';
 
 const purchaseOrderGuide = {
     title: 'Purchase Orders',
@@ -111,6 +114,7 @@ const STATUS_PILL = {
 export const PurchaseOrdersPage = () => {
     const navigate = useNavigate();
     const { purchaseOrders, vendors, items: inventoryItems, fabrics: fabricMasters, addPurchaseOrder, updatePurchaseOrderStatus, cancelPurchaseOrder, deletePurchaseOrder, getPoBilledStatus, convertPurchaseOrderToBill, purchaseBills, paymentOuts, formatCurrency, formatDateDDMMYYYY, getCurrentDateFormatted, getCurrentISODate, addDaysISO } = useERP();
+    const { units } = useUnits();
     const [showAddModal, setShowAddModal] = useState(false);
     const [isFullscreen, setIsFullscreen] = useState(false);
     const [selectedPo, setSelectedPo] = useState(null);
@@ -159,6 +163,10 @@ export const PurchaseOrdersPage = () => {
                     next.sku = sel.sku;
                     next.itemSku = sel.sku;
                     next.rate = Number(sel.costPrice) || '';
+                    // Default to the item's stock unit (fabric quality's UOM for
+                    // master-derived fabrics); compatible units can be picked after.
+                    next.stockUom = sel.uom || 'Mtr';
+                    next.uom = sel.purchaseUnit || sel.purchase_unit || next.stockUom;
                 }
             }
             next.amount = (Number(next.qty) || 0) * (Number(next.rate) || 0);
@@ -186,14 +194,14 @@ export const PurchaseOrdersPage = () => {
         if (!selectedVendorId) { alert('Vendor is required.'); return; }
         if (!poDate) { alert('PO Date is required.'); return; }
         if (!expectedDate) { alert('Expected Delivery is required.'); return; }
-        if (validLines.length === 0) { alert('Add at least one fabric line with quantity (Meter) and rate (₹/Meter).'); return; }
+        if (validLines.length === 0) { alert('Add at least one fabric line with quantity and rate.'); return; }
         const vend = vendors.find((v) => v.id === selectedVendorId) || vendors[0];
         const normalizedLines = validLines.map((it) => ({
             ...it,
             qty: Number(it.qty),
             rate: Number(it.rate),
             amount: Number(it.qty) * Number(it.rate),
-            uom: 'Meter',
+            uom: it.uom || it.stockUom || 'Mtr',
             tax: 0,
             discount: 0,
         }));
@@ -293,7 +301,7 @@ export const PurchaseOrdersPage = () => {
             name: `${f.name} Grey Fabric`,
             fabricQuality: f.name,
             itemKind: 'Fabric',
-            uom: 'Mtr',
+            uom: f.uom || 'Mtr',
             _fromMaster: true,
           });
         });
@@ -309,10 +317,22 @@ export const PurchaseOrdersPage = () => {
     };
     const getPoQty = (po) => getPoLines(po).reduce((s, l) => s + (Number(l.qty) || 0), 0);
     const getPoRate = (po) => Number(getPoLines(po)[0]?.rate) || 0;
-    const getPoReceivedQty = (po) =>
+    const lineUom = (l) => l?.uom || 'Mtr';
+    const getPoReceivedLines = (po) =>
       (purchaseBills || [])
         .filter((b) => (b.purchaseOrderId === po.id || b.poRef === po.poNumber || b.linkedPo === po.poNumber) && b.goodsReceived === true && b.status !== 'Cancelled')
-        .reduce((s, b) => s + (b.items || b.lineItems || []).reduce((acc, it) => acc + (Number(it.receivedQty ?? it.qty) || 0), 0), 0);
+        .flatMap((b) => (b.items || b.lineItems || []).map((it) => ({ qty: Number(it.receivedQty ?? it.qty) || 0, uom: lineUom(it) })));
+    const getPoReceivedQty = (po) => getPoReceivedLines(po).reduce((s, l) => s + l.qty, 0);
+    // Quantities are only added up within one unit (Mtr and Kg never mix).
+    const orderedByUnit = (po) => sumByUnit(getPoLines(po), { uom: lineUom, units });
+    const receivedByUnit = (po) => sumByUnit(getPoReceivedLines(po), { units });
+    const poQtyText = (po) => formatUnitTotals(orderedByUnit(po), { units });
+    const poReceivedText = (po) => {
+      const totals = receivedByUnit(po);
+      return totals.length ? formatUnitTotals(totals, { units }) : formatQty(0, lineUom(getPoLines(po)[0]), { units });
+    };
+    const poRateText = (po) => `₹${getPoRate(po)}/${lineUom(getPoLines(po)[0])}`;
+    const unitSlot = (text) => unitKey(resolveUnit(units, text)?.code || text);
 
     const LEGACY_STATUS_MAP = {
       Issued: 'Approved',
@@ -323,11 +343,15 @@ export const PurchaseOrdersPage = () => {
     };
 
     const getOscarStatus = (po) => {
-      const ordered = getPoQty(po);
+      const ordered = orderedByUnit(po);
+      const receivedMap = new Map(receivedByUnit(po).map((t) => [unitSlot(t.uom), t.qty]));
       const received = getPoReceivedQty(po);
+      // Fully received only when every ordered unit is covered in that same unit.
+      const fullyReceived = ordered.length > 0
+        && ordered.every((t) => t.qty <= 0 || (receivedMap.get(unitSlot(t.uom)) || 0) >= t.qty);
       if (po.status === 'Cancelled') return 'Cancelled';
       if (po.status === 'Draft') return 'Draft';
-      if (ordered > 0 && received >= ordered) return 'Fully Received';
+      if (fullyReceived && received > 0) return 'Fully Received';
       if (received > 0) return 'Partially Received';
       if (['Pending Approval', 'Approved', 'In Production', 'Partially Received', 'Fully Received'].includes(po.status)) return po.status;
       return LEGACY_STATUS_MAP[po.status] || po.status || 'Draft';
@@ -336,7 +360,7 @@ export const PurchaseOrdersPage = () => {
     const totalPoValue = purchaseOrders.reduce((sum, p) => sum + (p.amount ?? p.total ?? 0), 0);
     const openPoCount = purchaseOrders.filter((p) => !['Fully Received', 'Cancelled'].includes(getOscarStatus(p))).length;
     const draftPoCount = purchaseOrders.filter((p) => getOscarStatus(p) === 'Draft').length;
-    const receivedQtyTotal = purchaseOrders.reduce((sum, p) => sum + getPoReceivedQty(p), 0);
+    const receivedQtyTotals = sumByUnit(purchaseOrders.flatMap((p) => getPoReceivedLines(p)), { units });
 
     const filtered = useMemo(() => {
       const q = query.trim().toLowerCase();
@@ -377,6 +401,7 @@ export const PurchaseOrdersPage = () => {
           supplier: p.vendor,
           fabric: getPoFabric(p),
           qty: getPoQty(p),
+          qtyText: poQtyText(p),
           date: formatDateDDMMYYYY(p.date),
           exp: formatDateDDMMYYYY(p.expectedDate),
           status: getOscarStatus(p),
@@ -385,7 +410,7 @@ export const PurchaseOrdersPage = () => {
         }));
       }
       return DEMO_RECENT;
-    }, [purchaseOrders, purchaseBills]);
+    }, [purchaseOrders, purchaseBills, units]);
 
     const fabricTotals = useMemo(() => {
       const map = {};
@@ -476,7 +501,7 @@ export const PurchaseOrdersPage = () => {
         <Kpi icon={ShoppingCart} value={totalPoValue ? formatCurrency(totalPoValue) : '₹0.00'} label="Total PO Value" trend="" iconBg="#e8f1fd" iconColor="#2563eb" wave="#cfe3fd" arrowBg="#f2f7ff" arrowColor="#2563eb" />
         <Kpi icon={FileText} value={`${openPoCount} Orders`} label="Open POs" trend="" iconBg="#e8f1fd" iconColor="#2563eb" wave="#c9ecdf" arrowBg="#f2f7ff" arrowColor="#2563eb" />
         <Kpi icon={Clock} value={`${draftPoCount} Order${draftPoCount === 1 ? '' : 's'}`} label="Draft POs" trend="" iconBg="#fdf3e0" iconColor="#d97706" wave="#fbe5bd" arrowBg="#fff8ec" arrowColor="#d97706" />
-        <Kpi icon={Package} value={`${receivedQtyTotal.toLocaleString('en-IN')} Meter`} label="Received Quantity" trend="" iconBg="#e8f1fd" iconColor="#2563eb" wave="#dcd6fb" arrowBg="#f2f7ff" arrowColor="#2563eb" />
+        <Kpi icon={Package} value={receivedQtyTotals.length ? formatUnitTotals(receivedQtyTotals, { units }) : '0'} label="Received Quantity" trend="" iconBg="#e8f1fd" iconColor="#2563eb" wave="#dcd6fb" arrowBg="#f2f7ff" arrowColor="#2563eb" />
       </div>
 
       {/* supplier table */}
@@ -509,7 +534,7 @@ export const PurchaseOrdersPage = () => {
           <table className="w-full min-w-[900px] border-collapse text-left text-[12px]">
             <thead>
               <tr className="border-b border-slate-100 text-[10.5px] font-bold uppercase tracking-wide text-slate-400">
-                {['PO Number', 'PO Date', 'Vendor', 'Fabric', 'Order Qty (M)', 'Rate (₹/M)', 'Total Amount (₹)', 'Expected Delivery', 'Received (M)', 'Status', 'Actions'].map((h, i) => (
+                {['PO Number', 'PO Date', 'Vendor', 'Fabric', 'Order Qty', 'Rate (₹/Unit)', 'Total Amount (₹)', 'Expected Delivery', 'Received', 'Status', 'Actions'].map((h, i) => (
                   <th key={h} className={`px-4 py-2.5 ${i >= 4 && i <= 8 ? 'text-right' : ''} ${i === 9 ? 'text-center' : ''}`}>{h}</th>
                 ))}
               </tr>
@@ -522,11 +547,11 @@ export const PurchaseOrdersPage = () => {
                     <td className="px-4 py-2.5 font-mono text-[11px] text-slate-500 whitespace-nowrap">{formatDateDDMMYYYY(p.date)}</td>
                     <td className="px-4 py-2.5 font-bold text-slate-700">{p.vendor}</td>
                     <td className="px-4 py-2.5 text-slate-600 font-medium whitespace-nowrap">{getPoFabric(p)}</td>
-                    <td className="px-4 py-2.5 text-right font-mono font-semibold text-slate-800 whitespace-nowrap">{getPoQty(p).toLocaleString('en-IN')} M</td>
-                    <td className="px-4 py-2.5 text-right font-mono text-slate-700 whitespace-nowrap">₹{getPoRate(p)}/M</td>
+                    <td className="px-4 py-2.5 text-right font-mono font-semibold text-slate-800 whitespace-nowrap">{poQtyText(p)}</td>
+                    <td className="px-4 py-2.5 text-right font-mono text-slate-700 whitespace-nowrap">{poRateText(p)}</td>
                     <td className="px-4 py-2.5 text-right font-mono font-bold text-slate-800 whitespace-nowrap">{formatCurrency(p.amount ?? p.total ?? 0)}</td>
                     <td className="px-4 py-2.5 font-mono text-[11px] text-slate-500 whitespace-nowrap">{formatDateDDMMYYYY(p.expectedDate)}</td>
-                    <td className="px-4 py-2.5 text-right font-mono text-slate-700 whitespace-nowrap">{getPoReceivedQty(p).toLocaleString('en-IN')} M</td>
+                    <td className="px-4 py-2.5 text-right font-mono text-slate-700 whitespace-nowrap">{poReceivedText(p)}</td>
                     <td className="px-4 py-2.5 text-center"><StatusBadge status={getOscarStatus(p)} /></td>
                     <td className="px-4 py-2.5">{renderRowActions(p)}</td>
                   </tr>
@@ -580,7 +605,7 @@ export const PurchaseOrdersPage = () => {
 
         <div className="rounded-xl border border-[#e2eaf5] bg-white p-4 shadow-[0_1px_2px_rgba(16,42,82,0.05)] xl:col-span-4">
           <div className="mb-3 flex items-center justify-between gap-2">
-            <h3 className="text-[13.5px] font-extrabold text-[#17294e]">Fabric-wise Purchase Qty (in Meter)</h3>
+            <h3 className="text-[13.5px] font-extrabold text-[#17294e]">Fabric-wise Purchase Qty</h3>
           </div>
           {fabricTotals.length > 0 ? (
             <div className="flex items-center gap-5">
@@ -629,7 +654,7 @@ export const PurchaseOrdersPage = () => {
             <table className="w-full min-w-[480px] border-collapse text-left text-[12px]">
               <thead>
                 <tr className="text-[10.5px] font-bold uppercase tracking-wide text-slate-400">
-                  {['PO Number', 'Vendor', 'Fabric', 'Qty (M)', 'Amount', 'Status'].map((h) => (
+                  {['PO Number', 'Vendor', 'Fabric', 'Qty', 'Amount', 'Status'].map((h) => (
                     <th key={h} className="px-2 py-2">{h}</th>
                   ))}
                 </tr>
@@ -640,7 +665,7 @@ export const PurchaseOrdersPage = () => {
                     <td className="px-2 py-2.5 font-mono text-[11.5px] font-bold text-blue-600">{r.po}</td>
                     <td className="px-2 py-2.5 font-medium text-slate-600">{r.supplier}</td>
                     <td className="px-2 py-2.5 text-slate-600">{r.fabric || '—'}</td>
-                    <td className="px-2 py-2.5 font-mono text-slate-700 whitespace-nowrap">{r.qty != null ? `${Number(r.qty).toLocaleString('en-IN')} M` : '—'}</td>
+                    <td className="px-2 py-2.5 font-mono text-slate-700 whitespace-nowrap">{r.qtyText || (r.qty != null ? formatQty(r.qty, 'Mtr') : '—')}</td>
                     <td className="px-2 py-2.5 font-mono font-bold text-slate-700 whitespace-nowrap">{r.value}</td>
                     <td className="px-2 py-2.5"><span className={`inline-block rounded-md border px-2 py-0.5 text-[10.5px] font-bold ${STATUS_PILL[r.status] || STATUS_PILL.Draft}`}>{r.status}</span></td>
                   </tr>
@@ -660,7 +685,7 @@ export const PurchaseOrdersPage = () => {
             <div className="flex items-center justify-between pb-3 border-b border-slate-200">
               <div>
                 <h3 className="font-bold text-base text-[#1F2E4A]">Create Purchase Order</h3>
-                <p className="text-[11px] text-slate-400 mt-0.5">Create a new grey fabric purchase order from a Vendor with meter-based quantity and ₹/meter costing.</p>
+                <p className="text-[11px] text-slate-400 mt-0.5">Create a new grey fabric purchase order from a Vendor with quantity and rate.</p>
               </div>
               <div className="flex items-center gap-2">
                 <button type="button" onClick={() => setIsFullscreen(!isFullscreen)} className="p-1.5 text-slate-400 hover:text-slate-700 rounded-lg hover:bg-slate-100 transition" title={isFullscreen ? "Exit Fullscreen" : "Maximize Fullscreen"}>
@@ -716,15 +741,16 @@ export const PurchaseOrdersPage = () => {
                 </div>
               </div>
               <div>
-                <label className="font-semibold text-slate-700 block mb-2">PO Item — Grey Fabric (Meter-based)</label>
+                <label className="font-semibold text-slate-700 block mb-2">PO Item — Grey Fabric</label>
                 <div className="border border-slate-200 rounded-xl overflow-x-auto">
                   <table className="w-full min-w-[720px] text-left text-[12px]">
                     <thead>
                       <tr className="bg-slate-50 border-b border-slate-200 text-[10.5px] font-bold uppercase tracking-wide text-slate-400">
                         <th className="px-3 py-2.5 w-10 text-center">#</th>
                         <th className="px-3 py-2.5">Fabric *</th>
-                        <th className="px-3 py-2.5 text-center w-36">Order Qty (Meter) *</th>
-                        <th className="px-3 py-2.5 text-right w-36">Rate (₹ / Meter) *</th>
+                        <th className="px-3 py-2.5 text-center w-32">Order Qty *</th>
+                        <th className="px-3 py-2.5 w-28">UOM *</th>
+                        <th className="px-3 py-2.5 text-right w-36">Rate (₹ / Unit) *</th>
                         <th className="px-3 py-2.5 text-right w-36">Amount (₹)</th>
                         <th className="w-12 px-2 py-2.5 text-center"></th>
                       </tr>
@@ -741,7 +767,15 @@ export const PurchaseOrdersPage = () => {
                               ))}
                             </select>
                           </td>
-                          <td className="px-3 py-2"><input type="number" min="0" step="1" value={it.qty} onChange={(e) => updateLineItem(idx, 'qty', e.target.value)} placeholder="40000" className="w-full border border-slate-300 rounded-lg p-1.5 text-center font-mono"/></td>
+                          <td className="px-3 py-2"><input type="number" min="0" step="any" value={it.qty} onChange={(e) => updateLineItem(idx, 'qty', e.target.value)} placeholder="40000" className="w-full border border-slate-300 rounded-lg p-1.5 text-center font-mono"/></td>
+                          <td className="px-3 py-2">
+                            <UomSelect
+                              value={it.uom || ''}
+                              stockUom={it.stockUom || fabricItems.find((f) => f.id === it.itemId)?.uom}
+                              disabled={!it.itemId}
+                              onChange={(u) => updateLineItem(idx, 'uom', u)}
+                            />
+                          </td>
                           <td className="px-3 py-2"><input type="number" min="0" step="0.01" value={it.rate} onChange={(e) => updateLineItem(idx, 'rate', e.target.value)} placeholder="50" className="w-full border border-slate-300 rounded-lg p-1.5 text-right font-mono"/></td>
                           <td className="px-3 py-2 text-right font-mono font-bold text-slate-800 whitespace-nowrap">{((Number(it.qty) || 0) * (Number(it.rate) || 0)) > 0 ? formatCurrency((Number(it.qty) || 0) * (Number(it.rate) || 0)) : '—'}</td>
                           <td className="px-2 py-2 text-center">
@@ -768,8 +802,8 @@ export const PurchaseOrdersPage = () => {
                   <div className="rounded-xl border border-slate-200 bg-slate-50 p-3.5 space-y-2">
                     <h4 className="text-[12px] font-extrabold text-[#17294e] uppercase tracking-wide">Order Summary</h4>
                     <div className="flex items-center justify-between text-[12px]">
-                      <span className="text-slate-500 font-medium">Total Quantity (Meter)</span>
-                      <strong className="font-mono text-slate-900">{lineItems.reduce((s, it) => s + (Number(it.qty) || 0), 0).toLocaleString('en-IN')}</strong>
+                      <span className="text-slate-500 font-medium">Total Quantity</span>
+                      <strong className="font-mono text-slate-900">{formatUnitTotals(sumByUnit(lineItems.filter((it) => Number(it.qty) > 0), { uom: (it) => it.uom || 'Mtr', units }), { units })}</strong>
                     </div>
                     <div className="flex items-center justify-between text-[12px]">
                       <span className="text-slate-500 font-medium">Total Amount (₹)</span>
@@ -834,8 +868,8 @@ export const PurchaseOrdersPage = () => {
                     <thead>
                       <tr className="bg-slate-50 border-b border-slate-200 text-[10.5px] font-bold uppercase tracking-wide text-slate-400">
                         <th className="px-3 py-2">Fabric</th>
-                        <th className="px-3 py-2 text-right">Qty (M)</th>
-                        <th className="px-3 py-2 text-right">Rate (₹/M)</th>
+                        <th className="px-3 py-2 text-right">Qty</th>
+                        <th className="px-3 py-2 text-right">Rate (₹/Unit)</th>
                         <th className="px-3 py-2 text-right">Amount (₹)</th>
                       </tr>
                     </thead>
@@ -843,8 +877,8 @@ export const PurchaseOrdersPage = () => {
                       {getPoLines(selectedPo).map((it, idx) => (
                         <tr key={it.id || idx}>
                           <td className="px-3 py-2 font-medium text-slate-700">{it.name || it.description}</td>
-                          <td className="px-3 py-2 text-right font-mono">{Number(it.qty || 0).toLocaleString('en-IN')}</td>
-                          <td className="px-3 py-2 text-right font-mono">₹{Number(it.rate || 0)}/M</td>
+                          <td className="px-3 py-2 text-right font-mono">{formatQty(it.qty || 0, lineUom(it), { units })}</td>
+                          <td className="px-3 py-2 text-right font-mono">₹{Number(it.rate || 0)}/{lineUom(it)}</td>
                           <td className="px-3 py-2 text-right font-mono font-bold text-slate-800">{formatCurrency(it.amount ?? (Number(it.qty || 0) * Number(it.rate || 0)))}</td>
                         </tr>
                       ))}

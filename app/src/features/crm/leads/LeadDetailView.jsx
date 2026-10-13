@@ -76,6 +76,7 @@ import { formatDateDDMMYYYY } from '../../../utils/dateUtils';
 import { WRITABLE_LEAD_SECTIONS } from '../../../services/leadDetailMap';
 import { loadForms, saveForms, TASK_FORM } from '../../../services/crmForms';
 import { LineItemEditor } from '../../../components/common/LineItemEditor';
+import useUnits from '../../../hooks/useUnits';
 import { loadCrmTasks, saveCrmTasks, runLeadStageAutomation, TASK_SOURCE_AUTOMATION } from '../../../services/leadStageAutomation';
 import { emitCrmEvent, CRM_EVENT_TYPES } from '../../../services/crmEventNotifications';
 import { useAppStore } from '../../../stores/appStore';
@@ -3245,6 +3246,7 @@ function GeneralTab({ lead }) {
 }
 
 // ── 3. Users | Requirements Tab ──────────────────────────────────
+// Used only until the UOM master has loaded (or when it is empty offline).
 const REQUIREMENT_UOM_OPTIONS = ['Meter', 'Kg', 'Taka', 'Roll'];
 const REQUIREMENT_STATUS_OPTIONS = ['Active', 'Draft'];
 
@@ -3286,6 +3288,9 @@ function formatFabricDim(value, suffix = '') {
  * mapping layer translates them to the API payload.
  */
 function RequirementFormFields({ draft, onChange, autoFocus = false }) {
+  const { activeUnits } = useUnits();
+  const uomOptions = activeUnits.length ? activeUnits.map((u) => u.code) : REQUIREMENT_UOM_OPTIONS;
+  if (draft.uom && !uomOptions.includes(draft.uom)) uomOptions.unshift(draft.uom);
   const set = (key) => (event) => onChange({ ...draft, [key]: event.target.value });
   const inputCls = 'mt-2 w-full rounded-lg border border-slate-200 px-3 py-2 text-xs font-normal text-slate-700 focus:outline-none focus:border-blue-500';
   return (
@@ -3380,7 +3385,7 @@ function RequirementFormFields({ draft, onChange, autoFocus = false }) {
       <label className="text-xs font-semibold text-slate-700">
         UOM
         <select value={draft.uom} onChange={set('uom')} className={`${inputCls} bg-white`}>
-          {REQUIREMENT_UOM_OPTIONS.map((opt) => (
+          {uomOptions.map((opt) => (
             <option key={opt} value={opt}>{opt}</option>
           ))}
         </select>

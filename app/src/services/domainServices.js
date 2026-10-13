@@ -166,9 +166,29 @@ export const hrmsService = {
 // ── Inventory ────────────────────────────────────────────────────────────
 
 export const inventoryService = {
+  getDashboard: (query) => api.get('/inventory/dashboard/', { query }),
+  getQCDashboard: (query) => api.get('/inventory/qc/dashboard/', { query }),
+  getQCPending: (query) => api.get('/inventory/qc/pending/', { query }),
+  bulkAssignQC: (data) => api.post('/inventory/qc/pending/bulk-assign/', data),
+  completeQCInspection: (data) => api.post('/inventory/qc/complete/', data),
+  updateQCDisposition: (receiptId, data) => api.post(`/purchase/receipts/${receiptId}/qc/`, data),
+  getQCRegister: (query) => api.get('/inventory/qc/register/', { query }),
+  createManualQC: (data) => api.post('/inventory/qc/register/manual/', data),
+  getQCDispositionList: (query) => api.get('/inventory/qc/disposition/', { query }),
+  saveQCDisposition: (data) => api.post('/inventory/qc/disposition/', data),
+  getQCReinspection: (query) => api.get('/inventory/qc/reinspection/', { query }),
+  createQCReinspection: (data) => api.post('/inventory/qc/reinspection/', data),
+  saveQCReinspectionDisposition: (data) => api.post('/inventory/qc/reinspection/', { ...data, actionType: 'disposition' }),
+  getQCReports: (query) => api.get('/inventory/qc/reports/', { query }),
+  // Lot / Taka Register
+  getLotRegister: (query) => api.get('/inventory/lot-register/', { query }),
+  createLotTaka: (data) => api.post('/inventory/lot-register/', data),
+  updateLotTaka: (id, data) => api.patch(`/inventory/lot-register/${id}/`, data),
   // Existing — preserved
   getItems: (query) => api.get('/inventory/items/', { query }),
   getStockPositions: (query) => api.get('/inventory/stock/', { query }),
+  issueSample: (data) => api.post('/inventory/stock/', { ...data, action: 'issue_sample' }),
+  returnSample: (data) => api.post('/inventory/stock/', { ...data, action: 'return_sample' }),
   getTransfers: (query) => api.get('/inventory/transfers/', { query }),
   getLocations: (query) => api.get('/inventory/locations/', { query }),
   // Master, movements, valuation & audit

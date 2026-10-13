@@ -1,4 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
+import UomSelect from '../../components/common/UomSelect';
+import { formatQty } from '../../utils/uom';
 import { useLocation, useNavigate } from 'react-router-dom';
 import {
   ArrowLeft, CheckCircle2, FileText, Plus, Search,
@@ -10,7 +12,6 @@ import { withSampleTeam } from '../crm/common/sampleTeam';
 import { isBackendEnabled, isServerId } from '../../services/resourceSync';
 import { toISODate } from '../../utils/dateUtils';
 
-const UOMS = ['Meter', 'Yard', 'Nos', 'Kg', 'Piece', 'Set'];
 const GST_RATES = [0, 5, 12, 18, 28];
 const VALIDITIES = [15, 30, 45, 60];
 const PAYMENT_TERMS = [
@@ -140,7 +141,7 @@ export default function QuotationComposerPage({ embedded = null } = {}) {
   const isEmbedded = Boolean(embedded);
   const editQuote = embedded?.editQuote || null;
   const prefill = embedded?.prefill || location.state || {};
-  const { customers = [], items = [], addQuotation, updateQuotation, convertQuotationToSalesOrder, showToast } = useERP() || {};
+  const { customers = [], items = [], units = [], addQuotation, updateQuotation, convertQuotationToSalesOrder, showToast } = useERP() || {};
   const teamMembers = useCrmStore((s) => s.teamMembers);
   const leads = useCrmStore((s) => s.leads);
   const salesTeam = withSampleTeam(teamMembers);
@@ -750,14 +751,20 @@ export default function QuotationComposerPage({ embedded = null } = {}) {
                         <td className="py-1.5 pr-2"><input value={line.gsm} onChange={(e) => updateLine(line.key, { gsm: e.target.value })} className={cellInput} /></td>
                         <td className="py-1.5 pr-2">
                           <span className={`inline-block px-1.5 py-0.5 rounded text-[11px] font-bold ${line.stock != null && num(line.stock) > 0 ? 'bg-emerald-50 text-emerald-700' : 'bg-slate-100 text-slate-500'}`}>
-                            {line.stock != null && line.stock !== '' ? `${num(line.stock).toLocaleString('en-IN')} M` : '—'}
+                            {line.stock != null && line.stock !== '' ? formatQty(num(line.stock), items.find((i) => i.id === line.itemId)?.uom || line.uom, { units }) : '—'}
                           </span>
                         </td>
                         <td className="py-1.5 pr-2"><input type="number" min="0" step="any" value={line.qty} onChange={(e) => updateLine(line.key, { qty: e.target.value })} className={cellInput} /></td>
                         <td className="py-1.5 pr-2">
-                          <select value={line.uom} onChange={(e) => updateLine(line.key, { uom: e.target.value })} className={cellInput}>
-                            {UOMS.map((u) => (<option key={u} value={u}>{u}</option>))}
-                          </select>
+                          {/* Units from the UOM master; with an item picked, only units
+                              that convert to its stock unit are offered. */}
+                          <UomSelect
+                            size="xs"
+                            className="min-w-[72px]"
+                            value={line.uom}
+                            stockUom={items.find((i) => i.id === line.itemId)?.uom}
+                            onChange={(u) => updateLine(line.key, { uom: u })}
+                          />
                         </td>
                         <td className="py-1.5 pr-2"><input type="number" min="0" step="any" value={line.rate} onChange={(e) => updateLine(line.key, { rate: e.target.value })} className={cellInput} /></td>
                         <td className="py-1.5 pr-2"><input type="number" min="0" max="100" step="any" value={line.discPct} onChange={(e) => updateLine(line.key, { discPct: e.target.value })} className={cellInput} /></td>

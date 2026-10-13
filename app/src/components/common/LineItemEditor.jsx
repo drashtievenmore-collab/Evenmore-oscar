@@ -2,6 +2,9 @@ import React, { useState, useMemo, useEffect } from 'react';
 import { Plus, Trash2, Package, ShoppingCart, Boxes, AlertTriangle, Search, X, Layers, ChevronDown, Scale } from 'lucide-react';
 import { useERP } from '../../context/ERPContext';
 import { Button } from '../ui/Button';
+import UomSelect from './UomSelect';
+import useUnits from '../../hooks/useUnits';
+import { factorToStock, formatQty, resolveUnit, unitDecimals } from '../../utils/uom';
 
 const createEmptyLine = () => ({
   id: `li-${Date.now()}-${Math.floor(Math.random() * 10000)}`,
@@ -26,6 +29,7 @@ export const LineItemEditor = ({ items = [], onChange, type = 'sales', readOnly 
       itemParts = [],
       calculateItemStock
     } = useERP();
+    const { units } = useUnits();
 
     const [isStockPickerOpen, setIsStockPickerOpen] = useState(false);
     const [stockPickerTargetMachineId, setStockPickerTargetMachineId] = useState(null);
@@ -228,6 +232,8 @@ export const LineItemEditor = ({ items = [], onChange, type = 'sales', readOnly 
             itemSku: selected.sku,
             name: selected.name,
             description: selected.name,
+            // The item's configured unit; a compatible unit can be picked on the line.
+            uom: (type === 'sales' ? selected.salesUnit : selected.purchaseUnit) || selected.uom || current.uom || '',
             rate: unitRate,
             amount,
             isUserModified: false,
@@ -446,7 +452,12 @@ export const LineItemEditor = ({ items = [], onChange, type = 'sales', readOnly 
                 }
 
                 const availableStock = masterObj ? (masterObj.availableQty ?? masterObj.stock ?? 0) : 0;
-                const deficit = masterObj ? Math.max(0, (item.qty || 1) - availableStock) : 0;
+                // Stock is held in the item's unit; a line in CM is compared as metres.
+                const stockUnit = masterObj?.uom || '';
+                const toStock = masterObj ? (factorToStock(units, item.uom || stockUnit, stockUnit) ?? 1) : 1;
+                const deficit = masterObj
+                  ? Math.round(Math.max(0, (item.qty || 1) * toStock - availableStock) * 10000) / 10000
+                  : 0;
                 const isShortage = masterObj ? deficit > 0 : false;
 
                 const nextItem = displayItems[index + 1];
@@ -611,11 +622,11 @@ export const LineItemEditor = ({ items = [], onChange, type = 'sales', readOnly 
                                     : 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-300 dark:border-emerald-800'
                                 }`}
                               >
-                                {availableStock} Avail
+                                {formatQty(availableStock, stockUnit, { units })} Avail
                               </span>
                               {isShortage && (
                                 <span className="inline-flex items-center gap-1 text-[10px] font-bold text-amber-600 dark:text-amber-400">
-                                  <AlertTriangle size={10} /> Short: {deficit}
+                                  <AlertTriangle size={10} /> Short: {formatQty(deficit, stockUnit, { units })}
                                 </span>
                               )}
                               {isShortage && onRequestPO && !readOnly && (
@@ -635,9 +646,18 @@ export const LineItemEditor = ({ items = [], onChange, type = 'sales', readOnly 
 
                       <td className="px-3 py-2.5 text-center align-top">
                         {!readOnly ? (() => {
-                          const unit = (masterObj?.salesUnit || masterObj?.uom || masterObj?.unit || 'Nos').toLowerCase();
-                          const allowsDecimal = ['kg', 'mtr', 'meter', 'ltr', 'liter', 'ton'].includes(unit);
+                          const lineUnit = item.uom || masterObj?.salesUnit || masterObj?.uom || masterObj?.unit || 'Nos';
+                          const unit = lineUnit.toLowerCase();
+                          // Decimal places come from the UOM master; fall back to the old list.
+                          const masterUnit = resolveUnit(units, lineUnit);
+                          const wholeOnly = masterUnit
+                            ? unitDecimals(units, lineUnit) === 0
+                            : ['nos', 'pcs', 'piece', 'pieces', 'ea', 'each', 'set', 'pair', 'box', 'bundle', 'roll', 'taka'].includes(unit);
+                          const allowsDecimal = !wholeOnly;
+                          const stockUom = masterObj?.uom;
+                          const factor = stockUom ? factorToStock(units, lineUnit, stockUom) : 1;
                           return (
+                            <div className="flex flex-col items-center gap-1">
                             <input
                               type="number"
                               min={allowsDecimal ? "0.01" : "1"}
@@ -653,9 +673,24 @@ export const LineItemEditor = ({ items = [], onChange, type = 'sales', readOnly 
                               }}
                               className="w-16 text-center text-xs font-semibold px-2 py-1.5 rounded-lg border border-border bg-card text-text focus:outline-none focus:border-primary transition"
                             />
+                            {item.itemId && (
+                              <UomSelect
+                                size="xs"
+                                className="w-20"
+                                value={item.uom || stockUom || ''}
+                                stockUom={stockUom}
+                                onChange={(u) => handleFieldChange(index, 'uom', u)}
+                              />
+                            )}
+                            {factor !== 1 && factor !== null && Number(item.qty) > 0 && (
+                              <span className="text-[10px] text-slate-500 whitespace-nowrap" title="Stock is kept in the item's unit">
+                                = {formatQty(Number(item.qty) * factor, stockUom, { units })}
+                              </span>
+                            )}
+                            </div>
                           );
                         })() : (
-                          <span className="font-bold text-text">{item.qty}</span>
+                          <span className="font-bold text-text">{formatQty(item.qty, item.uom || masterObj?.uom || '', { units })}</span>
                         )}
                       </td>
 
@@ -909,7 +944,7 @@ export const LineItemEditor = ({ items = [], onChange, type = 'sales', readOnly 
                     </div>
                     <div className="text-right font-mono shrink-0">
                       <span className="text-xs font-bold text-text block">
-                        {it.availableQty ?? it.stock ?? 0} {it.salesUnit || it.uom || 'Unit'}
+                        {formatQty(it.availableQty ?? it.stock ?? 0, it.uom || it.salesUnit || '', { units })}
                       </span>
                       <span className="text-[10px] text-primary font-sans font-semibold group-hover:underline">
                         {stockPickerTargetMachineId ? '+ Attach to Machine' : '+ Insert Item'}

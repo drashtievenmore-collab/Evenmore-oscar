@@ -150,6 +150,21 @@ const ServiceUsagePage = lazy(() => import('../features/inventory/ServiceUsagePa
 const ZoneRequestsPage = lazy(() => import('../features/inventory/ZoneRequestsPage').then(m => ({ default: m.ZoneRequestsPage })));
 const ValuationAgeingPage = lazy(() => import('../features/inventory/ValuationAgeingPage').then(m => ({ default: m.ValuationAgeingPage })));
 const MonthEndAuditPage = lazy(() => import('../features/inventory/MonthEndAuditPage').then(m => ({ default: m.MonthEndAuditPage })));
+const InventoryDashboardPage = lazy(() => import('../features/inventory/InventoryDashboardPage').then(m => ({ default: m.InventoryDashboardPage })));
+const GenericPage = lazy(() => import('../components/ui/GenericPage'));
+const FabricQualityPage = lazy(() => import('../features/inventory/masters/FabricQualityMasterPage'));
+const DesignMasterPage = lazy(() => import('../features/inventory/masters/textileMasterPages').then(m => ({ default: m.DesignMasterPage })));
+const ShadeMasterPage = lazy(() => import('../features/inventory/masters/ColourShadeMasterPage'));
+const FabricVariantMasterPage = lazy(() => import('../features/inventory/masters/FabricVariantMasterPage'));
+const FabricTypePage = lazy(() => import('../features/inventory/masters/textileMasterPages').then(m => ({ default: m.FabricTypePage })));
+const UomPage = lazy(() => import('../features/inventory/masters/textileMasterPages').then(m => ({ default: m.UomPage })));
+const QCDashboardPage = lazy(() => import('../features/inventory/qc/QCDashboardPage'));
+const QCPendingInspectionsPage = lazy(() => import('../features/inventory/qc/QCPendingInspectionsPage'));
+const QCInspectionRegisterPage = lazy(() => import('../features/inventory/qc/QCInspectionRegisterPage'));
+const QCResultsDispositionPage = lazy(() => import('../features/inventory/qc/QCResultsDispositionPage'));
+const QCReinspectionPage = lazy(() => import('../features/inventory/qc/QCReinspectionPage'));
+const QCReportsPage = lazy(() => import('../features/inventory/qc/QCReportsPage'));
+const LotTakaRegisterPage = lazy(() => import('../features/inventory/LotTakaRegisterPage'));
 
 // ── ERP — Parties (Lazy Loaded) ───────────────────────────────
 const PartiesPage = lazy(() => import('../features/parties/PartiesPage'));
@@ -370,7 +385,22 @@ const router = createBrowserRouter([
       { path: 'parties', element: <Page component={PartiesPage} /> },
 
       // ── Inventory ─────────────────────────────────────────
-      { path: 'inventory', element: <Navigate to="/inventory/items" replace /> },
+      { path: 'inventory', element: <Navigate to="/inventory/dashboard" replace /> },
+      { path: 'inventory/dashboard', element: <Page component={InventoryDashboardPage} title="Inventory Dashboard" /> },
+      { path: 'inventory/fabric/quality', element: <Page component={FabricQualityPage} /> },
+      { path: 'inventory/fabric/design', element: <Page component={DesignMasterPage} /> },
+      { path: 'inventory/fabric/colour', element: <Page component={ShadeMasterPage} /> },
+      { path: 'inventory/fabric/variants', element: <Page component={FabricVariantMasterPage} /> },
+      { path: 'inventory/categories/fabric-type', element: <Page component={FabricTypePage} /> },
+      { path: 'inventory/categories/uom', element: <Page component={UomPage} /> },
+      { path: 'inventory/qc', element: <Page component={QCDashboardPage} title="QC Dashboard" /> },
+      { path: 'inventory/qc/pending', element: <Page component={QCPendingInspectionsPage} title="Pending Inspections" /> },
+      { path: 'inventory/qc/register', element: <Page component={QCInspectionRegisterPage} title="QC Inspection Register" /> },
+      { path: 'inventory/qc/results', element: <Page component={QCResultsDispositionPage} title="QC Results & Disposition" /> },
+      { path: 'inventory/qc/reinspection', element: <Page component={QCReinspectionPage} title="QC Reinspection / Reprocess" /> },
+      { path: 'inventory/qc/reports', element: <Page component={QCReportsPage} title="QC Reports" /> },
+      { path: 'inventory/lot-register', element: <Page component={LotTakaRegisterPage} title="Lot / Taka Register" /> },
+      { path: 'inventory/taka-tags', element: <Page component={GenericPage} title="Taka Tag Print" subtitle="Print tags for takas." /> },
       { path: 'inventory/items', element: <Page component={ItemsMasterPage} /> },
       { path: 'inventory/items/fabric', element: <Page component={ItemsMasterPage} /> },
       { path: 'inventory/items/machines', element: <Page component={ItemsMasterPage} /> },

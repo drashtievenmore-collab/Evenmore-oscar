@@ -1,643 +1,1345 @@
-import React, { useState, useMemo, useEffect } from 'react';
-import { useERP } from '../../context/ERPContext';
-import { DataTable } from '../../components/ui/DataTable';
-import { Button } from '../../components/ui/Button';
-import { Plus, Layers, Clock, Sliders, Trash2, X, Boxes, Wrench, CheckCircle2, Cpu } from 'lucide-react';
-import { PageHeader } from '../../components/common/PageHeader';
-import { useLocation, Link, useNavigate } from 'react-router-dom';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import {
+  Search,
+  Filter,
+  Plus,
+  Eye,
+  SquarePen,
+  MoreHorizontal,
+  ChevronLeft,
+  ChevronRight,
+  X,
+  Trash2,
+  Check,
+  RotateCcw,
+  Layers,
+  Image as ImageIcon,
+  Save,
+  Info,
+  Download,
+  Upload,
+  AlertCircle,
+  AlertTriangle,
+  ArrowLeft,
+  Boxes,
+  ShoppingCart,
+  PackageCheck,
+  TrendingUp,
+  Tag,
+  FileText,
+} from 'lucide-react';
+import { useLocation, useNavigate } from 'react-router-dom';
 
-const categoryGuide = {
-    title: 'Category Hierarchy & Taxonomy',
-    subtitle: 'Organize catalog items, manage lead times, and track asset group valuations',
-    purpose: 'Use this page to classify items into structured product families. Categories establish baseline procurement lead times, SKU code prefixes, custom attribute definitions, BOM sub-part relationships, and aggregated stock valuation analytics.',
-    workflow: ['Create Category', 'Assign Expected Lead Time', 'Define Custom Fields', 'Link SKUs to Category', 'Configure Category BOM / Sub-Parts', 'Monitor Group Asset Valuation'],
-    keyTerms: [
-        {
-            term: 'Category Code',
-            definition: 'A 3-letter prefix (e.g., HDW, CAB, ELEC) used to standardize SKU naming conventions.',
-        },
-        {
-            term: 'Machine Category (hasSubParts)',
-            definition: 'When enabled, product lines under this category represent assembled multi-component systems and composite equipment.',
-        },
-        {
-            term: 'Supplier Lead Time',
-            definition: 'Average number of days between placing a Purchase Order and receiving physical stock at the warehouse dock.',
-        },
-        {
-            term: 'Active SKUs Count',
-            definition: 'The count of active inventory catalog items grouped under this specific category classification.',
-        },
-        {
-            term: 'Custom Fields Schema',
-            definition: 'Dynamic attribute fields defined per category (e.g., Voltage, Warranty, Color, Form Factor) that appear automatically on item creation.',
-        },
-    ],
-    tips: [
-        'Configuring accurate lead times helps forecast restock reorder triggers and prevents stockouts during spikes in demand.',
-        'Use "Manage BOM" to inspect template sub-part relationships for machine categories.',
-    ],
-};
+import { fabricMasterSync, isBackendEnabled, describeError } from '../../services/fabricMasterSync';
+import { uploadFileToBackend } from '../../services/fileUploadService';
+
+const PER_PAGE = 10;
+const STORAGE_KEY = 'inventory:fabricCategories';
+const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
+
+function readLocalCategories() {
+  try {
+    return JSON.parse(localStorage.getItem(STORAGE_KEY) || '[]');
+  } catch {
+    return [];
+  }
+}
+
+function writeLocalCategories(rows) {
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(rows));
+  } catch {
+    // local storage fallback
+  }
+}
+
+function readAsDataUrl(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result);
+    reader.onerror = () => reject(new Error('Could not read the image.'));
+    reader.readAsDataURL(file);
+  });
+}
+
+function formatDisplayDate(dateStr) {
+  if (!dateStr) return '—';
+  try {
+    const d = new Date(dateStr);
+    if (isNaN(d.getTime())) return dateStr;
+    const day = String(d.getDate()).padStart(2, '0');
+    const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    const month = months[d.getMonth()];
+    const year = d.getFullYear();
+    let hours = d.getHours();
+    const minutes = String(d.getMinutes()).padStart(2, '0');
+    const ampm = hours >= 12 ? 'PM' : 'AM';
+    hours = hours % 12 || 12;
+    return `${day} ${month} ${year} ${String(hours).padStart(2, '0')}:${minutes} ${ampm}`;
+  } catch {
+    return dateStr;
+  }
+}
+
+const emptyCategoryForm = () => ({
+  id: '',
+  code: '',
+  name: '',
+  parentId: '',
+  description: '',
+  imageUrl: '',
+  isActive: true,
+});
 
 export const CategoriesPage = () => {
-    const { categories, addCategory, updateCategory, items, categoryParts = [], addCategoryPart, removeCategoryPart } = useERP();
-    const location = useLocation();
-    const navigate = useNavigate();
+  const backendOn = isBackendEnabled();
+  const fileInputRef = useRef(null);
+  const csvInputRef = useRef(null);
+  const location = useLocation();
+  const navigate = useNavigate();
 
-    const isMachineView = location.pathname.includes('/machine');
-    const isStockView = location.pathname.includes('/stock');
+  const [categories, setCategories] = useState(() => (backendOn ? [] : readLocalCategories()));
+  const [loading, setLoading] = useState(backendOn);
+  const [loadError, setLoadError] = useState('');
 
-    const displayCategories = useMemo(() => {
-        if (isMachineView) {
-            return categories.filter((c) => c.hasSubParts);
+  // Filters & Pagination
+  const [search, setSearch] = useState('');
+  const [statusFilter, setStatusFilter] = useState('All');
+  const [showFilterBar, setShowFilterBar] = useState(false);
+  const [page, setPage] = useState(1);
+  const [activeMenuId, setActiveMenuId] = useState(null);
+
+  // Modals & Active Views:
+  // modalMode: 'create' | 'edit' | null
+  const [modalMode, setModalMode] = useState(null);
+  // viewCategory: selected category for Slide 5: View Details
+  const [viewCategory, setViewCategory] = useState(null);
+  // deactivatingCategory: selected category for Slide 6: Delete / Deactivate modal
+  const [deactivatingCategory, setDeactivatingCategory] = useState(null);
+  const [deleteRow, setDeleteRow] = useState(null);
+
+  // Form State for Add / Edit
+  const [form, setForm] = useState(emptyCategoryForm);
+  const [formError, setFormError] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [imageFile, setImageFile] = useState(null);
+  const [imagePreview, setImagePreview] = useState(null);
+  const [imageRemoved, setImageRemoved] = useState(false);
+
+  // Load Categories from API
+  const loadData = useCallback(async () => {
+    if (!backendOn) {
+      setCategories(readLocalCategories());
+      return;
+    }
+    setLoading(true);
+    try {
+      const res = await fabricMasterSync.pull('categories');
+      if (res === null) {
+        setLoadError('Could not load categories from the server.');
+      } else {
+        setCategories(res || []);
+        setLoadError('');
+      }
+    } catch (err) {
+      setLoadError(describeError(err));
+    } finally {
+      setLoading(false);
+    }
+  }, [backendOn]);
+
+  useEffect(() => {
+    loadData();
+  }, [loadData]);
+
+  useEffect(() => {
+    setPage(1);
+  }, [search, statusFilter]);
+
+  // Click outside to dismiss actions menu
+  useEffect(() => {
+    const handleOutsideClick = (e) => {
+      if (!e.target.closest('.action-menu-container')) setActiveMenuId(null);
+    };
+    document.addEventListener('click', handleOutsideClick);
+    return () => document.removeEventListener('click', handleOutsideClick);
+  }, []);
+
+  const byId = (id) => categories.find((c) => String(c.id) === String(id)) || null;
+
+  const updateLocalRows = (updater) => {
+    setCategories((prev) => {
+      const next = updater(prev);
+      writeLocalCategories(next);
+      return next;
+    });
+  };
+
+  // Filtered rows
+  const filtered = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    return categories.filter((c) => {
+      if (statusFilter !== 'All') {
+        const isActive = c.isActive !== false;
+        if (statusFilter === 'Active' && !isActive) return false;
+        if (statusFilter === 'Inactive' && isActive) return false;
+      }
+      if (!q) return true;
+      const parentName = c.parentName || byId(c.parentId)?.name || '';
+      return [c.code, c.name, c.description, parentName]
+        .some((val) => String(val || '').toLowerCase().includes(q));
+    });
+  }, [categories, search, statusFilter]);
+
+  const totalPages = Math.max(1, Math.ceil(filtered.length / PER_PAGE));
+  const safePage = Math.min(page, totalPages);
+  const pageItems = filtered.slice((safePage - 1) * PER_PAGE, safePage * PER_PAGE);
+  const from = filtered.length === 0 ? 0 : (safePage - 1) * PER_PAGE + 1;
+  const to = Math.min(safePage * PER_PAGE, filtered.length);
+
+  // Form open handlers
+  const openCreate = () => {
+    setActiveMenuId(null);
+    setForm(emptyCategoryForm());
+    setImageFile(null);
+    setImagePreview(null);
+    setImageRemoved(false);
+    setFormError('');
+    setModalMode('create');
+  };
+
+  const openEdit = (row) => {
+    setActiveMenuId(null);
+    setForm({
+      id: row.id,
+      code: row.code || '',
+      name: row.name || '',
+      parentId: row.parentId || row.parent || '',
+      description: row.description || '',
+      imageUrl: row.imageUrl || '',
+      isActive: row.isActive !== false,
+    });
+    setImageFile(null);
+    setImagePreview(row.imageUrl || null);
+    setImageRemoved(false);
+    setFormError('');
+    setModalMode('edit');
+  };
+
+  const openView = (row) => {
+    setActiveMenuId(null);
+    setViewCategory(row);
+  };
+
+  const pickImage = (e) => {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file) return;
+    if (!file.type.startsWith('image/')) {
+      setFormError('Choose an image file (PNG, JPG or WebP).');
+      return;
+    }
+    if (file.size > MAX_IMAGE_BYTES) {
+      setFormError('The image must be 5 MB or smaller.');
+      return;
+    }
+    setFormError('');
+    setImageFile(file);
+    setImageRemoved(false);
+    setImagePreview(URL.createObjectURL(file));
+  };
+
+  const removeImage = () => {
+    setImageFile(null);
+    setImagePreview(null);
+    setImageRemoved(true);
+    setForm((prev) => ({ ...prev, imageUrl: '' }));
+  };
+
+  // Submit Add / Edit Form
+  const handleFormSubmit = async (e) => {
+    e.preventDefault();
+    if (saving) return;
+
+    if (!form.code.trim()) {
+      setFormError('Category Code is required.');
+      return;
+    }
+    if (!form.name.trim()) {
+      setFormError('Category Name is required.');
+      return;
+    }
+
+    setSaving(true);
+    setFormError('');
+
+    const clean = {
+      code: form.code.trim().toUpperCase(),
+      name: form.name.trim(),
+      parentId: form.parentId || null,
+      description: form.description.trim() || null,
+      imageUrl: form.imageUrl || null,
+      isActive: Boolean(form.isActive),
+    };
+
+    try {
+      if (backendOn) {
+        if (imageFile) {
+          clean.imageFileId = await uploadFileToBackend(imageFile, imageFile.name, 'other');
+        } else if (imageRemoved) {
+          clean.imageFileId = null;
+          clean.imageUrl = null;
         }
-        if (isStockView) {
-            return categories.filter((c) => !c.hasSubParts);
+
+        if (modalMode === 'edit') {
+          const updated = await fabricMasterSync.update('categories', form.id, clean);
+          if (!updated) throw new Error('No response from the server.');
+          setCategories((prev) => prev.map((c) => (c.id === form.id ? updated : c)));
+          if (viewCategory?.id === form.id) setViewCategory(updated);
+        } else {
+          const created = await fabricMasterSync.create('categories', clean);
+          if (!created) throw new Error('No response from the server.');
+          setCategories((prev) => [created, ...prev]);
         }
-        return categories;
-    }, [categories, isMachineView, isStockView]);
+      } else {
+        const others = categories.filter((c) => c.id !== form.id);
+        if (others.some((c) => String(c.code).toUpperCase() === clean.code)) {
+          throw new Error(`Category Code ${clean.code} is already used.`);
+        }
+        let imageUrl = form.imageUrl || null;
+        if (imageFile) imageUrl = await readAsDataUrl(imageFile);
+        else if (imageRemoved) imageUrl = null;
 
-    const [showAddModal, setShowAddModal] = useState(false);
-    const [managingCategory, setManagingCategory] = useState(null);
-    const [managingBomCategory, setManagingBomCategory] = useState(null);
-    const [name, setName] = useState('');
-    const [code, setCode] = useState('');
-    const [leadTime, setLeadTime] = useState('7');
-    const [hasSubParts, setHasSubParts] = useState(isMachineView);
+        if (modalMode === 'edit') {
+          const updated = {
+            ...form,
+            ...clean,
+            imageUrl,
+            updatedAt: new Date().toISOString(),
+          };
+          updateLocalRows((prev) => prev.map((c) => (c.id === form.id ? updated : c)));
+          if (viewCategory?.id === form.id) setViewCategory(updated);
+        } else {
+          const created = {
+            id: `cat-local-${Date.now()}`,
+            ...clean,
+            imageUrl,
+            createdAt: new Date().toISOString(),
+            updatedAt: new Date().toISOString(),
+          };
+          updateLocalRows((prev) => [created, ...prev]);
+        }
+      }
+      setSaving(false);
+      setModalMode(null);
+    } catch (err) {
+      setFormError(describeError(err));
+      setSaving(false);
+    }
+  };
 
-    useEffect(() => {
-        setHasSubParts(isMachineView);
-    }, [isMachineView, showAddModal]);
-
-    // State for managing custom fields
-    const [newFieldName, setNewFieldName] = useState('');
-    const [newFieldType, setNewFieldType] = useState('text');
-    const [newFieldOptions, setNewFieldOptions] = useState('');
-
-    // State for adding BOM sub-part
-    const [selectedBomItemId, setSelectedBomItemId] = useState('');
-    const [bomDefaultQty, setBomDefaultQty] = useState(1);
-
-    const handleAdd = (e) => {
-        e.preventDefault();
-        addCategory({
-            name: name || 'Hardware Sub-Category',
-            code: (code || 'GEN').toUpperCase(),
-            leadTimeDays: parseInt(leadTime, 10) || 7,
-            hasSubParts: Boolean(hasSubParts),
-            customFields: [],
+  // Slide 6: Confirm Deactivate
+  const handleConfirmDeactivate = async () => {
+    if (!deactivatingCategory) return;
+    try {
+      if (backendOn) {
+        const updated = await fabricMasterSync.update('categories', deactivatingCategory.id, {
+          isActive: false,
         });
-        setShowAddModal(false);
-        setName('');
-        setCode('');
-        setLeadTime('7');
-        setHasSubParts(false);
-    };
-
-    const handleAddCustomField = (e) => {
-        e.preventDefault();
-        if (!managingCategory || !newFieldName.trim()) return;
-
-        const currentFields = managingCategory.customFields || [];
-        const fieldKey = newFieldName.trim().toLowerCase().replace(/\s+/g, '_');
-        const optionsList = newFieldType === 'select'
-            ? newFieldOptions.split(',').map(s => s.trim()).filter(Boolean)
-            : undefined;
-
-        const newField = {
-            id: `cf-${Date.now()}`,
-            name: newFieldName.trim(),
-            key: fieldKey,
-            type: newFieldType,
-            ...(optionsList ? { options: optionsList } : {}),
-        };
-
-        const updatedFields = [...currentFields, newField];
-        updateCategory(managingCategory.id, { customFields: updatedFields });
-        setManagingCategory({ ...managingCategory, customFields: updatedFields });
-        setNewFieldName('');
-        setNewFieldType('text');
-        setNewFieldOptions('');
-    };
-
-    const handleRemoveCustomField = (fieldId) => {
-        if (!managingCategory) return;
-        const currentFields = managingCategory.customFields || [];
-        const updatedFields = currentFields.filter(f => f.id !== fieldId && f.name !== fieldId && f.key !== fieldId);
-        updateCategory(managingCategory.id, { customFields: updatedFields });
-        setManagingCategory({ ...managingCategory, customFields: updatedFields });
-    };
-
-    const handleAddBomPart = (e) => {
-        e.preventDefault();
-        if (!managingBomCategory || !selectedBomItemId) return;
-
-        addCategoryPart({
-            categoryId: managingBomCategory.id,
-            itemId: selectedBomItemId,
-            defaultQty: Number(bomDefaultQty) || 1,
-        });
-
-        setSelectedBomItemId('');
-        setBomDefaultQty(1);
-    };
-
-    const columns = [
-        {
-            key: 'code',
-            header: 'Category Code',
-            width: '12%',
-            render: (c) => <span className="font-mono font-bold text-text-secondary">{c.code}</span>,
-        },
-        {
-            key: 'name',
-            header: 'Category Hierarchy Name',
-            width: '24%',
-            render: (c) => (
-              <div>
-                <span className="font-bold text-text flex items-center gap-1.5">
-                  <Layers size={13} className="text-muted"/> {c.name}
-                </span>
-                {c.hasSubParts && (
-                  <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-purple-700 bg-purple-50 dark:bg-purple-900/30 px-1.5 py-0.5 rounded mt-0.5 border border-purple-200 dark:border-purple-800">
-                    <Boxes size={10} /> Composite / BOM Enabled
-                  </span>
-                )}
-              </div>
-            ),
-        },
-        {
-            key: 'itemCount',
-            header: 'Active SKUs',
-            align: 'center',
-            width: '10%',
-            render: (c) => {
-                const count = items.filter(i => i.category?.toLowerCase() === c.name?.toLowerCase() || i.categoryId === c.id).length;
-                return <span className="font-mono font-semibold text-text">{count}</span>;
-            },
-        },
-        {
-            key: 'bomParts',
-            header: 'Linked BOM Parts',
-            align: 'center',
-            width: '12%',
-            render: (c) => {
-                if (!c.hasSubParts) return <span className="text-muted text-xs">—</span>;
-                const partsCount = categoryParts.filter(cp => cp.categoryId === c.id).length;
-                return (
-                  <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-indigo-50 text-indigo-700 dark:bg-indigo-500/15 dark:text-indigo-400 border border-indigo-200 dark:border-indigo-500/30">
-                    {partsCount} Sub-Part{partsCount === 1 ? '' : 's'}
-                  </span>
-                );
-            },
-        },
-        {
-            key: 'totalValuation',
-            header: 'Assigned Asset Value',
-            align: 'right',
-            width: '14%',
-            render: (c) => {
-                const valuation = items
-                    .filter(i => i.category?.toLowerCase() === c.name?.toLowerCase() || i.categoryId === c.id)
-                    .reduce((sum, i) => sum + ((i.availableQty ?? i.stock ?? 0) * (i.costPrice ?? i.unitCost ?? 0)), 0);
-                return (
-                    <span className="font-mono font-bold text-text">
-                        ₹{valuation.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                    </span>
-                );
-            },
-        },
-        {
-            key: 'customFields',
-            header: 'Custom Attributes',
-            align: 'center',
-            width: '10%',
-            render: (c) => (
-                <span className="text-[11px] font-mono px-2 py-0.5 rounded-full bg-slate-100 dark:bg-slate-800 text-text-secondary border border-border">
-                    {(c.customFields || []).length} field(s)
-                </span>
-            ),
-        },
-        {
-            key: 'leadTimeDays',
-            header: 'Supplier Lead Time',
-            align: 'center',
-            width: '10%',
-            render: (c) => (<span className="text-text-secondary flex items-center justify-center gap-1 text-xs">
-          <Clock size={12} className="text-muted"/> {c.leadTimeDays ?? 7} days
-        </span>),
-        },
-        {
-            key: 'actions',
-            header: 'Actions',
-            align: 'right',
-            width: '14%',
-            render: (c) => (
-                <div className="flex items-center justify-end gap-1.5">
-                    {c.hasSubParts && (
-                      <Button
-                          size="sm"
-                          variant="secondary"
-                          icon={Boxes}
-                          onClick={() => setManagingBomCategory(c)}
-                          className="text-xs py-1 px-2.5 bg-purple-50 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400 hover:bg-purple-100 border border-purple-200 dark:border-purple-800"
-                      >
-                          Manage BOM
-                      </Button>
-                    )}
-                    <Button
-                        size="sm"
-                        variant="outline"
-                        icon={Sliders}
-                        onClick={() => setManagingCategory(c)}
-                        className="text-xs py-1 px-2.5"
-                    >
-                        Fields
-                    </Button>
-                </div>
-            ),
-        },
-    ];
-
-    const currentCategoryParts = managingBomCategory
-      ? categoryParts.filter(cp => cp.categoryId === managingBomCategory.id)
-      : [];
-
-    const pageTitle = isMachineView
-      ? 'Machine Categories'
-      : isStockView
-      ? 'Stock Categories'
-      : 'Category Hierarchy';
-
-    const pageSubtitle = isMachineView
-      ? 'Taxonomic product families for multi-component machines and complex equipment.'
-      : isStockView
-      ? 'Product categories for stock parts, raw supplies, consumables, and standalone items.'
-      : 'Group inventory SKUs, configure category-level custom fields, manage lead times, and monitor asset values.';
-
-    return (<div className="space-y-6">
-      <PageHeader
-        title={pageTitle}
-        subtitle={pageSubtitle}
-        guide={categoryGuide}
-        actions={
-          <div className="flex flex-wrap lg:flex-nowrap items-center gap-2">
-            <Button
-              variant="outline"
-              onClick={() => navigate(isMachineView ? '/inventory/items/machines' : '/inventory/items/stock')}
-            >
-              {isMachineView ? 'View Machines' : 'View Stock Items'}
-            </Button>
-            <Button icon={Plus} onClick={() => setShowAddModal(true)}>
-              {isMachineView ? 'Create Machine Category' : 'Create Category'}
-            </Button>
-          </div>
+        if (updated) {
+          setCategories((prev) => prev.map((c) => (c.id === deactivatingCategory.id ? updated : c)));
         }
-      />
+      } else {
+        updateLocalRows((prev) =>
+          prev.map((c) => (c.id === deactivatingCategory.id ? { ...c, isActive: false } : c))
+        );
+      }
+      if (viewCategory?.id === deactivatingCategory.id) {
+        setViewCategory((prev) => ({ ...prev, isActive: false }));
+      }
+      setDeactivatingCategory(null);
+    } catch (err) {
+      setLoadError(`Could not deactivate category: ${describeError(err)}`);
+    }
+  };
 
-      {/* View Segmented Tabs */}
-      <div className="flex flex-nowrap items-center gap-1 p-1 bg-slate-100 rounded-xl border border-slate-200/80 w-fit max-w-full lg:max-w-none overflow-x-auto lg:overflow-visible whitespace-nowrap lg:whitespace-normal scrollbar-none text-xs font-semibold">
-        <Link
-          to="/inventory/categories"
-          className={`shrink-0 lg:shrink px-3.5 py-1.5 rounded-lg transition-all flex items-center gap-2 ${
-            !isMachineView && !isStockView
-              ? 'bg-white text-blue-600 shadow-2xs font-bold'
-              : 'text-slate-600 hover:text-slate-900'
-          }`}
-        >
-          <Layers size={15} /> All Categories ({categories.length})
-        </Link>
-        <Link
-          to="/inventory/categories/machines"
-          className={`shrink-0 lg:shrink px-3.5 py-1.5 rounded-lg transition-all flex items-center gap-2 ${
-            isMachineView
-              ? 'bg-white text-blue-600 shadow-2xs font-bold'
-              : 'text-slate-600 hover:text-slate-900'
-          }`}
-        >
-          <Cpu size={15} /> Machine Categories ({categories.filter((c) => c.hasSubParts).length})
-        </Link>
-        <Link
-          to="/inventory/categories/stock"
-          className={`shrink-0 lg:shrink px-3.5 py-1.5 rounded-lg transition-all flex items-center gap-2 ${
-            isStockView
-              ? 'bg-white text-blue-600 shadow-2xs font-bold'
-              : 'text-slate-600 hover:text-slate-900'
-          }`}
-        >
-          <Boxes size={15} /> Stock Categories ({categories.filter((c) => !c.hasSubParts).length})
-        </Link>
+  // Direct toggle status
+  const handleToggleStatus = async (row) => {
+    setActiveMenuId(null);
+    const newStatus = row.isActive === false;
+    try {
+      if (backendOn) {
+        const updated = await fabricMasterSync.update('categories', row.id, { isActive: newStatus });
+        if (updated) setCategories((prev) => prev.map((c) => (c.id === row.id ? updated : c)));
+      } else {
+        updateLocalRows((prev) => prev.map((c) => (c.id === row.id ? { ...c, isActive: newStatus } : c)));
+      }
+    } catch (err) {
+      setLoadError(`Could not update status: ${describeError(err)}`);
+    }
+  };
+
+  // Export to CSV
+  const handleExport = () => {
+    if (categories.length === 0) return;
+    const header = ['Category Code', 'Category Name', 'Parent Category', 'Description', 'Status'];
+    const rowsData = categories.map((c) => [
+      c.code || '',
+      c.name || '',
+      c.parentName || byId(c.parentId)?.name || '—',
+      c.description || '',
+      c.isActive !== false ? 'Active' : 'Inactive',
+    ]);
+    const csvContent = [header, ...rowsData].map((r) => r.map((cell) => `"${String(cell).replace(/"/g, '""')}"`).join(',')).join('\n');
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const link = document.createElement('a');
+    link.href = URL.createObjectURL(blob);
+    link.setAttribute('download', `fabric_categories_${new Date().toISOString().slice(0, 10)}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
+  // Import from CSV
+  const handleImport = (e) => {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = async (evt) => {
+      try {
+        const text = evt.target.result;
+        const lines = text.split(/\r?\n/).filter(Boolean);
+        if (lines.length <= 1) return;
+        // Parse CSV lines
+        const importedRows = [];
+        for (let i = 1; i < lines.length; i++) {
+          const cols = lines[i].split(',').map((c) => c.replace(/^"|"$/g, '').trim());
+          if (cols[0] && cols[1]) {
+            importedRows.push({
+              code: cols[0].toUpperCase(),
+              name: cols[1],
+              description: cols[3] || '',
+              isActive: cols[4]?.toLowerCase() !== 'inactive',
+            });
+          }
+        }
+        for (const item of importedRows) {
+          if (backendOn) {
+            await fabricMasterSync.create('categories', item);
+          } else {
+            updateLocalRows((prev) => [{ id: `cat-${Date.now()}-${Math.random()}`, ...item }, ...prev]);
+          }
+        }
+        loadData();
+      } catch (err) {
+        setLoadError('Failed to import categories.');
+      }
+    };
+    reader.readAsText(file);
+  };
+
+  return (
+    <div className="w-full space-y-4">
+      {/* ── Slide 2: Header Block (Blue Badge 2 + Title + Breadcrumbs) ── */}
+      <div className="flex items-center gap-3">
+        <div className="w-8 h-8 rounded-full bg-[#1e60f2] text-white flex items-center justify-center font-bold text-base shrink-0 shadow-xs">
+          2
+        </div>
+        <h1 className="text-xl sm:text-2xl font-bold text-[#0f172a] tracking-tight">
+          Fabric Categories – List
+        </h1>
       </div>
 
-      <DataTable
-        title={isMachineView ? 'Machine Equipment Categories' : isStockView ? 'Stock & Component Categories' : 'Inventory Taxonomic Categories'}
-        columns={columns}
-        data={displayCategories}
-        keyExtractor={(c) => c.id}
-        searchPlaceholder="Filter category name or code..."
-        searchFilter={(c, term) => String(c.name ?? '').toLowerCase().includes(term) || String(c.code ?? '').toLowerCase().includes(term)}
-      />
+      {/* Sub-bar: Breadcrumb Left & Actions Right */}
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 pt-1">
+        <div className="flex items-center gap-2 text-xs text-slate-500 font-medium">
+          <Layers className="w-4 h-4 text-[#1e60f2]" />
+          <span>Categories</span>
+          <span className="text-slate-300 font-bold">&gt;</span>
+          <span className="text-slate-800 font-semibold">Fabric Categories</span>
+        </div>
 
-      {showAddModal && (<div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-2xs p-2 sm:p-4">
-          <div className="bg-white rounded-lg border border-[#CED4DA] shadow-xl max-w-md w-full p-4 sm:p-6 max-h-[95vh] overflow-y-auto">
-            <h3 className="font-bold text-base text-[#1F2E4A] mb-1">
-              Add Inventory Category
-            </h3>
-            <p className="text-xs text-slate-500 mb-4">
-              Configure product group taxonomy, default reorder lead expectations, and BOM assembly behavior.
-            </p>
-
-            <form onSubmit={handleAdd} className="space-y-3 text-xs">
-              <div>
-                <label className="block font-semibold text-slate-700 mb-1">Category Title</label>
-                <input required value={name} onChange={(e) => setName(e.target.value)} className="w-full border border-[#CED4DA] rounded p-2 bg-[#F8F9FA]" placeholder="e.g. Endoscopy Machines"/>
-              </div>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <div>
-                  <label className="block font-semibold text-slate-700 mb-1">Short Code</label>
-                  <input required value={code} onChange={(e) => setCode(e.target.value.toUpperCase())} className="w-full border border-[#CED4DA] rounded p-2 bg-[#F8F9FA] font-mono uppercase" placeholder="ENDO"/>
-                </div>
-                <div>
-                  <label className="block font-semibold text-slate-700 mb-1">Avg Lead Time (Days)</label>
-                  <input type="number" value={leadTime} onChange={(e) => setLeadTime(e.target.value)} className="w-full border border-[#CED4DA] rounded p-2 bg-[#F8F9FA] font-mono"/>
-                </div>
-              </div>
-
-              {/* Has Sub-Parts (BOM) Toggle */}
-              <div className="p-3 bg-purple-50/60 border border-purple-200 rounded-lg flex items-start gap-3">
-                <input
-                  type="checkbox"
-                  id="hasSubParts"
-                  checked={hasSubParts}
-                  onChange={(e) => setHasSubParts(e.target.checked)}
-                  className="mt-0.5 rounded text-brand-primary focus:ring-brand-primary h-4 w-4"
-                />
-                <label htmlFor="hasSubParts" className="cursor-pointer">
-                  <span className="font-bold text-slate-800 block text-xs">This is a Machine Category (hasSubParts)</span>
-                  <span className="text-[11px] text-slate-500 leading-snug block mt-0.5">
-                    When enabled, products under this category represent assembled multi-component equipment.
-                  </span>
-                </label>
-              </div>
-
-              <div className="flex flex-wrap lg:flex-nowrap justify-end gap-2 pt-4 border-t border-slate-200">
-                <button type="button" onClick={() => setShowAddModal(false)} className="px-3.5 py-1.5 border border-[#CED4DA] rounded text-slate-600 hover:bg-slate-100 cursor-pointer">
-                  Cancel
-                </button>
-                <button type="submit" className="px-4 py-1.5 bg-[#1F2E4A] hover:bg-[#152033] text-white rounded font-semibold cursor-pointer">
-                  Save Category
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>)}
-
-      {/* Manage Custom Fields Modal */}
-      {managingCategory && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-2xs p-2 sm:p-4">
-          <div className="bg-white rounded-xl border border-[#CED4DA] shadow-2xl max-w-lg w-full p-4 sm:p-6 space-y-4 max-h-[95vh] overflow-y-auto">
-            <div className="flex items-center justify-between gap-2 lg:gap-0 border-b border-slate-200 pb-3">
-              <div className="min-w-0 lg:min-w-auto">
-                <h3 className="font-bold text-base text-[#1F2E4A] flex items-center gap-2">
-                  <Sliders size={18} className="text-[#1F2E4A]" />
-                  Custom Fields for {managingCategory.name}
-                </h3>
-                <p className="text-xs text-slate-500 mt-0.5">
-                  Dynamic attribute fields that will appear for all items under this category.
-                </p>
-              </div>
+        <div className="flex items-center gap-2.5 flex-wrap sm:flex-nowrap">
+          {/* Search Box */}
+          <div className="relative min-w-[240px] sm:w-80">
+            <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+            <input
+              type="text"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Search category code, name, parent, description..."
+              className="w-full pl-9 pr-8 py-2 bg-white border border-slate-200 rounded-lg text-xs text-slate-800 placeholder-slate-400 focus:outline-none focus:border-blue-500 shadow-2xs transition"
+            />
+            {search && (
               <button
-                onClick={() => setManagingCategory(null)}
-                className="p-1 rounded-md text-slate-400 hover:text-slate-700 hover:bg-slate-100 cursor-pointer"
+                type="button"
+                onClick={() => setSearch('')}
+                className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 cursor-pointer"
+                aria-label="Clear search"
               >
-                <X size={18} />
+                <X className="w-3.5 h-3.5" />
               </button>
-            </div>
-
-            {/* Current Custom Fields List */}
-            <div className="space-y-2">
-              <label className="block font-semibold text-slate-700 text-xs">Existing Custom Fields</label>
-              {(managingCategory.customFields || []).length === 0 ? (
-                <p className="text-xs text-slate-400 italic py-2 bg-slate-50 border border-dashed border-slate-200 rounded-lg text-center">
-                  No custom fields defined for this category yet.
-                </p>
-              ) : (
-                <div className="space-y-2 max-h-48 overflow-y-auto pr-1">
-                  {(managingCategory.customFields || []).map((field) => (
-                    <div
-                      key={field.id || field.name}
-                      className="flex items-center justify-between gap-2 lg:gap-0 p-2.5 bg-slate-50 border border-slate-200 rounded-lg text-xs"
-                    >
-                      <div className="min-w-0 lg:min-w-auto">
-                        <span className="font-bold text-slate-800">{field.name}</span>
-                        <span className="ml-2 font-mono text-[10px] text-slate-500 uppercase px-1.5 py-0.5 bg-white border border-slate-200 rounded">
-                          {field.type}
-                        </span>
-                        {field.options && field.options.length > 0 && (
-                          <span className="text-[11px] text-slate-500 ml-2">
-                            ({field.options.join(', ')})
-                          </span>
-                        )}
-                      </div>
-                      <button
-                        type="button"
-                        onClick={() => handleRemoveCustomField(field.id || field.name)}
-                        className="text-rose-500 hover:text-rose-700 hover:bg-rose-50 p-1 rounded cursor-pointer transition-colors"
-                        title="Delete Field"
-                      >
-                        <Trash2 size={14} />
-                      </button>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-
-            {/* Add New Custom Field Form */}
-            <form onSubmit={handleAddCustomField} className="space-y-3 pt-3 border-t border-slate-200 text-xs">
-              <span className="font-bold text-slate-800 block">Add New Custom Field</span>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <div>
-                  <label className="block font-medium text-slate-700 mb-1">Field Label</label>
-                  <input
-                    required
-                    value={newFieldName}
-                    onChange={(e) => setNewFieldName(e.target.value)}
-                    className="w-full border border-[#CED4DA] rounded p-2 bg-[#F8F9FA]"
-                    placeholder="e.g. Operating Voltage, Warranty"
-                  />
-                </div>
-                <div>
-                  <label className="block font-medium text-slate-700 mb-1">Field Type</label>
-                  <select
-                    value={newFieldType}
-                    onChange={(e) => setNewFieldType(e.target.value)}
-                    className="w-full border border-[#CED4DA] rounded p-2 bg-[#F8F9FA]"
-                  >
-                    <option value="text">Text (String)</option>
-                    <option value="number">Number</option>
-                    <option value="select">Dropdown Selection</option>
-                  </select>
-                </div>
-              </div>
-
-              {newFieldType === 'select' && (
-                <div>
-                  <label className="block font-medium text-slate-700 mb-1">
-                    Options (comma-separated)
-                  </label>
-                  <input
-                    required
-                    value={newFieldOptions}
-                    onChange={(e) => setNewFieldOptions(e.target.value)}
-                    className="w-full border border-[#CED4DA] rounded p-2 bg-[#F8F9FA]"
-                    placeholder="e.g. 1 Year, 3 Years, 5 Years"
-                  />
-                </div>
-              )}
-
-              <div className="flex justify-between items-center pt-2">
-                <Button type="submit" size="sm" icon={Plus}>
-                  Add Field
-                </Button>
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  onClick={() => setManagingCategory(null)}
-                >
-                  Done
-                </Button>
-              </div>
-            </form>
+            )}
           </div>
+
+          {/* Filter Toggle */}
+          <button
+            type="button"
+            onClick={() => setShowFilterBar(!showFilterBar)}
+            className={`p-2 rounded-lg border text-xs font-semibold flex items-center justify-center transition cursor-pointer shadow-2xs ${
+              showFilterBar || statusFilter !== 'All'
+                ? 'bg-blue-50 border-blue-200 text-blue-600'
+                : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50'
+            }`}
+            title="Filter records"
+          >
+            <Filter className="w-4 h-4" />
+          </button>
+
+          {/* + Add New Button */}
+          <button
+            type="button"
+            onClick={openCreate}
+            className="inline-flex items-center gap-1.5 px-3.5 py-2 bg-[#10b981] hover:bg-[#059669] text-white text-xs font-semibold rounded-lg shadow-xs transition cursor-pointer"
+          >
+            <Plus className="w-4 h-4" />
+            <span>Add New</span>
+          </button>
+
+          {/* Import Button */}
+          <input
+            ref={csvInputRef}
+            type="file"
+            accept=".csv"
+            onChange={handleImport}
+            className="hidden"
+          />
+          <button
+            type="button"
+            onClick={() => csvInputRef.current?.click()}
+            className="inline-flex items-center gap-1.5 px-3 py-2 bg-white hover:bg-slate-50 text-slate-700 text-xs font-semibold rounded-lg border border-slate-200 shadow-2xs transition cursor-pointer"
+            title="Import from CSV"
+          >
+            <Upload className="w-3.5 h-3.5 text-slate-500" />
+            <span>Import</span>
+          </button>
+
+          {/* Export Button */}
+          <button
+            type="button"
+            onClick={handleExport}
+            className="inline-flex items-center gap-1.5 px-3 py-2 bg-white hover:bg-slate-50 text-slate-700 text-xs font-semibold rounded-lg border border-slate-200 shadow-2xs transition cursor-pointer"
+            title="Export to CSV"
+          >
+            <Download className="w-3.5 h-3.5 text-slate-500" />
+            <span>Export</span>
+          </button>
+        </div>
+      </div>
+
+      {/* Filter Row */}
+      {showFilterBar && (
+        <div className="flex flex-wrap items-center gap-3 p-3 bg-slate-50 rounded-xl border border-slate-200 text-xs">
+          <div className="flex items-center gap-1.5">
+            <span className="font-semibold text-slate-600">Status:</span>
+            <select
+              value={statusFilter}
+              onChange={(e) => setStatusFilter(e.target.value)}
+              className="bg-white border border-slate-200 rounded-md px-2.5 py-1.5 text-slate-700 focus:outline-none focus:border-blue-500 cursor-pointer"
+            >
+              <option value="All">All</option>
+              <option value="Active">Active</option>
+              <option value="Inactive">Inactive</option>
+            </select>
+          </div>
+          {(statusFilter !== 'All' || search) && (
+            <button
+              type="button"
+              onClick={() => { setStatusFilter('All'); setSearch(''); }}
+              className="inline-flex items-center gap-1 text-slate-500 hover:text-slate-800 font-semibold px-2 py-1.5 hover:bg-slate-200 rounded transition ml-auto cursor-pointer"
+            >
+              <RotateCcw className="w-3 h-3" /> Reset
+            </button>
+          )}
         </div>
       )}
 
-      {/* Manage Category BOM / Sub-Parts Modal */}
-      {managingBomCategory && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-2xs p-2 sm:p-4 animate-in fade-in duration-150">
-          <div className="bg-white rounded-xl border border-[#CED4DA] shadow-2xl max-w-lg w-full p-4 sm:p-6 space-y-4 max-h-[95vh] overflow-y-auto">
-            <div className="flex items-center justify-between gap-2 lg:gap-0 border-b border-slate-200 pb-3">
-              <div className="min-w-0 lg:min-w-auto">
-                <h3 className="font-bold text-base text-[#1F2E4A] flex items-center gap-2">
-                  <Boxes size={18} className="text-purple-600" />
-                  BOM Sub-Parts for {managingBomCategory.name}
-                </h3>
-                <p className="text-xs text-slate-500 mt-0.5">
-                  Sub-components automatically inserted when an item of this category is chosen in orders & invoices.
-                </p>
-              </div>
-              <button
-                onClick={() => setManagingBomCategory(null)}
-                className="p-1 rounded-md text-slate-400 hover:text-slate-700 hover:bg-slate-100 cursor-pointer"
-              >
-                <X size={18} />
-              </button>
-            </div>
+      {loadError && (
+        <div className="flex items-center justify-between px-4 py-2.5 bg-rose-50 border border-rose-200 rounded-xl text-xs text-rose-700">
+          <span>{loadError}</span>
+          <button type="button" onClick={loadData} className="font-semibold underline ml-3 cursor-pointer">
+            Retry
+          </button>
+        </div>
+      )}
 
-            {/* Current Sub-Parts List */}
-            <div className="space-y-2">
-              <label className="block font-semibold text-slate-700 text-xs">
-                Linked Sub-Parts ({currentCategoryParts.length})
-              </label>
-              {currentCategoryParts.length === 0 ? (
-                <p className="text-xs text-slate-400 italic py-3 bg-slate-50 border border-dashed border-slate-200 rounded-lg text-center">
-                  No sub-parts linked to this category yet. Add components below.
-                </p>
-              ) : (
-                <div className="space-y-2 max-h-48 overflow-y-auto pr-1">
-                  {currentCategoryParts.map((part) => {
-                    const item = items.find((i) => i.id === part.itemId);
-                    return (
-                      <div
-                        key={part.id}
-                        className="flex items-center justify-between gap-2 lg:gap-0 p-2.5 bg-slate-50 border border-slate-200 rounded-lg text-xs"
+      {/* ── Slide 2: Fabric Categories Table (Exact 7 Columns) ── */}
+      <div className="bg-white rounded-xl border border-slate-200 shadow-2xs overflow-hidden">
+        <div className="overflow-x-auto">
+          <table className="w-full text-left text-xs border-collapse min-w-[780px]">
+            <thead>
+              <tr className="border-b border-slate-200 bg-[#f8fafc] text-slate-700 font-semibold text-xs">
+                <th className="px-3.5 py-3.5 w-12 text-center text-slate-500 font-medium">#</th>
+                <th className="px-3.5 py-3.5 font-semibold text-slate-800">Category Code</th>
+                <th className="px-3.5 py-3.5 font-semibold text-slate-800">Category Name</th>
+                <th className="px-3.5 py-3.5 font-semibold text-slate-800">Parent Category</th>
+                <th className="px-3.5 py-3.5 font-semibold text-slate-800">Description</th>
+                <th className="px-3.5 py-3.5 font-semibold text-slate-800 text-center">Status</th>
+                <th className="px-4 py-3.5 font-semibold text-slate-800 text-center">Action</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-100">
+              {pageItems.map((r, idx) => {
+                const isActive = r.isActive !== false;
+                const parentObj = byId(r.parentId || r.parent);
+                const parentLabel = r.parentName || parentObj?.name || '-';
+
+                return (
+                  <tr key={r.id} className="transition hover:bg-slate-50/70">
+                    {/* # */}
+                    <td className="px-3.5 py-3.5 text-center text-slate-500 font-medium">
+                      {(safePage - 1) * PER_PAGE + idx + 1}
+                    </td>
+
+                    {/* Category Code */}
+                    <td className="px-3.5 py-3.5 font-semibold text-slate-900 tracking-tight whitespace-nowrap font-mono">
+                      {r.code || '—'}
+                    </td>
+
+                    {/* Category Name */}
+                    <td className="px-3.5 py-3.5 font-medium text-slate-800">
+                      {r.name}
+                    </td>
+
+                    {/* Parent Category */}
+                    <td className="px-3.5 py-3.5 text-slate-600">
+                      {parentLabel}
+                    </td>
+
+                    {/* Description */}
+                    <td className="px-3.5 py-3.5 text-slate-600 max-w-xs truncate" title={r.description}>
+                      {r.description || '—'}
+                    </td>
+
+                    {/* Status Pill Badge */}
+                    <td className="px-3.5 py-3.5 text-center">
+                      <span
+                        className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-[11px] font-semibold tracking-wide ${
+                          isActive
+                            ? 'bg-[#ecfdf5] text-[#10b981] border border-[#a7f3d0]'
+                            : 'bg-[#fef2f2] text-[#ef4444] border border-[#fecaca]'
+                        }`}
                       >
-                        <div className="flex items-center gap-2.5 min-w-0 lg:min-w-auto">
-                          <div className="w-6 h-6 shrink-0 lg:shrink rounded bg-purple-100 text-purple-700 flex items-center justify-center font-bold text-[10px]">
-                            {part.defaultQty}x
-                          </div>
-                          <div>
-                            <span className="font-bold text-slate-800">
-                              {item ? item.name : `Item #${part.itemId}`}
-                            </span>
-                            <div className="text-[11px] text-slate-500 flex flex-wrap lg:flex-nowrap items-center gap-x-2">
-                              <span>SKU: {item?.sku || '—'}</span>
-                              <span>•</span>
-                              <span>Cost: ₹{item?.costPrice || 0}</span>
-                              {item?.trackingMode === 'Serial' && (
-                                <span className="text-[10px] px-1 bg-amber-100 text-amber-800 rounded font-medium">
-                                  Serial Tracked
-                                </span>
-                              )}
-                            </div>
-                          </div>
-                        </div>
+                        {isActive ? 'Active' : 'Inactive'}
+                      </span>
+                    </td>
+
+                    {/* Actions: Edit, Eye, More */}
+                    <td className="px-4 py-3.5 text-center">
+                      <div className="relative inline-flex items-center gap-1.5 action-menu-container">
                         <button
                           type="button"
-                          onClick={() => removeCategoryPart(part.id)}
-                          className="text-rose-500 hover:text-rose-700 hover:bg-rose-50 p-1 rounded cursor-pointer transition-colors"
-                          title="Remove Sub-Part"
+                          onClick={() => openEdit(r)}
+                          title="Edit"
+                          className="p-1.5 text-slate-500 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition cursor-pointer"
                         >
-                          <Trash2 size={14} />
+                          <SquarePen className="w-4 h-4" />
                         </button>
+                        <button
+                          type="button"
+                          onClick={() => openView(r)}
+                          title="View Details"
+                          className="p-1.5 text-slate-500 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition cursor-pointer"
+                        >
+                          <Eye className="w-4 h-4" />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setActiveMenuId(activeMenuId === r.id ? null : r.id)}
+                          title="More Options"
+                          className="p-1.5 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-lg transition cursor-pointer"
+                        >
+                          <MoreHorizontal className="w-4 h-4" />
+                        </button>
+                        {activeMenuId === r.id && (
+                          <div className="absolute right-0 top-8 z-30 w-44 bg-white rounded-lg shadow-lg border border-slate-200 py-1 text-left text-xs animate-in fade-in-50 duration-150">
+                            <button
+                              type="button"
+                              onClick={() => openView(r)}
+                              className="w-full px-3 py-1.5 text-left text-slate-700 hover:bg-slate-50 flex items-center gap-2 cursor-pointer"
+                            >
+                              <Eye className="w-3.5 h-3.5 text-slate-400" /> View Details
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => openEdit(r)}
+                              className="w-full px-3 py-1.5 text-left text-slate-700 hover:bg-slate-50 flex items-center gap-2 cursor-pointer"
+                            >
+                              <SquarePen className="w-3.5 h-3.5 text-slate-400" /> Edit Category
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleToggleStatus(r)}
+                              className="w-full px-3 py-1.5 text-left text-slate-700 hover:bg-slate-50 flex items-center gap-2 cursor-pointer"
+                            >
+                              <Check className="w-3.5 h-3.5 text-slate-400" />
+                              {isActive ? 'Mark Inactive' : 'Mark Active'}
+                            </button>
+                            <div className="h-px bg-slate-100 my-1" />
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setActiveMenuId(null);
+                                setDeactivatingCategory(r);
+                              }}
+                              className="w-full px-3 py-1.5 text-left text-rose-600 hover:bg-rose-50 flex items-center gap-2 cursor-pointer font-semibold"
+                            >
+                              <AlertTriangle className="w-3.5 h-3.5 text-rose-500" /> Deactivate
+                            </button>
+                          </div>
+                        )}
                       </div>
-                    );
-                  })}
-                </div>
+                    </td>
+                  </tr>
+                );
+              })}
+
+              {pageItems.length === 0 && (
+                <tr>
+                  <td colSpan={7} className="px-4 py-12 text-center">
+                    {loading ? (
+                      <div className="flex flex-col items-center justify-center space-y-2">
+                        <div className="w-6 h-6 border-2 border-blue-600 border-t-transparent rounded-full animate-spin" />
+                        <p className="text-xs text-slate-500 font-medium">Loading fabric categories...</p>
+                      </div>
+                    ) : (
+                      <div className="flex flex-col items-center justify-center space-y-2">
+                        <p className="text-sm font-semibold text-slate-700">No fabric categories found</p>
+                        <p className="text-xs text-slate-500 max-w-sm">
+                          {categories.length === 0
+                            ? 'Click "+ Add New" to create your first fabric category classification.'
+                            : 'No categories match your search or filter criteria. Try resetting filters.'}
+                        </p>
+                      </div>
+                    )}
+                  </td>
+                </tr>
               )}
+            </tbody>
+          </table>
+        </div>
+
+        {/* ── Slide 2: Pagination Footer ── */}
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 px-4 py-3 border-t border-slate-100 text-xs text-slate-600 bg-white">
+          <div>
+            Showing {from} to {to} of {filtered.length} entries
+          </div>
+
+          <div className="flex items-center gap-1">
+            <button
+              type="button"
+              disabled={safePage <= 1}
+              onClick={() => setPage(safePage - 1)}
+              className="p-1.5 rounded-lg border border-slate-200 disabled:opacity-30 disabled:cursor-not-allowed hover:bg-slate-50 transition cursor-pointer"
+              aria-label="Previous page"
+            >
+              <ChevronLeft className="w-3.5 h-3.5 text-slate-600" />
+            </button>
+
+            {Array.from({ length: totalPages }, (_, i) => i + 1).map((pageNum) => (
+              <button
+                key={pageNum}
+                type="button"
+                onClick={() => setPage(pageNum)}
+                className={`w-7 h-7 rounded-md text-xs font-semibold transition cursor-pointer flex items-center justify-center ${
+                  pageNum === safePage
+                    ? 'bg-[#1e60f2] text-white shadow-2xs'
+                    : 'bg-white text-slate-700 border border-slate-200 hover:bg-slate-50'
+                }`}
+              >
+                {pageNum}
+              </button>
+            ))}
+
+            <button
+              type="button"
+              disabled={safePage >= totalPages}
+              onClick={() => setPage(safePage + 1)}
+              className="p-1.5 rounded-lg border border-slate-200 disabled:opacity-30 disabled:cursor-not-allowed hover:bg-slate-50 transition cursor-pointer"
+              aria-label="Next page"
+            >
+              <ChevronRight className="w-3.5 h-3.5 text-slate-600" />
+            </button>
+          </div>
+        </div>
+      </div>
+
+      {/* ── Slide 3 & 4: Add / Edit Modal Popup (Matching Slides 3 & 4 Exactly) ── */}
+      {modalMode && (
+        <div
+          className="fixed inset-0 bg-slate-900/40 backdrop-blur-xs flex items-center justify-center z-50 p-3 sm:p-4 animate-in fade-in-50 duration-200"
+          role="dialog"
+          aria-modal="true"
+        >
+          <div className="bg-white rounded-2xl shadow-2xl border border-slate-200 w-full max-w-4xl overflow-hidden max-h-[92vh] flex flex-col">
+            {/* Modal Header */}
+            <div className="p-4 sm:p-6 border-b border-slate-100 bg-[#f8fafc]/50">
+              <div className="flex items-center justify-between gap-4">
+                <div className="flex items-center gap-3">
+                  <div className="w-8 h-8 rounded-full bg-[#1e60f2] text-white flex items-center justify-center font-bold text-base shrink-0 shadow-xs">
+                    {modalMode === 'edit' ? 4 : 3}
+                  </div>
+                  <h2 className="text-xl sm:text-2xl font-bold text-[#0f172a] tracking-tight">
+                    Fabric Category – {modalMode === 'edit' ? 'Edit' : 'Add New'}
+                  </h2>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setModalMode(null)}
+                  className="text-slate-400 hover:text-slate-600 p-1.5 rounded-lg hover:bg-slate-100 transition cursor-pointer"
+                  aria-label="Close"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+
+              {/* Breadcrumb Left & Action Buttons Right */}
+              <div className="flex items-center justify-between gap-3 mt-3 pt-2">
+                <div className="flex items-center gap-2 text-xs text-slate-600 font-medium">
+                  <Layers className="w-4 h-4 text-[#1e60f2]" />
+                  <span>Categories</span>
+                  <span className="text-slate-300 font-bold">&gt;</span>
+                  <span>Fabric Categories</span>
+                  <span className="text-slate-300 font-bold">&gt;</span>
+                  <span className="text-slate-800 font-semibold">
+                    {modalMode === 'edit' ? 'Edit' : 'Add New'}
+                  </span>
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setModalMode(null)}
+                    disabled={saving}
+                    className="px-4 py-2 bg-white hover:bg-slate-50 text-slate-700 font-semibold rounded-lg border border-slate-200 text-xs shadow-2xs transition cursor-pointer"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleFormSubmit}
+                    disabled={saving}
+                    className="px-4 py-2 bg-[#10b981] hover:bg-[#059669] text-white font-semibold rounded-lg text-xs flex items-center gap-1.5 shadow-sm transition cursor-pointer disabled:opacity-50"
+                  >
+                    <Plus className="w-3.5 h-3.5" />
+                    <span>{saving ? 'Saving...' : modalMode === 'edit' ? 'Update' : 'Save'}</span>
+                  </button>
+                </div>
+              </div>
             </div>
 
-            {/* Add New BOM Part Form */}
-            <form onSubmit={handleAddBomPart} className="space-y-3 pt-3 border-t border-slate-200 text-xs">
-              <span className="font-bold text-slate-800 block">Link New Component / Part</span>
-              <div className="grid grid-cols-3 gap-3">
-                <div className="col-span-2">
-                  <label className="block font-medium text-slate-700 mb-1">Select Item SKU</label>
-                  <select
-                    required
-                    value={selectedBomItemId}
-                    onChange={(e) => setSelectedBomItemId(e.target.value)}
-                    className="w-full border border-[#CED4DA] rounded p-2 bg-[#F8F9FA]"
-                  >
-                    <option value="">-- Choose Inventory Item --</option>
-                    {items.map((it) => (
-                      <option key={it.id} value={it.id}>
-                        {it.name} ({it.sku || it.code}) - {it.category || 'General'}
-                      </option>
-                    ))}
-                  </select>
+            {/* Modal Form Body */}
+            <form onSubmit={handleFormSubmit} className="flex-1 overflow-y-auto p-4 sm:p-6 text-xs space-y-4">
+              {formError && (
+                <div className="p-3 bg-rose-50 border border-rose-200 text-rose-700 rounded-lg font-medium text-xs">
+                  {formError}
                 </div>
-                <div>
-                  <label className="block font-medium text-slate-700 mb-1">Default Qty</label>
-                  <input
-                    type="number"
-                    min="1"
-                    required
-                    value={bomDefaultQty}
-                    onChange={(e) => setBomDefaultQty(e.target.value)}
-                    className="w-full border border-[#CED4DA] rounded p-2 bg-[#F8F9FA] font-mono text-center"
-                  />
+              )}
+
+              <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
+                {/* ── Left Column (Inputs) ── */}
+                <div className="lg:col-span-8 space-y-4">
+                  {/* Row 1: Category Code * | Category Name * */}
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
+                    <div>
+                      <label className="block font-semibold text-slate-700 mb-1">
+                        Category Code <span className="text-rose-500">*</span>
+                      </label>
+                      <input
+                        type="text"
+                        required
+                        value={form.code}
+                        onChange={(e) => setForm({ ...form, code: e.target.value.toUpperCase() })}
+                        placeholder="CAT-001"
+                        className="w-full px-3 py-2 bg-white border border-slate-200 rounded-lg focus:outline-none focus:border-blue-500 text-slate-800 font-mono uppercase shadow-2xs"
+                      />
+                    </div>
+                    <div>
+                      <label className="block font-semibold text-slate-700 mb-1">
+                        Category Name <span className="text-rose-500">*</span>
+                      </label>
+                      <input
+                        type="text"
+                        required
+                        value={form.name}
+                        onChange={(e) => setForm({ ...form, name: e.target.value })}
+                        placeholder="Cotton"
+                        className="w-full px-3 py-2 bg-white border border-slate-200 rounded-lg focus:outline-none focus:border-blue-500 text-slate-800 shadow-2xs"
+                      />
+                    </div>
+                  </div>
+
+                  {/* Row 2: Parent Category */}
+                  <div>
+                    <label className="block font-semibold text-slate-700 mb-1">
+                      Parent Category
+                    </label>
+                    <select
+                      value={form.parentId}
+                      onChange={(e) => setForm({ ...form, parentId: e.target.value })}
+                      className="w-full px-3 py-2 bg-white border border-slate-200 rounded-lg focus:outline-none focus:border-blue-500 text-slate-800 shadow-2xs cursor-pointer"
+                    >
+                      <option value="">-- None --</option>
+                      {categories
+                        .filter((c) => c.id !== form.id)
+                        .map((c) => (
+                          <option key={c.id} value={c.id}>
+                            {c.code ? `${c.code} – ${c.name}` : c.name}
+                          </option>
+                        ))}
+                    </select>
+                  </div>
+
+                  {/* Row 3: Description */}
+                  <div>
+                    <label className="block font-semibold text-slate-700 mb-1">Description</label>
+                    <textarea
+                      rows={4}
+                      value={form.description}
+                      onChange={(e) => setForm({ ...form, description: e.target.value })}
+                      placeholder="All cotton fabrics including different weaves and counts."
+                      className="w-full px-3 py-2 bg-white border border-slate-200 rounded-lg focus:outline-none focus:border-blue-500 text-slate-800 shadow-2xs resize-none"
+                    />
+                  </div>
+
+                  {/* Row 4: Status Radio Buttons */}
+                  <div>
+                    <label className="block font-semibold text-slate-700 mb-2">Status</label>
+                    <div className="flex items-center gap-6">
+                      <label className="inline-flex items-center gap-2 font-medium text-slate-800 text-xs cursor-pointer">
+                        <input
+                          type="radio"
+                          name="category-status"
+                          checked={form.isActive}
+                          onChange={() => setForm({ ...form, isActive: true })}
+                          className="w-4 h-4 text-blue-600 focus:ring-blue-500 cursor-pointer"
+                        />
+                        <span>Active</span>
+                      </label>
+
+                      <label className="inline-flex items-center gap-2 font-medium text-slate-800 text-xs cursor-pointer">
+                        <input
+                          type="radio"
+                          name="category-status"
+                          checked={!form.isActive}
+                          onChange={() => setForm({ ...form, isActive: false })}
+                          className="w-4 h-4 text-blue-600 focus:ring-blue-500 cursor-pointer"
+                        />
+                        <span>Inactive</span>
+                      </label>
+                    </div>
+                  </div>
+                </div>
+
+                {/* ── Right Column (Category Image) ── */}
+                <div className="lg:col-span-4 space-y-4">
+                  <div>
+                    <label className="block font-semibold text-slate-700 mb-1.5">
+                      Category Image <span className="font-normal text-slate-400">(Optional)</span>
+                    </label>
+                    <div className="border border-slate-200 rounded-xl p-3 bg-slate-50/50 flex flex-col items-center">
+                      <div className="w-full h-44 rounded-lg bg-slate-100 border border-slate-200/80 overflow-hidden flex items-center justify-center relative">
+                        {imagePreview ? (
+                          <img
+                            src={imagePreview}
+                            alt="Category Preview"
+                            className="w-full h-full object-cover"
+                          />
+                        ) : (
+                          <div className="flex flex-col items-center justify-center text-slate-400 p-4 text-center">
+                            <ImageIcon className="w-10 h-10 stroke-1 mb-1 text-slate-300" />
+                            <span className="text-[11px] text-slate-400 font-medium">No image uploaded</span>
+                          </div>
+                        )}
+                      </div>
+
+                      <input
+                        ref={fileInputRef}
+                        type="file"
+                        accept="image/png,image/jpeg,image/webp,image/gif"
+                        onChange={pickImage}
+                        className="hidden"
+                      />
+
+                      <div className="mt-3 flex items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={() => fileInputRef.current?.click()}
+                          className="px-4 py-1.5 bg-white hover:bg-slate-50 text-blue-600 font-semibold rounded-lg border border-blue-200 text-xs shadow-2xs transition cursor-pointer"
+                        >
+                          {imagePreview ? 'Change Image' : 'Upload Image'}
+                        </button>
+                        {imagePreview && (
+                          <button
+                            type="button"
+                            onClick={removeImage}
+                            title="Remove image"
+                            className="p-1.5 text-rose-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg border border-slate-200 transition cursor-pointer"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  </div>
                 </div>
               </div>
 
-              <div className="flex justify-between items-center pt-2">
-                <Button type="submit" size="sm" icon={Plus} className="bg-purple-700 hover:bg-purple-800 text-white">
-                  Add Sub-Part
-                </Button>
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  onClick={() => setManagingBomCategory(null)}
-                >
-                  Done
-                </Button>
+              {/* Bottom Info Banner */}
+              <div className="mt-4 p-3 bg-blue-50/70 border border-blue-200/80 rounded-xl flex items-center gap-2.5 text-blue-700">
+                <Info className="w-4 h-4 shrink-0 text-blue-600" />
+                <span className="text-xs font-medium">
+                  {modalMode === 'edit'
+                    ? 'Used in fabric items and purchase orders. Category will classify fabrics in purchase, inventory, QC, sales and reports.'
+                    : 'Category will be used to classify fabrics in purchase, inventory, QC, sales and reports.'}
+                </span>
               </div>
             </form>
           </div>
         </div>
       )}
-    </div>);
+
+      {/* ── Slide 5: View Details Modal (Matching Slide 5 Exactly) ── */}
+      {viewCategory && (
+        <div
+          className="fixed inset-0 bg-slate-900/40 backdrop-blur-xs flex items-center justify-center z-50 p-3 sm:p-4 animate-in fade-in-50 duration-200"
+          role="dialog"
+          aria-modal="true"
+        >
+          <div className="bg-white rounded-2xl shadow-2xl border border-slate-200 w-full max-w-4xl overflow-hidden max-h-[92vh] flex flex-col">
+            {/* Header */}
+            <div className="p-4 sm:p-6 border-b border-slate-100 bg-[#f8fafc]/50">
+              <div className="flex items-center justify-between gap-4">
+                <div className="flex items-center gap-3">
+                  <div className="w-8 h-8 rounded-full bg-[#1e60f2] text-white flex items-center justify-center font-bold text-base shrink-0 shadow-xs">
+                    5
+                  </div>
+                  <h2 className="text-xl sm:text-2xl font-bold text-[#0f172a] tracking-tight">
+                    Fabric Category – View Details
+                  </h2>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setViewCategory(null)}
+                  className="text-slate-400 hover:text-slate-600 p-1.5 rounded-lg hover:bg-slate-100 transition cursor-pointer"
+                  aria-label="Close"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+
+              {/* Sub-bar: Breadcrumb Left & Actions Right */}
+              <div className="flex items-center justify-between gap-3 mt-3 pt-2">
+                <div className="flex items-center gap-2 text-xs text-slate-600 font-medium">
+                  <Layers className="w-4 h-4 text-[#1e60f2]" />
+                  <span>Categories</span>
+                  <span className="text-slate-300 font-bold">&gt;</span>
+                  <span>Fabric Categories</span>
+                  <span className="text-slate-300 font-bold">&gt;</span>
+                  <span className="text-slate-800 font-semibold">Details</span>
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const row = viewCategory;
+                      setViewCategory(null);
+                      openEdit(row);
+                    }}
+                    className="px-4 py-2 bg-white hover:bg-slate-50 text-slate-700 font-semibold rounded-lg border border-slate-200 text-xs shadow-2xs transition cursor-pointer flex items-center gap-1.5"
+                  >
+                    <SquarePen className="w-3.5 h-3.5 text-slate-600" />
+                    <span>Edit</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setViewCategory(null)}
+                    className="px-4 py-2 bg-[#1e60f2] hover:bg-[#1550d0] text-white font-semibold rounded-lg text-xs shadow-xs transition cursor-pointer flex items-center gap-1.5"
+                  >
+                    <Plus className="w-3.5 h-3.5" />
+                    <span>Back to List</span>
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            {/* View Details Body */}
+            <div className="flex-1 overflow-y-auto p-4 sm:p-6 text-xs space-y-6">
+              <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
+                {/* ── Left Card: Basic Information ── */}
+                <div className="lg:col-span-6 bg-white border border-slate-200 rounded-xl p-5 shadow-2xs space-y-3.5">
+                  <h3 className="font-bold text-slate-900 text-sm border-b border-slate-100 pb-2">
+                    Basic Information
+                  </h3>
+
+                  <div className="space-y-2.5 text-xs">
+                    <div className="grid grid-cols-12">
+                      <span className="col-span-5 font-semibold text-slate-500">Category Code</span>
+                      <span className="col-span-1 text-slate-400">:</span>
+                      <span className="col-span-6 font-mono font-bold text-slate-900">
+                        {viewCategory.code || '—'}
+                      </span>
+                    </div>
+
+                    <div className="grid grid-cols-12">
+                      <span className="col-span-5 font-semibold text-slate-500">Category Name</span>
+                      <span className="col-span-1 text-slate-400">:</span>
+                      <span className="col-span-6 font-medium text-slate-900">
+                        {viewCategory.name || '—'}
+                      </span>
+                    </div>
+
+                    <div className="grid grid-cols-12">
+                      <span className="col-span-5 font-semibold text-slate-500">Parent Category</span>
+                      <span className="col-span-1 text-slate-400">:</span>
+                      <span className="col-span-6 text-slate-700">
+                        {viewCategory.parentName || byId(viewCategory.parentId)?.name || '-'}
+                      </span>
+                    </div>
+
+                    <div className="grid grid-cols-12">
+                      <span className="col-span-5 font-semibold text-slate-500">Description</span>
+                      <span className="col-span-1 text-slate-400">:</span>
+                      <span className="col-span-6 text-slate-700 leading-relaxed">
+                        {viewCategory.description || '—'}
+                      </span>
+                    </div>
+
+                    <div className="grid grid-cols-12 items-center pt-1">
+                      <span className="col-span-5 font-semibold text-slate-500">Status</span>
+                      <span className="col-span-1 text-slate-400">:</span>
+                      <span className="col-span-6">
+                        <span
+                          className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-[11px] font-semibold tracking-wide ${
+                            viewCategory.isActive !== false
+                              ? 'bg-[#ecfdf5] text-[#10b981] border border-[#a7f3d0]'
+                              : 'bg-[#fef2f2] text-[#ef4444] border border-[#fecaca]'
+                          }`}
+                        >
+                          {viewCategory.isActive !== false ? 'Active' : 'Inactive'}
+                        </span>
+                      </span>
+                    </div>
+
+                    <div className="h-px bg-slate-100 my-2" />
+
+                    <div className="grid grid-cols-12">
+                      <span className="col-span-5 font-semibold text-slate-500">Created By</span>
+                      <span className="col-span-1 text-slate-400">:</span>
+                      <span className="col-span-6 text-slate-700">
+                        {viewCategory.createdBy || 'Admin'}
+                      </span>
+                    </div>
+
+                    <div className="grid grid-cols-12">
+                      <span className="col-span-5 font-semibold text-slate-500">Created Date</span>
+                      <span className="col-span-1 text-slate-400">:</span>
+                      <span className="col-span-6 text-slate-700">
+                        {formatDisplayDate(viewCategory.createdAt || viewCategory.created_at)}
+                      </span>
+                    </div>
+
+                    <div className="grid grid-cols-12">
+                      <span className="col-span-5 font-semibold text-slate-500">Updated By</span>
+                      <span className="col-span-1 text-slate-400">:</span>
+                      <span className="col-span-6 text-slate-700">
+                        {viewCategory.updatedBy || 'Admin'}
+                      </span>
+                    </div>
+
+                    <div className="grid grid-cols-12">
+                      <span className="col-span-5 font-semibold text-slate-500">Updated Date</span>
+                      <span className="col-span-1 text-slate-400">:</span>
+                      <span className="col-span-6 text-slate-700">
+                        {formatDisplayDate(viewCategory.updatedAt || viewCategory.updated_at)}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* ── Right Cards: Category Image & Usage Information ── */}
+                <div className="lg:col-span-6 space-y-4">
+                  {/* Category Image Card */}
+                  <div className="bg-white border border-slate-200 rounded-xl p-4 shadow-2xs">
+                    <h3 className="font-bold text-slate-900 text-xs mb-2.5">
+                      Category Image
+                    </h3>
+                    <div className="w-full h-40 rounded-lg bg-slate-100 border border-slate-200/80 overflow-hidden flex items-center justify-center">
+                      {viewCategory.imageUrl ? (
+                        <img
+                          src={viewCategory.imageUrl}
+                          alt={viewCategory.name}
+                          className="w-full h-full object-cover"
+                        />
+                      ) : (
+                        <div className="flex flex-col items-center justify-center text-slate-400 p-4 text-center">
+                          <ImageIcon className="w-10 h-10 stroke-1 mb-1 text-slate-300" />
+                          <span className="text-[11px] text-slate-400 font-medium">No image available</span>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Usage Information Card (6 Stat Tiles) */}
+                  <div className="bg-white border border-slate-200 rounded-xl p-4 shadow-2xs">
+                    <h3 className="font-bold text-slate-900 text-xs mb-3">
+                      Usage Information
+                    </h3>
+
+                    <div className="grid grid-cols-2 gap-3">
+                      {/* Metric 1: Total Fabric Items */}
+                      <div className="p-3 bg-slate-50/70 border border-slate-100 rounded-lg flex items-center gap-3">
+                        <div className="w-8 h-8 rounded-lg bg-blue-50 text-[#1e60f2] flex items-center justify-center shrink-0">
+                          <Boxes className="w-4 h-4" />
+                        </div>
+                        <div>
+                          <p className="text-[10px] text-slate-500 font-medium">Total Fabric Items</p>
+                          <p className="text-sm font-bold text-slate-900">
+                            {viewCategory.usage?.fabricItems || viewCategory.itemCount || 0}
+                          </p>
+                        </div>
+                      </div>
+
+                      {/* Metric 2: Total Purchase Orders */}
+                      <div className="p-3 bg-slate-50/70 border border-slate-100 rounded-lg flex items-center gap-3">
+                        <div className="w-8 h-8 rounded-lg bg-cyan-50 text-cyan-600 flex items-center justify-center shrink-0">
+                          <ShoppingCart className="w-4 h-4" />
+                        </div>
+                        <div>
+                          <p className="text-[10px] text-slate-500 font-medium">Total Purchase Orders</p>
+                          <p className="text-sm font-bold text-slate-900">
+                            {viewCategory.usage?.purchaseOrders || 0}
+                          </p>
+                        </div>
+                      </div>
+
+                      {/* Metric 3: Total GRN */}
+                      <div className="p-3 bg-slate-50/70 border border-slate-100 rounded-lg flex items-center gap-3">
+                        <div className="w-8 h-8 rounded-lg bg-indigo-50 text-indigo-600 flex items-center justify-center shrink-0">
+                          <PackageCheck className="w-4 h-4" />
+                        </div>
+                        <div>
+                          <p className="text-[10px] text-slate-500 font-medium">Total GRN</p>
+                          <p className="text-sm font-bold text-slate-900">
+                            {viewCategory.usage?.grn || 0}
+                          </p>
+                        </div>
+                      </div>
+
+                      {/* Metric 4: Total Stock Quantity */}
+                      <div className="p-3 bg-slate-50/70 border border-slate-100 rounded-lg flex items-center gap-3">
+                        <div className="w-8 h-8 rounded-lg bg-emerald-50 text-emerald-600 flex items-center justify-center shrink-0">
+                          <TrendingUp className="w-4 h-4" />
+                        </div>
+                        <div>
+                          <p className="text-[10px] text-slate-500 font-medium">Total Stock Quantity</p>
+                          <p className="text-sm font-bold text-slate-900">
+                            {viewCategory.usage?.stockQty ? `${viewCategory.usage.stockQty} Mtr` : '0 Mtr'}
+                          </p>
+                        </div>
+                      </div>
+
+                      {/* Metric 5: Total Sales Orders */}
+                      <div className="p-3 bg-slate-50/70 border border-slate-100 rounded-lg flex items-center gap-3">
+                        <div className="w-8 h-8 rounded-lg bg-teal-50 text-teal-600 flex items-center justify-center shrink-0">
+                          <FileText className="w-4 h-4" />
+                        </div>
+                        <div>
+                          <p className="text-[10px] text-slate-500 font-medium">Total Sales Orders</p>
+                          <p className="text-sm font-bold text-slate-900">
+                            {viewCategory.usage?.salesOrders || 0}
+                          </p>
+                        </div>
+                      </div>
+
+                      {/* Metric 6: Total Samples */}
+                      <div className="p-3 bg-slate-50/70 border border-slate-100 rounded-lg flex items-center gap-3">
+                        <div className="w-8 h-8 rounded-lg bg-purple-50 text-purple-600 flex items-center justify-center shrink-0">
+                          <Tag className="w-4 h-4" />
+                        </div>
+                        <div>
+                          <p className="text-[10px] text-slate-500 font-medium">Total Samples</p>
+                          <p className="text-sm font-bold text-slate-900">
+                            {viewCategory.usage?.samples || 0}
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Slide 6: Delete / Deactivate Modal (Matching Slide 6 Exactly) ── */}
+      {deactivatingCategory && (
+        <div
+          className="fixed inset-0 bg-slate-900/50 backdrop-blur-xs flex items-center justify-center z-50 p-4 animate-in fade-in-50 duration-200"
+          role="dialog"
+          aria-modal="true"
+        >
+          <div className="bg-white rounded-2xl shadow-2xl border border-slate-200 w-full max-w-md p-6 text-center relative animate-in zoom-in-95 duration-150">
+            {/* Close X */}
+            <button
+              type="button"
+              onClick={() => setDeactivatingCategory(null)}
+              className="absolute right-4 top-4 text-slate-400 hover:text-slate-600 p-1 rounded-lg hover:bg-slate-100 transition cursor-pointer"
+              aria-label="Close"
+            >
+              <X className="w-4 h-4" />
+            </button>
+
+            {/* Red / Orange Circular Warning Icon */}
+            <div className="w-16 h-16 rounded-full bg-gradient-to-br from-orange-400 to-red-500 text-white flex items-center justify-center font-bold text-3xl mx-auto mb-4 shadow-md">
+              !
+            </div>
+
+            {/* Title */}
+            <h3 className="text-lg font-bold text-slate-900 tracking-tight">
+              &lsquo;Deactivate Fabric Category?&rsquo;
+            </h3>
+
+            {/* Body */}
+            <p className="text-xs text-slate-600 mt-2.5 px-3 leading-relaxed">
+              Category <span className="font-semibold text-slate-800">&lsquo;{deactivatingCategory.code} - {deactivatingCategory.name}&rsquo;</span> will be marked as inactive. It will not be available for new transactions, but existing data will remain unaffected.
+            </p>
+
+            {/* Buttons */}
+            <div className="flex items-center justify-center gap-3 mt-6">
+              <button
+                type="button"
+                onClick={() => setDeactivatingCategory(null)}
+                className="px-5 py-2.5 bg-white hover:bg-slate-50 text-slate-700 font-semibold rounded-lg border border-slate-200 text-xs shadow-2xs transition cursor-pointer min-w-[100px]"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleConfirmDeactivate}
+                className="px-5 py-2.5 bg-[#ef4444] hover:bg-[#dc2626] text-white font-semibold rounded-lg text-xs shadow-sm transition cursor-pointer min-w-[100px]"
+              >
+                Deactivate
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
 };
+
+export default CategoriesPage;
