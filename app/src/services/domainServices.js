@@ -184,6 +184,12 @@ export const inventoryService = {
   getLotRegister: (query) => api.get('/inventory/lot-register/', { query }),
   createLotTaka: (data) => api.post('/inventory/lot-register/', data),
   updateLotTaka: (id, data) => api.patch(`/inventory/lot-register/${id}/`, data),
+  // Taka Tag Print
+  getTakaTags: (query) => api.get('/inventory/taka-tags/', { query }),
+  recordTakaTagPrint: (data) => api.post('/inventory/taka-tags/print/', data),
+  scanTakaTag: (code) => api.get('/inventory/taka-tags/scan/', { query: { code } }),
+  getTakaTagHistory: (id) => api.get(`/inventory/taka-tags/${id}/history/`),
+  getTakaTagsPdfUrl: (ids) => `/api/inventory/taka-tags/pdf/?ids=${Array.isArray(ids) ? ids.join(',') : ids}`,
   // Existing — preserved
   getItems: (query) => api.get('/inventory/items/', { query }),
   getStockPositions: (query) => api.get('/inventory/stock/', { query }),
@@ -191,6 +197,12 @@ export const inventoryService = {
   returnSample: (data) => api.post('/inventory/stock/', { ...data, action: 'return_sample' }),
   getTransfers: (query) => api.get('/inventory/transfers/', { query }),
   getLocations: (query) => api.get('/inventory/locations/', { query }),
+  getLocationsSummary: () => api.get('/inventory/locations/summary/'),
+  getLocationsHierarchy: () => api.get('/inventory/locations/hierarchy/'),
+  getLocationDetails: (id) => api.get(`/inventory/locations/${id}/details/`),
+  createLocation: (data) => api.post('/inventory/locations/', data),
+  updateLocation: (id, data) => api.patch(`/inventory/locations/${id}/`, data),
+  deleteLocation: (id) => api.delete(`/inventory/locations/${id}/`),
   // Master, movements, valuation & audit
   createItem: (data) => api.post('/inventory/items/', data),
   updateItem: (id, data) => api.patch(`/inventory/items/${id}/`, data),

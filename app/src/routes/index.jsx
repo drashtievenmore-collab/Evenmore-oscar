@@ -165,6 +165,7 @@ const QCResultsDispositionPage = lazy(() => import('../features/inventory/qc/QCR
 const QCReinspectionPage = lazy(() => import('../features/inventory/qc/QCReinspectionPage'));
 const QCReportsPage = lazy(() => import('../features/inventory/qc/QCReportsPage'));
 const LotTakaRegisterPage = lazy(() => import('../features/inventory/LotTakaRegisterPage'));
+const TakaTagPrintPage = lazy(() => import('../features/inventory/TakaTagPrintPage'));
 
 // ── ERP — Parties (Lazy Loaded) ───────────────────────────────
 const PartiesPage = lazy(() => import('../features/parties/PartiesPage'));
@@ -400,7 +401,7 @@ const router = createBrowserRouter([
       { path: 'inventory/qc/reinspection', element: <Page component={QCReinspectionPage} title="QC Reinspection / Reprocess" /> },
       { path: 'inventory/qc/reports', element: <Page component={QCReportsPage} title="QC Reports" /> },
       { path: 'inventory/lot-register', element: <Page component={LotTakaRegisterPage} title="Lot / Taka Register" /> },
-      { path: 'inventory/taka-tags', element: <Page component={GenericPage} title="Taka Tag Print" subtitle="Print tags for takas." /> },
+      { path: 'inventory/taka-tags', element: <Page component={TakaTagPrintPage} title="Taka Tag Print" /> },
       { path: 'inventory/items', element: <Page component={ItemsMasterPage} /> },
       { path: 'inventory/items/fabric', element: <Page component={ItemsMasterPage} /> },
       { path: 'inventory/items/machines', element: <Page component={ItemsMasterPage} /> },

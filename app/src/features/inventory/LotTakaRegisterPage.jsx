@@ -31,6 +31,9 @@ import {
 } from 'lucide-react';
 import { inventoryService, partiesService } from '../../services/domainServices';
 import { useERP } from '../../context/ERPContext';
+import { useNavigate } from 'react-router-dom';
+import QRCode from 'qrcode';
+import { TakaTagLabel } from './TakaTagPrintPage';
 
 // Helper for Indian Currency formatting
 function formatINR(val) {
@@ -147,6 +150,10 @@ export default function LotTakaRegisterPage() {
   // Side Panel / Drawer State ("Lot / Taka Details")
   const [activeLotRecord, setActiveLotRecord] = useState(null);
   const [detailsTab, setDetailsTab] = useState('movements'); // 'movements' | 'measurements' | 'qc'
+
+  const navigate = useNavigate();
+  const [tagQrDataUrl, setTagQrDataUrl] = useState('');
+  const [printingTag, setPrintingTag] = useState(false);
 
   // Modals State
   const [isAddModalOpen, setIsAddModalOpen] = useState(false); // Image 2 Modal Popup
@@ -485,9 +492,46 @@ export default function LotTakaRegisterPage() {
   };
 
   // Print Tag Modal Handler
-  const openPrintTagModal = (row) => {
+  const openPrintTagModal = async (row) => {
     setTagModalRecord(row);
     setIsPrintTagModalOpen(true);
+    try {
+      const qrPayload = JSON.stringify({
+        id: row.takaId || row.barcode || `${row.lotNo}-${row.takaRoll}`,
+        lot: row.lotNo,
+        roll: row.takaRoll,
+        item: row.itemCode,
+        qty: row.receivedQty,
+        qc: row.qcStatus,
+      });
+      const url = await QRCode.toDataURL(qrPayload, {
+        width: 120,
+        margin: 1,
+        color: { dark: '#000000', light: '#ffffff' },
+      });
+      setTagQrDataUrl(url);
+    } catch {
+      setTagQrDataUrl('');
+    }
+  };
+
+  const handlePrintTagAndRecord = async () => {
+    if (!tagModalRecord) return;
+    setPrintingTag(true);
+    try {
+      await inventoryService.recordTakaTagPrint({
+        ids: [tagModalRecord.id],
+        actionType: (tagModalRecord.printCount || 0) > 0 ? 'REPRINT' : 'PRINT',
+        notes: 'Printed from Lot/Taka Register',
+      });
+      fetchData(true);
+      window.print();
+    } catch (err) {
+      console.warn('Failed to record print audit log:', err);
+      window.print();
+    } finally {
+      setPrintingTag(false);
+    }
   };
 
   // CSV Export
@@ -519,8 +563,16 @@ export default function LotTakaRegisterPage() {
           </div>
         </div>
 
-        {/* Action Buttons: [Print] and [+ Add Lot / Taka] */}
+        {/* Action Buttons: [Taka Tag Hub], [Print] and [+ Add Lot / Taka] */}
         <div className="flex items-center gap-2">
+          <button
+            onClick={() => navigate('/inventory/taka-tags')}
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-purple-50 border border-purple-200 hover:bg-purple-100 text-purple-700 rounded-lg text-xs font-bold shadow-xs transition cursor-pointer"
+            title="Open Taka Tag Print Hub with Barcode Scanner & Multi-print"
+          >
+            <Tag size={13} className="text-purple-600" />
+            Taka Tag Hub
+          </button>
           <button
             onClick={() => window.print()}
             className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-white border border-slate-200 hover:bg-slate-50 text-slate-700 rounded-lg text-xs font-semibold shadow-xs transition cursor-pointer"
@@ -2011,11 +2063,14 @@ export default function LotTakaRegisterPage() {
       {/* ── PRINT TAKA TAG MODAL (Feature 4) ──────────────────────────────── */}
       {isPrintTagModalOpen && tagModalRecord && (
         <div className="fixed inset-0 z-50 bg-slate-900/40 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl shadow-2xl border border-slate-200 w-full max-w-sm overflow-hidden animate-in fade-in zoom-in-95 duration-150">
+          <div className="bg-white rounded-2xl shadow-2xl border border-slate-200 w-full max-w-md overflow-hidden animate-in fade-in zoom-in-95 duration-150">
             <div className="flex items-center justify-between p-3.5 border-b border-slate-200 bg-slate-50/70">
               <div className="flex items-center gap-2">
                 <Printer size={16} className="text-purple-600" />
                 <h3 className="text-sm font-bold text-slate-900">Physical Taka Tag Preview</h3>
+                <span className="text-[10px] font-mono bg-purple-50 text-purple-700 px-2 py-0.5 rounded border border-purple-200">
+                  {tagModalRecord.takaId || tagModalRecord.barcode || `${tagModalRecord.lotNo}-${tagModalRecord.takaRoll}`}
+                </span>
               </div>
               <button
                 onClick={() => setIsPrintTagModalOpen(false)}
@@ -2026,82 +2081,47 @@ export default function LotTakaRegisterPage() {
             </div>
 
             {/* Printable Taka Tag Canvas */}
-            <div className="p-5 space-y-3.5 text-xs font-sans text-slate-800">
-              <div className="border-2 border-dashed border-slate-300 rounded-xl p-4 space-y-3 bg-white">
-                <div className="flex justify-between items-center border-b border-slate-200 pb-2">
-                  <div>
-                    <h4 className="font-black text-slate-900 text-sm tracking-tight">OSCAR TEXTILE ERP</h4>
-                    <span className="text-[9.5px] uppercase font-bold text-slate-400 block">Fabric Taka Tag</span>
-                  </div>
-                  <div className="text-right font-mono font-bold text-xs text-blue-600">
-                    {tagModalRecord.barcode || `${tagModalRecord.lotNo}-${tagModalRecord.takaRoll}`}
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-2 gap-2 text-[11px]">
-                  <div>
-                    <span className="text-[9.5px] uppercase font-bold text-slate-400 block">Lot Number</span>
-                    <span className="font-mono font-bold text-slate-900">{tagModalRecord.lotNo}</span>
-                  </div>
-                  <div>
-                    <span className="text-[9.5px] uppercase font-bold text-slate-400 block">Taka / Roll No.</span>
-                    <span className="font-mono font-bold text-slate-900">{tagModalRecord.takaRoll}</span>
-                  </div>
-                  <div>
-                    <span className="text-[9.5px] uppercase font-bold text-slate-400 block">Item Code</span>
-                    <span className="font-mono font-bold text-blue-600">{tagModalRecord.itemCode}</span>
-                  </div>
-                  <div>
-                    <span className="text-[9.5px] uppercase font-bold text-slate-400 block">Quality</span>
-                    <span className="font-medium text-slate-800">{tagModalRecord.quality}</span>
-                  </div>
-                  <div>
-                    <span className="text-[9.5px] uppercase font-bold text-slate-400 block">Design / Shade</span>
-                    <span className="font-medium text-slate-800">
-                      {tagModalRecord.design} / {tagModalRecord.shade}
-                    </span>
-                  </div>
-                  <div>
-                    <span className="text-[9.5px] uppercase font-bold text-slate-400 block">Quantity</span>
-                    <span className="font-mono font-black text-slate-900">
-                      {formatQty(tagModalRecord.receivedQty, tagModalRecord.uom)}
-                    </span>
-                  </div>
-                  <div>
-                    <span className="text-[9.5px] uppercase font-bold text-slate-400 block">Storage Rack</span>
-                    <span className="font-mono text-slate-700">{tagModalRecord.location}</span>
-                  </div>
-                  <div>
-                    <span className="text-[9.5px] uppercase font-bold text-slate-400 block">QC Status</span>
-                    <span className="font-bold text-emerald-700">{tagModalRecord.qcStatus}</span>
-                  </div>
-                </div>
-
-                {/* Simulated Barcode Stripe */}
-                <div className="pt-2 text-center border-t border-slate-200">
-                  <div className="h-8 bg-[repeating-linear-gradient(90deg,#000,#000_2px,transparent_2px,transparent_4px)] w-4/5 mx-auto" />
-                  <span className="font-mono text-[9px] text-slate-500 block mt-1">
-                    *{tagModalRecord.lotNo}-{tagModalRecord.takaRoll}*
-                  </span>
-                </div>
+            <div className="p-4 space-y-3 bg-slate-50">
+              <div className="bg-white p-2 rounded-xl border border-slate-200 shadow-xs flex justify-center">
+                <TakaTagLabel taka={tagModalRecord} qrDataUrl={tagQrDataUrl} />
               </div>
 
-              <div className="flex justify-end gap-2 pt-1">
+              {/* Action Toolbar */}
+              <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-slate-200">
                 <button
                   type="button"
-                  onClick={() => setIsPrintTagModalOpen(false)}
-                  className="px-3 py-1.5 bg-white border border-slate-200 hover:bg-slate-50 text-slate-700 rounded-lg text-xs font-semibold cursor-pointer"
+                  onClick={() => {
+                    setIsPrintTagModalOpen(false);
+                    navigate(`/inventory/taka-tags?search=${encodeURIComponent(tagModalRecord.takaId || tagModalRecord.lotNo)}`);
+                  }}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-xs font-semibold cursor-pointer"
+                  title="Open in full Taka Tag Print Hub with scanner, batch printing and audit logs"
                 >
-                  Close
+                  <Tag size={13} className="text-purple-600" />
+                  Tag Hub
                 </button>
-                <button
-                  type="button"
-                  onClick={() => window.print()}
-                  className="inline-flex items-center gap-1.5 px-4 py-1.5 bg-purple-600 hover:bg-purple-700 text-white rounded-lg text-xs font-bold shadow-xs cursor-pointer"
-                >
-                  <Printer size={13} />
-                  Print Tag
-                </button>
+
+                <div className="flex items-center gap-2 ml-auto">
+                  <a
+                    href={inventoryService.getTakaTagsPdfUrl([tagModalRecord.id])}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="inline-flex items-center gap-1 px-3 py-1.5 bg-white border border-slate-200 hover:bg-slate-50 text-slate-700 rounded-lg text-xs font-semibold shadow-xs cursor-pointer"
+                    title="Download 60x40mm thermal label PDF"
+                  >
+                    <Download size={12} />
+                    PDF Label
+                  </a>
+                  <button
+                    type="button"
+                    onClick={handlePrintTagAndRecord}
+                    disabled={printingTag}
+                    className="inline-flex items-center gap-1.5 px-3.5 py-1.5 bg-purple-600 hover:bg-purple-700 text-white rounded-lg text-xs font-bold shadow-xs cursor-pointer disabled:opacity-50"
+                  >
+                    <Printer size={13} />
+                    {printingTag ? 'Recording...' : 'Print Tag'}
+                  </button>
+                </div>
               </div>
             </div>
           </div>
