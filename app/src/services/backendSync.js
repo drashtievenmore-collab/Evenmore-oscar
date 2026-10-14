@@ -331,8 +331,26 @@ export const RESOURCES = {
   },
   units: {
     path: '/inventory/units/',
-    toApi: (u) => compact({ code: u.code, label: u.label || u.code }),
-    fromApi: (row) => ({ ...row, _synced: true }),
+    toApi: (u) => compact({
+      code: u.code,
+      label: u.label || u.name || u.code,
+      uom_type: u.uomType || u.uom_type || undefined,
+      is_base_unit: u.isBaseUnit ?? u.is_base_unit ?? undefined,
+      decimal_places: u.decimalPlaces ?? u.decimal_places ?? undefined,
+      conversionFactor: u.conversionFactor ?? u.conversion_factor ?? undefined,
+      description: u.description || undefined,
+      is_active: u.isActive ?? u.is_active ?? undefined,
+    }),
+    fromApi: (row) => ({
+      ...row,
+      name: row.label || row.name || row.code,
+      uomType: row.uom_type || row.uomType,
+      isBaseUnit: row.is_base_unit ?? row.isBaseUnit ?? false,
+      decimalPlaces: row.decimal_places ?? row.decimalPlaces ?? 2,
+      conversionFactor: row.conversionFactor ?? row.conversion_factor ?? 1,
+      isActive: row.is_active ?? row.isActive ?? true,
+      _synced: true,
+    }),
   },
   fabrics: {
     path: '/inventory/fabrics/',

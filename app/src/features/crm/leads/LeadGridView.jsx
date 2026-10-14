@@ -1,7 +1,7 @@
 import { Pencil, Phone, Pin } from "lucide-react";
 import LeadAvatar from "./LeadAvatar";
 
-export default function LeadGridView({ rows = [], selected = [], pinnedLeadIds = [], onTogglePin, onToggleOne, onRequestDelete, onAddNote, onOpenLead }) {
+export default function LeadGridView({ rows = [], selected = [], pinnedLeadIds = [], onTogglePin, onToggleOne, onRequestMarkLost, onAddNote, onOpenLead, onMarkLost }) {
   return (
     <div className="lead-tile-grid">
       {rows.map((row) => (
@@ -13,7 +13,7 @@ export default function LeadGridView({ rows = [], selected = [], pinnedLeadIds =
               checked={selected.includes(row.id)}
               onChange={() => {
                 onToggleOne?.(row.id);
-                onRequestDelete?.(row);
+                onRequestMarkLost?.(row);
               }}
               aria-label={`Select ${row.name}`}
             />

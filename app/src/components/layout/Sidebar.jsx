@@ -58,6 +58,10 @@ import {
   Check,
   CheckCircle2,
   LogOut,
+  Spool,
+  CircleCheck,
+  Tag,
+  Warehouse,
   Lock,
 } from 'lucide-react';
 import { useAppStore } from '../../stores/appStore';
@@ -194,33 +198,61 @@ const NAV = [
     label: 'Inventory',
     icon: Package,
     children: [
+      { label: 'Dashboard', icon: Home, to: '/inventory/dashboard' },
       {
-        label: 'Items Master',
-        icon: Boxes,
+        label: 'Fabric Masters',
+        icon: Spool,
         defaultOpen: false,
+        navigateOnOpen: true,
         children: [
-          { label: 'All Items', to: '/inventory/items', dot: true },
-          { label: 'Fabric Items', to: '/inventory/items/fabric' },
-          { label: 'Machine Master', to: '/inventory/items/machines' },
-          { label: 'Stock Inventory', to: '/inventory/items/stock' },
+          { label: 'Fabric Quality Master', to: '/inventory/fabric/quality', dot: true },
+          { label: 'Design Master', to: '/inventory/fabric/design' },
+          { label: 'Colour / Shade Master', to: '/inventory/fabric/colour' },
         ],
       },
+      { label: 'Fabric Item / Variant Master', icon: Boxes, to: '/inventory/fabric/variants' },
       {
         label: 'Categories',
         icon: Layers,
         defaultOpen: false,
+        navigateOnOpen: true,
         children: [
-          { label: 'All Categories', to: '/inventory/categories', dot: true },
-          { label: 'Machine Categories', to: '/inventory/categories/machines' },
-          { label: 'Stock Categories', to: '/inventory/categories/stock' },
+          { label: 'Fabric Categories', to: '/inventory/categories', dot: true },
+          { label: 'Fabric Type / Classification', to: '/inventory/categories/fabric-type' },
+          { label: 'Units of Measurement (UOM)', to: '/inventory/categories/uom' },
         ],
       },
-      { label: 'Stock Position', icon: BarChart3, to: '/inventory/stock-position' },
+      {
+        label: 'Stock Position',
+        icon: BarChart3,
+        defaultOpen: false,
+        navigateOnOpen: true,
+        children: [
+          { label: 'Fabric Stock Overview', to: '/inventory/stock-position', dot: true },
+          { label: 'Sample Inventory', to: '/inventory/stock-position?type=sample' },
+          { label: 'Scrap & Waste Inventory', to: '/inventory/stock-position?type=wastage' },
+          { label: 'Usable Fabric Stock', to: '/inventory/stock-position?type=good' },
+          { label: 'Reprocessing Stock', to: '/inventory/stock-position?type=reprocess' },
+          { label: 'Customer Return Stock', to: '/inventory/stock-position?type=customer-return' },
+        ],
+      },
+      { label: 'Total Inventory', icon: Package, to: '/inventory/items' },
+      {
+        label: 'QC (Quality Check)', icon: CircleCheck, to: '/inventory/qc',
+        navigateOnOpen: true,
+        children: [
+          { label: 'QC Dashboard', to: '/inventory/qc', dot: true },
+          { label: 'Pending Inspections', to: '/inventory/qc/pending' },
+          { label: 'QC Inspection Register', to: '/inventory/qc/register' },
+          { label: 'QC Results & Disposition', to: '/inventory/qc/results' },
+          { label: 'Reinspection / Reprocess', to: '/inventory/qc/reinspection' },
+          { label: 'QC Reports', to: '/inventory/qc/reports' },
+        ],
+      },
+      { label: 'Lot / Taka Register', icon: FileText, to: '/inventory/lot-register' },
+      { label: 'Taka Tag Print', icon: Tag, to: '/inventory/taka-tags' },
       { label: 'Transfers', icon: ArrowLeftRight, to: '/inventory/transfers' },
-      { label: 'Locations', icon: MapPin, to: '/inventory/locations' },
-      // { label: 'Faulty Parts', icon: AlertTriangle, to: '/inventory/faulty-parts', badgeKey: 'faulty' },
-      { label: 'Service Usage', icon: Wrench, to: '/inventory/service-usage' },
-      { label: 'Zone Requests', icon: Send, to: '/inventory/zone-requests', badgeKey: 'zone' },
+      { label: 'Godown / Rack', icon: Warehouse, to: '/inventory/locations' },
       { label: 'Valuation & Ageing', icon: TrendingUp, to: '/inventory/valuation' },
       { label: 'Month-End Audit', icon: CalendarCheck, to: '/inventory/audit' },
     ],
@@ -370,6 +402,35 @@ function isRouteActive(targetPath, currentPath) {
   return false;
 }
 
+// Links such as `/inventory/stock-position?type=sample` share a pathname and
+// differ only by query. NavLink ignores the query, so these are matched here:
+// a query link is active when the URL carries all of its params, and the plain
+// sibling (`/inventory/stock-position`) only when no query sibling matches.
+function queryMatches(target, search) {
+  const [, query = ''] = target.split('?');
+  const current = new URLSearchParams(search);
+  return [...new URLSearchParams(query)].every(([k, v]) => current.get(k) === v);
+}
+
+function isQueryLinkActive(to, { pathname, search }) {
+  const [path, query] = to.split('?');
+  if (pathname !== path) return false;
+  if (query) return queryMatches(to, search);
+  return !ALL_NAV_PATHS.some((p) => p.startsWith(`${path}?`) && queryMatches(p, search));
+}
+
+function hasQuerySiblings(to) {
+  if (!to) return false;
+  const path = to.split('?')[0];
+  return ALL_NAV_PATHS.some((p) => p.startsWith(`${path}?`));
+}
+
+// The page a group opens when `navigateOnOpen` is set: its `dot` child.
+function defaultChildPath(item) {
+  const children = item.children || [];
+  return (children.find((c) => c.dot && c.to) || children.find((c) => c.to))?.to;
+}
+
 // ── Filter navigation tree recursively by search query ──────
 function filterNavTree(items, query) {
   if (!query || !query.trim()) return items;
@@ -453,7 +514,12 @@ function SubItem({ item, depth = 1, badges = {} }) {
         (currentPath === '/crm/leads/forms' ||
           currentPath === '/crm/leads/form-builder' ||
           currentPath === '/crm/leads/create-form')));
-  const isActive = isFormBuilderAlias || isExact || (isPrefix && !hasBetterMatch);
+  const queryLink = hasQuerySiblings(item.to);
+  const isActive = queryLink
+    ? isQueryLinkActive(item.to, location)
+    : isFormBuilderAlias || isExact || (isPrefix && !hasBetterMatch);
+  // NavLink's own match ignores the query string, so query links skip it.
+  const linkActive = (navActive) => isActive || (!queryLink && navActive);
   const count = item.badgeKey ? (badges?.[item.badgeKey] ?? 0) : 0;
   const Icon = item.icon;
   const trainingEnabled = useAppStore((s) => s.trainingEnabled ?? true);
@@ -497,7 +563,7 @@ function SubItem({ item, depth = 1, badges = {} }) {
         end
         title={item.label}
         className={({ isActive: navActive }) =>
-          `sub-group-row${isActive || navActive ? ' active section-active' : ''}`
+          `sub-group-row${linkActive(navActive) ? ' active section-active' : ''}`
         }
       >
         <Icon size={16} strokeWidth={2} className="nav-ico" />
@@ -514,7 +580,7 @@ function SubItem({ item, depth = 1, badges = {} }) {
       end
       title={item.label}
       className={({ isActive: navActive }) =>
-        `sub-item${isActive || navActive ? ' active section-active' : ''}`
+        `sub-item${linkActive(navActive) ? ' active section-active' : ''}`
       }
     >
       <span className="sub-dot" />
@@ -621,6 +687,7 @@ function ModuleToggle({ enabled, onToggle, label }) {
 // ── Expandable group row ────────────────────────────────────
 function ExpandableRow({ item, depth = 0, badges = {} }) {
   const location = useLocation();
+  const navigate = useNavigate();
   const [open, setOpen] = useState(Boolean(item.defaultOpen));
   const Icon = item.icon;
   const recruitmentEnabled = useAppStore((s) => s.recruitmentEnabled ?? true);
@@ -632,11 +699,26 @@ function ExpandableRow({ item, depth = 0, badges = {} }) {
   const moduleEnabled = item.label === 'Recruitment' ? recruitmentEnabled : trainingEnabled;
   const setModuleEnabled = item.label === 'Recruitment' ? setRecruitmentEnabled : setTrainingEnabled;
 
-  // Auto-open if a child route is active
+  // Auto-open if a child route is active. Query links match on their path.
+  const onPath = (to) => {
+    const path = to?.split('?')[0];
+    return Boolean(path) && (location.pathname === path || location.pathname.startsWith(path + '/'));
+  };
   const isChildActive = item.children?.some(
-    (c) => (c.to && (location.pathname === c.to || location.pathname.startsWith(c.to + '/'))) ||
-      (c.children?.some((sub) => sub.to && (location.pathname === sub.to || location.pathname.startsWith(sub.to + '/'))))
+    (c) => onPath(c.to) || c.children?.some((sub) => onPath(sub.to))
   );
+
+  // Groups flagged `navigateOnOpen` open their default page, so the highlight
+  // follows the click. Inside the group already, a click only collapses/expands.
+  const toggleGroup = () => {
+    const target = item.navigateOnOpen && !isChildActive ? defaultChildPath(item) : null;
+    if (target) {
+      setOpen(true);
+      navigate(target);
+      return;
+    }
+    setOpen((v) => !v);
+  };
 
   useEffect(() => {
     if (isChildActive) {
@@ -725,7 +807,7 @@ function ExpandableRow({ item, depth = 0, badges = {} }) {
     <div className="nav-group">
       <button
         type="button"
-        onClick={() => setOpen((v) => !v)}
+        onClick={toggleGroup}
         title={item.label}
         className={
           isRoot

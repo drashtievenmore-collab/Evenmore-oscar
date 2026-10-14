@@ -19,6 +19,14 @@ import {
   Search,
   Trash2,
   CheckCircle,
+  CheckCircle2,
+  ClipboardCheck,
+  ChevronUp,
+  Play,
+  Folder,
+  Calendar,
+  ArrowUp,
+  ArrowDown,
   Eye,
   Send,
   UserCheck,
@@ -68,6 +76,7 @@ import { formatDateDDMMYYYY } from '../../../utils/dateUtils';
 import { WRITABLE_LEAD_SECTIONS } from '../../../services/leadDetailMap';
 import { loadForms, saveForms, TASK_FORM } from '../../../services/crmForms';
 import { LineItemEditor } from '../../../components/common/LineItemEditor';
+import useUnits from '../../../hooks/useUnits';
 import { loadCrmTasks, saveCrmTasks, runLeadStageAutomation, TASK_SOURCE_AUTOMATION } from '../../../services/leadStageAutomation';
 import { emitCrmEvent, CRM_EVENT_TYPES } from '../../../services/crmEventNotifications';
 import { useAppStore } from '../../../stores/appStore';
@@ -272,12 +281,14 @@ function emptyLeadTaskDraft(assignee = '') {
     assignee,
     assigneeId: '',
     description: '',
+    department: 'Sales',
+    icon: 'call',
     proposalId: '',
     deliveryChallanId: '',
     taskFormId: '',
     customValues: {},
     taskDate: '',
-    taskTime: '',
+    taskTime: '09:00',
   };
 }
 
@@ -313,7 +324,9 @@ function formatLeadTaskDueAt(taskDate, taskTime) {
 
 /** Drawer statuses ('Due'/'Completed') <-> API statuses (api.md §9.3). */
 function drawerTaskStatusToServer(status) {
-  return status === 'Completed' ? 'Completed' : 'Open';
+  if (status === 'Completed') return 'Completed';
+  if (status === 'In Progress') return 'In Progress';
+  return 'Open';
 }
 
 /**
@@ -323,16 +336,25 @@ function drawerTaskStatusToServer(status) {
  */
 function serverTaskToDrawerRow(task) {
   const dueDisplay = task.dueDate ? formatDateDDMMYYYY(task.dueDate) : '';
+  const dueTime = task.dueTime || '09:00';
+  const status = task.status === 'Completed' ? 'Completed' : (task.status === 'In Progress' ? 'In Progress' : 'Due');
   return {
     id: `srv-${task.id}`,
     serverTaskId: task.id,
     defaultTask: 'custom',
     title: task.title || '',
     stage: 'New Lead',
-    status: task.status === 'Completed' ? 'Completed' : 'Due',
+    status,
     priority: task.priority || 'Medium',
-    dueAt: dueDisplay ? `${dueDisplay}, 09:00` : '',
-    process: task.status === 'Completed' ? 'Done' : 'Not Started',
+    dueAt: dueDisplay ? `${dueDisplay}, ${dueTime}` : '',
+    taskDate: task.dueDate || '',
+    taskTime: dueTime,
+    startedAt: task.startedAt || null,
+    endedAt: task.endedAt || null,
+    durationSeconds: task.durationSeconds || 0,
+    icon: task.icon || 'call',
+    department: task.department || 'Sales',
+    process: status === 'Completed' ? 'Done' : (status === 'In Progress' ? 'In Progress' : 'Not Started'),
     assignee: task.assigneeName || '',
     assigneeId: task.assigneeId || undefined,
     assigneeName: task.assigneeName || '',
@@ -359,6 +381,12 @@ async function mirrorDrawerTaskToBackend({ leadId, row, taskDate, assigneeName, 
     leadId,
     assigneeId: resolvedId,
     dueDate: taskDate || undefined,
+    dueTime: row.taskTime || undefined,
+    startedAt: row.startedAt || undefined,
+    endedAt: row.endedAt || undefined,
+    durationSeconds: row.durationSeconds || undefined,
+    icon: row.icon || undefined,
+    department: row.department || undefined,
     priority: ['Low', 'Medium', 'High', 'Urgent'].includes(row.priority) ? row.priority : 'Medium',
     status: drawerTaskStatusToServer(row.status),
   };
@@ -1332,7 +1360,7 @@ function LeadTasksTab({ lead, onCountsChange, onActivity }) {
   const masterTaskOptions = useMemo(
     () => (Array.isArray(storeMasterTasks) ? storeMasterTasks : [])
       .filter((task) => String(task?.status || 'Active') === 'Active')
-      .map((task) => ({ id: task.id, name: task.name || task.title || '', title: task.title || task.name || '', priority: task.priority || '', role: task.role || '', taskFormId: task.taskFormId || '', order: task.order || 0 }))
+      .map((task) => ({ id: task.id, name: task.name || task.title || '', title: task.title || task.name || '', priority: task.priority || '', role: task.role || '', order: task.order || 0 }))
       .filter((t) => t.id && t.name)
       .sort((a, b) => (a.order - b.order) || String(a.name).localeCompare(String(b.name))),
     [storeMasterTasks],
@@ -1345,16 +1373,6 @@ function LeadTasksTab({ lead, onCountsChange, onActivity }) {
       setTaskForms(getLeadTaskForms());
     }).catch(() => {});
   }, [isModalOpen]);
-  React.useEffect(() => {
-    if (!isModalOpen) return;
-    if (!form.defaultTask || form.defaultTask === 'custom') return;
-    if (form.taskFormId) return;
-    const preset = (storeMasterTasks || []).find((t) => String(t.id) === String(form.defaultTask));
-    const linked = preset?.taskFormId || '';
-    if (linked) {
-      setForm((current) => ({ ...current, taskFormId: linked, customValues: {} }));
-    }
-  }, [isModalOpen, form.defaultTask, form.taskFormId, storeMasterTasks]);
   const linkedQuotations = useMemo(
     () => (quotations || []).filter((quotation) => quotationMatchesLead(quotation, lead)),
     [lead, quotations]
@@ -1443,8 +1461,115 @@ function LeadTasksTab({ lead, onCountsChange, onActivity }) {
     };
   }, [isModalOpen]);
 
-  const dueTasks = useMemo(() => tasks.filter((t) => t.status === 'Due'), [tasks]);
-  const doneTasks = useMemo(() => tasks.filter((t) => t.status !== 'Due'), [tasks]);
+  const [now, setNow] = useState(Date.now());
+  const [dueTasksExpanded, setDueTasksExpanded] = useState(true);
+  const [completedTasksExpanded, setCompletedTasksExpanded] = useState(true);
+
+  React.useEffect(() => {
+    const hasRunning = tasks.some((t) => t.status === 'In Progress');
+    if (!hasRunning) return;
+    const timer = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(timer);
+  }, [tasks]);
+
+  const dueTasks = useMemo(() => tasks.filter((t) => t.status !== 'Completed'), [tasks]);
+  const doneTasks = useMemo(() => tasks.filter((t) => t.status === 'Completed'), [tasks]);
+
+  function formatTaskDateTime(dateOrIso) {
+    if (!dateOrIso) return '-';
+    const str = String(dateOrIso).trim();
+    if (/^\d{2}[-/]\d{2}[-/]\d{4}/.test(str)) {
+      return str.replace(/\//g, '-');
+    }
+    try {
+      const d = new Date(str);
+      if (!isNaN(d.getTime())) {
+        const day = String(d.getDate()).padStart(2, '0');
+        const month = String(d.getMonth() + 1).padStart(2, '0');
+        const year = d.getFullYear();
+        const hours = String(d.getHours()).padStart(2, '0');
+        const mins = String(d.getMinutes()).padStart(2, '0');
+        return `${day}-${month}-${year}, ${hours}:${mins}`;
+      }
+    } catch {
+      // fallback
+    }
+    return str;
+  }
+
+  function formatDurationHHMMSS(totalSeconds) {
+    const s = Math.max(0, Math.floor(Number(totalSeconds) || 0));
+    const hours = Math.floor(s / 3600);
+    const minutes = Math.floor((s % 3600) / 60);
+    const seconds = s % 60;
+    return [hours, minutes, seconds].map((v) => String(v).padStart(2, '0')).join(':');
+  }
+
+  function getTaskDurationSeconds(task) {
+    const base = Number(task?.durationSeconds) || 0;
+    if (task?.status === 'Completed') {
+      return base;
+    }
+    if (task?.status === 'In Progress' && task?.startedAt) {
+      const elapsed = Math.max(0, Math.floor((now - new Date(task.startedAt).getTime()) / 1000));
+      return base + elapsed;
+    }
+    return base;
+  }
+
+  function handleStartTask(task) {
+    const startedAt = new Date().toISOString();
+    setTasks((prev) =>
+      prev.map((t) =>
+        t.id === task.id
+          ? {
+              ...t,
+              status: 'In Progress',
+              process: 'In Progress',
+              startedAt,
+            }
+          : t
+      )
+    );
+    if (task.serverTaskId && isBackendEnabled()) {
+      useCrmStore.getState().updateTask(task.serverTaskId, {
+        status: 'In Progress',
+        startedAt,
+      }).catch((err) => console.warn('[CRM] drawer task start not saved:', err?.message || err));
+    }
+    onActivity?.(`Task "${task.title}" started`, '#2563eb');
+  }
+
+  function handleStopTask(task) {
+    const endedAt = new Date().toISOString();
+    const currentRun = task.startedAt
+      ? Math.max(0, Math.floor((Date.now() - new Date(task.startedAt).getTime()) / 1000))
+      : 0;
+    const totalDuration = (Number(task.durationSeconds) || 0) + currentRun;
+
+    const stoppedTask = {
+      ...task,
+      status: 'Due',
+      process: 'Paused',
+      startedAt: null,
+      endedAt,
+      durationSeconds: totalDuration,
+    };
+
+    setTasks((prev) =>
+      prev.map((t) => (t.id === task.id ? stoppedTask : t))
+    );
+
+    if (task.serverTaskId && isBackendEnabled()) {
+      useCrmStore.getState().updateTask(task.serverTaskId, {
+        status: 'Open',
+        durationSeconds: totalDuration,
+        endedAt,
+      }).catch((err) => console.warn('[CRM] drawer task stop not saved:', err?.message || err));
+    }
+
+    onActivity?.(`Task "${task.title}" stopped`, '#f59e0b');
+  }
 
   function openCreate() {
     setEditingId(null);
@@ -1471,13 +1596,15 @@ function LeadTasksTab({ lead, onCountsChange, onActivity }) {
       status: task.status === 'Completed' ? 'Completed' : 'Due',
       assignee: currentSelection,
       assigneeId: task.assigneeId || '',
+      department: task.department || 'Sales',
+      icon: task.icon || 'call',
       description: task.description || '',
       proposalId: task.proposalId || '',
       deliveryChallanId: task.deliveryChallanId || '',
       taskFormId: task.taskFormId || '',
       customValues: task.customValues || {},
       taskDate: toTaskDateInput(due),
-      taskTime: toTaskTimeInput(due),
+      taskTime: toTaskTimeInput(due) || '09:00',
     });
     setFormError('');
     setTaskForms(getLeadTaskForms());
@@ -1496,8 +1623,7 @@ function LeadTasksTab({ lead, onCountsChange, onActivity }) {
         const preset = (storeMasterTasks || []).find((t) => String(t.id) === String(value));
         if (preset) {
           const presetName = preset.name || preset.title || '';
-          const nextFormId = preset.taskFormId || '';
-          return { ...current, defaultTask: value, title: presetName, priority: preset.priority || current.priority, taskFormId: nextFormId, customValues: nextFormId !== current.taskFormId ? {} : current.customValues };
+          return { ...current, defaultTask: value, title: presetName, priority: preset.priority || current.priority };
         }
       }
       if (key === 'taskFormId') {
@@ -1615,12 +1741,6 @@ function LeadTasksTab({ lead, onCountsChange, onActivity }) {
       setFormError('Please select an assignee.');
       return;
     }
-    for (const field of selectedTaskFormFields) {
-      if (field.required && !String(form.customValues?.[field.id] ?? '').trim()) {
-        setFormError(`"${field.label}" is required.`);
-        return;
-      }
-    }
     const resolvedAssignee = resolveAssigneeSelection(form.assignee, assigneeOptions);
     const assigneeName = resolvedAssignee.name || String(form.assignee || '').trim();
     const assigneeId = resolvedAssignee.id || (isServerId(form.assigneeId) ? form.assigneeId : '');
@@ -1631,7 +1751,11 @@ function LeadTasksTab({ lead, onCountsChange, onActivity }) {
       status: form.status,
       priority: form.priority,
       dueAt: formatLeadTaskDueAt(form.taskDate, form.taskTime),
-      process: form.status === 'Completed' ? 'Done' : 'Not Started',
+      taskDate: form.taskDate,
+      taskTime: form.taskTime,
+      department: form.department || 'Sales',
+      icon: form.icon || 'call',
+      process: form.status === 'Completed' ? 'Done' : (form.status === 'In Progress' ? 'In Progress' : 'Not Started'),
       assignee: assigneeName,
       assigneeId,
       assigneeName,
@@ -1651,6 +1775,8 @@ function LeadTasksTab({ lead, onCountsChange, onActivity }) {
           description: nextTask.description || undefined,
           assigneeId: assigneeId || undefined,
           dueDate: form.taskDate || undefined,
+          dueTime: form.taskTime || undefined,
+          icon: nextTask.icon || undefined,
           priority: ['Low', 'Medium', 'High', 'Urgent'].includes(nextTask.priority) ? nextTask.priority : 'Medium',
           status: drawerTaskStatusToServer(nextTask.status),
         }).catch((err) => console.warn('[CRM] drawer task not updated:', err?.message || err));
@@ -1706,7 +1832,21 @@ function LeadTasksTab({ lead, onCountsChange, onActivity }) {
   }
 
   function requestTaskCompletion(task) {
-    if (!task || task.status !== 'Due') return;
+    if (!task || task.status === 'Completed') return;
+    if (task.status === 'In Progress' && task.startedAt) {
+      const nowMs = Date.now();
+      const currentRun = Math.max(0, Math.floor((nowMs - new Date(task.startedAt).getTime()) / 1000));
+      const totalDuration = (Number(task.durationSeconds) || 0) + currentRun;
+      const endedAt = new Date(nowMs).toISOString();
+      task = {
+        ...task,
+        durationSeconds: totalDuration,
+        endedAt,
+      };
+      setTasks((prev) =>
+        prev.map((t) => (t.id === task.id ? task : t))
+      );
+    }
     const fields = getLinkedFormFields(task);
     if (task.taskFormId && fields.length > 0) {
       openTaskFormFill(task);
@@ -1911,124 +2051,308 @@ function LeadTasksTab({ lead, onCountsChange, onActivity }) {
     return 'bg-orange-50 text-orange-500 border border-orange-100';
   }
 
-  function renderRow(task, showNote) {
-    const done = task.status !== 'Due';
-    const isAuto = task.source === TASK_SOURCE_AUTOMATION || task.source === 'Created by Lead Stage Automation';
+  function renderCard(task) {
+    const isCompleted = task.status === 'Completed';
+    const isInProgress = task.status === 'In Progress';
+    const isDue = !isCompleted && !isInProgress;
+
     return (
-      <div key={task.id} className="flex items-start justify-between gap-3 px-4 sm:px-5 py-4 hover:bg-slate-50/60 transition">
-        <div className="flex items-start gap-3 min-w-0">
-          <button
-            type="button"
-            role="switch"
-            aria-checked={done}
-            aria-label={done ? 'Mark as due' : 'Mark as completed'}
-            onClick={() => toggleStatus(task)}
-            className={`relative mt-0.5 w-9 h-5 rounded-full transition shrink-0 ${done ? 'bg-[#1d4a79]' : 'bg-slate-200'}`}
-          >
-            <span className={`absolute top-0.5 h-4 w-4 rounded-full bg-white shadow transition-all ${done ? 'left-[18px]' : 'left-0.5'}`} />
-          </button>
-          <div className="min-w-0">
-            <p className="flex flex-wrap items-center gap-x-1.5 gap-y-1 text-[13px]">
-              <span className="font-bold text-slate-900">{task.title}</span>
-              <span className="text-slate-400 font-normal">· {task.stage}</span>
-              <span className={`px-2 py-0.5 rounded text-[10px] font-bold text-white ${done ? 'bg-lime-500' : 'bg-rose-600'}`}>{done ? 'Completed' : 'Due'}</span>
-              {isAuto && (
-                <span className="px-2 py-0.5 rounded text-[10px] font-semibold bg-blue-50 text-blue-700 border border-blue-200">
-                  Created by Lead Stage Automation
-                </span>
-              )}
-            </p>
-            <p className="flex flex-wrap items-center gap-1.5 mt-1.5 text-[11px]">
-              <span className={`px-2 py-0.5 rounded font-bold ${priorityCls(task.priority)}`}>{task.priority}</span>
-              <span className="text-slate-400">·</span>
-              <span className="text-[#1d4a79] font-medium">{task.dueAt}</span>
-              {task.assignee && (
-                <>
-                  <span className="text-slate-400">·</span>
-                  <span className={`font-semibold ${task.assignee === 'Unassigned' ? 'text-amber-600' : 'text-slate-500'}`}>
-                    {task.assignee}
-                  </span>
-                </>
-              )}
-            </p>
-            {task.warning && (
-              <p className="text-[11px] text-amber-800 bg-amber-50 border border-amber-200 px-2 py-1 rounded mt-1.5 font-medium">
-                ⚠️ {task.warning}
-              </p>
-            )}
-            {task.description && <p className="text-[11px] text-slate-500 mt-1">{task.description}</p>}
-            <p className="text-[11px] text-slate-400 mt-1">Process: {task.process || 'Not Started'}</p>
-            {task.taskFormName && (
-              <p className="mt-1 text-[11px] font-semibold text-[#1d4a79]">Form: {task.taskFormName}</p>
-            )}
-            {task.completionOutcome && (
-              <p className="flex flex-wrap items-center gap-1.5 mt-1.5 text-[11px]">
-                <span className="px-2 py-0.5 rounded bg-emerald-50 text-emerald-700 border border-emerald-100 font-semibold">
-                  Outcome: {task.completionOutcome}
-                </span>
-                {task.nextAction && (
-                  <span className="px-2 py-0.5 rounded bg-blue-50 text-blue-700 border border-blue-100 font-semibold">
-                    Next: {NEXT_ACTION_LABELS[task.nextAction] || task.nextAction}
+      <div
+        key={task.id}
+        className="bg-white rounded-2xl border border-slate-200/90 shadow-xs p-5 transition hover:shadow-sm"
+      >
+        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+          {/* Left Column: Icon + Task details */}
+          <div className="flex items-start gap-4 min-w-0 flex-1">
+            <div className="w-12 h-12 rounded-xl bg-emerald-50 text-emerald-600 border border-emerald-100/80 flex items-center justify-center shrink-0 mt-0.5">
+              <Phone size={20} />
+            </div>
+
+            <div className="min-w-0 flex-1">
+              {/* Title & Due badge */}
+              <div className="flex flex-wrap items-center gap-2">
+                <h4 className="text-sm font-bold text-slate-900 leading-tight">
+                  {task.title}
+                </h4>
+                {isDue && (
+                  <span className="px-2.5 py-0.5 rounded-full bg-rose-600 text-white text-[10px] font-bold leading-none">
+                    Due
                   </span>
                 )}
-                {task.completedBy && <span className="text-slate-400">by {task.completedBy}</span>}
-              </p>
+              </div>
+
+              {/* Company & Stage */}
+              <div className="flex flex-wrap items-center gap-x-4 gap-y-1 mt-1.5 text-xs text-slate-600 font-medium">
+                <span className="inline-flex items-center gap-1.5">
+                  <Building2 size={13} className="text-slate-400" />
+                  <span>{lead?.company || lead?.name || 'Company'}</span>
+                </span>
+                <span className="inline-flex items-center gap-1.5">
+                  <Folder size={13} className="text-slate-400" />
+                  <span>{task.stage || lead?.stage?.name || lead?.stage || 'New Lead'}</span>
+                </span>
+              </div>
+
+              {/* Priority, DateTime, Assignee, Department */}
+              <div className="flex flex-wrap items-center gap-x-3.5 gap-y-1.5 mt-2.5 text-xs">
+                {/* Priority pill */}
+                <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-semibold ${
+                  task.priority === 'High' || task.priority === 'Urgent'
+                    ? 'bg-amber-50 text-amber-700 border border-amber-200'
+                    : task.priority === 'Low'
+                    ? 'bg-emerald-50 text-emerald-600 border border-emerald-200'
+                    : 'bg-orange-50/70 text-orange-600 border border-orange-200'
+                }`}>
+                  {task.priority === 'Low' ? <ArrowDown size={11} /> : <ArrowUp size={11} />}
+                  {task.priority || 'Medium'}
+                </span>
+
+                {/* Calendar / Date */}
+                <span className="inline-flex items-center gap-1.5 text-slate-600 font-medium">
+                  <Calendar size={13} className="text-slate-400" />
+                  <span>{task.dueAt || formatTaskDateTime(task.dueDate)}</span>
+                </span>
+
+                {/* Assignee */}
+                <span className="inline-flex items-center gap-1.5 text-slate-600 font-medium">
+                  <User size={13} className="text-slate-400" />
+                  <span>{task.assignee || 'Unassigned'}</span>
+                </span>
+
+                {/* Department */}
+                <span className="inline-flex items-center gap-1.5 text-slate-600 font-medium">
+                  <Tag size={13} className="text-slate-400" />
+                  <span>{task.department || 'Sales'}</span>
+                </span>
+              </div>
+
+              {/* Description */}
+              {task.description && (
+                <p className="text-xs text-slate-600 mt-2 font-normal leading-relaxed">
+                  {task.description}
+                </p>
+              )}
+            </div>
+          </div>
+
+          {/* Right Action Area */}
+          <div className="flex items-center justify-end gap-3 shrink-0 flex-wrap sm:flex-nowrap">
+            {/* Start / In Progress / Completed Widget */}
+            {isDue && (
+              <button
+                type="button"
+                onClick={() => handleStartTask(task)}
+                className="inline-flex items-center gap-2.5 px-5 py-2 rounded-full border border-blue-200 bg-white hover:bg-blue-50/50 hover:border-blue-300 text-blue-600 transition shadow-2xs cursor-pointer group"
+              >
+                <div className="w-8 h-8 rounded-full bg-blue-600 text-white flex items-center justify-center group-hover:scale-105 transition">
+                  <Play size={13} className="fill-white ml-0.5" />
+                </div>
+                <span className="text-xs font-bold text-blue-600">
+                  {task.durationSeconds > 0 ? 'Resume Task' : 'Start Task'}
+                </span>
+                {task.durationSeconds > 0 && (
+                  <span className="text-[11px] font-semibold text-slate-500">
+                    ({formatDurationHHMMSS(task.durationSeconds)})
+                  </span>
+                )}
+              </button>
             )}
+
+            {isInProgress && (
+              <div className="inline-flex items-center gap-3 px-4 py-2 rounded-2xl bg-slate-50 border border-slate-200/90 shadow-2xs">
+                <button
+                  type="button"
+                  onClick={() => handleStopTask(task)}
+                  title="Stop Task"
+                  className="w-9 h-9 rounded-full bg-rose-600 hover:bg-rose-700 text-white flex items-center justify-center transition cursor-pointer shrink-0"
+                >
+                  <Square size={13} className="fill-white" />
+                </button>
+                <div>
+                  <span className="text-[10px] font-medium text-slate-500 block leading-tight">Task in Progress</span>
+                  <span className="text-base font-bold text-slate-900 tracking-tight leading-tight block">
+                    {formatDurationHHMMSS(getTaskDurationSeconds(task))}
+                  </span>
+                </div>
+              </div>
+            )}
+
+            {isCompleted && (
+              <div className="bg-emerald-50/50 border border-emerald-100 rounded-xl p-2.5 text-[11px] text-slate-600 min-w-[210px] space-y-1">
+                <div className="inline-flex items-center gap-1.5 text-emerald-600 font-bold mb-1">
+                  <CheckCircle2 size={13} className="stroke-[2.5]" /> Completed
+                </div>
+                <div className="grid grid-cols-2 gap-x-2 gap-y-0.5 text-slate-600">
+                  <span className="text-slate-400">Start Time</span>
+                  <span className="font-medium text-slate-800">{formatTaskDateTime(task.startedAt || task.dueAt)}</span>
+                  <span className="text-slate-400">End Time</span>
+                  <span className="font-medium text-slate-800">{formatTaskDateTime(task.endedAt || task.completedAt)}</span>
+                  <span className="text-slate-400">Total Duration</span>
+                  <span className="font-medium text-slate-800">{formatDurationHHMMSS(task.durationSeconds || getTaskDurationSeconds(task))}</span>
+                </div>
+              </div>
+            )}
+
+            {/* 3 action buttons: Complete, Edit, Delete */}
+            <div className="flex items-center gap-2">
+              {/* Complete button */}
+              <div className="flex flex-col items-center">
+                <button
+                  type="button"
+                  onClick={() => requestTaskCompletion(task)}
+                  title={isCompleted ? 'Already Completed' : 'Complete Task'}
+                  className={`w-9 h-9 rounded-xl flex items-center justify-center transition shadow-2xs ${
+                    isCompleted
+                      ? 'bg-emerald-500 text-white opacity-80 cursor-default'
+                      : 'bg-emerald-500 hover:bg-emerald-600 text-white cursor-pointer'
+                  }`}
+                >
+                  <ClipboardCheck size={16} />
+                </button>
+                <span className="text-[10px] text-emerald-600 font-semibold mt-1">Complete</span>
+              </div>
+
+              {/* Edit button */}
+              <div className="flex flex-col items-center">
+                <button
+                  type="button"
+                  onClick={() => openEdit(task)}
+                  title="Edit Task"
+                  className="w-9 h-9 rounded-xl bg-blue-100 hover:bg-blue-200 text-blue-600 flex items-center justify-center transition shadow-2xs cursor-pointer"
+                >
+                  <Pencil size={15} />
+                </button>
+                <span className="text-[10px] text-blue-600 font-semibold mt-1">Edit</span>
+              </div>
+
+              {/* Delete button */}
+              <div className="flex flex-col items-center">
+                <button
+                  type="button"
+                  onClick={() => setDeleteId(task.id)}
+                  title="Delete Task"
+                  className="w-9 h-9 rounded-xl bg-rose-500 hover:bg-rose-700 text-white flex items-center justify-center transition shadow-2xs cursor-pointer"
+                >
+                  <Trash2 size={15} />
+                </button>
+                <span className="text-[10px] text-rose-600 font-semibold mt-1">Delete</span>
+              </div>
+            </div>
           </div>
         </div>
-        <div className="flex items-center gap-1.5 shrink-0">
-          {!done && showNote && (
-            <button type="button" onClick={() => requestTaskCompletion(task)} title="Fill Task Form" className="w-8 h-8 grid place-items-center rounded-md bg-lime-500 hover:bg-lime-600 text-white transition">
-              <ClipboardList size={14} />
-            </button>
-          )}
-          <button type="button" onClick={() => openEdit(task)} title="Edit" className="w-8 h-8 grid place-items-center rounded-md bg-[#3a9ab5] hover:bg-[#2f8299] text-white transition">
-            <Pencil size={14} />
-          </button>
-          <button type="button" onClick={() => setDeleteId(task.id)} title="Delete" className="w-8 h-8 grid place-items-center rounded-md bg-rose-600 hover:bg-rose-700 text-white transition">
-            <Trash2 size={14} />
-          </button>
-        </div>
+
+        {/* Attached progress strip for In Progress tasks */}
+        {isInProgress && (
+          <div className="mt-4 pt-3.5 border-t border-slate-100 flex flex-wrap items-center justify-between gap-4 text-xs">
+            <div className="flex items-center gap-2.5">
+              <div className="w-5 h-5 rounded-full bg-emerald-100 text-emerald-600 flex items-center justify-center">
+                <Play size={10} className="fill-emerald-600 ml-0.5" />
+              </div>
+              <div>
+                <span className="text-[11px] text-slate-400 block leading-tight">Start Time</span>
+                <span className="font-semibold text-slate-800">{formatTaskDateTime(task.startedAt)}</span>
+              </div>
+            </div>
+            <div className="h-6 w-px bg-slate-200 hidden sm:block" />
+            <div className="flex items-center gap-2.5">
+              <div className="w-5 h-5 rounded-full bg-rose-100 text-rose-600 flex items-center justify-center">
+                <Square size={9} className="fill-rose-600" />
+              </div>
+              <div>
+                <span className="text-[11px] text-slate-400 block leading-tight">End Time</span>
+                <span className="font-semibold text-slate-800">-</span>
+              </div>
+            </div>
+            <div className="h-6 w-px bg-slate-200 hidden sm:block" />
+            <div className="flex items-center gap-2.5">
+              <div className="w-5 h-5 rounded-full bg-blue-100 text-blue-600 flex items-center justify-center">
+                <Clock size={11} className="text-blue-600" />
+              </div>
+              <div>
+                <span className="text-[11px] text-slate-400 block leading-tight">Total Duration</span>
+                <span className="font-semibold text-blue-600">
+                  {formatDurationHHMMSS(getTaskDurationSeconds(task))} (In Progress)
+                </span>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     );
   }
 
   return (
     <div className="bg-white rounded-2xl border border-slate-200/80 shadow-sm overflow-hidden">
-      <div className="flex items-center justify-between px-4 sm:px-5 py-3">
-        <h3 className="text-[15px] font-bold text-slate-900">Tasks</h3>
+      {/* Header */}
+      <div className="flex items-center justify-between px-6 py-4 bg-white border-b border-slate-100">
+        <div className="flex items-center gap-2.5">
+          <ClipboardList className="w-5 h-5 text-slate-800" />
+          <h3 className="text-base font-bold text-slate-900">Tasks</h3>
+        </div>
         <button
           type="button"
           onClick={openCreate}
-          title="Add Lead Task"
-          aria-label="Add Lead Task"
-          className="w-8 h-8 grid place-items-center rounded-md bg-[#1d3f6e] hover:bg-[#16325a] text-white transition"
+          className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold shadow-xs transition"
         >
-          <Plus size={16} />
+          <Plus size={15} /> Add Task
         </button>
       </div>
 
-      <div className="flex items-center gap-2 px-4 sm:px-5 py-2.5 bg-rose-100/80 border-y border-rose-100">
-        <h4 className="text-[13px] font-bold text-slate-800">Due Tasks</h4>
-        <span className="min-w-5 h-5 px-1.5 grid place-items-center rounded bg-slate-500/80 text-white text-[11px] font-bold">{dueTasks.length}</span>
+      {/* Due Tasks Section */}
+      <div
+        className="flex items-center justify-between px-6 py-3.5 bg-rose-50/70 border-b border-rose-100/70 cursor-pointer select-none"
+        onClick={() => setDueTasksExpanded(!dueTasksExpanded)}
+      >
+        <div className="flex items-center gap-2.5">
+          <div className="w-6 h-6 rounded-full bg-rose-100 text-rose-500 flex items-center justify-center">
+            <Clock size={14} className="stroke-[2.5]" />
+          </div>
+          <h4 className="text-sm font-bold text-slate-900">Due Tasks</h4>
+          <span className="min-w-5 h-5 px-1.5 flex items-center justify-center rounded-full bg-slate-400 text-white text-[11px] font-bold">
+            {dueTasks.length}
+          </span>
+        </div>
+        <button type="button" className="text-slate-500 hover:text-slate-700">
+          {dueTasksExpanded ? <ChevronUp size={18} /> : <ChevronDown size={18} />}
+        </button>
       </div>
-      <div className="divide-y divide-slate-100">
-        {dueTasks.length === 0 && (
-          <p className="px-4 sm:px-5 py-6 text-center text-xs text-slate-400">No due tasks. Click + to add one.</p>
-        )}
-        {dueTasks.map((t) => renderRow(t, true))}
-      </div>
+      {dueTasksExpanded && (
+        <div className="p-4 sm:p-5 space-y-3.5 bg-slate-50/40">
+          {dueTasks.length === 0 ? (
+            <p className="py-8 text-center text-xs text-slate-400 font-medium">No due tasks. Click + Add Task to create one.</p>
+          ) : (
+            dueTasks.map((t) => renderCard(t))
+          )}
+        </div>
+      )}
 
-      <div className="flex items-center gap-2 px-4 sm:px-5 py-2.5 bg-slate-100/80 border-y border-slate-100">
-        <h4 className="text-[13px] font-bold text-slate-800">Tasks</h4>
-        <span className="min-w-5 h-5 px-1.5 grid place-items-center rounded bg-slate-500/80 text-white text-[11px] font-bold">{doneTasks.length}</span>
+      {/* Completed Tasks Section */}
+      <div
+        className="flex items-center justify-between px-6 py-3.5 bg-slate-50/90 border-y border-slate-100 cursor-pointer select-none"
+        onClick={() => setCompletedTasksExpanded(!completedTasksExpanded)}
+      >
+        <div className="flex items-center gap-2.5">
+          <div className="w-6 h-6 rounded-full bg-slate-200 text-slate-700 flex items-center justify-center">
+            <CheckCircle2 size={14} className="stroke-[2.5]" />
+          </div>
+          <h4 className="text-sm font-bold text-slate-900">Completed Tasks</h4>
+          <span className="min-w-5 h-5 px-1.5 flex items-center justify-center rounded-full bg-slate-400 text-white text-[11px] font-bold">
+            {doneTasks.length}
+          </span>
+        </div>
+        <button type="button" className="text-slate-500 hover:text-slate-700">
+          {completedTasksExpanded ? <ChevronUp size={18} /> : <ChevronDown size={18} />}
+        </button>
       </div>
-      <div className="divide-y divide-slate-100">
-        {doneTasks.length === 0 && (
-          <p className="px-4 sm:px-5 py-6 text-center text-xs text-slate-400">No completed tasks yet.</p>
-        )}
-        {doneTasks.map((t) => renderRow(t, false))}
-      </div>
+      {completedTasksExpanded && (
+        <div className="p-4 sm:p-5 space-y-3.5 bg-slate-50/40">
+          {doneTasks.length === 0 ? (
+            <p className="py-8 text-center text-xs text-slate-400 font-medium">No completed tasks yet.</p>
+          ) : (
+            doneTasks.map((t) => renderCard(t))
+          )}
+        </div>
+      )}
 
       {isModalOpen && editingId && (
         <div className="fixed inset-0 z-[70] flex items-center justify-center p-2 sm:p-4 bg-slate-950/50" onClick={() => setIsModalOpen(false)}>
@@ -2177,56 +2501,6 @@ function LeadTasksTab({ lead, onCountsChange, onActivity }) {
                     </select>
                   </div>
                 </div>
-                <div>
-                  <label className="block text-[13px] font-semibold text-slate-800 mb-1.5">Task Form</label>
-                  <select value={form.taskFormId} onChange={(e) => updateTaskForm('taskFormId', e.target.value)} className="w-full h-11 px-4 bg-white border-2 border-[#1d4a79] rounded-lg text-[13px] text-slate-800 focus:outline-none">
-                    <option value="">Select Form</option>
-                    {taskForms.map((tf) => (<option key={tf.id} value={tf.id}>{tf.title}</option>))}
-                  </select>
-                  <p className="text-[11px] text-slate-500 mt-1.5">Please create Task Form first. <button type="button" onClick={() => { if (showFormEditor) { setShowFormEditor(false); } else { openFormBuilderEditor(); } }} className="text-[#1d4a79] font-bold hover:underline">Create Task Form</button></p>
-                </div>
-                {selectedTaskForm && (
-                  <div className="rounded-xl border border-slate-200 bg-slate-50/60 p-4 space-y-3">
-                    <div className="flex items-center justify-between gap-2">
-                      <p className="text-[13px] font-bold text-slate-800">{selectedTaskForm.title} Fields</p>
-                      <button type="button" onClick={openSelectedFormBuilder} className="px-3 py-1.5 rounded-lg bg-[#1d4a79] hover:bg-[#163a61] text-white text-[11px] font-bold transition">Open Form Builder</button>
-                    </div>
-                    {selectedTaskFormFields.length === 0 && (<p className="text-[11px] text-slate-400">No fields defined in this form yet.</p>)}
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                      {selectedTaskFormFields.map((field) => (
-                        <label key={field.id} className="block">
-                          <span className="block text-[12px] font-semibold text-slate-700 mb-1">{field.label} {field.required && <span className="text-rose-500">*</span>}</span>
-                          {String(field.type).toLowerCase() === 'multi line' ? (
-                            <textarea rows={3} value={form.customValues?.[field.id] || ''} onChange={(e) => updateCustomValue(field.id, e.target.value)} placeholder={field.placeholder || `Enter ${String(field.label).toLowerCase()}`} className="w-full px-3 py-2 bg-white border border-slate-300 rounded-lg text-[13px] text-slate-800 focus:outline-none focus:border-blue-500" />
-                          ) : String(field.type).toLowerCase() === 'dropdown' || String(field.type).toLowerCase() === 'multi select' ? (
-                            <select value={form.customValues?.[field.id] || ''} onChange={(e) => updateCustomValue(field.id, e.target.value)} className="w-full h-10 px-3 bg-white border border-slate-300 rounded-lg text-[13px] text-slate-800 focus:outline-none focus:border-blue-500">
-                              <option value="">{field.placeholder || 'Select option'}</option>
-                              {String(field.options || field.placeholder || '').split(',').map((o) => o.trim()).filter(Boolean).map((o) => (<option key={o} value={o}>{o}</option>))}
-                            </select>
-                          ) : (
-                            <input type={String(field.type).toLowerCase() === 'number' ? 'number' : String(field.type).toLowerCase() === 'date' ? 'date' : String(field.type).toLowerCase() === 'email' ? 'email' : String(field.type).toLowerCase() === 'phone' ? 'tel' : 'text'} value={form.customValues?.[field.id] || ''} onChange={(e) => updateCustomValue(field.id, e.target.value)} placeholder={field.placeholder || `Enter ${String(field.label).toLowerCase()}`} className="w-full h-10 px-3 bg-white border border-slate-300 rounded-lg text-[13px] text-slate-800 focus:outline-none focus:border-blue-500" />
-                          )}
-                        </label>
-                      ))}
-                    </div>
-                  </div>
-                )}
-                {showFormEditor && (
-                  <div className="rounded-xl border border-slate-200 bg-white p-4">
-                    <div className="mt-1">
-                      <label className="block text-[12px] font-semibold text-slate-700 mb-1">Form Name</label>
-                      <input value={taskFormName} onChange={(e) => setTaskFormName(e.target.value)} placeholder="Enter form name" className="w-full h-10 px-3 bg-white border border-slate-300 rounded-lg text-[13px] text-slate-800 focus:outline-none focus:border-blue-500" />
-                    </div>
-                    <div className="mt-3 rounded-xl border border-slate-100 overflow-hidden">
-                      <LeadFormBuilder hideHeader sections={builderSections} selectedFieldId={builderSelectedFieldId} selectedField={builderSections.flatMap((s) => s.fields).find((f) => f.id === builderSelectedFieldId) ?? null} onSelectField={setBuilderSelectedFieldId} onUpdateField={updateBuilderField} onAddField={addBuilderField} onRemoveField={removeBuilderField} onMoveField={moveBuilderField} onAddSection={addBuilderSection} onRemoveSection={removeBuilderSection} onPreview={() => {}} onSaveAndOpen={saveTaskFormDraft} saveSuccess={builderSaveSuccess} formTitle={taskFormName || 'New Task Form'} />
-                    </div>
-                    {taskFormDraftError && <p className="text-[11px] font-semibold text-rose-600 mt-2">{taskFormDraftError}</p>}
-                    <div className="flex flex-wrap items-center gap-2 mt-3">
-                      <button type="button" onClick={saveTaskFormDraft} className="inline-flex items-center gap-1 px-3 py-1.5 rounded-md bg-[#1d4a79] hover:bg-[#163a61] text-white text-[12px] font-semibold transition">Save Form</button>
-                      <button type="button" onClick={() => { setShowFormEditor(false); setTaskFormDraftError(''); }} className="inline-flex items-center gap-1 px-3 py-1.5 rounded-md bg-slate-500 hover:bg-slate-600 text-white text-[12px] font-semibold transition"><X size={13} /> Cancel</button>
-                    </div>
-                  </div>
-                )}
                 {formError && <p className="text-xs font-semibold text-rose-600">{formError}</p>}
               </div>
               <div className="flex items-center justify-end gap-2.5 mt-4">
@@ -2972,6 +3246,7 @@ function GeneralTab({ lead }) {
 }
 
 // ── 3. Users | Requirements Tab ──────────────────────────────────
+// Used only until the UOM master has loaded (or when it is empty offline).
 const REQUIREMENT_UOM_OPTIONS = ['Meter', 'Kg', 'Taka', 'Roll'];
 const REQUIREMENT_STATUS_OPTIONS = ['Active', 'Draft'];
 
@@ -3013,6 +3288,9 @@ function formatFabricDim(value, suffix = '') {
  * mapping layer translates them to the API payload.
  */
 function RequirementFormFields({ draft, onChange, autoFocus = false }) {
+  const { activeUnits } = useUnits();
+  const uomOptions = activeUnits.length ? activeUnits.map((u) => u.code) : REQUIREMENT_UOM_OPTIONS;
+  if (draft.uom && !uomOptions.includes(draft.uom)) uomOptions.unshift(draft.uom);
   const set = (key) => (event) => onChange({ ...draft, [key]: event.target.value });
   const inputCls = 'mt-2 w-full rounded-lg border border-slate-200 px-3 py-2 text-xs font-normal text-slate-700 focus:outline-none focus:border-blue-500';
   return (
@@ -3107,7 +3385,7 @@ function RequirementFormFields({ draft, onChange, autoFocus = false }) {
       <label className="text-xs font-semibold text-slate-700">
         UOM
         <select value={draft.uom} onChange={set('uom')} className={`${inputCls} bg-white`}>
-          {REQUIREMENT_UOM_OPTIONS.map((opt) => (
+          {uomOptions.map((opt) => (
             <option key={opt} value={opt}>{opt}</option>
           ))}
         </select>

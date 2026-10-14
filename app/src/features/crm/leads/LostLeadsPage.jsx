@@ -2,8 +2,7 @@ import React, { useMemo } from 'react';
 import { Link } from 'react-router-dom';
 import { useCrmStore } from '../../../stores/crmStore';
 import PageHeader from '../../../components/ui/PageHeader';
-
-const isLostLead = (lead) => /lost|closed/i.test(String(lead?.status || ''));
+import { isLostLead } from '../../../services/leadStatus';
 
 export default function LostLeadsPage() {
   const leads = useCrmStore((s) => s.leads);
@@ -13,7 +12,7 @@ export default function LostLeadsPage() {
     <div className="space-y-4">
       <PageHeader
         title="Lost Leads"
-        subtitle="Leads that were marked as Lost / Closed and never converted to a customer."
+        subtitle="Leads marked as Lost / Closed. These records also remain in the main Leads list."
       />
 
       <div className="bg-white rounded-2xl border border-slate-200/90 shadow-xs overflow-hidden">
@@ -33,7 +32,7 @@ export default function LostLeadsPage() {
             {lostLeads.length === 0 && (
               <tr>
                 <td colSpan={7} className="px-4 py-8 text-center text-slate-400">
-                  No lost leads yet. Mark a lead as Lost from its detail page to see it here.
+                  No lost leads yet. Use Mark as Lost in the Leads list to show a lead here too.
                 </td>
               </tr>
             )}

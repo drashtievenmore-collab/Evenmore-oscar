@@ -11,8 +11,8 @@ import Pagination from '../../../components/ui/Pagination';
 import NotesDrawer from './NotesDrawer';
 import CreateLeadModal, { getActiveLeadFormSections, leadFormValuesToPayload } from './CreateLeadModal';
 import EditLeadModal from './EditLeadModal';
-import { buildLeadColumns, matchKnownLeadField } from './leadColumns';
-import DeleteLeadModal from './DeleteLeadModal';
+import { buildLeadColumns, leadColumnValue, matchKnownLeadField } from './leadColumns';
+import MarkAsLostModal from './MarkAsLostModal';
 import LeadGuideModal from './LeadGuideModal';
 import { LeadImportModal } from './LeadImportModal';
 import {
@@ -26,7 +26,7 @@ import { useAppStore } from '../../../stores/appStore';
 import { Users, UserPlus, Clock, TrendingUp, Plus, Upload } from 'lucide-react';
 import { useCrmStore } from '../../../stores/crmStore';
 import { useLeadDetailStore } from '../../../stores/leadDetailStore';
-import { describeError, isServerId } from '../../../services/crmSync';
+import { bulkMarkLeadsLost as bulkMarkLeadsLostRequest, describeError, isServerId, markLeadLost as markLeadLostRequest } from '../../../services/crmSync';
 import { partiesService } from '../../../services/domainServices';
 import { exportToCSV } from '../../../services/exportUtils';
 import { runLeadStageAutomation } from '../../../services/leadStageAutomation';
@@ -117,8 +117,20 @@ const leadsGuide = {
   ],
 };
 
-function getSortValue(lead, field) {
-  if (field === 'createdOn') return new Date(lead.createdOn).getTime();
+function getSortValue(lead, field, columnsByKey) {
+  const column = columnsByKey?.get(field);
+  if (column) {
+    const raw = leadColumnValue(lead, column);
+    if (column.rowKey === 'createdOn' || column.kind === 'taskDate') {
+      const time = new Date(raw).getTime();
+      if (!Number.isNaN(time) && raw) return time;
+    }
+    return String(raw ?? '').toLowerCase();
+  }
+  if (field === 'createdOn') {
+    const time = new Date(lead.createdOn).getTime();
+    if (!Number.isNaN(time) && lead.createdOn) return time;
+  }
   if (field === 'leadNumber') return String(lead.leadNumber ?? lead.lead_number ?? '').toLowerCase();
   return String(lead[field] ?? '').toLowerCase();
 }
@@ -197,8 +209,7 @@ export default function LeadsPage() {
   const createDealRecord = useCrmStore((s) => s.createDeal);
   const createDealLocal = useCrmStore((s) => s.createDealLocal);
   const updateLeadRecord = useCrmStore((s) => s.updateLead);
-  const deleteLeadRecord = useCrmStore((s) => s.deleteLead);
-  const deleteLeadRecords = useCrmStore((s) => s.deleteLeads);
+  const refreshLeads = useCrmStore((s) => s.refresh);
   const toggleLeadPin = useCrmStore((s) => s.toggleLeadPin);
   const showToast = useAppStore((s) => s.showToast);
   const currentUser = useAppStore((s) => s.currentUser);
@@ -269,8 +280,8 @@ export default function LeadsPage() {
   const [draftSort, setDraftSort] = useState(INITIAL_SORT);
   const [noteTarget, setNoteTarget] = useState(null);
   const [editTarget, setEditTarget] = useState(null);
-  const [deleteTarget, setDeleteTarget] = useState(null);
-  const [bulkDeleteTargets, setBulkDeleteTargets] = useState([]);
+  const [lostTarget, setLostTarget] = useState(null);
+  const [bulkLostTargets, setBulkLostTargets] = useState([]);
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(10);
   const pendingTaskCount = useMemo(
@@ -291,6 +302,8 @@ export default function LeadsPage() {
   );
   const selectedLead = selectedLeads[0] ?? null;
 
+  const columnsByKey = useMemo(() => new Map(leadColumns.map((column) => [column.key, column])), [leadColumns]);
+
   const rows = useMemo(() => {
     const filtered = leadRows.filter((l) => {
       if (activeTab !== 'All Leads' && l.status !== activeTab) return false;
@@ -306,13 +319,27 @@ export default function LeadsPage() {
     if (!appliedSort.field) return filtered;
     const dir = appliedSort.direction === 'descending' ? -1 : 1;
     return [...filtered].sort((a, b) => {
-      const av = getSortValue(a, appliedSort.field);
-      const bv = getSortValue(b, appliedSort.field);
+      const av = getSortValue(a, appliedSort.field, columnsByKey);
+      const bv = getSortValue(b, appliedSort.field, columnsByKey);
       if (av < bv) return -1 * dir;
       if (av > bv) return 1 * dir;
       return String(a.id).localeCompare(String(b.id));
     });
-  }, [activeTab, appliedFilters, appliedSort, leadRows]);
+  }, [activeTab, appliedFilters, appliedSort, leadRows, columnsByKey]);
+
+  function handleColumnSort(field) {
+    if (!field) return;
+    setAppliedSort((current) => {
+      if (current.field !== field) {
+        const next = { field, direction: 'ascending' };
+        setDraftSort(next);
+        return next;
+      }
+      const next = { field, direction: current.direction === 'descending' ? 'ascending' : 'descending' };
+      setDraftSort(next);
+      return next;
+    });
+  }
 
   useEffect(() => {
     // Other CRM views listen for this to re-read what the server now holds.
@@ -877,44 +904,85 @@ export default function LeadsPage() {
     navigate('/crm/leads/create-form');
   }
 
-  function requestDeleteLead(lead) {
-    setDeleteTarget(lead);
-    setBulkDeleteTargets([]);
+  function requestMarkLostLead(lead) {
+    setLostTarget(lead);
+    setBulkLostTargets([]);
   }
 
-  function requestDeleteAll(visibleLeads) {
+  function requestMarkLostAll(visibleLeads) {
     if (!visibleLeads || visibleLeads.length === 0) return;
-    setDeleteTarget(null);
-    setBulkDeleteTargets(visibleLeads);
+    setLostTarget(null);
+    setBulkLostTargets(visibleLeads);
   }
 
-  function closeDeleteLead() {
-    setDeleteTarget(null);
-    setBulkDeleteTargets([]);
+  function closeMarkLost() {
+    setLostTarget(null);
+    setBulkLostTargets([]);
     setSelected([]);
   }
 
-  async function deleteLead(id) {
+  async function applyMarkLostResult(result, fallbackLabel) {
+    const updated = result?.lead;
+    if (updated?.id) {
+      try {
+        await updateLeadRecord(updated.id, { stageId: updated.stageId || updated.stage_id, status: updated.status });
+      } catch {
+        // Refresh below will reconcile the row.
+      }
+    }
+    await Promise.all([refreshLeads('leads'), refreshLeads('deals'), refreshLeads('stages')]);
+    const dealsMoved = result?.dealsMoved ?? 0;
+    showToast?.(
+      dealsMoved > 0
+        ? `${fallbackLabel} marked as lost. ${dealsMoved} deal${dealsMoved > 1 ? 's' : ''} moved to Lost.`
+        : `${fallbackLabel} marked as lost.`,
+    );
+  }
+
+  async function markLeadLost(id, payload = {}) {
     try {
-      await deleteLeadRecord(id);
+      if (isServerId(id)) {
+        const result = await markLeadLostRequest(id, payload);
+        if (result) {
+          await applyMarkLostResult(result, 'Lead');
+        } else {
+          toggleCloseLead(leadRows.find((lead) => lead.id === id));
+          showToast?.('Lead marked as lost.');
+        }
+      } else {
+        toggleCloseLead(leadRows.find((lead) => lead.id === id));
+        showToast?.('Lead marked as lost.');
+      }
     } catch (err) {
-      showToast?.(`Lead not deleted — ${describeError(err)}`);
+      showToast?.(`Lead not marked as lost — ${describeError(err)}`);
       return;
     }
     setSelected((current) => current.filter((selectedId) => selectedId !== id));
-    closeDeleteLead();
+    closeMarkLost();
   }
 
-  async function deleteAllLeads(leadsToDelete) {
-    const ids = leadsToDelete.map((lead) => lead.id);
+  async function markAllLeadsLost(leadsToMark, payload = {}) {
+    const ids = leadsToMark.map((lead) => lead.id);
     try {
-      await deleteLeadRecords(ids);
+      const serverIds = ids.filter((leadId) => isServerId(leadId));
+      if (serverIds.length > 0) {
+        const result = await bulkMarkLeadsLostRequest(serverIds, payload);
+        if (result) {
+          await Promise.all([refreshLeads('leads'), refreshLeads('deals'), refreshLeads('stages')]);
+          showToast?.(`${serverIds.length} lead${serverIds.length > 1 ? 's' : ''} marked as lost. ${result.dealsMoved || 0} deal${(result.dealsMoved || 0) === 1 ? '' : 's'} moved to Lost.`);
+        }
+      }
+      const localIds = ids.filter((leadId) => !isServerId(leadId));
+      for (const localId of localIds) {
+        toggleCloseLead(leadRows.find((lead) => lead.id === localId));
+      }
+      if (serverIds.length === 0) showToast?.('Leads marked as lost.');
     } catch (err) {
-      showToast?.(`Leads not deleted — ${describeError(err)}`);
+      showToast?.(`Leads not marked as lost — ${describeError(err)}`);
       return;
     }
-    setSelected((current) => current.filter((id) => !ids.includes(id)));
-    closeDeleteLead();
+    setSelected((current) => current.filter((selectedId) => !ids.includes(selectedId)));
+    closeMarkLost();
   }
 
   async function pinLead(lead) {
@@ -926,7 +994,7 @@ export default function LeadsPage() {
       return;
     }
     setSelected((current) => current.filter((id) => id !== lead.id));
-    closeDeleteLead();
+    closeMarkLost();
   }
 
   const pinnedLeadIds = useMemo(
@@ -945,15 +1013,15 @@ export default function LeadsPage() {
 
   const recordActionLead = selectedLeads.length === 1 ? selectedLeads[0] : null;
 
-  function requestDeleteSelection(target) {
+  function requestMarkLostSelection(target) {
     if (Array.isArray(target)) {
-      requestDeleteAll(target);
+      requestMarkLostAll(target);
       return;
     }
 
     const targetLead = leadRows.find((lead) => lead.id === target) ?? recordActionLead;
     if (targetLead) {
-      requestDeleteLead(targetLead);
+      requestMarkLostLead(targetLead);
     }
   }
 
@@ -995,7 +1063,7 @@ export default function LeadsPage() {
       />
 
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3.5 my-4">
-        <CrmKpiCard label="Total Active Leads" value={leadRows.length} icon={Users} tone="blue" />
+        <CrmKpiCard label="Total Leads" value={leadRows.length} icon={Users} tone="blue" />
         <CrmKpiCard label="New Leads" value={leadRows.filter((l) => l.status === 'New').length} icon={UserPlus} tone="emerald" />
         <CrmKpiCard label="Pending Tasks" value={pendingTaskCount} icon={Clock} tone="amber" />
         <CrmKpiCard label="Deals in Pipeline" value={pipelineDealCount} icon={TrendingUp} tone="purple" />
@@ -1021,7 +1089,7 @@ export default function LeadsPage() {
         recordActionLead={recordActionLead}
         recordActionLeads={selectedLeads}
         onCloseRecordAction={clearSelected}
-        onDeleteRecord={requestDeleteSelection}
+        onDeleteRecord={requestMarkLostSelection}
         onPrint={() => setIsPrintOpen(true)}
       />
 
@@ -1082,20 +1150,23 @@ export default function LeadsPage() {
                 pinnedLeadIds={pinnedLeadIds}
                 onTogglePin={togglePinLead}
                 onToggleOne={toggleOne}
-                onRequestDelete={requestDeleteLead}
-                onRequestDeleteAll={requestDeleteAll}
+                onRequestMarkLost={requestMarkLostLead}
+                onRequestMarkLostAll={requestMarkLostAll}
                 onToggleAll={toggleAll}
                 onAddNote={openNotes}
                 onOpenLead={openLeadDetails}
                 onUpdateLead={updateLead}
                 onEditLead={openEditLead}
                 columns={leadColumns}
+                sortField={appliedSort.field}
+                sortDirection={appliedSort.direction}
+                onSort={handleColumnSort}
                 onToggleCloseLead={toggleCloseLead}
                 onCreateTask={(lead) => openQuickAction('task', lead)}
                 onIssueSample={(lead) => openQuickAction('sample', lead)}
                 onConvertDeal={(lead) => openQuickAction('deal', lead)}
                 onConvertParty={(lead) => openQuickAction('party', lead)}
-                onDelete={deleteLead}
+                onMarkLost={markLeadLost}
               />
               <div className="table-card pager-wrap" style={{ marginTop: 10 }}>
                 <Pagination
@@ -1117,21 +1188,24 @@ export default function LeadsPage() {
                 pinnedLeadIds={pinnedLeadIds}
                 onTogglePin={togglePinLead}
                 onToggleOne={toggleOne}
-                onRequestDelete={requestDeleteLead}
-                onRequestDeleteAll={requestDeleteAll}
+                onRequestMarkLost={requestMarkLostLead}
+                onRequestMarkLostAll={requestMarkLostAll}
                 onToggleAll={toggleAll}
                 onAddNote={openNotes}
                 onOpenLead={openLeadDetails}
                 onUpdateLead={updateLead}
                 onEditLead={openEditLead}
                 columns={leadColumns}
+                sortField={appliedSort.field}
+                sortDirection={appliedSort.direction}
+                onSort={handleColumnSort}
                 onToggleCloseLead={toggleCloseLead}
                 onCreateTask={(lead) => openQuickAction('task', lead)}
                 onIssueSample={(lead) => openQuickAction('sample', lead)}
                 onConvertDeal={(lead) => openQuickAction('deal', lead)}
                 onConvertParty={(lead) => openQuickAction('party', lead)}
                 variant="grid"
-                onDelete={deleteLead}
+                onMarkLost={markLeadLost}
               />
               <div className="table-card pager-wrap" style={{ marginTop: 10 }}>
                 <Pagination
@@ -1152,10 +1226,10 @@ export default function LeadsPage() {
               pinnedLeadIds={pinnedLeadIds}
               onTogglePin={togglePinLead}
               onToggleOne={toggleOne}
-              onRequestDelete={requestDeleteLead}
+              onRequestMarkLost={requestMarkLostLead}
               onAddNote={openNotes}
               onOpenLead={openLeadDetails}
-              onDelete={deleteLead}
+              onMarkLost={markLeadLost}
             />
           ) : (
             <LeadMapView
@@ -1177,13 +1251,13 @@ export default function LeadsPage() {
         onClose={() => setEditTarget(null)}
         onSave={saveEditedLead}
       />
-      {(deleteTarget || bulkDeleteTargets.length > 0) && (
-        <DeleteLeadModal
-          lead={deleteTarget}
-          leads={bulkDeleteTargets}
-          onClose={closeDeleteLead}
-          onConfirm={deleteLead}
-          onConfirmAll={deleteAllLeads}
+      {(lostTarget || bulkLostTargets.length > 0) && (
+        <MarkAsLostModal
+          lead={lostTarget}
+          leads={bulkLostTargets}
+          onClose={closeMarkLost}
+          onConfirm={markLeadLost}
+          onConfirmAll={markAllLeadsLost}
         />
       )}
       <CreateLeadModal

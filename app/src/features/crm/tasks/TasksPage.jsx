@@ -346,26 +346,6 @@ export default function TasksPage() {
       label: 'Status',
       render: (val) => <StatusBadge status={val} />,
     },
-    {
-      key: 'actions',
-      label: 'Actions',
-      render: (_, row) => (
-        <div className="flex items-center gap-1.5">
-          <button
-            type="button"
-            onClick={() => toggleComplete(row)}
-            title={row.status === 'Completed' ? 'Reopen task' : 'Complete task'}
-            className={`p-1.5 rounded-lg border transition ${
-              row.status === 'Completed'
-                ? 'bg-emerald-50 text-emerald-600 border-emerald-200 hover:bg-emerald-100'
-                : 'bg-white text-slate-500 border-slate-200 hover:bg-slate-50 hover:text-emerald-600'
-            }`}
-          >
-            <CheckCircle2 size={15} />
-          </button>
-        </div>
-      ),
-    },
   ];
 
   return (

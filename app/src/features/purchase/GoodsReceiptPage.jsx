@@ -3,6 +3,8 @@ import { useERP } from '../../context/ERPContext';
 import { StatusBadge } from '../../components/ui/StatusBadge';
 import { StatCard } from '../../components/ui/StatCard';
 import { PageHeader } from '../../components/common/PageHeader';
+import useUnits from '../../hooks/useUnits';
+import { formatQty, formatUnitTotals, sumByUnit } from '../../utils/uom';
 import { PackageCheck, Truck, ClipboardCheck, ShieldCheck, X, CheckCircle2, AlertTriangle, Boxes, Scale } from 'lucide-react';
 
 // ── [PHASE-2B] Standalone Goods Receipt (GRN) page ────────────────────────
@@ -42,6 +44,10 @@ export const GoodsReceiptPage = () => {
         getCurrentISODate,
         getCurrentDateFormatted,
     } = useERP();
+    const { units } = useUnits();
+    // Receipts keep the purchase unit of their bill line; totals never mix units.
+    const lineUnit = (it) => it.uom || it.unit || '';
+    const unitTotals = (lines, qtyOf) => formatUnitTotals(sumByUnit(lines, { qty: qtyOf, uom: lineUnit, units }), { units });
 
     const [selectedBill, setSelectedBill] = useState(null);
     const [receivedQtys, setReceivedQtys] = useState({});
@@ -65,7 +71,7 @@ export const GoodsReceiptPage = () => {
     // Bills still waiting for goods receipt
     const pendingReceipts = (purchaseBills || []).filter((b) => b.goodsReceived !== true && b.status !== 'Cancelled');
     const receivedCount = (purchaseBills || []).filter((b) => b.goodsReceived === true).length;
-    const pendingQty = pendingReceipts.reduce((sum, b) => sum + (b.items || []).reduce((s, it) => s + (Number(it.qty) || 0), 0), 0);
+    const pendingQtyText = unitTotals(pendingReceipts.flatMap((b) => b.items || []), (it) => Number(it.qty) || 0);
     const pendingValue = pendingReceipts.reduce((sum, b) => sum + (Number(b.total ?? b.amount) || 0), 0);
     const pendingWeight = pendingReceipts.reduce((sum, b) => sum + (b.items || []).reduce((s, it) => {
         const meta = getLineWeightMeta(it);
@@ -85,6 +91,7 @@ export const GoodsReceiptPage = () => {
                 sku: it.sku || it.itemSku,
                 orderedQty: it.orderedQty ?? it.qty,
                 receivedQty: it.receivedQty ?? it.qty,
+                uom: it.uom || it.unit || '',
                 orderedWeight: Number(it.theoreticalWeight || 0) * Number((it.orderedQty ?? it.qty) || 0),
                 receivedWeight: Number(it.receivedWeight || 0),
                 variationPct: Number(it.variationPct || 0),
@@ -180,7 +187,7 @@ export const GoodsReceiptPage = () => {
 
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
                 <StatCard label="Awaiting Receipt" value={`${pendingReceipts.length} Bills`} icon={Truck} tone="amber" />
-                <StatCard label="Pending Qty" value={`${pendingQty.toLocaleString()} Units`} icon={Boxes} />
+                <StatCard label="Pending Qty" value={pendingQtyText === '—' ? '0' : pendingQtyText} icon={Boxes} />
                 {/* [PHASE-2A] pending weight captures kg not yet weighed in */}
                 <StatCard label="Receivable Value" value={formatCurrency(pendingValue)} icon={ClipboardCheck} tone="blue" />
                 <StatCard label="Received (GRN Done)" value={`${receivedCount} Bills`} icon={ShieldCheck} tone="green" />
@@ -227,7 +234,7 @@ export const GoodsReceiptPage = () => {
                                             <td className={`p-2.5 text-right font-mono font-bold ${overTol ? 'text-rose-600' : 'text-emerald-700'}`}>
                                                 {row.variationPct > 0 ? '+' : ''}{row.variationPct.toFixed(2)}%
                                             </td>
-                                            <td className="p-2.5 text-center font-mono">{row.receivedQty}</td>
+                                            <td className="p-2.5 text-center font-mono">{formatQty(row.receivedQty, row.uom, { units })}</td>
                                             <td className="p-2.5 text-center font-mono">±{row.tolerancePct ?? 2}%</td>
                                             <td className="p-2.5 text-center">
                                                 <span className={`inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full ${overTol ? 'bg-amber-100 text-amber-800' : 'bg-emerald-100 text-emerald-800'}`}>
@@ -389,7 +396,7 @@ export const GoodsReceiptPage = () => {
                                                 <span className="text-[10px] text-slate-400">{vendors.find((v) => v.id === b.vendorId)?.city || ''}</span>
                                             </td>
                                             <td className="p-2.5 text-center font-mono">{(b.items || []).length}</td>
-                                            <td className="p-2.5 text-center font-mono">{billQty.toLocaleString()}</td>
+                                            <td className="p-2.5 text-center font-mono">{unitTotals(b.items || [], (it) => Number(it.qty) || 0)}</td>
                                             <td className="p-2.5 text-right font-mono font-bold text-slate-900">{formatCurrency(Number(b.total ?? b.amount) || 0)}</td>
                                             <td className="p-2.5 text-right font-mono">{b.dueDate ? formatDateDDMMYYYY(b.dueDate) : '—'}</td>
                                             <td className="p-2.5 text-center"><StatusBadge status={b.goodsReceived ? 'Received' : 'Awaiting Receipt'} /></td>
@@ -437,7 +444,7 @@ export const GoodsReceiptPage = () => {
                                                 <div className="flex items-center gap-3">
                                                     <div className="flex-1 min-w-0">
                                                         <p className="font-semibold text-slate-800 text-xs truncate">{it.name || it.description || 'Item'}</p>
-                                                        <p className="text-[10px] text-slate-400 font-mono">{it.sku || it.itemSku} • Ordered: {ordered}</p>
+                                                        <p className="text-[10px] text-slate-400 font-mono">{it.sku || it.itemSku} • Ordered: {formatQty(ordered, lineUnit(it), { units })}</p>
                                                         {wMeta.isWeightItem && (
                                                             <p className="text-[10px] text-blue-700 mt-0.5 flex items-center gap-1">
                                                                 <Scale size={10} /> Weight item • Thero. {wMeta.theoreticalWeight} {wMeta.weightUnit}/unit • Tol ±{wMeta.tolerancePct}%
@@ -454,7 +461,7 @@ export const GoodsReceiptPage = () => {
                                                         onChange={(e) => updateQty(key, e.target.value)}
                                                         className="w-24 border border-slate-300 rounded-lg p-2 text-right font-mono text-slate-800"
                                                     />
-                                                    <span className="text-[10px] text-slate-400 w-14 text-center">Received</span>
+                                                    <span className="text-[10px] text-slate-500 w-14 text-center" title="Received in the purchase unit">{lineUnit(it) || 'Received'}</span>
                                                 </div>
                                                 {/* ── [PHASE-2A] weighbridge input — appears for steel / weight items ── */}
                                                 {wMeta.isWeightItem && (
@@ -523,13 +530,13 @@ export const GoodsReceiptPage = () => {
                                 <div className="p-2 rounded-md bg-slate-50">
                                     <p className="text-slate-400 font-semibold uppercase">PO Ordered</p>
                                     <p className="font-mono font-bold text-slate-800 mt-0.5">
-                                        {(selectedBill.items || []).reduce((s, it) => s + (Number(it.orderedQty ?? it.qty) || 0), 0)}
+                                        {unitTotals(selectedBill.items || [], (it) => Number(it.orderedQty ?? it.qty) || 0)}
                                     </p>
                                 </div>
                                 <div className="p-2 rounded-md bg-blue-50">
                                     <p className="text-blue-400 font-semibold uppercase">GRN Received</p>
                                     <p className="font-mono font-bold text-blue-700 mt-0.5">
-                                        {(selectedBill.items || []).reduce((s, it, idx) => s + (Number(receivedQtys[it.id || `line-${idx}`] ?? it.qty) || 0), 0)}
+                                        {unitTotals((selectedBill.items || []).map((it, idx) => ({ ...it, _rq: Number(receivedQtys[it.id || `line-${idx}`] ?? it.qty) || 0 })), (it) => it._rq)}
                                     </p>
                                 </div>
                                 <div className="p-2 rounded-md bg-emerald-50">

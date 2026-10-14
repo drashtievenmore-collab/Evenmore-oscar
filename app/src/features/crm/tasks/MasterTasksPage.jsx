@@ -26,7 +26,6 @@ import InfoBanner from '../common/InfoBanner';
 import PageHeader from '../../../components/ui/PageHeader';
 import { useCrmStore } from '../../../stores/crmStore';
 import { isBackendEnabled, describeError } from '../../../services/crmSync';
-import { loadForms, TASK_FORM } from '../../../services/crmForms';
 
 // ── Backend-first mode ──────────────────────────────────────────────
 // Master tasks live in Postgres (/crm/master-tasks/) when logged in.
@@ -76,7 +75,6 @@ const EMPTY_FORM = {
   priority: 'Medium',
   dueIn: 0,
   status: 'Active',
-  taskFormId: '',
 };
 
 // No seed rows — the table starts empty and shows "No tasks found".
@@ -137,18 +135,14 @@ export default function MasterTasksPage() {
   const [sortDir, setSortDir] = useState('asc');
   const [page, setPage] = useState(1);
   const [perPage, setPerPage] = useState(10);
-  const [selected, setSelected] = useState([]);
   const [modalOpen, setModalOpen] = useState(false);
   const [editingId, setEditingId] = useState(null);
   const [form, setForm] = useState(EMPTY_FORM);
   const [formError, setFormError] = useState('');
   const [deleteId, setDeleteId] = useState(null);
-  const [bulkDelete, setBulkDelete] = useState(false);
   const [menuId, setMenuId] = useState(null);
   const [isGuideOpen, setIsGuideOpen] = useState(false);
   const [saving, setSaving] = useState(false);
-  const storeForms = useCrmStore((s) => s.forms);
-  const taskForms = useMemo(() => loadForms(TASK_FORM), [storeForms, modalOpen]);
 
   // Pull from GET /crm/master-tasks/ when logged in; offline keeps seed/cache.
   useEffect(() => {
@@ -166,7 +160,6 @@ export default function MasterTasksPage() {
     setDeptFilter('All');
     setStatusFilter('All');
     setPage(1);
-    setSelected([]);
   }
 
   function toggleSort(key) {
@@ -205,19 +198,6 @@ export default function MasterTasksPage() {
   const pageItems = filtered.slice((safePage - 1) * perPage, safePage * perPage);
   const from = filtered.length === 0 ? 0 : (safePage - 1) * perPage + 1;
   const to = Math.min(safePage * perPage, filtered.length);
-  const allChecked = pageItems.length > 0 && pageItems.every((t) => selected.includes(t.id));
-
-  function toggleSelect(id) {
-    setSelected((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
-  }
-
-  function toggleSelectPage() {
-    if (allChecked) {
-      setSelected((prev) => prev.filter((id) => !pageItems.some((t) => t.id === id)));
-    } else {
-      setSelected((prev) => [...new Set([...prev, ...pageItems.map((t) => t.id)])]);
-    }
-  }
 
   function openCreate() {
     setEditingId(null);
@@ -237,7 +217,6 @@ export default function MasterTasksPage() {
       priority: task.priority,
       dueIn: task.dueIn,
       status: task.status,
-      taskFormId: task.taskFormId || '',
     });
     setFormError('');
     setModalOpen(true);
@@ -342,25 +321,7 @@ export default function MasterTasksPage() {
     } else {
       applyLocal((prev) => prev.filter((t) => t.id !== deleteId));
     }
-    setSelected((prev) => prev.filter((id) => id !== deleteId));
     setDeleteId(null);
-    setMenuId(null);
-  }
-
-  function confirmBulkDelete() {
-    if (selected.length === 0) {
-      setBulkDelete(false);
-      return;
-    }
-    if (backendOn) {
-      Promise.all(selected.map((id) => deleteRecord('masterTasks', id).catch(() => {}))).then(() => {
-        applyLocal((prev) => prev.filter((t) => !selected.includes(t.id)));
-      });
-    } else {
-      applyLocal((prev) => prev.filter((t) => !selected.includes(t.id)));
-    }
-    setSelected([]);
-    setBulkDelete(false);
     setMenuId(null);
   }
 
@@ -443,23 +404,11 @@ export default function MasterTasksPage() {
           </div>
         </div>
 
-        {selected.length > 0 && (
-          <div className="flex items-center justify-between px-4 py-2 bg-blue-50/60 border-b border-blue-100 text-xs">
-            <span className="font-semibold text-blue-700">{selected.length} selected</span>
-            <button type="button" onClick={() => setBulkDelete(true)} className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-rose-600 hover:bg-rose-700 text-white font-semibold rounded-lg transition">
-              <Trash2 size={13} /> Delete selected
-            </button>
-          </div>
-        )}
-
         <div className="overflow-x-auto">
           <table className="w-full text-left text-xs border-collapse min-w-[900px]">
             <thead>
               <tr className="border-b border-slate-100 bg-slate-50/60 text-[11px] font-bold text-slate-500 uppercase tracking-wider">
-                <th className="px-4 py-3 w-10">
-                  <input type="checkbox" checked={allChecked} onChange={toggleSelectPage} className="w-4 h-4 rounded border-slate-300 cursor-pointer" />
-                </th>
-                <th className="px-2 py-3 w-12">
+                <th className="px-4 py-3 w-14">
                   <button type="button" onClick={() => toggleSort('order')} className="inline-flex items-center gap-1 hover:text-slate-700">
                     # {sortKey === 'order' ? (sortDir === 'asc' ? <ArrowUp size={11} /> : <ArrowDown size={11} />) : null}
                   </button>
@@ -482,10 +431,7 @@ export default function MasterTasksPage() {
                 const Icon = iconFor(t.icon);
                 return (
                   <tr key={t.id} className="transition hover:bg-blue-50/40 hover:shadow-[inset_3px_0_0_0_#2f6fed]">
-                    <td className="px-4 py-3">
-                      <input type="checkbox" checked={selected.includes(t.id)} onChange={() => toggleSelect(t.id)} className="w-4 h-4 rounded border-slate-300 cursor-pointer" />
-                    </td>
-                    <td className="px-2 py-3 text-slate-500">{(safePage - 1) * perPage + idx + 1}</td>
+                    <td className="px-4 py-3 text-slate-500">{(safePage - 1) * perPage + idx + 1}</td>
                     <td className="px-3 py-3">
                       <span className="inline-flex items-center gap-2 font-bold text-slate-800 whitespace-nowrap">
                         <span className={`w-7 h-7 rounded-lg grid place-items-center shrink-0 ${ICON_STYLE[t.icon] || ICON_STYLE['follow-up']}`}>
@@ -541,7 +487,7 @@ export default function MasterTasksPage() {
               })}
               {pageItems.length === 0 && (
                 <tr>
-                  <td colSpan={9} className="px-4 py-10 text-center">
+                  <td colSpan={8}className="px-4 py-10 text-center">
                     <p className="text-sm font-semibold text-slate-700">No tasks found</p>
                     <p className="text-xs text-slate-500 mt-1">Try a different search or reset filters.</p>
                   </td>
@@ -652,16 +598,6 @@ export default function MasterTasksPage() {
                   })}
                 </div>
               </div>
-              <div>
-                <label className="block font-semibold text-slate-700 mb-1">Default Task Form</label>
-                <select value={form.taskFormId} onChange={(e) => setForm({ ...form, taskFormId: e.target.value })} className="w-full px-3 py-2 bg-white border border-slate-200 rounded-lg focus:outline-none focus:border-blue-500 text-slate-800">
-                  <option value="">None</option>
-                  {taskForms.map((tf) => (
-                    <option key={tf.id} value={tf.id}>{tf.title}</option>
-                  ))}
-                </select>
-                <p className="text-[11px] text-slate-500 mt-1">Opened when the task is completed.</p>
-              </div>
               {formError && <p className="text-[11px] font-semibold text-rose-600">{formError}</p>}
             </div>
             <div className="flex items-center justify-end gap-2.5 px-5 py-3.5 bg-slate-50/70 border-t border-slate-100">
@@ -687,23 +623,6 @@ export default function MasterTasksPage() {
               </button>
               <button type="button" onClick={confirmDelete} className="px-4 py-2 bg-rose-600 hover:bg-rose-700 text-white text-xs font-semibold rounded-lg transition">
                 Delete
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {bulkDelete && (
-        <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-xs flex items-center justify-center z-50 p-2 sm:p-4" role="presentation" onMouseDown={() => setBulkDelete(false)}>
-          <div onMouseDown={(e) => e.stopPropagation()} className="bg-white rounded-2xl shadow-xl w-full max-w-sm border border-slate-200 p-5">
-            <h2 className="text-sm font-bold text-slate-900">Delete {selected.length} tasks?</h2>
-            <p className="text-xs text-slate-500 mt-1">Selected master tasks will be removed permanently.</p>
-            <div className="flex items-center justify-end gap-2.5 mt-4">
-              <button type="button" onClick={() => setBulkDelete(false)} className="px-4 py-2 bg-white hover:bg-slate-50 text-slate-700 text-xs font-semibold rounded-lg border border-slate-200 transition">
-                Cancel
-              </button>
-              <button type="button" onClick={confirmBulkDelete} className="px-4 py-2 bg-rose-600 hover:bg-rose-700 text-white text-xs font-semibold rounded-lg transition">
-                Delete All
               </button>
             </div>
           </div>

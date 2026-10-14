@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
+import { resolveUnit } from '../../utils/uom';
 import { useParams, useNavigate, Link, useLocation } from 'react-router-dom';
 import { useERP } from '../../context/ERPContext';
 import { Button } from '../../components/ui/Button';
@@ -80,10 +81,17 @@ export const AddEditItemPage = () => {
   const [vendor, setVendor] = useState(vendors[0]?.name || 'Cisco Direct');
 
   // Dynamic Units & Conversions
-  const [purchaseUnit, setPurchaseUnit] = useState('Box');
-  const [salesUnit, setSalesUnit] = useState('Pcs');
+  // Units come from the UOM master — no hardcoded defaults that may not exist there.
+  const [purchaseUnit, setPurchaseUnit] = useState('');
+  const [salesUnit, setSalesUnit] = useState('');
   const [unitConversionFactor, setUnitConversionFactor] = useState(1);
-  const [uom, setUom] = useState('Pcs');
+  const [uom, setUom] = useState('');
+  const activeUnitList = useMemo(() => units.filter((u) => u.isActive !== false), [units]);
+  // The master's Length base unit (e.g. "Meter"); fabric trades by length.
+  const lengthUnitCode = useMemo(() => {
+    const length = activeUnitList.filter((u) => u.uomType === 'Length');
+    return (length.find((u) => u.isBaseUnit) || length[0])?.code || 'Meter';
+  }, [activeUnitList]);
 
   // ── [PHASE-2A] Weight-based item (steel bought/sold by weight) ──
   // isWeightItem → item is weighed at intake (kg) instead of counted.
@@ -99,15 +107,27 @@ export const AddEditItemPage = () => {
   const [fabricWidth, setFabricWidth] = useState('');
   const [fabricGsm, setFabricGsm] = useState('');
 
-  // Fabric trades by the Meter — lock units of measure for Fabric items
+  // Fabric trades by length — lock units of measure for Fabric items. An item
+  // already in a length unit ("Mtr") keeps it; otherwise use the base length unit.
   useEffect(() => {
     if (itemKind === 'Fabric') {
-      setPurchaseUnit('Meter');
-      setSalesUnit('Meter');
-      setUom('Meter');
+      const current = existingItem?.uom;
+      const unit = current && resolveUnit(units, current)?.uomType === 'Length' ? current : lengthUnitCode;
+      setPurchaseUnit(unit);
+      setSalesUnit(unit);
+      setUom(unit);
       setUnitConversionFactor(1);
     }
-  }, [itemKind]);
+  }, [itemKind, lengthUnitCode]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // New non-fabric items start on an active Piece unit (or the first active unit).
+  useEffect(() => {
+    if (isEditMode || itemKind === 'Fabric' || salesUnit || activeUnitList.length === 0) return;
+    const pick = (activeUnitList.find((u) => u.uomType === 'Piece') || activeUnitList[0]).code;
+    setSalesUnit(pick);
+    setUom(pick);
+    setPurchaseUnit((p) => p || pick);
+  }, [activeUnitList, itemKind]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Tracking Mode & Serial / Batch numbers
   const [trackingMode, setTrackingMode] = useState('Quantity'); // 'Quantity' | 'Serial' | 'Batch'
@@ -229,9 +249,9 @@ export const AddEditItemPage = () => {
       setItemKind(existingItem.itemKind || 'Standalone');
       setCategory(existingItem.category || categories[0]?.name || 'Networking Hardware');
       setVendor(existingItem.vendor || vendors[0]?.name || 'Cisco Direct');
-      setUom(existingItem.salesUnit || existingItem.uom || 'Pcs');
-      setPurchaseUnit(existingItem.purchaseUnit || 'Box');
-      setSalesUnit(existingItem.salesUnit || existingItem.uom || 'Pcs');
+      setUom(existingItem.salesUnit || existingItem.uom || '');
+      setPurchaseUnit(existingItem.purchaseUnit || existingItem.uom || '');
+      setSalesUnit(existingItem.salesUnit || existingItem.uom || '');
       setUnitConversionFactor(existingItem.unitConversionFactor || 1);
       // [PHASE-2A] load weight-item config on edit
       setIsWeightItem(Boolean(existingItem.isWeightItem));
@@ -298,9 +318,9 @@ export const AddEditItemPage = () => {
       }
       if ((queryKind || itemKind) === 'Fabric') {
         // Fabric trades by length, not by pieces.
-        setUom('Meter');
-        setSalesUnit('Meter');
-        setPurchaseUnit('Meter');
+        setUom(lengthUnitCode);
+        setSalesUnit(lengthUnitCode);
+        setPurchaseUnit(lengthUnitCode);
       }
       const defaultCat = (categories.length > 0 && !category) ? categories[0].name : category;
       if (categories.length > 0 && !category) {
@@ -1108,7 +1128,10 @@ export const AddEditItemPage = () => {
                       className="w-full h-9 border border-slate-200 rounded-lg px-2.5 bg-white text-slate-800 text-xs focus:outline-none focus:border-blue-600"
                     >
                       <option value="">Select a unit</option>
-                      {units.map((u) => (
+                      {purchaseUnit && !activeUnitList.some((u) => u.code === purchaseUnit) && (
+                        <option value={purchaseUnit}>{purchaseUnit}</option>
+                      )}
+                      {activeUnitList.map((u) => (
                         <option key={u.id} value={u.code}>
                           {u.label || u.code}
                         </option>
@@ -1129,7 +1152,10 @@ export const AddEditItemPage = () => {
                       className="w-full h-9 border border-slate-200 rounded-lg px-2.5 bg-white text-slate-800 text-xs focus:outline-none focus:border-blue-600"
                     >
                       <option value="">Select a unit</option>
-                      {units.map((u) => (
+                      {salesUnit && !activeUnitList.some((u) => u.code === salesUnit) && (
+                        <option value={salesUnit}>{salesUnit}</option>
+                      )}
+                      {activeUnitList.map((u) => (
                         <option key={u.id} value={u.code}>
                           {u.label || u.code}
                         </option>

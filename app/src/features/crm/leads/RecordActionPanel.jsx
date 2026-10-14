@@ -1,4 +1,4 @@
-import { Trash2, X } from "lucide-react";
+import { TrendingDown, X } from "lucide-react";
 
 export default function RecordActionPanel({ lead, leads = [], onClose, onDelete }) {
   const selectedLeads = leads.length > 0 ? leads : lead ? [lead] : [];
@@ -6,7 +6,7 @@ export default function RecordActionPanel({ lead, leads = [], onClose, onDelete 
   const activeLead = lead ?? selectedLeads[0] ?? null;
   if (!activeLead && selectedLeads.length === 0) return null;
 
-  function handleDelete() {
+  function handleMarkLost() {
     if (isBulk) {
       onDelete(selectedLeads);
       return;
@@ -17,9 +17,9 @@ export default function RecordActionPanel({ lead, leads = [], onClose, onDelete 
   return (
     <div className="record-action-panel" role="toolbar" aria-label="Record actions">
       <div className="record-action-buttons">
-        <button type="button" className="record-action-button delete" onClick={handleDelete} aria-label="Delete record">
-          <Trash2 size={17} />
-          <span>{isBulk ? "Delete Records" : "Delete"}</span>
+        <button type="button" className="record-action-button delete" onClick={handleMarkLost} aria-label="Mark record as lost">
+          <TrendingDown size={17} />
+          <span>{isBulk ? "Mark Records as Lost" : "Mark as Lost"}</span>
         </button>
         <button type="button" className="record-action-close" onClick={onClose} aria-label="Close record actions">
           <X size={17} />
