@@ -20,6 +20,7 @@ import {
 
 import { fabricMasterSync, isBackendEnabled, describeError } from '../../../services/fabricMasterSync';
 import { uploadFileToBackend } from '../../../services/fileUploadService';
+import PageInfoButton from '../../../components/ui/PageInfoButton';
 
 // Design Master — list (slide 3) plus an Add / Edit / View popup (slide 4)
 // laid out like the Fabric Quality Master popup. Logged in → rows live in
@@ -308,6 +309,7 @@ export default function DesignMasterPage() {
           3
         </div>
         <h1 className="text-xl sm:text-2xl font-bold text-[#0f172a] tracking-tight">Design Master – List</h1>
+        <PageInfoButton title="Design Master" />
       </div>
 
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 pt-1">

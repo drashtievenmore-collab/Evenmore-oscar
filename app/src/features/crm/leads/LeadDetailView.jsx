@@ -83,6 +83,7 @@ import { useAppStore } from '../../../stores/appStore';
 import { completeTaskWithOutcome, NEXT_ACTION_LABELS, getLeadStageOrder } from '../../../services/taskCompletionService';
 import CompleteTaskModal from '../tasks/CompleteTaskModal';
 import QuotationComposerPage from '../../sales/QuotationComposerPage';
+import PageInfoButton from '../../../components/ui/PageInfoButton';
 
 const DETAIL_TABS = [
   'General',
@@ -4374,6 +4375,7 @@ export default function LeadDetailView({ lead, onBackToLeads }) {
             <div className="space-y-1 min-w-0 lg:min-w-auto">
               <div className="flex flex-wrap lg:flex-nowrap items-center gap-2.5">
                 <h1 className="text-[20px] font-extrabold tracking-tight text-slate-900 break-words">{displayName}</h1>
+                <PageInfoButton title="Lead Details" />
                 <span className={`px-2.5 py-0.5 rounded-full text-[11px] font-semibold border ${isConverted ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : (isLost ? 'bg-rose-50 text-rose-700 border-rose-200' : 'bg-blue-50 text-blue-700 border-blue-200')}`}>
                   {isConverted ? 'Converted' : (isLost ? (activeLeadData.status || 'Lost') : (activeLeadData.status || '—'))}
                 </span>

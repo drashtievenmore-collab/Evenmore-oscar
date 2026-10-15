@@ -32,6 +32,7 @@ import { useLocation, useNavigate } from 'react-router-dom';
 
 import { fabricMasterSync, isBackendEnabled, describeError } from '../../services/fabricMasterSync';
 import { uploadFileToBackend } from '../../services/fileUploadService';
+import PageInfoButton from '../../components/ui/PageInfoButton';
 
 const PER_PAGE = 10;
 const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
@@ -434,6 +435,7 @@ export const CategoriesPage = () => {
         <h1 className="text-xl sm:text-2xl font-bold text-[#0f172a] tracking-tight">
           Fabric Categories – List
         </h1>
+        <PageInfoButton title="Fabric Categories" />
       </div>
 
       {/* Sub-bar: Breadcrumb Left & Actions Right */}

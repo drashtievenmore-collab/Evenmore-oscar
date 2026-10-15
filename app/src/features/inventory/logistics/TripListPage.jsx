@@ -18,6 +18,7 @@ import {
   TrendingUp,
 } from 'lucide-react';
 import { inventoryService } from '../../../services/domainServices';
+import PageInfoButton from '../../../components/ui/PageInfoButton';
 
 export default function TripListPage() {
   const [trips, setTrips] = useState([]);
@@ -160,10 +161,13 @@ export default function TripListPage() {
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-2 border-b border-slate-200">
         <div>
-          <h1 className="text-2xl font-bold text-slate-900 flex items-center gap-2">
-            <Truck className="w-7 h-7 text-indigo-600" />
-            Logistics & Tempo Register
-          </h1>
+          <div className="flex items-center gap-2">
+            <h1 className="text-2xl font-bold text-slate-900 flex items-center gap-2">
+              <Truck className="w-7 h-7 text-indigo-600" />
+              Logistics & Tempo Register
+            </h1>
+            <PageInfoButton title="Logistics & Trip Register" />
+          </div>
           <p className="text-sm text-slate-500 mt-1">
             Track inward/outward vehicle trips, LR details, freight charges, and direct landed-cost allocation to lots.
           </p>

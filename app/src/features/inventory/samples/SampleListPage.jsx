@@ -21,6 +21,7 @@ import {
 } from 'lucide-react';
 import { api } from '../../../services/api';
 import { inventoryService, partiesService } from '../../../services/domainServices';
+import PageInfoButton from '../../../components/ui/PageInfoButton';
 
 export default function SampleListPage() {
   const [samples, setSamples] = useState([]);
@@ -182,10 +183,13 @@ export default function SampleListPage() {
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-2 border-b border-slate-200">
         <div>
-          <h1 className="text-2xl font-bold text-slate-900 flex items-center gap-2">
-            <FlaskConical className="w-7 h-7 text-indigo-600" />
-            Sampling Register & Expense
-          </h1>
+          <div className="flex items-center gap-2">
+            <h1 className="text-2xl font-bold text-slate-900 flex items-center gap-2">
+              <FlaskConical className="w-7 h-7 text-indigo-600" />
+              Sampling Register & Expense
+            </h1>
+            <PageInfoButton title="Sample Register & Expense" />
+          </div>
           <p className="text-sm text-slate-500 mt-1">
             Track fabric swatches, cuts, and hangers issued to parties with automatic inventory deduction and expense booking.
           </p>

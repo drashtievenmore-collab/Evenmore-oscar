@@ -22,6 +22,7 @@ import {
 } from 'lucide-react';
 import { inventoryService } from '../../../services/domainServices';
 import { useERP } from '../../../context/ERPContext';
+import PageInfoButton from '../../../components/ui/PageInfoButton';
 
 export default function QCInspectionRegisterPage() {
   const { vendors = [], items = [], locations = [] } = useERP();
@@ -477,6 +478,7 @@ export default function QCInspectionRegisterPage() {
               2
             </div>
             <h1 className="text-xl font-bold text-slate-900">QC Inspection Register</h1>
+            <PageInfoButton title="QC Inspection Register" />
           </div>
           <p className="text-xs md:text-sm text-slate-500 mt-1 pl-11">
             Record inspection details and measurement for each lot/taka.

@@ -55,7 +55,7 @@ export default function PartiesPage() {
 
   const { parties = [], addParty, updateParty, formatCurrency } = useERP();
   const [selectedType, setSelectedType] = useState(() => {
-    if (typeParam && ['customer', 'vendor', 'both', 'transporter'].includes(typeParam.toLowerCase())) {
+    if (typeParam && ['customer', 'vendor', 'both'].includes(typeParam.toLowerCase())) {
       return typeParam.charAt(0).toUpperCase() + typeParam.slice(1).toLowerCase();
     }
     if (isCustomerContext) return 'Customer';
@@ -67,7 +67,7 @@ export default function PartiesPage() {
   const [viewingParty, setViewingParty] = useState(null);
 
   useEffect(() => {
-    if (typeParam && ['customer', 'vendor', 'both', 'transporter'].includes(typeParam.toLowerCase())) {
+    if (typeParam && ['customer', 'vendor', 'both'].includes(typeParam.toLowerCase())) {
       setSelectedType(typeParam.charAt(0).toUpperCase() + typeParam.slice(1).toLowerCase());
     } else if (isCustomerContext) {
       setSelectedType('Customer');
@@ -79,8 +79,6 @@ export default function PartiesPage() {
   // Filter parties by type
   const filteredParties = useMemo(() => {
     if (selectedType === 'All') return parties;
-    // A Dual Partner trades as both, but it is not a transporter fleet.
-    if (selectedType === 'Transporter') return parties.filter((p) => p.type === 'Transporter');
     return parties.filter((p) => p.type === selectedType || p.type === 'Both');
   }, [parties, selectedType]);
 
@@ -90,14 +88,13 @@ export default function PartiesPage() {
     const customers = parties.filter((p) => p.type === 'Customer' || p.type === 'Both').length;
     const vendors = parties.filter((p) => p.type === 'Vendor' || p.type === 'Both').length;
     const both = parties.filter((p) => p.type === 'Both').length;
-    const transporters = parties.filter((p) => p.type === 'Transporter').length;
     const totalReceivable = parties
       .filter((p) => p.type === 'Customer' || p.type === 'Both')
       .reduce((sum, p) => sum + (p.balance > 0 ? p.balance : 0), 0);
     const totalPayable = parties
       .filter((p) => p.type === 'Vendor' || p.type === 'Both')
       .reduce((sum, p) => sum + (p.balance > 0 ? p.balance : 0), 0);
-    return { total, customers, vendors, both, transporters, totalReceivable, totalPayable };
+    return { total, customers, vendors, both, totalReceivable, totalPayable };
   }, [parties]);
 
   const handleAddNew = () => {
@@ -342,7 +339,6 @@ export default function PartiesPage() {
           { id: 'Customer', label: 'Customers', count: stats.customers },
           { id: 'Vendor', label: 'Vendors', count: stats.vendors },
           { id: 'Both', label: 'Dual Partners', count: stats.both },
-          { id: 'Transporter', label: 'Transporters', count: stats.transporters },
         ].map((tab) => {
           const isActive = selectedType === tab.id;
           return (

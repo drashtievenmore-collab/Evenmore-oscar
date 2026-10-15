@@ -4,6 +4,7 @@ import { ChevronRight, UserPlus, Send, AlertTriangle, CheckCircle2, Truck, Recei
 import { Button } from '../../../../components/ui/Button';
 import { StageStatusBadge } from '../../components/StageStatusBadge';
 import { formatCurrency } from '../../../../utils/currencyUtils';
+import PageInfoButton from '../../../../components/ui/PageInfoButton';
 
 /**
  * ProjectHeader — the hero banner for the project workspace.
@@ -85,6 +86,7 @@ export function ProjectHeader({
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2 flex-wrap mb-1.5">
             <h2 className="text-2xl font-black text-slate-800 tracking-tight">{project.code || project.id}</h2>
+            <PageInfoButton title="Project Details" />
             <StageStatusBadge status={project.status} />
             <span
               className="text-[10px] font-bold px-2 py-0.5 rounded-full"

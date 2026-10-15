@@ -14,6 +14,7 @@ import {
   X,
 } from 'lucide-react';
 import { salesService } from '../../../services/domainServices';
+import PageInfoButton from '../../../components/ui/PageInfoButton';
 
 export default function BrokerCommissionPage() {
   const [commissions, setCommissions] = useState([]);
@@ -134,10 +135,13 @@ export default function BrokerCommissionPage() {
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-2 border-b border-slate-200">
         <div>
-          <h1 className="text-2xl font-bold text-slate-900 flex items-center gap-2">
-            <Users className="w-7 h-7 text-indigo-600" />
-            Broker Commission Ledger
-          </h1>
+          <div className="flex items-center gap-2">
+            <h1 className="text-2xl font-bold text-slate-900 flex items-center gap-2">
+              <Users className="w-7 h-7 text-indigo-600" />
+              Broker Commission Ledger
+            </h1>
+            <PageInfoButton title="Broker Commission Ledger" />
+          </div>
           <p className="text-sm text-slate-500 mt-1">
             Track invoice-level brokerage accrual, verification, payout workflows, and automatic return adjustments.
           </p>

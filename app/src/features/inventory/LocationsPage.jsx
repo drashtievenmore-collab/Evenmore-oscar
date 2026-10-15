@@ -36,6 +36,7 @@ import {
   SlidersHorizontal,
 } from 'lucide-react';
 import { inventoryService } from '../../services/domainServices';
+import PageInfoButton from '../../components/ui/PageInfoButton';
 
 export const LocationsPage = () => {
   // State for data
@@ -619,9 +620,12 @@ export const LocationsPage = () => {
                 <Warehouse size={22} />
               </div>
               <div>
-                <h1 className="text-xl font-bold text-slate-900 dark:text-slate-100 leading-tight">
-                  Godown / Rack – Locations Management
-                </h1>
+                <div className="flex items-center gap-2">
+                  <h1 className="text-xl font-bold text-slate-900 dark:text-slate-100 leading-tight">
+                    Godown / Rack – Locations Management
+                  </h1>
+                  <PageInfoButton title="Godown / Rack - Locations Management" />
+                </div>
                 <p className="text-xs text-slate-500 dark:text-slate-400">
                   Manage warehouse, zone, godown, rack and bin locations for fabric inventory with complete tracking.
                 </p>

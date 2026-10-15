@@ -57,14 +57,6 @@ const PARTY_TYPES = [
         activeClass: 'bg-purple-500/10 border-purple-500 text-purple-600 dark:text-purple-400 ring-2 ring-purple-500/20',
         activeIconClass: 'bg-purple-600 text-white',
     },
-    {
-        id: 'Transporter',
-        label: 'Transporter',
-        subtext: 'Logistics / Transport Service Provider for Dispatches',
-        icon: Truck,
-        activeClass: 'bg-cyan-500/10 border-cyan-500 text-cyan-600 dark:text-cyan-400 ring-2 ring-cyan-500/20',
-        activeIconClass: 'bg-cyan-600 text-white',
-    },
 ];
 
 /** Supplier classification — shown only when the role is Vendor. */

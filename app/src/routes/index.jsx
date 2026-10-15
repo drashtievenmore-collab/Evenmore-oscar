@@ -8,6 +8,7 @@ import { PageLoadingSkeleton } from '../components/common/PageLoadingSkeleton';
 
 // ── CRM (Lazy Loaded) ───────────────────────────────────────
 const LeadsPage = lazy(() => import('../features/crm/leads/LeadsPage'));
+const CRMDashboardPage = lazy(() => import('../features/crm/dashboard/CRMDashboard'));
 const LostLeadsPage = lazy(() => import('../features/crm/leads/LostLeadsPage'));
 const LeadDetailPage = lazy(() => import('../features/crm/leads/LeadDetailPage'));
 const LeadFormBuilderPage = lazy(() => import('../features/crm/leads/LeadFormBuilderPage'));
@@ -188,12 +189,16 @@ const DayBookPage = lazy(() => import('../features/accounts/DayBookPage'));
 
 // ── ERP — Reports & Settings (Lazy Loaded) ────────────────────
 const ReportsPage = lazy(() => import('../features/reports/ReportsPage').then(m => ({ default: m.ReportsPage })));
+const OwnerMISDashboardPage = lazy(() => import('../features/reports/OwnerMISDashboardPage'));
 const SettingsPage = lazy(() => import('../features/settings/SettingsPage').then(m => ({ default: m.SettingsPage })));
 
 // ── Administration (Lazy Loaded) ──────────────────────────────
 const UsersPage = lazy(() => import('../features/administration/UsersPage'));
 const RolesPage = lazy(() => import('../features/administration/RolesPage'));
 const ClientsPage = lazy(() => import('../features/administration/ClientsPage'));
+const ApprovalsInboxPage = lazy(() => import('../features/administration/ApprovalsInboxPage'));
+const AlertCenterPage = lazy(() => import('../features/administration/AlertCenterPage'));
+const ITC04ReportPage = lazy(() => import('../features/jobwork/ITC04ReportPage'));
 
 // ── Main Dashboard (Lazy Loaded) ──────────────────────────────
 const DashboardPage = lazy(() => import('../features/sales/DashboardPage').then(m => ({ default: m.DashboardPage })));
@@ -309,7 +314,8 @@ const router = createBrowserRouter([
       { path: 'dashboard', element: <Page component={DashboardPage} /> },
 
       // ── CRM ───────────────────────────────────────────────
-      { path: 'crm', element: <Navigate to="/crm/leads" replace /> },
+      { path: 'crm', element: <Navigate to="/crm/dashboard" replace /> },
+      { path: 'crm/dashboard', element: <Page component={CRMDashboardPage} title="CRM Dashboard" /> },
       { path: 'crm/leads', element: <Page component={LeadsPage} /> },
       { path: 'crm/leads/lost', element: <Page component={LostLeadsPage} /> },
       { path: 'crm/leads/:id', element: <Page component={LeadDetailPage} /> },
@@ -363,6 +369,7 @@ const router = createBrowserRouter([
       { path: 'job-work/vendor-reconciliation', element: <Page component={VendorReconciliationPage} /> },
       { path: 'job-work/processor-ledger', element: <Page component={ProcessorLedgerPage} /> },
       { path: 'job-work/reprocess', element: <Page component={ReprocessPage} /> },
+      { path: 'job-work/itc-04', element: <Page component={ITC04ReportPage} title="ITC-04 Job Work Report" /> },
 
       // ── Sales ─────────────────────────────────────────────
       { path: 'sales', element: <Navigate to="/sales/quotations" replace /> },
@@ -536,14 +543,21 @@ const router = createBrowserRouter([
 
       // ── Reports ───────────────────────────────────────────
       { path: 'reports', element: <Page component={ReportsPage} /> },
+      { path: 'reports/owner-mis', element: <Page component={OwnerMISDashboardPage} title="Owner Executive MIS" /> },
 
       // ── Administration ────────────────────────────────────
       { path: 'administration', element: <Navigate to="/administration/settings" replace /> },
+      { path: 'administration/approvals', element: <Page component={ApprovalsInboxPage} title="Approvals Inbox" /> },
+      { path: 'administration/alerts', element: <Page component={AlertCenterPage} title="Alert Center & Exceptions" /> },
       { path: 'administration/users', element: <Page component={UsersPage} /> },
       { path: 'administration/roles', element: <Page component={RolesPage} /> },
       { path: 'administration/clients', element: <Page component={ClientsPage} /> },
       { path: 'administration/client', element: <Navigate to="/administration/clients" replace /> },
       { path: 'administration/settings', element: <Page component={SettingsPage} /> },
+      { path: 'admin/approvals', element: <Navigate to="/administration/approvals" replace /> },
+      { path: 'admin/alerts', element: <Navigate to="/administration/alerts" replace /> },
+      { path: 'approvals', element: <Navigate to="/administration/approvals" replace /> },
+      { path: 'alerts', element: <Navigate to="/administration/alerts" replace /> },
 
       // ── Catch-all ─────────────────────────────────────────
       { path: '*', element: <Navigate to="/dashboard" replace /> },

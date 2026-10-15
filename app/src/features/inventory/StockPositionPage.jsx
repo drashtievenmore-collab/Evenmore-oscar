@@ -33,6 +33,7 @@ import {
 } from 'lucide-react';
 import { inventoryService } from '../../services/domainServices';
 import { useERP } from '../../context/ERPContext';
+import PageInfoButton from '../../components/ui/PageInfoButton';
 
 // Indian Currency Helper
 function formatINR(val) {
@@ -902,6 +903,7 @@ export function StockPositionPage() {
           <div>
             <div className="flex items-center gap-2">
               <h1 className="text-xl font-extrabold text-slate-900 tracking-tight">Sample Stock</h1>
+              <PageInfoButton title="Sample Stock" />
               <span className="px-2 py-0.5 text-[10.5px] font-bold bg-teal-50 text-teal-700 rounded border border-teal-200">
                 Sample Inventory
               </span>

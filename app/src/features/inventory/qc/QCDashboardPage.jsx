@@ -29,6 +29,7 @@ import {
 } from 'lucide-react';
 import { inventoryService } from '../../../services/domainServices';
 import { useERP } from '../../../context/ERPContext';
+import PageInfoButton from '../../../components/ui/PageInfoButton';
 
 export default function QCDashboardPage({ defaultTab = 'All' }) {
   const { purchaseBills = [], vendors = [], items = [], formatCurrency } = useERP();
@@ -301,6 +302,7 @@ export default function QCDashboardPage({ defaultTab = 'All' }) {
             <h1 className="text-xl sm:text-2xl font-bold text-[#0f172a] tracking-tight">
               QC Dashboard
             </h1>
+            <PageInfoButton title="QC Dashboard" />
             {loading && (
               <RefreshCw className="w-4 h-4 text-blue-600 animate-spin" />
             )}

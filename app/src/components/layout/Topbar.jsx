@@ -21,12 +21,14 @@ import {
   Layers,
   Inbox,
   Menu,
+  ClipboardCheck,
 } from 'lucide-react';
 import { useAppStore } from '../../stores/appStore';
 import { useERP } from '../../context/ERPContext';
 import { useCrmNotificationDigest } from '../../hooks/useCrmNotificationDigest';
 import { useIdleReady } from '../../hooks/useIdleReady';
 import { markEventNotificationRead } from '../../services/crmEventNotifications';
+import { approvalService, alertService } from '../../services/domainServices';
 
 const THEMES = [
   { id: 'light', name: 'Enterprise Light', icon: Sun, desc: 'Clean high-contrast corporate palette', color: '#1f6bff' },
@@ -138,10 +140,11 @@ export default function Topbar() {
     return list;
   }, [lowStockItems, pendingZoneRequests, inTransitChallans, overdueInvoices]);
 
-  const [notifTab, setNotifTab] = useState('all'); // 'all' | 'erp' | 'crm_reminders' | 'crm_workflow' | 'crm'
+  const [notifTab, setNotifTab] = useState('all'); // 'all' | 'alerts' | 'erp' | 'crm_reminders' | 'crm_workflow' | 'crm'
   const [isSectionMenuOpen, setIsSectionMenuOpen] = useState(false);
   const sectionMenuRef = useRef(null);
   const [openSections, setOpenSections] = useState({
+    alerts: true,
     erp: true,
     crm: true,
     workflow: true,
@@ -149,18 +152,57 @@ export default function Topbar() {
   const [showAllReminders, setShowAllReminders] = useState(false);
   const [showAllWorkflows, setShowAllWorkflows] = useState(false);
 
+  const [approvalBadge, setApprovalBadge] = useState(0);
+  const [alertBadge, setAlertBadge] = useState(0);
+  const [activeAlerts, setActiveAlerts] = useState([]);
+
+  useEffect(() => {
+    let cancelled = false;
+    const fetchBadges = async () => {
+      try {
+        const [apprRes, alertRes, incidentRes] = await Promise.allSettled([
+          approvalService.getRequestBadge(),
+          alertService.getIncidentBadge(),
+          alertService.getIncidents({ status: 'Active' }),
+        ]);
+        if (cancelled) return;
+        if (apprRes.status === 'fulfilled') {
+          const c = apprRes.value?.data?.pendingCount ?? apprRes.value?.data?.count ?? 0;
+          setApprovalBadge(Number(c) || 0);
+        }
+        if (alertRes.status === 'fulfilled') {
+          const c = alertRes.value?.data?.activeCount ?? alertRes.value?.data?.count ?? 0;
+          setAlertBadge(Number(c) || 0);
+        }
+        if (incidentRes.status === 'fulfilled') {
+          const list = incidentRes.value?.data?.results || incidentRes.value?.data || [];
+          setActiveAlerts(Array.isArray(list) ? list : []);
+        }
+      } catch (err) {
+        // silent fallback
+      }
+    };
+    fetchBadges();
+    const interval = setInterval(fetchBadges, 30000);
+    return () => {
+      cancelled = true;
+      clearInterval(interval);
+    };
+  }, [pathname]);
+
   const erpUnreadCount = useMemo(() => erpNotifications.filter((n) => n.unread).length, [erpNotifications]);
   const crmUnreadCount = crmDigest.counts?.unread || crmDigest.counts?.total || 0;
-  const totalUnreadCount = erpUnreadCount + crmUnreadCount;
-  const totalNotifCount = (crmDigest.reminders?.length || 0) + (crmDigest.notifications?.length || 0) + erpNotifications.length;
+  const totalUnreadCount = erpUnreadCount + crmUnreadCount + alertBadge;
+  const totalNotifCount = (crmDigest.reminders?.length || 0) + (crmDigest.notifications?.length || 0) + erpNotifications.length + activeAlerts.length;
 
   const notifSections = useMemo(() => [
     { id: 'all', label: 'All Notification Sections', count: totalNotifCount },
+    { id: 'alerts', label: 'System Alert Incidents', count: activeAlerts.length },
     { id: 'erp', label: 'Operational & Stock Alerts', count: erpNotifications.length },
     { id: 'crm_reminders', label: 'CRM Task Reminders', count: crmDigest.reminders?.length || 0 },
     { id: 'crm_workflow', label: 'Workflow Updates', count: crmDigest.notifications?.length || 0 },
     { id: 'crm', label: 'CRM Tasks & Updates', count: crmDigest.counts?.total || 0 },
-  ], [totalNotifCount, erpNotifications.length, crmDigest]);
+  ], [totalNotifCount, activeAlerts.length, erpNotifications.length, crmDigest]);
 
   const activeSectionObj = notifSections.find((s) => s.id === notifTab) || notifSections[0];
 
@@ -169,11 +211,11 @@ export default function Topbar() {
   };
 
   const expandAllSections = () => {
-    setOpenSections({ erp: true, crm: true, workflow: true });
+    setOpenSections({ alerts: true, erp: true, crm: true, workflow: true });
   };
 
   const collapseAllSections = () => {
-    setOpenSections({ erp: false, crm: false, workflow: false });
+    setOpenSections({ alerts: false, erp: false, crm: false, workflow: false });
   };
 
   // Close popovers on click outside
@@ -351,6 +393,21 @@ export default function Topbar() {
 
         {/* Harmonized Icon Buttons Cluster */}
         <div className="flex items-center gap-1.5 pl-1">
+          {/* Approvals Inbox Shortcut with Badge (Phase 4.1) */}
+          <Link
+            to="/administration/approvals"
+            className="w-9 h-9 rounded-xl border border-border bg-card hover:bg-soft text-text flex items-center justify-center transition cursor-pointer relative shadow-2xs"
+            aria-label="Pending Approvals"
+            title={approvalBadge > 0 ? `${approvalBadge} Pending Approvals` : "My Approvals Inbox"}
+          >
+            <ClipboardCheck size={16} />
+            {approvalBadge > 0 && (
+              <span className="absolute -top-1 -right-1 min-w-4 h-4 px-1 bg-amber-500 text-white rounded-full text-[9px] font-bold flex items-center justify-center ring-2 ring-card animate-pulse">
+                {approvalBadge}
+              </span>
+            )}
+          </Link>
+
           {/* Unified Notifications Button & Dropdown */}
           <div className="relative" ref={notifRef}>
             <button
@@ -486,6 +543,60 @@ export default function Topbar() {
 
                 {/* Scrollable Notification Lists */}
                 <div className="max-h-72 space-y-2.5 overflow-y-auto pr-1">
+                  {/* SYSTEM ALERT INCIDENTS SECTION (Phase 4.3) */}
+                  {(notifTab === 'all' || notifTab === 'alerts') && activeAlerts.length > 0 && (
+                    <div>
+                      <div className="mb-1 flex items-center justify-between text-[10px] font-bold uppercase tracking-wider text-muted">
+                        <button
+                          type="button"
+                          onClick={() => toggleSection('alerts')}
+                          className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider text-muted hover:text-text transition cursor-pointer"
+                        >
+                          <span>SYSTEM ALERTS ({activeAlerts.length})</span>
+                          <ChevronDown
+                            size={11}
+                            className={`transition-transform duration-150 ${openSections.alerts ? 'rotate-180' : ''}`}
+                          />
+                        </button>
+                        <Link
+                          to="/administration/alerts"
+                          onClick={() => setIsNotifOpen(false)}
+                          className="text-[10px] font-bold text-primary hover:underline"
+                        >
+                          Alert Center →
+                        </Link>
+                      </div>
+                      {openSections.alerts && (
+                        <div className="space-y-1">
+                          {activeAlerts.slice(0, 5).map((a) => (
+                            <div
+                              key={a.id}
+                              onClick={() => {
+                                navigate('/administration/alerts');
+                                setIsNotifOpen(false);
+                              }}
+                              className="rounded-xl border p-2.5 transition cursor-pointer hover:bg-soft"
+                              style={{
+                                background: a.severity === 'Critical' ? 'rgba(239, 68, 68, 0.08)' : 'rgba(245, 158, 11, 0.08)',
+                                borderColor: a.severity === 'Critical' ? 'rgba(239, 68, 68, 0.25)' : 'rgba(245, 158, 11, 0.25)',
+                              }}
+                            >
+                              <div className="flex items-center justify-between gap-2 text-[11px] font-semibold text-text">
+                                <span className="truncate">{a.title}</span>
+                                <span className={`shrink-0 rounded-full px-1.5 py-0.5 text-[9px] font-bold ${
+                                  a.severity === 'Critical' ? 'bg-rose-500 text-white' : 'bg-amber-500 text-white'
+                                }`}>
+                                  {a.severity}
+                                </span>
+                              </div>
+                              <p className="mt-0.5 text-[10.5px] text-muted truncate">{a.message}</p>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  )}
+
                   {/* ERP ALERTS SECTION */}
                   {(notifTab === 'all' || notifTab === 'erp') && erpNotifications.length > 0 && (
                     <div>

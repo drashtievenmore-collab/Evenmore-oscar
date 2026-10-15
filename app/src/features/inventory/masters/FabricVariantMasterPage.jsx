@@ -19,6 +19,7 @@ import {
 
 import { fabricMasterSync, isBackendEnabled, describeError } from '../../../services/fabricMasterSync';
 import { uploadFileToBackend } from '../../../services/fileUploadService';
+import PageInfoButton from '../../../components/ui/PageInfoButton';
 
 const PER_PAGE = 10;
 const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
@@ -415,6 +416,7 @@ export default function FabricVariantMasterPage() {
         <h1 className="text-xl sm:text-2xl font-bold text-[#0f172a] tracking-tight">
           Fabric Item / Variant Master – List
         </h1>
+        <PageInfoButton title="Fabric Variant Master" />
       </div>
 
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 pt-1">

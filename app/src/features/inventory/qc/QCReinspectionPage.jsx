@@ -27,6 +27,7 @@ import {
 } from 'lucide-react';
 import { inventoryService } from '../../../services/domainServices';
 import { useERP } from '../../../context/ERPContext';
+import PageInfoButton from '../../../components/ui/PageInfoButton';
 
 export default function QCReinspectionPage() {
   const { vendors = [], items = [] } = useERP();
@@ -363,7 +364,10 @@ export default function QCReinspectionPage() {
               5
             </div>
             <div>
-              <h1 className="text-xl font-bold text-slate-900">Reinspection / Reprocess</h1>
+              <div className="flex items-center gap-2">
+                <h1 className="text-xl font-bold text-slate-900">Reinspection / Reprocess</h1>
+                <PageInfoButton title="Reinspection / Reprocess" />
+              </div>
               <p className="text-xs text-slate-500 mt-0.5">
                 Track reprocessed fabric and record re-inspection results.
               </p>

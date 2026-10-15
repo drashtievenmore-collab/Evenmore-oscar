@@ -24,6 +24,7 @@ import {
   FileSpreadsheet
 } from 'lucide-react';
 import { inventoryService } from '../../../services/domainServices';
+import PageInfoButton from '../../../components/ui/PageInfoButton';
 
 export default function QCReportsPage() {
   const [activeTab, setActiveTab] = useState('supplierRejection');
@@ -179,10 +180,13 @@ export default function QCReportsPage() {
             <ChevronRight className="w-3.5 h-3.5 text-slate-400" />
             <span className="text-slate-900 font-bold">QC Reports</span>
           </div>
-          <h1 className="text-xl md:text-2xl font-bold text-slate-900 flex items-center gap-2.5">
-            <FileText className="w-6 h-6 text-blue-600" />
-            Quality Check Reports & Analytics
-          </h1>
+          <div className="flex items-center gap-2.5">
+            <h1 className="text-xl md:text-2xl font-bold text-slate-900 flex items-center gap-2.5">
+              <FileText className="w-6 h-6 text-blue-600" />
+              Quality Check Reports & Analytics
+            </h1>
+            <PageInfoButton title="QC Reports" />
+          </div>
           <p className="text-xs md:text-sm text-slate-500 mt-1">
             Real-time audit summaries, supplier rejection metrics, defect analysis, and reprocess recovery tracking.
           </p>

@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { Users, UserPlus, Clock, TrendingUp, DollarSign, Search, Mail, Phone, CalendarDays, FileText, ClipboardList, Video, Send } from "lucide-react";
 import { useCrmStore } from "../../../stores/crmStore";
-import { initials, describeError } from "../../../services/crmSync";
+import { initials, describeError, pullDashboard as pullCrmDashboard } from "../../../services/crmSync";
 import { useERP } from "../../../context/ERPContext";
 import { useAppStore } from "../../../stores/appStore";
 import { CRM_TEAM_MEMBERS } from "../../../services/leadStageAutomation";
@@ -96,6 +96,14 @@ export default function DashboardView() {
   const [query, setQuery] = useState("");
   const [completeTarget, setCompleteTarget] = useState(null);
   const [isCreateLeadOpen, setIsCreateLeadOpen] = useState(false);
+  const [crmDashboardKpis, setCrmDashboardKpis] = useState(null);
+  useEffect(() => {
+    let active = true;
+    pullCrmDashboard().then((data) => {
+      if (active) setCrmDashboardKpis(data?.kpis || null);
+    }).catch(() => {});
+    return () => { active = false; };
+  }, []);
 
   async function handleCreateLead(data) {
     try {
@@ -146,11 +154,11 @@ export default function DashboardView() {
   }, 0);
   const revenueExpected = dealsTotal + invoicesTotal + quotationsTotal;
   const kpis = [
-    { label: "Total Active Leads", value: String(activeLeads), icon: Users },
+    { label: "Total Active Leads", value: String(crmDashboardKpis?.openLeads ?? activeLeads), icon: Users },
     { label: "New Leads", value: String(newLeads), icon: UserPlus },
-    { label: "Pending Tasks", value: String(pendingTasks), icon: Clock },
-    { label: "Deals in Pipeline", value: String(pipelineDeals), icon: TrendingUp, note: formatShortINR(dealsTotal) },
-    { label: "Total Revenue Expected", value: formatCurrency(revenueExpected), icon: DollarSign, note: formatCurrency(outstandingTotal) + " due" }
+    { label: "Pending Tasks", value: String(crmDashboardKpis?.openTasks ?? pendingTasks), icon: Clock },
+    { label: "Deals in Pipeline", value: String(crmDashboardKpis?.openDeals ?? pipelineDeals), icon: TrendingUp, note: formatShortINR(crmDashboardKpis?.pipelineValue ?? dealsTotal) },
+    { label: "Won Value", value: formatCurrency(crmDashboardKpis?.wonValue ?? 0), icon: DollarSign, note: (crmDashboardKpis?.winRatePct ?? 0) + "% win rate" }
   ];
   const pipeline = DEAL_STAGES.map((stage, i) => ({
     label: stage,

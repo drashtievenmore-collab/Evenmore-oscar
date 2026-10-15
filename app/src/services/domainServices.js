@@ -100,6 +100,11 @@ export const salesService = {
   getPartyDiscounts: (query) => api.get('/sales/party-discounts/', { query }),
   getPartyDiscountAnnualReport: (query) => api.get('/sales/party-discounts/annual-report/', { query }),
   getOrderPickingList: (id) => api.get(`/sales/orders/${id}/picking-list/`),
+  // E-Invoice & E-Way Bill (PDF §20)
+  generateInvoiceIRN: (id) => api.post(`/sales/invoices/${id}/generate-irn/`),
+  cancelInvoiceIRN: (id, data) => api.post(`/sales/invoices/${id}/cancel-irn/`, data),
+  generateInvoiceEwayBill: (id, data) => api.post(`/sales/invoices/${id}/generate-eway-bill/`, data),
+  generateChallanEwayBill: (id, data) => api.post(`/sales/delivery-challans/${id}/generate-eway-bill/`, data),
 };
 
 // ── Purchase pipeline ────────────────────────────────────────────────────
@@ -290,4 +295,44 @@ export const accountingService = {
   getTallyExportUrl: (type, dateFrom, dateTo) => `/api/accounts/export/tally/?type=${type || 'vouchers'}${dateFrom ? '&dateFrom=' + dateFrom : ''}${dateTo ? '&dateTo=' + dateTo : ''}`,
   getExcelExportUrl: (register, dateFrom, dateTo) => `/api/accounts/export/excel/?register=${register || 'sales'}${dateFrom ? '&dateFrom=' + dateFrom : ''}${dateTo ? '&dateTo=' + dateTo : ''}`,
 };
+
+// ── Approvals Engine (Phase 4.1) ──────────────────────────────────────────
+export const approvalService = {
+  getRequests: (query) => api.get('/approvals/requests/', { query }),
+  getRequestBadge: () => api.get('/approvals/requests/badge/'),
+  approveRequest: (id, data) => api.post(`/approvals/requests/${id}/approve/`, data || {}),
+  rejectRequest: (id, data) => api.post(`/approvals/requests/${id}/reject/`, data || {}),
+  getRules: (query) => api.get('/approvals/rules/', { query }),
+  createRule: (data) => api.post('/approvals/rules/', data),
+  updateRule: (id, data) => api.patch(`/approvals/rules/${id}/`, data),
+  deleteRule: (id) => api.delete(`/approvals/rules/${id}/`),
+};
+
+// ── Alerts & Exceptions Engine (Phase 4.3) ────────────────────────────────
+export const alertService = {
+  getIncidents: (query) => api.get('/alerts/incidents/', { query }),
+  getIncidentBadge: () => api.get('/alerts/incidents/badge/'),
+  acknowledgeIncident: (id) => api.post(`/alerts/incidents/${id}/acknowledge/`, {}),
+  resolveIncident: (id) => api.post(`/alerts/incidents/${id}/resolve/`, {}),
+  getSettings: (query) => api.get('/alerts/settings/', { query }),
+  updateSetting: (id, data) => api.patch(`/alerts/settings/${id}/`, data),
+};
+
+// ── MIS Reports (Phase 4.4) ───────────────────────────────────────────────
+export const misService = {
+  getAnnualCommercialLeakage: (query) => api.get('/reports/annual-commercial-leakage/', { query }),
+  getPartyProfitability: (query) => api.get('/reports/party-profitability/', { query }),
+  getDesignColourAnalysis: (query) => api.get('/reports/design-colour-analysis/', { query }),
+  getStockAgeingMis: (query) => api.get('/reports/stock-ageing-mis/', { query }),
+};
+
+// ── Job Work & ITC-04 Statutory Reporting (Phase 4.5) ─────────────────────
+export const jobworkService = {
+  getProcessPlans: (query) => api.get('/jobwork/process-plans/', { query }),
+  getOrders: (query) => api.get('/jobwork/orders/', { query }),
+  getITC04Report: (query) => api.get('/jobwork/itc-04/', { query }),
+  getITC04ExportUrl: (financialYear, quarter, table = 'both') =>
+    `/api/v1/jobwork/itc-04/export/?table=${table}${financialYear ? '&financialYear=' + financialYear : ''}${quarter ? '&quarter=' + quarter : ''}`,
+};
+
 

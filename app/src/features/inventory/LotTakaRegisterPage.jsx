@@ -39,6 +39,7 @@ import { useERP } from '../../context/ERPContext';
 import { useNavigate } from 'react-router-dom';
 import QRCode from 'qrcode';
 import { TakaTagLabel } from './TakaTagPrintPage';
+import PageInfoButton from '../../components/ui/PageInfoButton';
 
 // Helper for Indian Currency formatting
 function formatINR(val) {
@@ -607,6 +608,7 @@ export default function LotTakaRegisterPage() {
           <div>
             <div className="flex items-center gap-2">
               <h1 className="text-xl font-extrabold text-slate-900 tracking-tight">Lot / Taka Register</h1>
+              <PageInfoButton title="Lot / Taka Register" />
               <span className="px-2 py-0.5 text-[10px] font-bold bg-teal-50 text-teal-700 rounded border border-teal-200">
                 Live Register
               </span>

@@ -95,6 +95,7 @@ const NAV = [
     icon: LayoutGrid,
     defaultOpen: false,
     children: [
+      { label: 'Dashboard', icon: LayoutGrid, to: '/crm/dashboard' },
       {
         label: 'Leads',
         icon: Target,
@@ -152,6 +153,7 @@ const NAV = [
           { label: 'Vendor Reconciliation', icon: GitCompare, to: '/job-work/vendor-reconciliation' },
           { label: 'Processor Ledger', icon: BookOpen, to: '/job-work/processor-ledger' },
           { label: 'Reprocess', icon: RotateCcw, to: '/job-work/reprocess' },
+          { label: 'ITC-04 Job Work', icon: FileSpreadsheet, to: '/job-work/itc-04' },
         ],
       },
       { label: 'Dynamic Stages', icon: Sliders, to: '/pms/stages' },
@@ -356,13 +358,18 @@ const NAV = [
   {
     label: 'Reports',
     icon: BarChart3,
-    to: '/reports',
+    children: [
+      { label: 'Standard Reports', to: '/reports', dot: true },
+      { label: 'Owner Executive MIS', to: '/reports/owner-mis' },
+    ],
   },
 
   {
     label: 'Administration',
     icon: Shield,
     children: [
+      { label: 'My Approvals', icon: ShieldCheck, to: '/administration/approvals' },
+      { label: 'Alert Center', icon: AlertTriangle, to: '/administration/alerts' },
       { label: 'Users', to: '/administration/users' },
       { label: 'Roles', to: '/administration/roles' },
       { label: 'Clients', to: '/administration/clients' },
