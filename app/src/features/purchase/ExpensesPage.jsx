@@ -1,9 +1,10 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
+import { api } from '../../services/api';
 import { useERP } from '../../context/ERPContext';
 import { DataTable } from '../../components/ui/DataTable';
 import { StatCard } from '../../components/ui/StatCard';
 import { Button } from '../../components/ui/Button';
-import { Plus, TrendingDown, CheckCircle2, DollarSign, Receipt, Tag } from 'lucide-react';
+import { Plus, TrendingDown, DollarSign, Receipt, Tag } from 'lucide-react';
 import { PageHeader } from '../../components/common/PageHeader';
 
 const expensesGuide = {
@@ -21,26 +22,77 @@ const expensesGuide = {
     workflow: ['Incur Expense', 'Record Voucher & Payment Method', 'General Ledger Updated', 'Tax Report Classified'],
 };
 
+const PAYMENT_MODES = ['Cash', 'Bank', 'UPI', 'Cheque', 'Card', 'Bank Transfer', 'Credit'];
+
 export const ExpensesPage = () => {
-    const { expenses, addExpense, formatCurrency, formatDateDDMMYYYY, getCurrentDateFormatted } = useERP();
+    const { expenses, vendors, bankAccounts, addExpense, formatCurrency, formatDateDDMMYYYY, getCurrentISODate } = useERP();
     const [showAddModal, setShowAddModal] = useState(false);
-    const [category, setCategory] = useState('Logistics');
-    const [payee, setPayee] = useState('');
+    const [categories, setCategories] = useState([]);
+    const [categoriesError, setCategoriesError] = useState('');
+    const [categoryId, setCategoryId] = useState('');
+    const [vendorId, setVendorId] = useState('');
+    const [expenseDate, setExpenseDate] = useState(() => getCurrentISODate());
     const [amount, setAmount] = useState('');
-    const [paidVia, setPaidVia] = useState('Corporate Card');
-    const handleCreate = (e) => {
-        e.preventDefault();
-        addExpense({
-            category,
-            date: getCurrentDateFormatted(),
-            payee: payee || 'Service Vendor',
-            amount: parseFloat(amount) || 150,
-            paidVia,
-            taxDeductible: true,
-        });
-        setShowAddModal(false);
-        setPayee('');
+    const [taxAmount, setTaxAmount] = useState('');
+    const [paymentMode, setPaymentMode] = useState('');
+    const [bankAccountId, setBankAccountId] = useState('');
+    const [notes, setNotes] = useState('');
+    const [formError, setFormError] = useState('');
+    const [saving, setSaving] = useState(false);
+
+    // Expense categories are a master on the server; nothing is assumed here.
+    useEffect(() => {
+        if (!showAddModal) return undefined;
+        let cancelled = false;
+        api.get('/accounts/expense-categories/', { query: { limit: 200 } })
+            .then((body) => {
+                if (cancelled) return;
+                const rows = Array.isArray(body) ? body : (body?.results || []);
+                setCategories(rows.filter((c) => c.isActive !== false));
+                setCategoriesError('');
+            })
+            .catch((err) => { if (!cancelled) setCategoriesError(err?.message || 'Could not load expense categories.'); });
+        return () => { cancelled = true; };
+    }, [showAddModal]);
+
+    const resetForm = () => {
+        setCategoryId('');
+        setVendorId('');
+        setExpenseDate(getCurrentISODate());
         setAmount('');
+        setTaxAmount('');
+        setPaymentMode('');
+        setBankAccountId('');
+        setNotes('');
+        setFormError('');
+    };
+
+    const handleCreate = async (e) => {
+        e.preventDefault();
+        setFormError('');
+        if (!categoryId) { setFormError('Select an expense category.'); return; }
+        if (!(Number(amount) > 0)) { setFormError('Enter an amount greater than zero.'); return; }
+        if (!paymentMode) { setFormError('Select how the expense was paid.'); return; }
+        if (paymentMode === 'Credit' && !vendorId) { setFormError('Select the vendor for an expense on credit.'); return; }
+        setSaving(true);
+        try {
+            await addExpense({
+                date: expenseDate,
+                categoryId,
+                vendorId: vendorId || undefined,
+                amount: Number(amount),
+                taxAmount: taxAmount === '' ? undefined : Number(taxAmount),
+                paymentMode,
+                bankAccountId: paymentMode !== 'Cash' && paymentMode !== 'Credit' ? (bankAccountId || undefined) : undefined,
+                notes: notes.trim() || undefined,
+            });
+            setShowAddModal(false);
+            resetForm();
+        } catch (err) {
+            setFormError(err?.message || 'Expense not saved.');
+        } finally {
+            setSaving(false);
+        }
     };
     const columns = [
         {
@@ -83,15 +135,11 @@ export const ExpensesPage = () => {
             render: (e) => <span className="text-muted text-xs whitespace-nowrap">{e.paidVia}</span>,
         },
         {
-            key: 'taxDeductible',
-            header: 'Tax Status',
-            align: 'center',
+            key: 'taxAmount',
+            header: 'GST',
+            align: 'right',
             width: '10%',
-            render: (e) => (
-              <span className="text-emerald-600 dark:text-emerald-400 text-[11px] font-semibold flex items-center justify-center gap-1 whitespace-nowrap">
-                <CheckCircle2 size={12}/> Tax Deductible
-              </span>
-            ),
+            render: (e) => <span className="font-mono text-muted text-xs whitespace-nowrap">{formatCurrency(e.taxAmount ?? 0)}</span>,
         },
         {
             key: 'amount',
@@ -100,12 +148,12 @@ export const ExpensesPage = () => {
             width: '12%',
             render: (e) => (
               <span className="font-mono font-bold text-text whitespace-nowrap">
-                {formatCurrency(e.amount ?? 0)}
+                {formatCurrency(e.total ?? e.amount ?? 0)}
               </span>
             ),
         },
     ];
-    const totalSpent = expenses.reduce((acc, curr) => acc + curr.amount, 0);
+    const totalSpent = expenses.reduce((acc, curr) => acc + (Number(curr.total ?? curr.amount) || 0), 0);
     const avgExpense = expenses.length > 0 ? (totalSpent / expenses.length) : 0;
     const categoriesCount = new Set(expenses.map(e => e.category)).size;
 
@@ -117,9 +165,9 @@ export const ExpensesPage = () => {
       {/* Expenses KPI Stat Cards */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         <StatCard label="Total Operating Expenses" value={formatCurrency(totalSpent)} icon={DollarSign} highlight />
-        <StatCard label="Expense Vouchers" value={`${expenses.length} Vouchers`} icon={Receipt} trend={{ positive: true, text: 'Logged to P&L' }} />
+        <StatCard label="Expense Vouchers" value={`${expenses.length} Vouchers`} icon={Receipt} />
         <StatCard label="Avg Expense Cost" value={formatCurrency(avgExpense)} icon={TrendingDown} />
-        <StatCard label="Active Cost Centers" value={`${categoriesCount} Categories`} icon={Tag} subtext="Logistics, Facilities, Admin" />
+        <StatCard label="Active Cost Centers" value={`${categoriesCount} Categories`} icon={Tag} />
       </div>
 
       <DataTable title="Operational Overheads & Disbursed Vouchers" columns={columns} data={expenses} keyExtractor={(e) => e.id} searchPlaceholder="Search payee, voucher #, or category..." searchFilter={(e, term) => String(e.expenseNumber ?? '').toLowerCase().includes(term) ||
@@ -136,39 +184,72 @@ export const ExpensesPage = () => {
             </p>
 
             <form onSubmit={handleCreate} className="space-y-3 text-xs">
+              {formError && <div className="p-2 rounded border border-rose-200 bg-rose-50 text-rose-700">{formError}</div>}
               <div>
-                <label className="block font-semibold text-slate-700 mb-1">Category</label>
-                <select value={category} onChange={(e) => setCategory(e.target.value)} className="w-full border border-[#CED4DA] rounded p-2 bg-[#F8F9FA]">
-                  <option value="Logistics">Logistics & Freight</option>
-                  <option value="Utilities">Utilities & Power</option>
-                  <option value="Maintenance">Facility Maintenance</option>
-                  <option value="Office">Office & Admin</option>
-                  <option value="Travel">Business Travel</option>
+                <label className="block font-semibold text-slate-700 mb-1">Category *</label>
+                <select required value={categoryId} onChange={(e) => setCategoryId(e.target.value)} className="w-full border border-[#CED4DA] rounded p-2 bg-[#F8F9FA]">
+                  <option value="">Select category</option>
+                  {categories.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
                 </select>
-              </div>
-
-              <div>
-                <label className="block font-semibold text-slate-700 mb-1">Payee Vendor</label>
-                <input required value={payee} onChange={(e) => setPayee(e.target.value)} className="w-full border border-[#CED4DA] rounded p-2 bg-[#F8F9FA]" placeholder="e.g. Pacific Power & Light"/>
+                {categoriesError && <p className="mt-1 text-rose-600">{categoriesError}</p>}
+                {!categoriesError && categories.length === 0 && <p className="mt-1 text-slate-500">No expense categories set up yet — add them under Accounts.</p>}
               </div>
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
-                  <label className="block font-semibold text-slate-700 mb-1">Amount ($)</label>
-                  <input type="number" required value={amount} onChange={(e) => setAmount(e.target.value)} className="w-full border border-[#CED4DA] rounded p-2 bg-[#F8F9FA] font-mono" placeholder="1200"/>
+                  <label className="block font-semibold text-slate-700 mb-1">Date *</label>
+                  <input type="date" required value={expenseDate} onChange={(e) => setExpenseDate(e.target.value)} className="w-full border border-[#CED4DA] rounded p-2 bg-[#F8F9FA]"/>
                 </div>
                 <div>
-                  <label className="block font-semibold text-slate-700 mb-1">Payment Method</label>
-                  <input value={paidVia} onChange={(e) => setPaidVia(e.target.value)} className="w-full border border-[#CED4DA] rounded p-2 bg-[#F8F9FA]" placeholder="Corporate Card"/>
+                  <label className="block font-semibold text-slate-700 mb-1">Vendor / Payee</label>
+                  <select value={vendorId} onChange={(e) => setVendorId(e.target.value)} className="w-full border border-[#CED4DA] rounded p-2 bg-[#F8F9FA]">
+                    <option value="">— None —</option>
+                    {(vendors || []).map((v) => <option key={v.id} value={v.id}>{v.name}</option>)}
+                  </select>
                 </div>
               </div>
 
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="block font-semibold text-slate-700 mb-1">Amount (before GST) *</label>
+                  <input type="number" min="0" step="0.01" required value={amount} onChange={(e) => setAmount(e.target.value)} className="w-full border border-[#CED4DA] rounded p-2 bg-[#F8F9FA] font-mono"/>
+                </div>
+                <div>
+                  <label className="block font-semibold text-slate-700 mb-1">GST Amount</label>
+                  <input type="number" min="0" step="0.01" value={taxAmount} onChange={(e) => setTaxAmount(e.target.value)} className="w-full border border-[#CED4DA] rounded p-2 bg-[#F8F9FA] font-mono"/>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="block font-semibold text-slate-700 mb-1">Payment Mode *</label>
+                  <select required value={paymentMode} onChange={(e) => setPaymentMode(e.target.value)} className="w-full border border-[#CED4DA] rounded p-2 bg-[#F8F9FA]">
+                    <option value="">Select mode</option>
+                    {PAYMENT_MODES.map((m) => <option key={m} value={m}>{m}</option>)}
+                  </select>
+                </div>
+                {paymentMode && paymentMode !== 'Cash' && paymentMode !== 'Credit' && (
+                  <div>
+                    <label className="block font-semibold text-slate-700 mb-1">Paid From (Bank)</label>
+                    <select value={bankAccountId} onChange={(e) => setBankAccountId(e.target.value)} className="w-full border border-[#CED4DA] rounded p-2 bg-[#F8F9FA]">
+                      <option value="">— Cash in hand —</option>
+                      {(bankAccounts || []).map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
+                    </select>
+                  </div>
+                )}
+              </div>
+
+              <div>
+                <label className="block font-semibold text-slate-700 mb-1">Description</label>
+                <input value={notes} onChange={(e) => setNotes(e.target.value)} className="w-full border border-[#CED4DA] rounded p-2 bg-[#F8F9FA]"/>
+              </div>
+
               <div className="flex flex-wrap lg:flex-nowrap justify-end gap-2 pt-4 border-t border-slate-200">
-                <button type="button" onClick={() => setShowAddModal(false)} className="px-3.5 py-1.5 border border-[#CED4DA] rounded text-slate-600 hover:bg-slate-100">
+                <button type="button" onClick={() => { setShowAddModal(false); resetForm(); }} className="px-3.5 py-1.5 border border-[#CED4DA] rounded text-slate-600 hover:bg-slate-100">
                   Cancel
                 </button>
-                <button type="submit" className="px-4 py-1.5 bg-[#1F2E4A] hover:bg-[#152033] text-white rounded font-semibold">
-                  Record Expense
+                <button type="submit" disabled={saving} className="px-4 py-1.5 bg-[#1F2E4A] hover:bg-[#152033] text-white rounded font-semibold disabled:opacity-60">
+                  {saving ? 'Saving…' : 'Record Expense'}
                 </button>
               </div>
             </form>

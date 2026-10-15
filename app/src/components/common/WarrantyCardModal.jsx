@@ -159,7 +159,7 @@ export const WarrantyCardModal = ({ isOpen, onClose, warrantyCard, onSend = null
                             <div className="space-y-1.5 text-[11px] pt-1">
                                 <div className="flex items-center justify-between py-0.5 border-b border-slate-200/80">
                                     <span className="text-slate-500">Delivery Challan:</span>
-                                    <strong className="font-mono text-slate-900">{warrantyCard.challanNumber || 'DC-2026-0045'}</strong>
+                                    <strong className="font-mono text-slate-900">{warrantyCard.challanNumber || '—'}</strong>
                                 </div>
                                 <div className="flex items-center justify-between py-0.5 border-b border-slate-200/80">
                                     <span className="text-slate-500">Dispatch / Delivery Date:</span>

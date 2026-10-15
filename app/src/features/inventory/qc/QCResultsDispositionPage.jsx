@@ -21,6 +21,7 @@ import {
   RotateCcw,
 } from 'lucide-react';
 import { inventoryService } from '../../../services/domainServices';
+import { api } from '../../../services/api';
 import { useERP } from '../../../context/ERPContext';
 
 export default function QCResultsDispositionPage() {
@@ -52,6 +53,16 @@ export default function QCResultsDispositionPage() {
   const [reprocessQty, setReprocessQty] = useState('0');
   const [rejectedQty, setRejectedQty] = useState('0');
   const [remarks, setRemarks] = useState('');
+  // Reprocess quantity is sent on a real job work order (required by the server).
+  const [jwoId, setJwoId] = useState('');
+  const [jwoOptions, setJwoOptions] = useState([]);
+  useEffect(() => {
+    let active = true;
+    api.get('/jobwork/orders/', { query: { limit: 200 } })
+      .then((res) => { if (active) setJwoOptions(Array.isArray(res?.results) ? res.results : (Array.isArray(res) ? res : [])); })
+      .catch(() => { if (active) setJwoOptions([]); });
+    return () => { active = false; };
+  }, []);
 
   // UI state
   const [savingDraft, setSavingDraft] = useState(false);
@@ -63,8 +74,50 @@ export default function QCResultsDispositionPage() {
   const fetchInspections = useCallback(async (preferredId = null) => {
     setLoading(true);
     try {
-      const res = await inventoryService.getQCDispositionList();
-      const list = (res && res.data ? res.data.inspections : res?.inspections) || [];
+      const [resDisp, resPiece] = await Promise.allSettled([
+        inventoryService.getQCDispositionList(),
+        inventoryService.getQCInspections({ status: 'Draft' }),
+      ]);
+      const dispList = (resDisp.status === 'fulfilled' && (resDisp.value?.data ? resDisp.value.data.inspections : resDisp.value?.inspections)) || [];
+      const pieceRaw = (resPiece.status === 'fulfilled' && (Array.isArray(resPiece.value) ? resPiece.value : (resPiece.value?.results || []))) || [];
+      const pieceList = pieceRaw.map((p) => ({
+        id: p.id,
+        qcNo: p.inspectionNumber,
+        grnNo: p.sourceDocumentNumber || p.inspectionNumber,
+        date: p.inspectionDate || '',
+        status: p.status === 'Approved' ? 'Completed' : (p.status || 'Pending'),
+        sourceType: 'Piece Inspection (ASTM D5430)',
+        supplier: p.inspectorName || 'Internal Inspection',
+        itemCode: p.lines?.[0]?.lotNo || 'Piece Lot',
+        itemName: `Piece QC Inspection ${p.inspectionNumber}`,
+        lotNo: p.lines?.[0]?.lotNo || '',
+        takaRoll: p.lines?.length || 1,
+        inspectedQty: p.total_inspected_qty || 0,
+        goodQty: p.passed_qty || 0,
+        holdQty: p.hold_qty || 0,
+        reprocessQty: p.reprocess_qty || 0,
+        rejectedQty: p.rejected_qty || 0,
+        remarks: p.notes || '',
+        isPieceInspection: true,
+        measurements: (p.lines || []).map((l, i) => ({
+          srNo: i + 1,
+          takaNo: l.takaNo || i + 1,
+          actualQty: l.actualMeter || 0,
+          width: l.width || 44,
+          weight: l.rollWeight || 25,
+          grade: l.grade,
+          pointsPer100M: l.pointsPer100SqMeter,
+          penaltyPoints: l.penaltyPoints,
+          remarks: l.remarks || '',
+          good: l.disposition === 'Pass' ? l.actualMeter : 0,
+          hold: l.disposition === 'Hold' ? l.actualMeter : 0,
+          reprocess: l.disposition === 'Reprocess' ? l.actualMeter : 0,
+          rejected: l.disposition === 'Reject' || l.disposition === 'Second Quality' ? l.actualMeter : 0,
+          defects: l.defects || [],
+        })),
+      }));
+
+      const list = [...dispList, ...pieceList];
       setInspectionsList(list);
 
       const target = preferredId ? list.find((it) => it.id === preferredId) : (list.length > 0 ? list[0] : null);
@@ -74,7 +127,7 @@ export default function QCResultsDispositionPage() {
         resetForm();
       }
     } catch (err) {
-      console.warn('Backend /inventory/qc/disposition/ call failed:', err);
+      console.warn('Backend inspections call failed:', err);
       setInspectionsList([]);
       resetForm();
     } finally {
@@ -104,9 +157,9 @@ export default function QCResultsDispositionPage() {
     setDate(insp.date || new Date().toISOString().split('T')[0]);
     setItemCode(insp.itemCode || '');
     setItemName(insp.itemName || '');
-    setLotNo(insp.lotNo || 'LT-001');
+    setLotNo(insp.lotNo || '');
     setTakaRoll(String(insp.takaRoll || 1));
-    const insQ = String(insp.inspectedQty || insp.receivedQty || 0);
+    const insQ = String(insp.inspectedQty ?? insp.receivedQty ?? 0);
     setInspectedQty(insQ);
 
     // Load or calculate disposition quantities
@@ -116,8 +169,8 @@ export default function QCResultsDispositionPage() {
       setReprocessQty(String(insp.reprocessQty || 0));
       setRejectedQty(String(insp.rejectedQty || 0));
     } else {
-      // Default to 100% good if not set
-      setGoodQty(insQ);
+      // Nothing is assumed: the inspector enters the split.
+      setGoodQty('0');
       setHoldQty('0');
       setReprocessQty('0');
       setRejectedQty('0');
@@ -210,7 +263,7 @@ export default function QCResultsDispositionPage() {
         remarks,
         measurements,
       });
-      setStatus('In Progress');
+      setStatus(res?.status || status);
       setToastMsg(res?.data?.message || 'QC inspection saved as draft.');
       await fetchInspections(selectedInspectionId);
     } catch (err) {
@@ -235,19 +288,26 @@ export default function QCResultsDispositionPage() {
 
     setApproving(true);
     try {
-      const res = await inventoryService.saveQCDisposition({
-        receiptId: selectedInspectionId,
-        qcNo,
-        sourceType,
-        isDraft: false,
-        goodQty: numGood,
-        holdQty: numHold,
-        reprocessQty: numReprocess,
-        rejectedQty: numRejected,
-        remarks,
-        measurements,
-      });
-      setStatus('Completed');
+      const activeObj = inspectionsList.find((it) => it.id === selectedInspectionId);
+      let res;
+      if (activeObj?.isPieceInspection) {
+        res = await inventoryService.approveQCInspection(selectedInspectionId);
+      } else {
+        res = await inventoryService.saveQCDisposition({
+          receiptId: selectedInspectionId,
+          qcNo,
+          sourceType,
+          isDraft: false,
+          goodQty: numGood,
+          holdQty: numHold,
+          reprocessQty: numReprocess,
+          rejectedQty: numRejected,
+          remarks,
+          measurements,
+          jwoId: numReprocess > 0 ? jwoId || undefined : undefined,
+        });
+      }
+      setStatus(res?.status || 'Completed');
       setToastMsg(res?.data?.message || 'QC disposition approved! Stock Ledger and Stock Position updated.');
       await fetchInspections(selectedInspectionId);
     } catch (err) {
@@ -508,6 +568,7 @@ export default function QCResultsDispositionPage() {
                     <th className="p-2.5">Actual Qty (m)</th>
                     <th className="p-2.5">Width (cm)</th>
                     <th className="p-2.5">Weight (kg)</th>
+                    <th className="p-2.5">ASTM Grade</th>
                     <th className="p-2.5">Remarks</th>
                     <th className="p-2.5 text-center">Action</th>
                   </tr>
@@ -515,7 +576,7 @@ export default function QCResultsDispositionPage() {
                 <tbody className="divide-y divide-slate-100 text-slate-700">
                   {measurements.length === 0 ? (
                     <tr>
-                      <td colSpan="7" className="p-4 text-center text-slate-400">
+                      <td colSpan="8" className="p-4 text-center text-slate-400">
                         No roll measurements entered yet. Click <strong>+ Add Row</strong> to record taka-level data.
                       </td>
                     </tr>
@@ -535,7 +596,7 @@ export default function QCResultsDispositionPage() {
                         <td className="p-2.5">
                           <input
                             type="number"
-                            value={m.width || 150}
+                            value={m.width ?? ''}
                             onChange={(e) => handleUpdateMeasurementRow(idx, 'width', Number(e.target.value))}
                             className="w-14 px-1.5 py-0.5 border border-slate-200 rounded text-xs"
                           />
@@ -547,6 +608,20 @@ export default function QCResultsDispositionPage() {
                             onChange={(e) => handleUpdateMeasurementRow(idx, 'weight', Number(e.target.value))}
                             className="w-14 px-1.5 py-0.5 border border-slate-200 rounded text-xs"
                           />
+                        </td>
+                        <td className="p-2.5">
+                          {m.grade ? (
+                            <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
+                              m.grade === 'A' ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' :
+                              m.grade === 'B' ? 'bg-blue-50 text-blue-700 border border-blue-200' :
+                              m.grade === 'C' ? 'bg-amber-50 text-amber-700 border border-amber-200' :
+                              'bg-rose-50 text-rose-700 border border-rose-200'
+                            }`}>
+                              Grade {m.grade} {m.pointsPer100M ? `(${m.pointsPer100M} pts)` : ''}
+                            </span>
+                          ) : (
+                            <span className="text-slate-400 font-mono text-[11px]">—</span>
+                          )}
                         </td>
                         <td className="p-2.5">
                           <input
@@ -637,6 +712,18 @@ export default function QCResultsDispositionPage() {
                   <span className="text-xs font-semibold text-purple-700">m</span>
                 </div>
                 <div className="text-[11px] font-semibold text-purple-600">{pctReprocess}%</div>
+                {numReprocess > 0 && (
+                  <select
+                    value={jwoId}
+                    onChange={(e) => setJwoId(e.target.value)}
+                    className="w-full text-xs bg-white border border-purple-300 rounded px-1.5 py-1 text-purple-800"
+                  >
+                    <option value="">Job work order *</option>
+                    {jwoOptions.map((o) => (
+                      <option key={o.id} value={o.id}>{o.jwo_no || o.jwoNo || o.id}</option>
+                    ))}
+                  </select>
+                )}
               </div>
 
               {/* Rejected Qty */}

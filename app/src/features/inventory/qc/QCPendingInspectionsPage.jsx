@@ -80,7 +80,7 @@ export default function QCPendingInspectionsPage() {
 
   const [showBulkAssignModal, setShowBulkAssignModal] = useState(false);
   const [bulkInspector, setBulkInspector] = useState('');
-  const [bulkShift, setBulkShift] = useState('Day Shift');
+  const [bulkShift, setBulkShift] = useState('');
   const [bulkDate, setBulkDate] = useState(() => new Date().toISOString().split('T')[0]);
   const [assigning, setAssigning] = useState(false);
 
@@ -209,18 +209,9 @@ export default function QCPendingInspectionsPage() {
   // Open Measurement / Entry Form
   const openMeasurementForm = (row) => {
     setMeasuringItem(row);
-    // Seed initial taka measurements
-    const takaCount = Math.max(1, Number(row.takaRoll) || 1);
-    const avgQty = Math.round(row.pendingQty / takaCount);
-    const takas = Array.from({ length: takaCount }).map((_, i) => ({
-      sr: i + 1,
-      takaNo: i + 1,
-      actualQty: i === takaCount - 1 ? row.pendingQty - avgQty * (takaCount - 1) : avgQty,
-      width: 150,
-      remarks: '-',
-    }));
-    setTakaMeasurements(takas);
-    setQcGoodQty(String(row.pendingQty));
+    // Measurements are entered by the inspector -- nothing is pre-filled.
+    setTakaMeasurements([]);
+    setQcGoodQty('0');
     setQcHoldQty('0');
     setQcReprocessQty('0');
     setQcRejectedQty('0');
@@ -236,9 +227,9 @@ export default function QCPendingInspectionsPage() {
       {
         sr: prev.length + 1,
         takaNo: prev.length + 1,
-        actualQty: 100,
-        width: 150,
-        remarks: '-',
+        actualQty: '',
+        width: '',
+        remarks: '',
       },
     ]);
   };

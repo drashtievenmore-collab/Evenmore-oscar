@@ -386,24 +386,28 @@ export function StockPositionPage() {
     setSampleForm((prev) => ({
       ...prev,
       itemId: selectedId,
-      lotNo: firstLot ? firstLot.lotNo : (prev.lotNo || ''),
-      locationId: firstLot ? firstLot.locationId : (prev.locationId || locations[0]?.id || ''),
-      quality: chosenItem?.fabric_quality || chosenItem?.name || firstLot?.quality || 'Fabric',
-      design: chosenItem?.fabric_design || firstLot?.design || 'Plain',
-      shade: chosenItem?.fabric_color || firstLot?.shade || 'Default',
-      uom: chosenItem?.uom || firstLot?.uom || 'Mtr',
+      lotNo: firstLot ? (firstLot.lotNo || '') : '',
+      lotTakaId: firstLot?.lotTakaId || '',
+      locationId: firstLot ? firstLot.locationId : '',
+      quality: chosenItem?.fabric_quality || chosenItem?.name || firstLot?.quality || '',
+      design: chosenItem?.fabric_design || firstLot?.design || '',
+      shade: chosenItem?.fabric_color || firstLot?.shade || '',
+      uom: chosenItem?.uom || firstLot?.uom || '',
       availableStock: firstLot ? firstLot.available : totalAvail,
     }));
   };
 
   // Handle Lot selection in Issue Sample Modal
   const handleSampleLotSelect = (lotNumber) => {
+    // The option value is the taka id (or "loc:<locationId>" for stock not on takas).
     const matchingLot = (data?.filters?.availableLots || []).find(
-      (l) => String(l.itemId) === String(sampleForm.itemId) && l.lotNo === lotNumber
+      (l) => String(l.itemId) === String(sampleForm.itemId)
+        && (l.lotTakaId ? l.lotTakaId === lotNumber : `loc:${l.locationId}` === lotNumber)
     );
     setSampleForm((prev) => ({
       ...prev,
-      lotNo: lotNumber,
+      lotNo: matchingLot?.lotNo || '',
+      lotTakaId: matchingLot?.lotTakaId || '',
       locationId: matchingLot ? matchingLot.locationId : prev.locationId,
       availableStock: matchingLot ? matchingLot.available : prev.availableStock,
     }));
@@ -431,12 +435,13 @@ export function StockPositionPage() {
     try {
       const res = await inventoryService.issueSample({
         itemId: sampleForm.itemId,
-        customer: sampleForm.customer || 'Sample Room',
+        customer: sampleForm.customer,
         qty: sampleForm.qty,
         lotNo: sampleForm.lotNo,
-        locationId: sampleForm.locationId || (locations[0]?.id || ''),
+        lotTakaId: sampleForm.lotTakaId || undefined,
+        locationId: sampleForm.locationId,
         expectedReturnDate: sampleForm.expectedReturnDate || '',
-        notes: sampleForm.notes || `Sample issued to ${sampleForm.customer || 'Customer'}`,
+        notes: sampleForm.notes || '',
       });
 
       setSampleSuccessMsg(res?.message || 'Sample issued and ledger updated successfully!');
@@ -2042,10 +2047,11 @@ export function StockPositionPage() {
                   onChange={(e) => setReturnForm({ ...returnForm, condition: e.target.value })}
                   className="w-full h-8 px-2.5 bg-slate-50 border border-slate-200 rounded-lg text-slate-800 focus:outline-none focus:ring-1 focus:ring-blue-500 font-medium"
                 >
-                  <option value="usable">Usable Fabric — Return directly to Good Fabric Stock</option>
-                  <option value="hold">Defective / Uncertain — Route to QC Hold for Inspection</option>
-                  <option value="reprocess">Requires Reprocessing — Link to Reprocess Workflow</option>
-                  <option value="wastage">Damaged / Rejected — Route to Scrap & Wastage Stock</option>
+                  <option value="usable">Good — back to the godown it was issued from</option>
+                  <option value="hold">Hold — QC Hold location for inspection</option>
+                  <option value="reprocess">Reprocess — Reprocess location</option>
+                  <option value="second">Second Quality — Second Quality location</option>
+                  <option value="wastage">Reject / Scrap — Reject location</option>
                 </select>
                 <div className="mt-1 text-[10.5px] text-slate-500 bg-slate-50 p-2 rounded-lg border border-slate-100">
                   {returnForm.condition === 'usable' && (
@@ -2055,10 +2061,13 @@ export function StockPositionPage() {
                     <span className="text-indigo-700 font-medium">⚠ Quarantined: Enters QC Inspection queue before release into stock.</span>
                   )}
                   {returnForm.condition === 'reprocess' && (
-                    <span className="text-amber-700 font-medium">🔄 Reprocess: Earmarks fabric for Job Work Outward reprocessing.</span>
+                    <span className="text-amber-700 font-medium">🔄 Moves to the Reprocess location.</span>
+                  )}
+                  {returnForm.condition === 'second' && (
+                    <span className="text-cyan-700 font-medium">Moves to the Second Quality location (not available as good stock).</span>
                   )}
                   {returnForm.condition === 'wastage' && (
-                    <span className="text-rose-700 font-medium">✕ Scrap: Posts to damaged stock ledger as non-recoverable wastage.</span>
+                    <span className="text-rose-700 font-medium">✕ Moves to the Reject / Scrap location.</span>
                   )}
                 </div>
               </div>
@@ -2477,15 +2486,15 @@ export function StockPositionPage() {
                   {/* If available lots exist for this item, allow dropdown select or custom */}
                   {(data?.filters?.availableLots || []).filter((l) => String(l.itemId) === String(sampleForm.itemId)).length > 0 ? (
                     <select
-                      value={sampleForm.lotNo}
+                      value={sampleForm.lotTakaId || (sampleForm.locationId ? `loc:${sampleForm.locationId}` : '')}
                       onChange={(e) => handleSampleLotSelect(e.target.value)}
                       className="w-full h-8 px-2.5 bg-slate-50 border border-slate-200 rounded-lg text-slate-800 focus:outline-none focus:ring-1 focus:ring-blue-500 font-mono"
                     >
                       {(data?.filters?.availableLots || [])
                         .filter((l) => String(l.itemId) === String(sampleForm.itemId))
                         .map((l, idx) => (
-                          <option key={idx} value={l.lotNo}>
-                            {l.lotNo} ({l.available} {l.uom})
+                          <option key={idx} value={l.lotTakaId || `loc:${l.locationId}`}>
+                            {l.lotNo || 'Not on takas'} — {l.godown} ({l.available} {l.uom})
                           </option>
                         ))}
                     </select>

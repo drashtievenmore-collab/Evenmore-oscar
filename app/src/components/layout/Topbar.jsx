@@ -44,13 +44,6 @@ const QUICK_ACTIONS = [
   { label: 'Add Inventory Item', path: '/inventory/items/new', icon: Layers, color: 'text-rose-500 bg-rose-50' },
 ];
 
-const NOTIFICATIONS = [
-  { id: 1, title: 'Invoice INV-2026-004 Paid', time: '10m ago', unread: true, desc: 'Acme Corp settled $5,820.00 via Bank Wire' },
-  { id: 2, title: 'Low Stock Alert', time: '1h ago', unread: true, desc: 'Cat-6 Ethernet Spool below safety stock (3 avail)' },
-  { id: 3, title: 'Sales Order Confirmed', time: '2h ago', unread: false, desc: 'SO-2026-004 approved by Lucius Fox' },
-  { id: 4, title: 'Attendance Reconciled', time: 'Yesterday', unread: false, desc: 'Monthly biometric log synchronized for 48 staff' },
-];
-
 export default function Topbar() {
   const navigate = useNavigate();
   const { pathname } = useLocation();
@@ -142,7 +135,7 @@ export default function Topbar() {
         path: '/sales/invoices',
       });
     }
-    return list.length > 0 ? list : NOTIFICATIONS;
+    return list;
   }, [lowStockItems, pendingZoneRequests, inTransitChallans, overdueInvoices]);
 
   const [notifTab, setNotifTab] = useState('all'); // 'all' | 'erp' | 'crm_reminders' | 'crm_workflow' | 'crm'

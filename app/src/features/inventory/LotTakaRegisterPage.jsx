@@ -28,6 +28,11 @@ import {
   Sparkles,
   Info,
   ShieldAlert,
+  GitBranch,
+  ArrowRight,
+  ExternalLink,
+  Activity,
+  FileCheck,
 } from 'lucide-react';
 import { inventoryService, partiesService } from '../../services/domainServices';
 import { useERP } from '../../context/ERPContext';
@@ -162,6 +167,53 @@ export default function LotTakaRegisterPage() {
   const [isPrintTagModalOpen, setIsPrintTagModalOpen] = useState(false);
   const [tagModalRecord, setTagModalRecord] = useState(null);
 
+  // Traceability Modal & Drawer State (Phase 2.3)
+  const [isTraceabilityModalOpen, setIsTraceabilityModalOpen] = useState(false);
+  const [traceabilityRecord, setTraceabilityRecord] = useState(null);
+  const [traceabilityData, setTraceabilityData] = useState(null);
+  const [traceabilityLoading, setTraceabilityLoading] = useState(false);
+  const [traceabilityError, setTraceabilityError] = useState(null);
+
+  const openTraceabilityModal = useCallback(async (record) => {
+    if (!record) return;
+    setTraceabilityRecord(record);
+    setIsTraceabilityModalOpen(true);
+    setTraceabilityLoading(true);
+    setTraceabilityError(null);
+    try {
+      const target = record.id || record.takaId || record.lotNo;
+      const res = await inventoryService.getLotTraceability(target);
+      setTraceabilityData(res);
+    } catch (err) {
+      console.error('Failed to load lot traceability:', err);
+      setTraceabilityError(err?.message || 'Could not fetch traceability tree.');
+    } finally {
+      setTraceabilityLoading(false);
+    }
+  }, []);
+
+  const loadDrawerTraceability = useCallback(async (record) => {
+    if (!record) return;
+    setTraceabilityLoading(true);
+    setTraceabilityError(null);
+    try {
+      const target = record.id || record.takaId || record.lotNo;
+      const res = await inventoryService.getLotTraceability(target);
+      setTraceabilityData(res);
+    } catch (err) {
+      console.error('Failed to load lot traceability:', err);
+      setTraceabilityError(err?.message || 'Could not fetch traceability tree.');
+    } finally {
+      setTraceabilityLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (activeLotRecord && detailsTab === 'traceability') {
+      loadDrawerTraceability(activeLotRecord);
+    }
+  }, [activeLotRecord, detailsTab, loadDrawerTraceability]);
+
   // Add Lot Modal Form State
   const [addForm, setAddForm] = useState({
     itemId: '',
@@ -179,8 +231,9 @@ export default function LotTakaRegisterPage() {
     gsm: '',
     rate: '',
     locationId: '',
+    qcStatus: '',
     remarks: '',
-    tags: ['New Lot'],
+    tags: [],
     tagInput: '',
     imageUrl: '',
   });
@@ -189,16 +242,14 @@ export default function LotTakaRegisterPage() {
   const [addSuccessMsg, setAddSuccessMsg] = useState(null);
 
   // Edit Modal Form State
+  // Only descriptive fields are editable; location / rate / status / QC
+  // status change through documents (transfer, adjustment, QC disposition).
   const [editForm, setEditForm] = useState({
-    locationId: '',
     remarks: '',
     tags: [],
     rollWeight: '',
     width: '',
     gsm: '',
-    rate: '',
-    qcStatus: 'Passed',
-    status: 'Active',
   });
   const [submittingEdit, setSubmittingEdit] = useState(false);
   const [editSuccessMsg, setEditSuccessMsg] = useState(null);
@@ -336,8 +387,12 @@ export default function LotTakaRegisterPage() {
 
   // Generate Auto Barcode
   const handleGenerateBarcode = () => {
-    const lot = addForm.lotNo || 'LT-001';
-    const taka = addForm.takaRoll || '1';
+    if (!addForm.lotNo || !addForm.takaRoll) {
+      alert('Enter the lot number and taka / roll first.');
+      return;
+    }
+    const lot = addForm.lotNo;
+    const taka = addForm.takaRoll;
     setAddForm((prev) => ({ ...prev, barcode: `${lot}-${taka}` }));
   };
 
@@ -370,8 +425,12 @@ export default function LotTakaRegisterPage() {
       alert('Please select a fabric item.');
       return;
     }
-    if (!addForm.lotNo.trim()) {
-      alert('Please enter Lot Number.');
+    if (!addForm.locationId) {
+      alert('Please choose the storage location.');
+      return;
+    }
+    if (!addForm.qcStatus) {
+      alert('Please choose the QC status (Passed goes to stock, Pending goes to QC Hold).');
       return;
     }
     if (!addForm.receivedQty || Number(addForm.receivedQty) <= 0) {
@@ -387,9 +446,10 @@ export default function LotTakaRegisterPage() {
         supplierId: addForm.supplierId || undefined,
         supplier: availableVendors.find((v) => String(v.id) === String(addForm.supplierId))?.name || '',
         sourceDoc: addForm.sourceDoc,
-        grnNo: addForm.grnNo || `GRN-${new Date().toISOString().split('T')[0]}`,
+        grnNo: addForm.grnNo || undefined,
         receivedDate: addForm.receivedDate,
-        lotNo: addForm.lotNo.trim(),
+        // Blank lot number -> the server allocates one (LOT series).
+        lotNo: addForm.lotNo.trim() || undefined,
         takaRoll: addForm.takaRoll.trim(),
         barcode: addForm.barcode.trim(),
         receivedQty: Number(addForm.receivedQty),
@@ -398,7 +458,8 @@ export default function LotTakaRegisterPage() {
         pieces: Number(addForm.pieces || 1),
         gsm: addForm.gsm ? Number(addForm.gsm) : undefined,
         rate: addForm.rate ? Number(addForm.rate) : 0,
-        locationId: addForm.locationId || availableLocations[0]?.id || '',
+        locationId: addForm.locationId,
+        qcStatus: addForm.qcStatus,
         remarks: addForm.remarks,
         tags: addForm.tags,
         imageUrl: addForm.imageUrl,
@@ -426,8 +487,9 @@ export default function LotTakaRegisterPage() {
           gsm: '',
           rate: '',
           locationId: '',
+          qcStatus: '',
           remarks: '',
-          tags: ['New Lot'],
+          tags: [],
           tagInput: '',
           imageUrl: '',
         });
@@ -445,15 +507,11 @@ export default function LotTakaRegisterPage() {
   const openEditModal = (row) => {
     setEditingRecord(row);
     setEditForm({
-      locationId: row.locationId || '',
       remarks: row.remarks === '-' ? '' : row.remarks,
       tags: Array.isArray(row.tags) ? [...row.tags] : [],
-      rollWeight: row.rollWeight || '',
-      width: row.width || '',
-      gsm: row.gsm || '',
-      rate: row.rate || '',
-      qcStatus: row.qcStatus || 'Passed',
-      status: row.status || 'Active',
+      rollWeight: row.rollWeight ?? '',
+      width: row.width ?? '',
+      gsm: row.gsm ?? '',
     });
     setIsEditModalOpen(true);
   };
@@ -465,15 +523,11 @@ export default function LotTakaRegisterPage() {
     setEditSuccessMsg(null);
     try {
       const payload = {
-        locationId: editForm.locationId,
         remarks: editForm.remarks,
         tags: editForm.tags,
-        rollWeight: editForm.rollWeight ? Number(editForm.rollWeight) : undefined,
-        width: editForm.width ? Number(editForm.width) : undefined,
-        gsm: editForm.gsm ? Number(editForm.gsm) : undefined,
-        rate: editForm.rate ? Number(editForm.rate) : undefined,
-        qcStatus: editForm.qcStatus,
-        status: editForm.status,
+        rollWeight: editForm.rollWeight === '' ? null : Number(editForm.rollWeight),
+        width: editForm.width === '' ? null : Number(editForm.width),
+        gsm: editForm.gsm === '' ? null : Number(editForm.gsm),
       };
 
       const res = await inventoryService.updateLotTaka(editingRecord.id, payload);
@@ -969,6 +1023,13 @@ export default function LotTakaRegisterPage() {
                               >
                                 <Printer size={12} />
                               </button>
+                              <button
+                                onClick={() => openTraceabilityModal(row)}
+                                className="w-6 h-6 rounded border border-purple-200 bg-purple-50/60 text-purple-600 hover:bg-purple-100 grid place-items-center transition cursor-pointer"
+                                title="Trace Lineage & Journey"
+                              >
+                                <GitBranch size={12} />
+                              </button>
                             </div>
                           </td>
                         </tr>
@@ -1181,6 +1242,19 @@ export default function LotTakaRegisterPage() {
                   >
                     QC Details
                   </button>
+                  <button
+                    onClick={() => {
+                      setDetailsTab('traceability');
+                      loadDrawerTraceability(activeLotRecord);
+                    }}
+                    className={`px-2.5 py-1 font-bold text-[11px] rounded-lg transition cursor-pointer ${
+                      detailsTab === 'traceability'
+                        ? 'bg-purple-50 text-purple-700 border border-purple-200'
+                        : 'text-slate-500 hover:text-slate-800'
+                    }`}
+                  >
+                    Traceability
+                  </button>
                 </div>
 
                 {/* Tab 1: Stock Movement Table */}
@@ -1277,6 +1351,91 @@ export default function LotTakaRegisterPage() {
                     </button>
                   </div>
                 )}
+
+                {/* Tab 4: Traceability Quick View */}
+                {detailsTab === 'traceability' && (
+                  <div className="p-3 bg-purple-50/50 rounded-xl border border-purple-200 space-y-3 text-[11px]">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-1.5">
+                        <GitBranch size={14} className="text-purple-600" />
+                        <span className="font-bold text-slate-800 uppercase text-[10.5px]">End-to-End Lineage</span>
+                      </div>
+                      <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-purple-100 text-purple-800 font-semibold">
+                        PDF §07, §08
+                      </span>
+                    </div>
+
+                    {traceabilityLoading && (
+                      <div className="py-4 text-center text-slate-400 italic">
+                        Loading complete lineage tree...
+                      </div>
+                    )}
+
+                    {!traceabilityLoading && traceabilityError && (
+                      <div className="p-2 bg-rose-50 text-rose-700 rounded-lg text-xs">
+                        {traceabilityError}
+                      </div>
+                    )}
+
+                    {!traceabilityLoading && !traceabilityError && (
+                      <div className="space-y-2">
+                        <div className="grid grid-cols-2 gap-2">
+                          <div className="bg-white p-2 rounded-lg border border-purple-100">
+                            <span className="text-[10px] text-slate-400 block font-semibold">Grey Parent Lots</span>
+                            <span className="font-mono font-bold text-slate-800 text-xs">
+                              {(traceabilityData?.ancestors || []).length > 0
+                                ? `${traceabilityData.ancestors.length} Source Lot(s)`
+                                : 'Direct / Origin Lot'}
+                            </span>
+                          </div>
+                          <div className="bg-white p-2 rounded-lg border border-purple-100">
+                            <span className="text-[10px] text-slate-400 block font-semibold">Job Work Stages</span>
+                            <span className="font-mono font-bold text-slate-800 text-xs">
+                              {(traceabilityData?.jobWorkHistory || []).length > 0
+                                ? `${traceabilityData.jobWorkHistory.length} Operation(s)`
+                                : 'No Job Work'}
+                            </span>
+                          </div>
+                          <div className="bg-white p-2 rounded-lg border border-purple-100">
+                            <span className="text-[10px] text-slate-400 block font-semibold">QC 4-Point Grade</span>
+                            <span className="font-mono font-bold text-emerald-700 text-xs">
+                              {(traceabilityData?.qcHistory || []).length > 0
+                                ? `Grade ${traceabilityData.qcHistory[0].grade || 'Pass'}`
+                                : (activeLotRecord.qcStatus || 'Pending')}
+                            </span>
+                          </div>
+                          <div className="bg-white p-2 rounded-lg border border-purple-100">
+                            <span className="text-[10px] text-slate-400 block font-semibold">Child / Split Rolls</span>
+                            <span className="font-mono font-bold text-slate-800 text-xs">
+                              {(traceabilityData?.descendants || []).length} Output Rolls
+                            </span>
+                          </div>
+                        </div>
+
+                        {(traceabilityData?.jobWorkHistory || []).length > 0 && (
+                          <div className="bg-white p-2 rounded-lg border border-slate-200">
+                            <span className="text-[10px] font-bold text-slate-500 uppercase block mb-1">Latest Process</span>
+                            <div className="text-[11px] font-semibold text-slate-800">
+                              {traceabilityData.jobWorkHistory[0].process || 'Processing'} — {traceabilityData.jobWorkHistory[0].vendor}
+                            </div>
+                            <div className="text-[10px] text-slate-500 font-mono mt-0.5">
+                              Challan {traceabilityData.jobWorkHistory[0].challanNo} • {traceabilityData.jobWorkHistory[0].meters} m
+                            </div>
+                          </div>
+                        )}
+
+                        <button
+                          type="button"
+                          onClick={() => openTraceabilityModal(activeLotRecord)}
+                          className="w-full py-2 bg-purple-600 hover:bg-purple-700 text-white rounded-lg text-xs font-bold transition flex items-center justify-center gap-1.5 cursor-pointer shadow-xs"
+                        >
+                          <GitBranch size={13} />
+                          Open Full Traceability Tree
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
             </div>
           </div>
@@ -1319,7 +1478,7 @@ export default function LotTakaRegisterPage() {
           <div>
             <h4 className="text-xs font-bold text-slate-900">Edit Lot / Taka</h4>
             <p className="text-[11px] text-slate-500 mt-0.5 leading-relaxed">
-              Edit basic information (if allowed), update location or add notes. Quantity can only be changed through proper transactions.
+              Edit descriptive details (weight, width, GSM, remarks, tags). Location, rate, status and quantity change only through documents: transfer, adjustment or QC disposition.
             </p>
           </div>
         </div>
@@ -1757,6 +1916,22 @@ export default function LotTakaRegisterPage() {
                       </div>
 
                       <div>
+                        <label className="block font-bold text-slate-700 mb-1 text-[11px]">
+                          QC Status <span className="text-rose-500">*</span>
+                        </label>
+                        <select
+                          required
+                          value={addForm.qcStatus}
+                          onChange={(e) => setAddForm({ ...addForm, qcStatus: e.target.value })}
+                          className="w-full h-8 px-2 bg-slate-50 border border-slate-200 rounded-lg text-slate-800 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                        >
+                          <option value="">Select</option>
+                          <option value="Passed">Passed — goes into stock at this location</option>
+                          <option value="Pending">Pending — held at QC Hold until inspected</option>
+                        </select>
+                      </div>
+
+                      <div>
                         <label className="block font-bold text-slate-700 mb-1 text-[11px]">Tags (Optional)</label>
                         <div className="space-y-1">
                           <input
@@ -1951,50 +2126,6 @@ export default function LotTakaRegisterPage() {
                 </div>
               )}
 
-              <div>
-                <label className="block font-bold text-slate-700 mb-1">Storage Location</label>
-                <select
-                  value={editForm.locationId}
-                  onChange={(e) => setEditForm({ ...editForm, locationId: e.target.value })}
-                  className="w-full h-8 px-2 bg-slate-50 border border-slate-200 rounded-lg text-slate-800 focus:outline-none focus:ring-1 focus:ring-blue-500"
-                >
-                  {availableLocations.map((loc) => (
-                    <option key={loc.id} value={loc.id}>
-                      {loc.name}
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              <div className="grid grid-cols-2 gap-2.5">
-                <div>
-                  <label className="block font-bold text-slate-700 mb-1">QC Status</label>
-                  <select
-                    value={editForm.qcStatus}
-                    onChange={(e) => setEditForm({ ...editForm, qcStatus: e.target.value })}
-                    className="w-full h-8 px-2 bg-slate-50 border border-slate-200 rounded-lg text-slate-800 focus:outline-none focus:ring-1 focus:ring-blue-500"
-                  >
-                    <option value="Passed">Passed</option>
-                    <option value="Pending">Pending</option>
-                    <option value="On Hold">On Hold</option>
-                    <option value="Reprocess">Reprocess</option>
-                    <option value="Rejected">Rejected</option>
-                  </select>
-                </div>
-
-                <div>
-                  <label className="block font-bold text-slate-700 mb-1">Record Status</label>
-                  <select
-                    value={editForm.status}
-                    onChange={(e) => setEditForm({ ...editForm, status: e.target.value })}
-                    className="w-full h-8 px-2 bg-slate-50 border border-slate-200 rounded-lg text-slate-800 focus:outline-none focus:ring-1 focus:ring-blue-500"
-                  >
-                    <option value="Active">Active</option>
-                    <option value="Closed">Closed</option>
-                  </select>
-                </div>
-              </div>
-
               <div className="grid grid-cols-3 gap-2">
                 <div>
                   <label className="block font-bold text-slate-700 mb-1">Weight (kg)</label>
@@ -2122,6 +2253,405 @@ export default function LotTakaRegisterPage() {
                     {printingTag ? 'Recording...' : 'Print Tag'}
                   </button>
                 </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── FULL TRACEABILITY MODAL (Phase 2.3 & PDF §07, §08) ──────────── */}
+      {isTraceabilityModalOpen && (
+        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4 overflow-y-auto">
+          <div className="bg-white rounded-2xl shadow-2xl border border-slate-200 w-full max-w-5xl my-auto overflow-hidden animate-in fade-in zoom-in-95 duration-150 max-h-[92vh] flex flex-col">
+            {/* Modal Header */}
+            <div className="flex items-center justify-between p-4 border-b border-slate-200 bg-slate-50/80 shrink-0">
+              <div className="flex items-center gap-3">
+                <div className="w-9 h-9 rounded-xl bg-purple-100 text-purple-700 grid place-items-center font-bold">
+                  <GitBranch size={20} />
+                </div>
+                <div>
+                  <div className="flex items-center gap-2">
+                    <h3 className="text-base font-bold text-slate-900">End-to-End Lot & Taka Traceability</h3>
+                    <span className="text-[10px] font-mono bg-purple-100 text-purple-800 px-2 py-0.5 rounded-full font-bold">
+                      PDF §07, §08
+                    </span>
+                  </div>
+                  <p className="text-xs text-slate-500">
+                    Target: <span className="font-mono font-bold text-slate-800">{traceabilityRecord?.lotNo}</span> • Roll <span className="font-mono font-bold text-slate-800">{traceabilityRecord?.takaRoll || 1}</span> • ID: <span className="font-mono text-purple-700">{traceabilityRecord?.takaId || traceabilityRecord?.id}</span>
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsTraceabilityModalOpen(false)}
+                className="text-slate-400 hover:text-slate-600 text-sm p-1 rounded-lg hover:bg-slate-200 transition cursor-pointer"
+              >
+                <X size={20} />
+              </button>
+            </div>
+
+            {/* Modal Body */}
+            <div className="p-5 overflow-y-auto space-y-5 text-xs text-slate-700 flex-1">
+              {traceabilityLoading && (
+                <div className="py-16 text-center text-slate-400 space-y-2">
+                  <div className="inline-block animate-spin w-8 h-8 border-3 border-purple-600 border-t-transparent rounded-full" />
+                  <p className="font-medium text-sm">Building complete lineage tree & process history...</p>
+                </div>
+              )}
+
+              {!traceabilityLoading && traceabilityError && (
+                <div className="p-4 bg-rose-50 border border-rose-200 text-rose-700 rounded-xl space-y-1">
+                  <div className="font-bold flex items-center gap-1.5">
+                    <AlertTriangle size={16} /> Error loading traceability data
+                  </div>
+                  <p>{traceabilityError}</p>
+                </div>
+              )}
+
+              {!traceabilityLoading && !traceabilityError && traceabilityData && (
+                <>
+                  {/* Hero Target Card */}
+                  <div className="bg-gradient-to-r from-purple-900 via-indigo-900 to-slate-900 text-white p-4 rounded-xl shadow-xs space-y-3">
+                    <div className="flex flex-wrap items-center justify-between gap-2 border-b border-white/10 pb-2.5">
+                      <div>
+                        <span className="text-[10px] text-purple-300 font-bold uppercase tracking-wider block">Inspected Fabric Roll</span>
+                        <h4 className="text-base font-bold">
+                          {traceabilityData.target?.itemName || traceabilityRecord?.itemName || 'Fabric Item'}
+                        </h4>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <span className="px-2.5 py-1 rounded-full text-xs font-bold bg-white/20 text-white backdrop-blur-xs">
+                          Status: {traceabilityData.target?.status || traceabilityRecord?.status}
+                        </span>
+                        <span className="px-2.5 py-1 rounded-full text-xs font-bold bg-emerald-500/30 text-emerald-200 border border-emerald-400/30">
+                          QC: {traceabilityData.target?.qcStatus || traceabilityRecord?.qcStatus}
+                        </span>
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-6 gap-3 text-[11px]">
+                      <div>
+                        <span className="text-white/60 block text-[10px]">Quality</span>
+                        <span className="font-semibold text-white">{traceabilityData.target?.quality || '—'}</span>
+                      </div>
+                      <div>
+                        <span className="text-white/60 block text-[10px]">Design</span>
+                        <span className="font-semibold text-white">{traceabilityData.target?.design || '—'}</span>
+                      </div>
+                      <div>
+                        <span className="text-white/60 block text-[10px]">Shade</span>
+                        <span className="font-semibold text-white">{traceabilityData.target?.shade || '—'}</span>
+                      </div>
+                      <div>
+                        <span className="text-white/60 block text-[10px]">Current Location</span>
+                        <span className="font-mono font-semibold text-white">{traceabilityData.target?.location || '—'}</span>
+                      </div>
+                      <div>
+                        <span className="text-white/60 block text-[10px]">Available Qty</span>
+                        <span className="font-mono font-bold text-emerald-300">
+                          {traceabilityData.target?.availableQty} {traceabilityData.target?.uom || 'm'}
+                        </span>
+                      </div>
+                      <div>
+                        <span className="text-white/60 block text-[10px]">Width / GSM</span>
+                        <span className="font-mono text-white">
+                          {traceabilityData.target?.width || '—'}" / {traceabilityData.target?.gsm || '—'} GSM
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* 1. Origin Grey Parent Lots */}
+                  <div className="space-y-2">
+                    <div className="flex items-center justify-between">
+                      <h4 className="text-xs font-bold text-slate-900 uppercase tracking-wide flex items-center gap-1.5">
+                        <Building size={14} className="text-blue-600" />
+                        1. Origin Grey Parent Lots (Source Lineage)
+                      </h4>
+                      <span className="text-[11px] text-slate-500 font-mono">
+                        {(traceabilityData.ancestors || []).length} Parent Lot(s)
+                      </span>
+                    </div>
+
+                    {(traceabilityData.ancestors || []).length > 0 ? (
+                      <div className="border border-slate-200 rounded-xl overflow-hidden shadow-2xs">
+                        <table className="w-full text-left text-xs">
+                          <thead className="bg-slate-50 border-b border-slate-200 text-[10.5px] font-bold text-slate-500 uppercase">
+                            <tr>
+                              <th className="py-2 px-3">Parent Lot No</th>
+                              <th className="py-2 px-3">Taka / Roll</th>
+                              <th className="py-2 px-3">Item / Quality</th>
+                              <th className="py-2 px-3 text-right">Received Qty</th>
+                              <th className="py-2 px-3">Location</th>
+                              <th className="py-2 px-3">Date</th>
+                              <th className="py-2 px-3">Source Document</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-slate-100 font-mono text-[11px]">
+                            {traceabilityData.ancestors.map((anc, aIdx) => (
+                              <tr key={aIdx} className="hover:bg-slate-50">
+                                <td className="py-2 px-3 font-bold text-blue-700">{anc.lotNo}</td>
+                                <td className="py-2 px-3">{anc.takaRoll}</td>
+                                <td className="py-2 px-3 font-sans font-medium text-slate-800">{anc.quality || anc.itemName}</td>
+                                <td className="py-2 px-3 text-right font-bold text-slate-900">{anc.receivedQty} {anc.uom}</td>
+                                <td className="py-2 px-3 text-slate-600">{anc.location || '—'}</td>
+                                <td className="py-2 px-3 text-slate-500">{anc.receivedDate}</td>
+                                <td className="py-2 px-3 text-slate-600 font-sans">{anc.sourceDocType || 'GRN'} {anc.sourceDocNo}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    ) : (
+                      <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl text-slate-600 flex items-center justify-between">
+                        <span>Direct Grey Inward: This lot was received directly from mill/supplier without prior internal parent lots.</span>
+                        <span className="font-mono text-[11px] font-bold text-slate-700">GRN: {traceabilityData.target?.sourceDocNo || 'Original'}</span>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* 2. Processing & Job Work History (PDF §07) */}
+                  <div className="space-y-2">
+                    <div className="flex items-center justify-between">
+                      <h4 className="text-xs font-bold text-slate-900 uppercase tracking-wide flex items-center gap-1.5">
+                        <Layers size={14} className="text-amber-600" />
+                        2. Outsourced Processing & Job Work History (PDF §07)
+                      </h4>
+                      <span className="text-[11px] text-slate-500 font-mono">
+                        {(traceabilityData.jobWorkHistory || []).length} Transaction(s)
+                      </span>
+                    </div>
+
+                    {(traceabilityData.jobWorkHistory || []).length > 0 ? (
+                      <div className="border border-slate-200 rounded-xl overflow-hidden shadow-2xs">
+                        <table className="w-full text-left text-xs">
+                          <thead className="bg-slate-50 border-b border-slate-200 text-[10.5px] font-bold text-slate-500 uppercase">
+                            <tr>
+                              <th className="py-2 px-3">Stage Type</th>
+                              <th className="py-2 px-3">JWO Order #</th>
+                              <th className="py-2 px-3">Processor (Job Worker)</th>
+                              <th className="py-2 px-3">Process</th>
+                              <th className="py-2 px-3">Challan No</th>
+                              <th className="py-2 px-3">Date</th>
+                              <th className="py-2 px-3 text-right">Meters</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-slate-100 text-[11px]">
+                            {traceabilityData.jobWorkHistory.map((jw, jIdx) => (
+                              <tr key={jIdx} className="hover:bg-slate-50 font-mono">
+                                <td className="py-2 px-3 font-sans">
+                                  <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
+                                    jw.type === 'Outward' ? 'bg-amber-50 text-amber-800 border border-amber-200' : 'bg-emerald-50 text-emerald-800 border border-emerald-200'
+                                  }`}>
+                                    {jw.type}
+                                  </span>
+                                </td>
+                                <td className="py-2 px-3 font-bold text-slate-900">{jw.jwoNo}</td>
+                                <td className="py-2 px-3 font-sans font-medium text-slate-800">{jw.vendor}</td>
+                                <td className="py-2 px-3 font-sans font-semibold text-blue-700">{jw.process}</td>
+                                <td className="py-2 px-3 text-slate-600">{jw.challanNo}</td>
+                                <td className="py-2 px-3 text-slate-500">{jw.date}</td>
+                                <td className="py-2 px-3 text-right font-bold text-slate-900">{jw.meters} m</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    ) : (
+                      <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl text-slate-500 italic">
+                        No outsourced dyeing, printing or finishing job-work order transactions recorded on this lot.
+                      </div>
+                    )}
+                  </div>
+
+                  {/* 3. QC Inspections & ASTM 4-Point Auto-Grading (PDF §08) */}
+                  <div className="space-y-2">
+                    <div className="flex items-center justify-between">
+                      <h4 className="text-xs font-bold text-slate-900 uppercase tracking-wide flex items-center gap-1.5">
+                        <FileCheck size={14} className="text-emerald-600" />
+                        3. Quality Control Inspections & ASTM D5430 4-Point Grading (PDF §08)
+                      </h4>
+                      <span className="text-[11px] text-slate-500 font-mono">
+                        {(traceabilityData.qcHistory || []).length} Inspection(s)
+                      </span>
+                    </div>
+
+                    {(traceabilityData.qcHistory || []).length > 0 ? (
+                      <div className="space-y-2.5">
+                        {traceabilityData.qcHistory.map((qc, qIdx) => (
+                          <div key={qIdx} className="bg-white border border-slate-200 rounded-xl p-3.5 shadow-2xs space-y-2">
+                            <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 pb-2">
+                              <div className="flex items-center gap-2">
+                                <span className="font-bold text-slate-900 font-mono text-xs">{qc.inspectionNo}</span>
+                                <span className="text-slate-400 font-mono text-[11px]">• {qc.date}</span>
+                              </div>
+                              <div className="flex items-center gap-2">
+                                <span className="px-2 py-0.5 rounded text-[10.5px] font-extrabold bg-blue-50 text-blue-700 border border-blue-200 font-mono">
+                                  Score: {qc.pointsPer100M} pts/100m²
+                                </span>
+                                <span className={`px-2 py-0.5 rounded text-[10.5px] font-extrabold border ${
+                                  qc.grade === 'A' ? 'bg-emerald-50 text-emerald-700 border-emerald-300' :
+                                  qc.grade === 'B' ? 'bg-blue-50 text-blue-700 border-blue-300' :
+                                  qc.grade === 'C' ? 'bg-amber-50 text-amber-700 border-amber-300' :
+                                  'bg-rose-50 text-rose-700 border-rose-300'
+                                }`}>
+                                  Grade {qc.grade}
+                                </span>
+                                <span className="px-2 py-0.5 rounded text-[10.5px] font-bold bg-slate-100 text-slate-700">
+                                  Disposition: {qc.disposition}
+                                </span>
+                              </div>
+                            </div>
+
+                            {/* Defects Breakdown */}
+                            {(qc.defects || []).length > 0 ? (
+                              <div className="space-y-1">
+                                <span className="text-[10px] font-bold text-slate-500 uppercase block">Defect Breakdown:</span>
+                                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                                  {qc.defects.map((def, dIdx) => (
+                                    <div key={dIdx} className="bg-slate-50 p-2 rounded-lg border border-slate-200 text-[11px]">
+                                      <div className="font-semibold text-slate-800">{def.defect}</div>
+                                      <div className="text-[10px] text-slate-500 mt-0.5 font-mono">
+                                        {def.category} • {def.count} instance(s) ({def.points} pts)
+                                      </div>
+                                    </div>
+                                  ))}
+                                </div>
+                              </div>
+                            ) : (
+                              <div className="text-emerald-700 text-xs font-medium flex items-center gap-1">
+                                <CheckCircle2 size={13} /> Zero defects logged. Clean roll passed textile quality inspection.
+                              </div>
+                            )}
+
+                            {qc.remarks && (
+                              <div className="text-[11px] text-slate-600 italic bg-slate-50/70 p-2 rounded border border-slate-100">
+                                Notes: {qc.remarks}
+                              </div>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl text-slate-600 flex items-center justify-between">
+                        <span>Current QC Status: <strong>{traceabilityData.target?.qcStatus || 'Pending'}</strong></span>
+                        <span className="text-slate-400 italic">No 4-point ASTM piece-by-piece inspection lines logged yet.</span>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* 4. Child / Split Rolls */}
+                  {(traceabilityData.descendants || []).length > 0 && (
+                    <div className="space-y-2">
+                      <div className="flex items-center justify-between">
+                        <h4 className="text-xs font-bold text-slate-900 uppercase tracking-wide flex items-center gap-1.5">
+                          <Package size={14} className="text-indigo-600" />
+                          4. Child / Split / Processed Output Rolls
+                        </h4>
+                        <span className="text-[11px] text-slate-500 font-mono">
+                          {traceabilityData.descendants.length} Child Roll(s)
+                        </span>
+                      </div>
+
+                      <div className="border border-slate-200 rounded-xl overflow-hidden shadow-2xs">
+                        <table className="w-full text-left text-xs">
+                          <thead className="bg-slate-50 border-b border-slate-200 text-[10.5px] font-bold text-slate-500 uppercase">
+                            <tr>
+                              <th className="py-2 px-3">Child Lot No</th>
+                              <th className="py-2 px-3">Roll #</th>
+                              <th className="py-2 px-3">Status</th>
+                              <th className="py-2 px-3 text-right">Available Qty</th>
+                              <th className="py-2 px-3">Location</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-slate-100 font-mono text-[11px]">
+                            {traceabilityData.descendants.map((ch, cIdx) => (
+                              <tr key={cIdx} className="hover:bg-slate-50">
+                                <td className="py-2 px-3 font-bold text-indigo-700">{ch.lotNo}</td>
+                                <td className="py-2 px-3">{ch.takaRoll}</td>
+                                <td className="py-2 px-3 font-sans">
+                                  <span className="px-2 py-0.5 rounded text-[10px] font-semibold bg-emerald-50 text-emerald-700">
+                                    {ch.status}
+                                  </span>
+                                </td>
+                                <td className="py-2 px-3 text-right font-bold text-slate-900">{ch.availableQty} {ch.uom}</td>
+                                <td className="py-2 px-3 text-slate-600">{ch.location || '—'}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* 5. Complete Stock Movement Audit Ledger */}
+                  <div className="space-y-2">
+                    <div className="flex items-center justify-between">
+                      <h4 className="text-xs font-bold text-slate-900 uppercase tracking-wide flex items-center gap-1.5">
+                        <Activity size={14} className="text-teal-600" />
+                        5. Complete Stock Movement Audit Trail
+                      </h4>
+                      <span className="text-[11px] text-slate-500 font-mono">
+                        {(traceabilityData.movements || []).length} Movement(s)
+                      </span>
+                    </div>
+
+                    {(traceabilityData.movements || []).length > 0 ? (
+                      <div className="border border-slate-200 rounded-xl overflow-hidden shadow-2xs">
+                        <table className="w-full text-left text-xs">
+                          <thead className="bg-slate-50 border-b border-slate-200 text-[10.5px] font-bold text-slate-500 uppercase">
+                            <tr>
+                              <th className="py-2 px-3">Date</th>
+                              <th className="py-2 px-3">Movement Type</th>
+                              <th className="py-2 px-3 text-right">Quantity</th>
+                              <th className="py-2 px-3">Location / Godown</th>
+                              <th className="py-2 px-3">Reference Document</th>
+                              <th className="py-2 px-3">Notes</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-slate-100 font-mono text-[11px]">
+                            {traceabilityData.movements.map((mv, mIdx) => (
+                              <tr key={mIdx} className="hover:bg-slate-50">
+                                <td className="py-2 px-3 text-slate-500">{mv.date}</td>
+                                <td className="py-2 px-3 font-sans font-bold text-slate-800">{mv.type}</td>
+                                <td className={`py-2 px-3 text-right font-bold ${
+                                  mv.qty > 0 ? 'text-emerald-700' : 'text-rose-700'
+                                }`}>
+                                  {mv.qty > 0 ? `+${mv.qty}` : mv.qty}
+                                </td>
+                                <td className="py-2 px-3 text-slate-700">{mv.location}</td>
+                                <td className="py-2 px-3 text-blue-700 font-medium">
+                                  {mv.refType ? `${mv.refType}: ` : ''}{mv.refNo || '—'}
+                                </td>
+                                <td className="py-2 px-3 text-slate-500 font-sans italic">{mv.notes || '—'}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    ) : (
+                      <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl text-slate-400 italic">
+                        No individual movement journal ledger records for this taka.
+                      </div>
+                    )}
+                  </div>
+                </>
+              )}
+            </div>
+
+            {/* Modal Footer */}
+            <div className="flex items-center justify-between p-3.5 border-t border-slate-200 bg-slate-50/80 shrink-0">
+              <span className="text-[11px] text-slate-400">
+                Data generated via Server Lineage Engine • Single Source of Truth
+              </span>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setIsTraceabilityModalOpen(false)}
+                  className="px-4 py-1.5 bg-white border border-slate-200 hover:bg-slate-50 text-slate-700 rounded-lg text-xs font-semibold cursor-pointer shadow-2xs"
+                >
+                  Close
+                </button>
               </div>
             </div>
           </div>

@@ -24,14 +24,13 @@ import { refreshUnits } from '../../../hooks/useUnits';
 
 // Units of Measurement — list (slide 9) plus an Add / Edit / View popup
 // (slide 10). Logged in → rows live in Postgres (/inventory/units/) and the
-// image goes through the two-step file upload. No session → localStorage,
+// image goes through the two-step file upload. No session → nothing is saved,
 // with the image kept as a data URL.
 //
 // The code is locked after creation: items, purchase and CRM lines store the
 // unit by its code as text, so renaming it would orphan them.
 
 const PER_PAGE = 10;
-const STORAGE_KEY = 'fabricMaster:units';
 const UOM_TYPES = ['Length', 'Weight', 'Roll', 'Piece', 'Area', 'Volume', 'Other'];
 const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
 const CSV_HEADER = ['UOM Code', 'UOM Name', 'UOM Type', 'Base Unit', 'Decimal Places', 'Conversion Factor', 'Description', 'Status'];
@@ -48,20 +47,9 @@ const TYPE_BADGE = {
   Other: 'bg-slate-100 text-slate-600 border-slate-200',
 };
 
+// Masters are never read from browser storage; without a session the list is empty.
 function readLocal() {
-  try {
-    return JSON.parse(localStorage.getItem(STORAGE_KEY) || '[]');
-  } catch {
-    return [];
-  }
-}
-
-function writeLocal(rows) {
-  try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(rows));
-  } catch {
-    // storage full or blocked — the in-memory list still works
-  }
+  return [];
 }
 
 function readAsDataUrl(file) {
@@ -210,12 +198,9 @@ export default function UomMasterPage() {
     return () => clearTimeout(t);
   }, [notice]);
 
-  const updateLocalRows = (updater) => {
-    setRows((prev) => {
-      const next = updater(prev);
-      writeLocal(next);
-      return next;
-    });
+  // Without a server session nothing can be saved; no local copy is kept.
+  const updateLocalRows = () => {
+    throw new Error('You are not signed in to the server — nothing was saved.');
   };
 
   const sorted = useMemo(
@@ -453,7 +438,8 @@ export default function UomMasterPage() {
       setLoadError('');
       const failures = [];
       let added = 0;
-      let local = backendOn ? null : [...rows];
+      if (!backendOn) { setImporting(false); setLoadError('You are not signed in to the server — nothing was saved.'); return; }
+      let local = null;
       for (let i = 1; i < parsed.length; i++) {
         const [code, name, type, base, places, factor, description, status] = parsed[i];
         const lineNo = i + 1;
@@ -481,7 +467,7 @@ export default function UomMasterPage() {
           failures.push(`Row ${lineNo} (${item.code}): ${errorText(err)}`);
         }
       }
-      if (!backendOn) { writeLocal(local); setRows(local); } else await loadData();
+      await loadData();
       setImporting(false);
       setNotice(`Imported ${added} unit${added === 1 ? '' : 's'}.`);
       if (added) refreshUnits();

@@ -7,26 +7,14 @@ import { fabricMasterSync, isBackendEnabled, describeError } from '../../../serv
 
 // One screen for every textile master. Each master is a config object (see
 // textileMasterConfigs.js): its API key, form fields and table columns.
-// Logged in → rows live in Postgres. No session → a localStorage copy.
+// Rows live in Postgres; without a session nothing is shown or saved.
 
 const PER_PAGE = 10;
 const NO_LOOKUPS = {};
-const localKey = (key) => `fabricMaster:${key}`;
 
-function readLocal(key) {
-  try {
-    return JSON.parse(localStorage.getItem(localKey(key)) || '[]');
-  } catch {
-    return [];
-  }
-}
-
-function writeLocal(key, rows) {
-  try {
-    localStorage.setItem(localKey(key), JSON.stringify(rows));
-  } catch {
-    // storage full or blocked — the in-memory list still works
-  }
+// Masters are never read from browser storage; without a session the list is empty.
+function readLocal() {
+  return [];
 }
 
 const text = (v) => String(v ?? '').toLowerCase();
@@ -84,12 +72,9 @@ export default function TextileMasterPage({ config }) {
     setPage(1);
   }, [search, statusFilter]);
 
-  const setLocal = (updater) => {
-    setRows((prev) => {
-      const next = updater(prev);
-      writeLocal(key, next);
-      return next;
-    });
+  // Without a server session nothing can be saved; no local copy is kept.
+  const setLocal = () => {
+    throw new Error('You are not signed in to the server — nothing was saved.');
   };
 
   const filtered = useMemo(() => {

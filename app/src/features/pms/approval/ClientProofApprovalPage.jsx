@@ -5,7 +5,7 @@ import {
   Link2Off, CalendarClock, Package,
 } from 'lucide-react';
 import { Button } from '../../../components/ui/Button';
-import { MockPdfViewer } from '../components/MockPdfViewer';
+import { ProofViewer } from '../components/ProofViewer';
 import { usePmsStore, validateApprovalDecision } from '../../../stores/pmsStore';
 import { useProofShareStore, shareBlockReason } from '../../../stores/proofShareStore';
 import { fetchPublicShare, decidePublicShare } from '../../../services/pmsSync';
@@ -464,7 +464,7 @@ export default function ClientProofApprovalPage() {
       </section>
 
       {/* The drawing itself */}
-      <MockPdfViewer
+      <ProofViewer
         document={doc}
         projectName={productDetails.productName}
         readOnly

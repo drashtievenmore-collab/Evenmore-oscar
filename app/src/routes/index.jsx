@@ -52,6 +52,7 @@ const PMSDelayDashboardPage = lazy(() => import('../features/pms/delays/DelayDas
 const PMSReportsPage = lazy(() => import('../features/pms/reports/PMSReportsPage'));
 const PMSSettingsPage = lazy(() => import('../features/pms/settings/PMSSettingsPage'));
 const PMSClientProofApprovalPage = lazy(() => import('../features/pms/approval/ClientProofApprovalPage'));
+const PMSProductionDashboardPage = lazy(() => import('../features/pms/production/ProductionDashboardPage'));
 const PMSProductionInstructionsPage = lazy(() => import('../features/pms/production/ProductionInstructionsPage'));
 const PMSDailyProductionPage = lazy(() => import('../features/pms/production/DailyProductionPage'));
 const PMSProductionCompletionPage = lazy(() => import('../features/pms/production/ProductionCompletionVerificationPage'));
@@ -111,6 +112,7 @@ const JobWorkInwardPage = lazy(() => import('../features/jobwork/JobWorkInwardPa
 const PendingRegisterPage = lazy(() => import('../features/jobwork/PendingRegisterPage'));
 const VendorReconciliationPage = lazy(() => import('../features/jobwork/VendorReconciliationPage'));
 const ReprocessPage = lazy(() => import('../features/jobwork/ReprocessPage'));
+const ProcessorLedgerPage = lazy(() => import('../features/jobwork/ProcessorLedgerPage'));
 const ProcessPlanListPage = lazy(() => import('../features/jobwork/ProcessPlanListPage'));
 const ProcessPlanDetailPage = lazy(() => import('../features/jobwork/ProcessPlanDetailPage'));
 
@@ -124,6 +126,7 @@ const SalesInvoicesPage = lazy(() => import('../features/sales/SalesInvoicesPage
 const SalesReturnsPage = lazy(() => import('../features/sales/SalesReturnsPage').then(m => ({ default: m.SalesReturnsPage })));
 const PaymentInPage = lazy(() => import('../features/sales/PaymentInPage').then(m => ({ default: m.PaymentInPage })));
 const DeliveryChallansPage = lazy(() => import('../features/sales/DeliveryChallansPage').then(m => ({ default: m.DeliveryChallansPage })));
+const BrokerCommissionPage = lazy(() => import('../features/sales/commercial/BrokerCommissionPage'));
 // [DISABLED] Warranty Cards concept commented out
 // const WarrantyListPage = lazy(() => import('../features/sales/WarrantyListPage').then(m => ({ default: m.WarrantyListPage })));
 
@@ -137,6 +140,9 @@ const PaymentOutPage = lazy(() => import('../features/purchase/PaymentOutPage').
 const ExpensesPage = lazy(() => import('../features/purchase/ExpensesPage').then(m => ({ default: m.ExpensesPage })));
 // ── [PHASE-2B] Standalone Goods Receipt (GRN) page — route: /purchase/receipts ──
 const GoodsReceiptPage = lazy(() => import('../features/purchase/GoodsReceiptPage').then(m => ({ default: m.GoodsReceiptPage })));
+const SupplierReconciliationPage = lazy(() => import('../features/purchase/SupplierReconciliationPage'));
+const SupplierLedgerPage = lazy(() => import('../features/purchase/SupplierLedgerPage'));
+const TextileMastersPage = lazy(() => import('../features/masters/TextileMastersPage'));
 
 // ── ERP — Inventory (Lazy Loaded) ─────────────────────────────
 const ItemsMasterPage = lazy(() => import('../features/inventory/ItemsMasterPage').then(m => ({ default: m.ItemsMasterPage })));
@@ -166,6 +172,8 @@ const QCReinspectionPage = lazy(() => import('../features/inventory/qc/QCReinspe
 const QCReportsPage = lazy(() => import('../features/inventory/qc/QCReportsPage'));
 const LotTakaRegisterPage = lazy(() => import('../features/inventory/LotTakaRegisterPage'));
 const TakaTagPrintPage = lazy(() => import('../features/inventory/TakaTagPrintPage'));
+const SampleListPage = lazy(() => import('../features/inventory/samples/SampleListPage'));
+const TripListPage = lazy(() => import('../features/inventory/logistics/TripListPage'));
 
 // ── ERP — Parties (Lazy Loaded) ───────────────────────────────
 const PartiesPage = lazy(() => import('../features/parties/PartiesPage'));
@@ -176,6 +184,7 @@ const VendorsPage = lazy(() => import('../features/parties/VendorsPage').then(m 
 const CashBankPage = lazy(() => import('../features/accounts/CashBankPage').then(m => ({ default: m.CashBankPage })));
 const GeneralLedgerPage = lazy(() => import('../features/accounts/GeneralLedgerPage').then(m => ({ default: m.GeneralLedgerPage })));
 const FinancialReportsPage = lazy(() => import('../features/accounts/FinancialReportsPage'));
+const DayBookPage = lazy(() => import('../features/accounts/DayBookPage'));
 
 // ── ERP — Reports & Settings (Lazy Loaded) ────────────────────
 const ReportsPage = lazy(() => import('../features/reports/ReportsPage').then(m => ({ default: m.ReportsPage })));
@@ -337,6 +346,7 @@ const router = createBrowserRouter([
       { path: 'pms/delays', element: <Page component={PMSDelayDashboardPage} /> },
       { path: 'pms/reports', element: <Page component={PMSReportsPage} /> },
       { path: 'pms/settings', element: <Page component={PMSSettingsPage} /> },
+      { path: 'pms/production-dashboard', element: <Page component={PMSProductionDashboardPage} /> },
       { path: 'pms/production-instructions', element: <Page component={PMSProductionInstructionsPage} /> },
       { path: 'pms/daily-production', element: <Page component={PMSDailyProductionPage} /> },
       { path: 'pms/production-completion', element: <Page component={PMSProductionCompletionPage} /> },
@@ -351,6 +361,7 @@ const router = createBrowserRouter([
       { path: 'job-work/inward', element: <Page component={JobWorkInwardPage} /> },
       { path: 'job-work/pending-register', element: <Page component={PendingRegisterPage} /> },
       { path: 'job-work/vendor-reconciliation', element: <Page component={VendorReconciliationPage} /> },
+      { path: 'job-work/processor-ledger', element: <Page component={ProcessorLedgerPage} /> },
       { path: 'job-work/reprocess', element: <Page component={ReprocessPage} /> },
 
       // ── Sales ─────────────────────────────────────────────
@@ -364,6 +375,7 @@ const router = createBrowserRouter([
       { path: 'sales/returns', element: <Page component={SalesReturnsPage} /> },
       { path: 'sales/payments', element: <Page component={PaymentInPage} /> },
       { path: 'sales/delivery', element: <Page component={DeliveryChallansPage} /> },
+      { path: 'sales/broker-commissions', element: <Page component={BrokerCommissionPage} title="Broker Commissions" /> },
       // [DISABLED] Warranty Cards concept commented out
       // { path: 'sales/warranty', element: <Page component={WarrantyListPage} /> },
       // { path: 'warranty', element: <Navigate to="/sales/warranty" replace /> },
@@ -375,6 +387,8 @@ const router = createBrowserRouter([
       // { path: 'purchase/vendors', element: <Navigate to="/parties" replace /> },
       { path: 'purchase/orders', element: <Page component={PurchaseOrdersPage} /> },
       { path: 'purchase/receipts', element: <Page component={GoodsReceiptPage} /> },
+      { path: 'purchase/reconciliation', element: <Page component={SupplierReconciliationPage} /> },
+      { path: 'purchase/supplier-ledger', element: <Page component={SupplierLedgerPage} /> },
       { path: 'purchase/bills', element: <Page component={PurchaseBillsPage} /> },
       { path: 'purchase/vendor-bills', element: <Page component={VendorBillsPage} /> },
       { path: 'purchase/bill-matching', element: <Page component={BillMatchingPage} /> },
@@ -392,6 +406,8 @@ const router = createBrowserRouter([
       { path: 'inventory/fabric/design', element: <Page component={DesignMasterPage} /> },
       { path: 'inventory/fabric/colour', element: <Page component={ShadeMasterPage} /> },
       { path: 'inventory/fabric/variants', element: <Page component={FabricVariantMasterPage} /> },
+      { path: 'inventory/masters/textile', element: <Page component={TextileMastersPage} /> },
+      { path: 'masters/textile', element: <Navigate to="/inventory/masters/textile" replace /> },
       { path: 'inventory/categories/fabric-type', element: <Page component={FabricTypePage} /> },
       { path: 'inventory/categories/uom', element: <Page component={UomPage} /> },
       { path: 'inventory/qc', element: <Page component={QCDashboardPage} title="QC Dashboard" /> },
@@ -402,6 +418,8 @@ const router = createBrowserRouter([
       { path: 'inventory/qc/reports', element: <Page component={QCReportsPage} title="QC Reports" /> },
       { path: 'inventory/lot-register', element: <Page component={LotTakaRegisterPage} title="Lot / Taka Register" /> },
       { path: 'inventory/taka-tags', element: <Page component={TakaTagPrintPage} title="Taka Tag Print" /> },
+      { path: 'inventory/samples', element: <Page component={SampleListPage} title="Sample Management" /> },
+      { path: 'inventory/trips', element: <Page component={TripListPage} title="Logistics & Tempo Trips" /> },
       { path: 'inventory/items', element: <Page component={ItemsMasterPage} /> },
       { path: 'inventory/items/fabric', element: <Page component={ItemsMasterPage} /> },
       { path: 'inventory/items/machines', element: <Page component={ItemsMasterPage} /> },
@@ -442,6 +460,7 @@ const router = createBrowserRouter([
 
       // ── Accounts ──────────────────────────────────────────
       { path: 'accounts', element: <Navigate to="/accounts/cash-bank" replace /> },
+      { path: 'accounts/day-book', element: <Page component={DayBookPage} title="Day Book & Position" /> },
       { path: 'accounts/cash-bank', element: <Page component={CashBankPage} /> },
       { path: 'accounts/general-ledger', element: <Page component={GeneralLedgerPage} /> },
       { path: 'accounts/reports', element: <Page component={FinancialReportsPage} /> },

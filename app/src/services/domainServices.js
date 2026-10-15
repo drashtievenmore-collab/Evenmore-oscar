@@ -91,6 +91,15 @@ export const salesService = {
   createSalesReturn: (data) => api.post('/sales/returns/', data),
   getCustomerLedger: (customerId) => api.get(`/sales/customers/${customerId}/ledger/`),
   getInvoiceOutstanding: (invoiceId) => api.get(`/sales/invoices/${invoiceId}/outstanding/`),
+  // Commercials & Brokerage (Phase 3)
+  getBrokerCommissions: (query) => api.get('/sales/broker-commissions/', { query }),
+  approveBrokerCommission: (id) => api.post(`/sales/broker-commissions/${id}/approve/`),
+  makeBrokerPayable: (id) => api.post(`/sales/broker-commissions/${id}/make-payable/`),
+  payBrokerCommission: (id, data) => api.post(`/sales/broker-commissions/${id}/pay/`, data),
+  getBrokerStatement: (query) => api.get('/sales/broker-commissions/statement/', { query }),
+  getPartyDiscounts: (query) => api.get('/sales/party-discounts/', { query }),
+  getPartyDiscountAnnualReport: (query) => api.get('/sales/party-discounts/annual-report/', { query }),
+  getOrderPickingList: (id) => api.get(`/sales/orders/${id}/picking-list/`),
 };
 
 // ── Purchase pipeline ────────────────────────────────────────────────────
@@ -190,6 +199,17 @@ export const inventoryService = {
   scanTakaTag: (code) => api.get('/inventory/taka-tags/scan/', { query: { code } }),
   getTakaTagHistory: (id) => api.get(`/inventory/taka-tags/${id}/history/`),
   getTakaTagsPdfUrl: (ids) => `/api/inventory/taka-tags/pdf/?ids=${Array.isArray(ids) ? ids.join(',') : ids}`,
+  // Phase 2.3 Traceability & Ageing
+  getLotTraceability: (target) => api.get('/inventory/traceability/', { query: { target } }),
+  getStockAgeing: (query) => api.get('/inventory/stock/ageing/', { query }),
+  getSlowMovingStock: (query) => api.get('/inventory/stock/slow-moving/', { query }),
+  // Phase 2.6 QC Inspections (4-Point ASTM Piece Inspection)
+  getQCInspections: (query) => api.get('/inventory/qc-inspections/', { query }),
+  getQCInspection: (id) => api.get(`/inventory/qc-inspections/${id}/`),
+  createQCInspection: (data) => api.post('/inventory/qc-inspections/', data),
+  updateQCInspection: (id, data) => api.patch(`/inventory/qc-inspections/${id}/`, data),
+  approveQCInspection: (id) => api.post(`/inventory/qc-inspections/${id}/approve/`),
+  getDefects: (query) => api.get('/inventory/defects/', { query }),
   // Existing — preserved
   getItems: (query) => api.get('/inventory/items/', { query }),
   getStockPositions: (query) => api.get('/inventory/stock/', { query }),
@@ -216,15 +236,58 @@ export const inventoryService = {
   createZoneRequest: (data) => api.post('/inventory/zone-requests/', data),
   updateZoneRequest: (id, status) => api.patch(`/inventory/zone-requests/${id}/`, { status }),
   createMonthEndAudit: (data) => api.post('/inventory/audits/', data),
+  // Sampling (Phase 3.2)
+  getSamples: (query) => api.get('/inventory/samples/', { query }),
+  getSample: (id) => api.get(`/inventory/samples/${id}/`),
+  createSample: (data) => api.post('/inventory/samples/', data),
+  returnSampleAction: (id, data) => api.post(`/inventory/samples/${id}/return-sample/`, data),
+  consumeSampleAction: (id, data) => api.post(`/inventory/samples/${id}/consume-sample/`, data),
+  getSampleDashboard: () => api.get('/inventory/samples/dashboard/'),
+  // Logistics & Tempo (Phase 3.7)
+  getTrips: (query) => api.get('/inventory/trips/', { query }),
+  getTrip: (id) => api.get(`/inventory/trips/${id}/`),
+  createTrip: (data) => api.post('/inventory/trips/', data),
+  allocateTripFreight: (id) => api.post(`/inventory/trips/${id}/allocate-freight/`),
+  getTransporters: (query) => api.get('/masters/transporters/', { query }),
+  createTransporter: (data) => api.post('/masters/transporters/', data),
+  // Costing & Lot Profitability (Phase 3.1)
+  getLotCostEntries: (query) => api.get('/inventory/lot-cost-entries/', { query }),
+  createLotCostEntry: (data) => api.post('/inventory/lot-cost-entries/', data),
+  getLotLandedCost: (lotNumber) => api.get('/inventory/lot-cost-entries/landed-cost/', { query: { lotNumber } }),
+  getLotProfitability: (query) => api.get('/inventory/lot-cost-entries/profitability/', { query }),
 };
 
-// ── Accounts ─────────────────────────────────────────────────────────────
+export const productionService = {
+  getAgencyDashboard: (query) => api.get('/production/dashboard/agencies/', { query }),
+  getEmployeeDashboard: (query) => api.get('/production/dashboard/employees/', { query }),
+  getSalespersonDashboard: (query) => api.get('/production/dashboard/salesperson/', { query }),
+  getInstructions: (query) => api.get('/production/instructions/', { query }),
+  getDailyEntries: (query) => api.get('/production/daily-entries/', { query }),
+  // Salesperson Incentives (Phase 3.4)
+  getIncentiveSchemes: (query) => api.get('/pms/incentive-schemes/', { query }),
+  createIncentiveScheme: (data) => api.post('/pms/incentive-schemes/', data),
+  updateIncentiveScheme: (id, data) => api.patch(`/pms/incentive-schemes/${id}/`, data),
+  calculateIncentive: (id, data) => api.post(`/pms/incentive-schemes/${id}/calculate/`, data),
+  getIncentiveCalculations: (query) => api.get('/pms/incentive-calcs/', { query }),
+  approveIncentiveCalculation: (id) => api.post(`/pms/incentive-calcs/${id}/approve/`),
+  postIncentiveCalculation: (id) => api.post(`/pms/incentive-calcs/${id}/post-to-ledger/`),
+  payIncentiveCalculation: (id, data) => api.post(`/pms/incentive-calcs/${id}/pay/`, data),
+  reverseIncentiveCalculation: (id, data) => api.post(`/pms/incentive-calcs/${id}/reverse/`, data),
+};
 
-export const accountsService = {
+export const accountingService = {
+  getAccounts: (query) => api.get('/accounts/chart-of-accounts/', { query }),
+  getBankAccounts: (query) => api.get('/accounts/bank-accounts/', { query }),
   getJournalEntries: (query) => api.get('/accounts/journal/', { query }),
-  createJournalEntry: (data) => api.post('/accounts/journal/', data),
-  getLedger: (accountId, query) => api.get(`/accounts/ledger/${accountId}/`, { query }),
-  getProfitAndLoss: (query) => api.get('/accounts/reports/profit-and-loss/', { query }),
-  getBalanceSheet: (query) => api.get('/accounts/reports/balance-sheet/', { query }),
-  getBankAccounts: () => api.get('/accounts/bank-accounts/'),
+  getStandaloneNotes: (query) => api.get('/accounts/standalone-notes/', { query }),
+  createStandaloneNote: (data) => api.post('/accounts/standalone-notes/', data),
+  approveStandaloneNote: (id) => api.post(`/accounts/standalone-notes/${id}/approve/`),
+  postStandaloneNote: (id) => api.post(`/accounts/standalone-notes/${id}/post/`),
+  cancelStandaloneNote: (id, data) => api.post(`/accounts/standalone-notes/${id}/cancel/`, data),
+  getDayBook: (query) => api.get('/accounts/reports/day-book/', { query }),
+  getOverdueSummary: (query) => api.get('/accounts/reports/overdue-summary/', { query }),
+  getSubLedgers: (query) => api.get('/accounts/reports/sub-ledgers/', { query }),
+  getTallyExportUrl: (type, dateFrom, dateTo) => `/api/accounts/export/tally/?type=${type || 'vouchers'}${dateFrom ? '&dateFrom=' + dateFrom : ''}${dateTo ? '&dateTo=' + dateTo : ''}`,
+  getExcelExportUrl: (register, dateFrom, dateTo) => `/api/accounts/export/excel/?register=${register || 'sales'}${dateFrom ? '&dateFrom=' + dateFrom : ''}${dateTo ? '&dateTo=' + dateTo : ''}`,
 };
+

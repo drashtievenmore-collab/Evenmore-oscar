@@ -89,7 +89,7 @@ export default function QCReinspectionPage() {
   const [newVendor, setNewVendor] = useState('');
   const [newItemCode, setNewItemCode] = useState('');
   const [newFabricItem, setNewFabricItem] = useState('');
-  const [newLotNo, setNewLotNo] = useState('LT-001');
+  const [newLotNo, setNewLotNo] = useState('');
   const [newSentQty, setNewSentQty] = useState('');
   const [newDate, setNewDate] = useState(() => new Date().toISOString().split('T')[0]);
   const [newReason, setNewReason] = useState('Shade variation reprocessing');
@@ -153,7 +153,7 @@ export default function QCReinspectionPage() {
     setEntrySourceQcNo(row.sourceQcNo || '');
     setEntryItemCode(row.itemCode || '');
     setEntryFabricItem(row.fabricItem || '');
-    setEntryLotNo(row.lotNo || 'LT-001');
+    setEntryLotNo(row.lotNo || '');
     setEntryVendor(row.vendor || '');
     setEntryMeasurements(
       row.measurements && row.measurements.length > 0

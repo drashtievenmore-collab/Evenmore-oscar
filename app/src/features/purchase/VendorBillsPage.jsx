@@ -164,7 +164,7 @@ export const VendorBillsPage = () => {
     setFLines((prev) => (prev.length <= 1 ? prev : prev.filter((l) => l.key !== key)));
   };
 
-  const handleSave = (e) => {
+  const handleSave = async (e) => {
     e.preventDefault();
     setFormError('');
     if (!fVendorId) {
@@ -212,7 +212,12 @@ export const VendorBillsPage = () => {
     if (editingId) {
       saved = updateVendorBill(editingId, payload);
     } else {
-      saved = addVendorBill(payload);
+      try {
+        saved = await addVendorBill(payload);
+      } catch (err) {
+        setFormError(err?.message || 'Vendor bill not saved.');
+        return;
+      }
     }
     if (saved) {
       setSelectedId(saved.id);

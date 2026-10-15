@@ -1,7 +1,9 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Plus, Eye, Pencil, ArrowDownToLine, Hourglass, IndianRupee, User, Users, X } from 'lucide-react';
-import { loadJWOs, loadJWOsAsync, saveJWOs, nextJWONumber, jwoKpis, inr, numIN, toDDMMYYYY } from './jobWorkOrdersStore';
+import { Plus, Eye, Pencil, ArrowDownToLine, Hourglass, IndianRupee, User, Users, X, Check } from 'lucide-react';
+import { jwoKpis, inr, numIN, toDDMMYYYY, purgeLegacyJobWorkCache } from './jobWorkOrdersStore';
+import { fetchJWOs, createJWO, lookupJWORate, errorMessage } from '../../services/jobWorkSync';
+import { api } from '../../services/api';
 import { useERP } from '../../context/ERPContext';
 import PageHeader from '../../components/ui/PageHeader';
 
@@ -12,17 +14,24 @@ const statusPill = (s) =>
       ? 'bg-rose-50 text-rose-500 border-rose-200'
       : 'bg-amber-50 text-amber-600 border-amber-200';
 
-const PROCESS_OPTIONS = [
+const DEFAULT_PROCESS_OPTIONS = [
   'Dyeing', 'Printing', 'Bleaching', 'Finishing',
-  'Mercerizing', 'Heat Setting', 'Sanforizing', 'Embroidery',
+  'Washing', 'Compacting', 'Embroidery', 'Coating/Heat Set',
 ];
 
 export default function JobWorkOrdersPage() {
   const navigate = useNavigate();
   const { vendors = [], items = [] } = useERP();
-  const [orders, setOrders] = useState(loadJWOs);
+  const [orders, setOrders] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState('');
   const [q, setQ] = useState('');
   const [status, setStatus] = useState('All');
+
+  // Masters from backend
+  const [processorsList, setProcessorsList] = useState([]);
+  const [processesList, setProcessesList] = useState([]);
+  const [qualitiesList, setQualitiesList] = useState([]);
 
   // Create Modal State
   const [showCreateModal, setShowCreateModal] = useState(false);
@@ -34,19 +43,58 @@ export default function JobWorkOrdersPage() {
   const [modalLotNo, setModalLotNo] = useState('');
   const [modalQty, setModalQty] = useState('');
   const [modalRate, setModalRate] = useState('');
+  const [rateDefaulted, setRateDefaulted] = useState(false);
   const [modalDate, setModalDate] = useState(() => new Date().toISOString().slice(0, 10));
-  const [modalExpected, setModalExpected] = useState(() => new Date(Date.now() + 14 * 86400000).toISOString().slice(0, 10));
+  const [modalExpected, setModalExpected] = useState('');
   const [modalRemarks, setModalRemarks] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [createError, setCreateError] = useState('');
 
-  // Backend-first: pull from GET /jobwork/orders/ when logged in, cache to localStorage.
+  // Server is the source of truth: GET /jobwork/orders/.
   useEffect(() => {
     let live = true;
-    loadJWOsAsync().then((rows) => {
-      if (live && Array.isArray(rows)) setOrders(rows);
-    });
+    purgeLegacyJobWorkCache();
+    fetchJWOs()
+      .then((rows) => { if (live) setOrders(rows); })
+      .catch((err) => { if (live) setLoadError(errorMessage(err, 'Could not load job work orders.')); })
+      .finally(() => { if (live) setLoading(false); });
+
+    api.get('/masters/parties/processors/')
+      .then((res) => { if (live) setProcessorsList(Array.isArray(res) ? res : (res?.results || [])); })
+      .catch(() => {});
+
+    api.get('/masters/processes/')
+      .then((res) => { if (live) setProcessesList(Array.isArray(res) ? res : (res?.results || [])); })
+      .catch(() => {});
+
+    api.get('/inventory/fabric-qualities/')
+      .then((res) => { if (live) setQualitiesList(Array.isArray(res) ? res : (res?.results || [])); })
+      .catch(() => {});
+
     return () => { live = false; };
   }, []);
+
+  // Auto-lookup contracted rate from JobWorkRateMaster (Phase 2.1, 2.5)
+  useEffect(() => {
+    if (!modalVendor || !modalProcess || !modalQuality) {
+      setRateDefaulted(false);
+      return;
+    }
+    const proc = processorsList.find((p) => p.name === modalVendor);
+    const prc = processesList.find((p) => p.name === modalProcess);
+    const qlt = qualitiesList.find((q) => q.name.toLowerCase() === modalQuality.toLowerCase());
+
+    if (proc?.id && prc?.id && qlt?.id) {
+      lookupJWORate({ processorId: proc.id, processId: prc.id, fabricQualityId: qlt.id })
+        .then((res) => {
+          if (res?.rate !== undefined && res?.rate !== null) {
+            setModalRate(String(res.rate));
+            setRateDefaulted(true);
+          }
+        })
+        .catch(() => setRateDefaulted(false));
+    }
+  }, [modalVendor, modalProcess, modalQuality, processorsList, processesList, qualitiesList]);
 
   const totals = useMemo(() => {
     const t = { ordered: 0, outward: 0, inward: 0, pending: 0, amount: 0 };
@@ -73,79 +121,67 @@ export default function JobWorkOrdersPage() {
   );
 
   const openCreateModal = () => {
-    setModalVendor(vendors[0]?.name || '');
-    setModalProcess('Dyeing');
-    setModalFabric(items[0]?.name || '');
-    setModalQuality(items[0]?.fabricQuality || 'Cotton 60s');
-    setModalShade(items[0]?.fabricColor || '');
+    setModalVendor('');
+    setModalProcess(processesList[0]?.name || 'Dyeing');
+    setModalFabric('');
+    setModalQuality('');
+    setModalShade('');
     setModalLotNo('');
     setModalQty('');
     setModalRate('');
+    setRateDefaulted(false);
     setModalDate(new Date().toISOString().slice(0, 10));
-    setModalExpected(new Date(Date.now() + 14 * 86400000).toISOString().slice(0, 10));
+    setModalExpected('');
     setModalRemarks('');
+    setCreateError('');
     setShowCreateModal(true);
   };
 
   const handleCreateSubmit = async (e) => {
     e.preventDefault();
-    if (!modalVendor) { alert('Please select a vendor.'); return; }
+    setCreateError('');
+    if (!modalVendor) { setCreateError('Please select a vendor / processor.'); return; }
+    if (!modalFabric) { setCreateError('Please select a fabric item.'); return; }
     const plannedQty = Number(modalQty);
     const rate = Number(modalRate);
-    if (!(plannedQty > 0)) { alert('Please enter a valid planned quantity.'); return; }
-    if (!(rate >= 0)) { alert('Please enter a valid rate.'); return; }
+    if (!(plannedQty > 0)) { setCreateError('Please enter a valid planned quantity.'); return; }
+    if (!(rate >= 0)) { setCreateError('Please enter a valid rate.'); return; }
+
+    const procObj = processorsList.find((p) => p.name === modalVendor);
+    const prcObj = processesList.find((p) => p.name === modalProcess);
 
     setIsSubmitting(true);
-    const jwoNo = nextJWONumber(orders);
-    const totalAmount = plannedQty * rate;
-    const fresh = {
-      id: `jwo-${Date.now()}`,
-      jwoNo,
-      process: modalProcess,
-      vendor: modalVendor,
-      orderDate: modalDate,
-      plannedQty,
-      rate,
-      totalAmount,
-      expectedCompletion: modalExpected,
-      status: 'In-Process',
-      materials: [
-        {
-          id: `m-${Date.now()}`,
-          fabricItem: modalFabric || 'Fabric Item',
-          fabricQuality: modalQuality,
-          shade: modalShade,
-          lotNo: modalLotNo,
-          qty: plannedQty,
-          rate,
-          amount: totalAmount,
-        },
-      ],
-      outwards: [],
-      inwards: [],
-      remarks: modalRemarks,
-    };
-
-    const next = [fresh, ...orders];
-    setOrders(next);
-    try { saveJWOs(next); } catch { /* ignore */ }
-    setShowCreateModal(false);
-    setIsSubmitting(false);
-
     try {
-      const { pushCreateJWO, isJobWorkBackendEnabled } = await import('../../services/jobWorkSync');
-      if (isJobWorkBackendEnabled()) {
-        const saved = await pushCreateJWO(fresh);
-        if (saved) {
-          const merged = next.map((o) => (o.id === fresh.id ? saved : o));
-          setOrders(merged);
-          try { saveJWOs(merged); } catch { /* ignore */ }
-          navigate(`/job-work/orders/${saved.id}`);
-          return;
-        }
-      }
-    } catch { /* offline — navigate with local id */ }
-    navigate(`/job-work/orders/${fresh.id}`);
+      // The server allocates the JWO number and derives planned qty / amount
+      // from the material row.
+      const saved = await createJWO({
+        process: modalProcess,
+        processMasterId: prcObj?.id,
+        vendor: modalVendor,
+        vendorId: procObj?.id,
+        orderDate: modalDate,
+        rate,
+        expectedCompletion: modalExpected,
+        remarks: modalRemarks,
+        materials: [
+          {
+            fabricItem: modalFabric,
+            fabricQuality: modalQuality,
+            shade: modalShade,
+            lotNo: modalLotNo,
+            qty: plannedQty,
+            rate,
+          },
+        ],
+      });
+      setOrders((prev) => [saved, ...prev]);
+      setShowCreateModal(false);
+      navigate(`/job-work/orders/${saved.id}`);
+    } catch (err) {
+      setCreateError(errorMessage(err, 'Could not create the job work order.'));
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   const kpiCards = [
@@ -208,6 +244,7 @@ export default function JobWorkOrdersPage() {
             <option value="All">All Statuses</option>
             <option value="In-Process">In-Process</option>
             <option value="Completed">Completed</option>
+            <option value="Closed">Closed</option>
           </select>
         </div>
 
@@ -282,7 +319,17 @@ export default function JobWorkOrdersPage() {
                   <td colSpan={2} className="px-3 py-2.5"></td>
                 </tr>
               )}
-              {rows.length === 0 && (
+              {loading && (
+                <tr>
+                  <td colSpan={12} className="px-4 py-10 text-center text-[12px] text-slate-400">Loading job work orders…</td>
+                </tr>
+              )}
+              {!loading && loadError && (
+                <tr>
+                  <td colSpan={12} className="px-4 py-10 text-center text-[12px] font-semibold text-rose-600">{loadError}</td>
+                </tr>
+              )}
+              {!loading && !loadError && rows.length === 0 && (
                 <tr>
                   <td colSpan={12} className="px-4 py-10 text-center">
                     <p className="text-[13px] font-extrabold text-[#17294e]">No records found</p>
@@ -319,9 +366,9 @@ export default function JobWorkOrdersPage() {
                     onChange={(e) => setModalVendor(e.target.value)}
                     className="w-full px-3 py-2 border border-slate-300 rounded-lg bg-white text-slate-800 font-medium"
                   >
-                    <option value="">Select Vendor</option>
-                    {vendors.map((v) => (
-                      <option key={v.id} value={v.name}>{v.name}</option>
+                    <option value="">Select Processor</option>
+                    {(processorsList.length > 0 ? processorsList : vendors).map((v) => (
+                      <option key={v.id} value={v.name}>{v.code ? `[${v.code}] ` : ''}{v.name}</option>
                     ))}
                   </select>
                 </div>
@@ -334,8 +381,8 @@ export default function JobWorkOrdersPage() {
                     onChange={(e) => setModalProcess(e.target.value)}
                     className="w-full px-3 py-2 border border-slate-300 rounded-lg bg-white text-slate-800 font-medium"
                   >
-                    {PROCESS_OPTIONS.map((p) => (
-                      <option key={p} value={p}>{p}</option>
+                    {(processesList.length > 0 ? processesList : DEFAULT_PROCESS_OPTIONS.map(name => ({ id: name, name }))).map((p) => (
+                      <option key={p.id} value={p.name}>{p.name}</option>
                     ))}
                   </select>
                 </div>
@@ -343,6 +390,7 @@ export default function JobWorkOrdersPage() {
                 <div>
                   <label className="block text-slate-700 font-semibold mb-1">Fabric Item *</label>
                   <select
+                    required
                     value={modalFabric}
                     onChange={(e) => {
                       const sel = items.find((it) => it.name === e.target.value);
@@ -407,7 +455,14 @@ export default function JobWorkOrdersPage() {
                 </div>
 
                 <div>
-                  <label className="block text-slate-700 font-semibold mb-1">Rate (₹ / m) *</label>
+                  <label className="block text-slate-700 font-semibold mb-1 flex items-center justify-between">
+                    <span>Rate (₹ / m) *</span>
+                    {rateDefaulted && (
+                      <span className="text-[10px] font-bold text-emerald-600 bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-200">
+                        ✓ Rate Master
+                      </span>
+                    )}
+                  </label>
                   <input
                     type="number"
                     step="0.01"
@@ -415,8 +470,11 @@ export default function JobWorkOrdersPage() {
                     required
                     placeholder="e.g. 8.50"
                     value={modalRate}
-                    onChange={(e) => setModalRate(e.target.value)}
-                    className="w-full px-3 py-2 border border-slate-300 rounded-lg bg-white text-slate-800 font-bold"
+                    onChange={(e) => {
+                      setModalRate(e.target.value);
+                      setRateDefaulted(false);
+                    }}
+                    className={`w-full px-3 py-2 border rounded-lg bg-white text-slate-800 font-bold ${rateDefaulted ? 'border-emerald-300 ring-1 ring-emerald-200' : 'border-slate-300'}`}
                   />
                 </div>
 
@@ -452,6 +510,9 @@ export default function JobWorkOrdersPage() {
                 </div>
               </div>
 
+              {createError && (
+                <div className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-[12px] font-semibold text-rose-600">{createError}</div>
+              )}
               <div className="flex items-center justify-between pt-3 border-t border-slate-200">
                 <div className="text-[11px] text-slate-500 font-medium">
                   Total Value: <strong>₹{((Number(modalQty) || 0) * (Number(modalRate) || 0)).toLocaleString('en-IN')}</strong>

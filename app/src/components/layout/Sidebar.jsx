@@ -63,6 +63,9 @@ import {
   Tag,
   Warehouse,
   Lock,
+  Truck,
+  FlaskConical,
+  DollarSign,
 } from 'lucide-react';
 import { useAppStore } from '../../stores/appStore';
 import { usePmsStore, computeNavBadges } from '../../stores/pmsStore';
@@ -130,6 +133,7 @@ const NAV = [
         icon: Factory,
         defaultOpen: true,
         children: [
+          { label: 'Production Dashboard', icon: BarChart3, to: '/pms/production-dashboard' },
           { label: 'Production Instructions', icon: ClipboardList, to: '/pms/production-instructions' },
           { label: 'Daily Production', icon: CalendarCheck, to: '/pms/daily-production' },
           { label: 'Production Completion & Verification', icon: CheckCircle2, to: '/pms/production-completion' },
@@ -146,6 +150,7 @@ const NAV = [
           { label: 'Job Work Inward', icon: ArrowDownLeft, to: '/job-work/inward' },
           { label: 'Pending Register', icon: Hourglass, to: '/job-work/pending-register' },
           { label: 'Vendor Reconciliation', icon: GitCompare, to: '/job-work/vendor-reconciliation' },
+          { label: 'Processor Ledger', icon: BookOpen, to: '/job-work/processor-ledger' },
           { label: 'Reprocess', icon: RotateCcw, to: '/job-work/reprocess' },
         ],
       },
@@ -167,6 +172,7 @@ const NAV = [
       { label: 'Delivery Challans', icon: Send, to: '/sales/delivery' },
       // [DISABLED] Warranty Cards concept commented out
       // { label: 'Warranty Cards', icon: ShieldCheck, to: '/sales/warranty' },
+      { label: 'Broker Commissions', icon: DollarSign, to: '/sales/broker-commissions' },
       { label: 'Sales Returns', icon: RotateCcw, to: '/sales/returns' },
       { label: 'Payment In', icon: ArrowDownLeft, to: '/sales/payments' },
     ],
@@ -179,6 +185,8 @@ const NAV = [
       { label: 'Purchase Orders', icon: ClipboardList, to: '/purchase/orders' },
       // ── [PHASE-2B] New standalone Goods Receipt (GRN) nav entry ──
       { label: 'Goods Receipt', icon: PackageCheck, to: '/purchase/receipts' },
+      { label: 'Supplier Reconciliation', icon: GitCompare, to: '/purchase/reconciliation' },
+      { label: 'Supplier Ledger', icon: BookOpen, to: '/purchase/supplier-ledger' },
       { label: 'Vendor Bills', icon: Receipt, to: '/purchase/vendor-bills' },
       { label: 'Bill Matching', icon: GitCompare, to: '/purchase/bill-matching' },
       { label: 'Purchase Bills', icon: Receipt, to: '/purchase/bills' },
@@ -208,6 +216,7 @@ const NAV = [
           { label: 'Fabric Quality Master', to: '/inventory/fabric/quality', dot: true },
           { label: 'Design Master', to: '/inventory/fabric/design' },
           { label: 'Colour / Shade Master', to: '/inventory/fabric/colour' },
+          { label: 'Textile Operations Masters', to: '/inventory/masters/textile' },
         ],
       },
       { label: 'Fabric Item / Variant Master', icon: Boxes, to: '/inventory/fabric/variants' },
@@ -251,6 +260,8 @@ const NAV = [
       },
       { label: 'Lot / Taka Register', icon: FileText, to: '/inventory/lot-register' },
       { label: 'Taka Tag Print', icon: Tag, to: '/inventory/taka-tags' },
+      { label: 'Sample Management', icon: FlaskConical, to: '/inventory/samples' },
+      { label: 'Logistics / Trips', icon: Truck, to: '/inventory/trips' },
       { label: 'Transfers', icon: ArrowLeftRight, to: '/inventory/transfers' },
       { label: 'Godown / Rack', icon: Warehouse, to: '/inventory/locations' },
       { label: 'Valuation & Ageing', icon: TrendingUp, to: '/inventory/valuation' },
@@ -262,6 +273,7 @@ const NAV = [
     label: 'Accounts',
     icon: Landmark,
     children: [
+      { label: 'Day Book & Position', icon: BookOpen, to: '/accounts/day-book' },
       { label: 'Cash / Bank', icon: Landmark, to: '/accounts/cash-bank' },
       { label: 'General Ledger', icon: FileText, to: '/accounts/general-ledger' },
       { label: 'Financial Reports', icon: PieChart, to: '/accounts/reports' },

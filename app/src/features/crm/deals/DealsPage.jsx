@@ -607,7 +607,7 @@ export default function DealsPage() {
 
     const quote = addQuotation?.({
       customerId: matchedCustomer?.id,
-      customer: deal.client || matchedCustomer?.name || 'Acme Corp',
+      customer: deal.client || matchedCustomer?.name || '',
       dealId: String(deal.id || ''),
       dealName: deal.name || '',
       date: new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }),
@@ -646,7 +646,7 @@ export default function DealsPage() {
 
     const order = addSalesOrder?.({
       customerId: matchedCustomer?.id,
-      customer: deal.client || matchedCustomer?.name || 'Acme Corp',
+      customer: deal.client || matchedCustomer?.name || '',
       dealId: String(deal.id || ''),
       dealName: deal.name || '',
       amount: dealAmount,

@@ -12,51 +12,57 @@ import {
   ChevronDown,
   X,
 } from 'lucide-react';
-import { numIN, toDDMMYYYY } from './jobWorkOrdersStore';
+import { numIN, toDDMMYYYY, purgeLegacyJobWorkCache } from './jobWorkOrdersStore';
 import PageHeader from '../../components/ui/PageHeader';
+import { useERP } from '../../context/ERPContext';
+import { api } from '../../services/api';
+import { fetchPlans, createPlan, updatePlan, deletePlan, errorMessage } from '../../services/jobWorkSync';
 
 export { toDDMMYYYY, numIN };
 
-export const PROCESS_PLAN_KEY = 'oscar_processPlans_v2';
-const LEGACY_KEY = 'oscar_processPlans';
-
+// Phase 2 turns process / category into configurable masters.
 export const PROCESS_OPTIONS = ['Dyeing', 'Printing', 'Bleaching', 'Finishing', 'Washing', 'Coating'];
 export const PROCESS_CATEGORY_OPTIONS = ['Colouring', 'Bleaching', 'Pre-treatment', 'Post-treatment', 'Printing', 'Finishing'];
-export const PLAN_STATUSES = ['Active', 'Pending', 'Completed'];
+/** Backend ProcessPlan.STATUSES. */
+export const PLAN_STATUSES = ['Draft', 'Active', 'Completed'];
 
-export const VENDOR_OPTIONS = ['Vendor A', 'Vendor B', 'Vendor C', 'Vendor D'];
-export const VENDOR_CONTACTS = {
-  'Vendor A': { contact: 'Amit Shah', phone: '+91 98250 11223', email: 'amit@vendora.com', address: 'Ahmedabad, Gujarat, India' },
-  'Vendor B': { contact: 'Raj Patel', phone: '+91 98785 43210', email: 'raj@vendorb.com', address: 'Surat, Gujarat, India' },
-  'Vendor C': { contact: 'Vikram Singh', phone: '+91 98980 44556', email: 'vikram@vendorc.com', address: 'Ludhiana, Punjab, India' },
-  'Vendor D': { contact: 'Chetan Mehta', phone: '+91 97240 77889', email: 'chetan@vendord.com', address: 'Mumbai, Maharashtra, India' },
-};
+const rowsOf = (body) => (Array.isArray(body) ? body : body?.results || []);
 
-export const FABRIC_ITEM_OPTIONS = ['Cotton Fabric', 'Polyester', 'Rayon', 'Silk', 'Denim'];
-export const FABRIC_QUALITY_OPTIONS = ['GSM 120', 'GSM 80', 'GSM 100', 'GSM 90', 'GSM 140'];
-export const SHADE_OPTIONS = ['Navy Blue', 'Black', 'White', 'Red', 'Royal Blue', 'Olive Green'];
-export const EMPLOYEE_OPTIONS = ['Admin', 'Rajesh Kumar', 'Suresh Sharma', 'Pooja Verma'];
-export const APPROVER_OPTIONS = ['Manager', 'Production Head', 'General Manager'];
+/**
+ * Real option lists for the plan form: vendors / processors from the party
+ * master (ERPContext), fabric items from the item master, employees from
+ * /hrms/employees/.
+ */
+export function useJobWorkLookups() {
+  const { vendors = [], items = [] } = useERP();
+  const [employees, setEmployees] = useState([]);
+  const [employeeError, setEmployeeError] = useState('');
+  const [processes, setProcesses] = useState([]);
+  useEffect(() => {
+    let live = true;
+    api.get('/hrms/employees/', { query: { limit: 500 } })
+      .then((body) => {
+        if (live) setEmployees(rowsOf(body).map((e) => ({ id: e.id, name: e.name || '' })).filter((e) => e.name));
+      })
+      .catch((err) => { if (live) setEmployeeError(errorMessage(err, 'Could not load employees.')); });
 
-export const loadPlans = () => {
-  try {
-    try { localStorage.removeItem(LEGACY_KEY); } catch { /* ignore */ }
-    const raw = localStorage.getItem(PROCESS_PLAN_KEY);
-    if (!raw) return [];
-    const parsed = JSON.parse(raw);
-    return Array.isArray(parsed) ? parsed : [];
-  } catch {
-    return [];
-  }
-};
+    api.get('/masters/processes/', { query: { limit: 200 } })
+      .then((body) => {
+        if (live) {
+          const list = rowsOf(body);
+          if (list && list.length > 0) setProcesses(list);
+        }
+      })
+      .catch(() => {});
 
-export const savePlans = (next) => {
-  try {
-    localStorage.setItem(PROCESS_PLAN_KEY, JSON.stringify(next));
-  } catch {
-    /* ignore */
-  }
-};
+    return () => { live = false; };
+  }, []);
+  const activeVendors = useMemo(
+    () => (vendors || []).filter((v) => v && v.name && v.status !== 'Inactive'),
+    [vendors],
+  );
+  return { vendors: activeVendors, items: items || [], employees, employeeError, processes };
+}
 
 export const todayISO = () => new Date().toISOString().slice(0, 10);
 
@@ -67,19 +73,9 @@ export const addDaysISO = (iso, days) => {
   return base.toISOString().slice(0, 10);
 };
 
-export const nextPlanNumber = (plans = []) => {
-  const currentYear = new Date().getFullYear();
-  const max = (plans || []).reduce((m, p) => {
-    const raw = String(p.planNo || '');
-    const num = Number(raw.replace(/\D/g, '').slice(-3)) || 0;
-    return Math.max(m, num);
-  }, 0);
-  return `PP-${currentYear}-${String(max + 1).padStart(3, '0')}`;
-};
-
 export const statusPill = (s) => {
   if (s === 'Active') return 'bg-[#ecfdf5] text-[#059669] border-[#a7f3d0]';
-  if (s === 'Pending') return 'bg-[#fffbeb] text-[#d97706] border-[#fde68a]';
+  if (s === 'Draft' || s === 'Pending') return 'bg-[#fffbeb] text-[#d97706] border-[#fde68a]';
   if (s === 'Completed') return 'bg-[#eff6ff] text-[#2563eb] border-[#bfdbfe]';
   return 'bg-slate-50 text-slate-600 border-slate-200';
 };
@@ -106,46 +102,112 @@ export function ProcessPlanForm({
 }) {
   const navigate = useNavigate();
 
+  const { vendors, items, employees, employeeError, processes } = useJobWorkLookups();
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState('');
+
+  const processList = useMemo(() => {
+    if (processes && processes.length > 0) {
+      return processes.map((p) => ({
+        id: p.id,
+        name: p.name,
+        category: p.category || '',
+        expectedLossPct: p.expected_loss_pct ?? p.expectedLossPct ?? 0,
+        tolerancePct: p.tolerance_pct ?? p.tolerancePct ?? 0,
+      }));
+    }
+    return PROCESS_OPTIONS.map((name) => ({ id: name, name, category: '', expectedLossPct: 0, tolerancePct: 0 }));
+  }, [processes]);
+
+  const processCategoryList = useMemo(() => {
+    const fromProcesses = processList.map((p) => p.category).filter(Boolean);
+    return [...new Set([...PROCESS_CATEGORY_OPTIONS, ...fromProcesses])];
+  }, [processList]);
+
   const [form, setForm] = useState(() => ({
-    planNo: initial.planNo || nextPlanNumber(plans),
+    planNo: initial.planNo || '',
     date: initial.date || todayISO(),
-    process: initial.process || PROCESS_OPTIONS[0] || 'Dyeing',
-    processCategory: initial.processCategory || PROCESS_CATEGORY_OPTIONS[0] || 'Colouring',
-    vendor: initial.vendor || 'Vendor B',
-    contactPerson: initial.contactPerson || (VENDOR_CONTACTS[initial.vendor || 'Vendor B']?.contact || 'Raj Patel'),
-    phone: initial.phone || (VENDOR_CONTACTS[initial.vendor || 'Vendor B']?.phone || '+91 98785 43210'),
-    email: initial.email || (VENDOR_CONTACTS[initial.vendor || 'Vendor B']?.email || ''),
-    address: initial.address || (VENDOR_CONTACTS[initial.vendor || 'Vendor B']?.address || ''),
-    fabricItem: initial.fabricItem || 'Cotton Fabric',
+    process: initial.process || (processes[0]?.name || PROCESS_OPTIONS[0]),
+    processCategory: initial.processCategory || '',
+    vendor: initial.vendor || '',
+    contactPerson: initial.contactPerson || '',
+    phone: initial.phone || '',
+    email: initial.email || '',
+    address: initial.address || '',
+    fabricItem: initial.fabricItem || '',
     greyLotNo: initial.greyLotNo || '',
-    fabricQuality: initial.fabricQuality || 'GSM 120',
+    fabricQuality: initial.fabricQuality || '',
     takaRollNo: initial.takaRollNo || initial.takaRoll || '',
-    shade: initial.shade || 'Navy Blue',
+    shade: initial.shade || '',
     plannedQty: String(initial.plannedQty ?? initial.expectedQty ?? ''),
-    expectedLoss: String(initial.expectedLoss ?? '2.00'),
+    expectedLoss: String(initial.expectedLoss ?? ''),
     expectedReturnQty: String(initial.expectedReturnQty ?? ''),
     takaRoll: initial.takaRoll || initial.takaRollNo || '',
-    weight: String(initial.weight ?? ''),
-    finishedWeight: String(initial.finishedWeight ?? ''),
-    noOfRolls: String(initial.noOfRolls ?? ''),
-    startDate: initial.startDate || initial.date || todayISO(),
-    expectedCompletionDate: initial.expectedCompletionDate || initial.targetDate || addDaysISO(initial.startDate || initial.date || todayISO(), 20),
-    assignedEmployee: initial.assignedEmployee || 'Admin',
-    approver: initial.approver || 'Manager',
+    weight: String(initial.weight || ''),
+    finishedWeight: String(initial.finishedWeight || ''),
+    noOfRolls: String(initial.noOfRolls || ''),
+    startDate: initial.startDate || '',
+    expectedCompletionDate: initial.expectedCompletionDate || initial.targetDate || '',
+    assignedEmployee: initial.assignedEmployee || '',
+    approver: initial.approver || '',
     status: initial.status || 'Active',
     remarks: initial.remarks || '',
   }));
 
+  const handleProcessChange = (e) => {
+    const name = e.target.value;
+    const found = processList.find((p) => p.name === name);
+    setForm((prev) => {
+      const nextLoss = found && Number(found.expectedLossPct) > 0 ? String(found.expectedLossPct) : prev.expectedLoss;
+      return {
+        ...prev,
+        process: name,
+        processCategory: found?.category || prev.processCategory,
+        expectedLoss: nextLoss,
+        expectedReturnQty: calculateReturnQty(prev.plannedQty, nextLoss),
+      };
+    });
+  };
+
+  const vendorNames = useMemo(() => {
+    const names = vendors.map((v) => v.name);
+    if (form.vendor && !names.includes(form.vendor)) names.unshift(form.vendor);
+    return names;
+  }, [vendors, form.vendor]);
+  const fabricNames = useMemo(() => {
+    const names = [...new Set(items.map((it) => it.name).filter(Boolean))];
+    if (form.fabricItem && !names.includes(form.fabricItem)) names.unshift(form.fabricItem);
+    return names;
+  }, [items, form.fabricItem]);
+  const qualityOptions = useMemo(() => [...new Set(items.map((it) => it.fabricQuality).filter(Boolean))], [items]);
+  const shadeOptions = useMemo(() => [...new Set(items.map((it) => it.fabricColor).filter(Boolean))], [items]);
+  const employeeNames = useMemo(() => {
+    const names = employees.map((e) => e.name);
+    [form.assignedEmployee, form.approver].forEach((n) => { if (n && !names.includes(n)) names.unshift(n); });
+    return names;
+  }, [employees, form.assignedEmployee, form.approver]);
+
   const handleVendorChange = (e) => {
     const v = e.target.value;
-    const defaults = VENDOR_CONTACTS[v] || { contact: '', phone: '', email: '', address: '' };
+    const party = vendors.find((x) => x.name === v) || {};
     setForm((prev) => ({
       ...prev,
       vendor: v,
-      contactPerson: defaults.contact || prev.contactPerson,
-      phone: defaults.phone || prev.phone,
-      email: defaults.email || prev.email,
-      address: defaults.address || prev.address,
+      contactPerson: party.contactPerson || '',
+      phone: party.phone || '',
+      email: party.email || '',
+      address: party.address || '',
+    }));
+  };
+
+  const handleFabricChange = (e) => {
+    const name = e.target.value;
+    const item = items.find((it) => it.name === name) || {};
+    setForm((prev) => ({
+      ...prev,
+      fabricItem: name,
+      fabricQuality: item.fabricQuality || prev.fabricQuality,
+      shade: item.fabricColor || prev.shade,
     }));
   };
 
@@ -167,18 +229,20 @@ export function ProcessPlanForm({
     }));
   };
 
-  const handleSubmit = (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault();
+    setSaveError('');
     const plannedQtyNum = Number(form.plannedQty) || 0;
     if (!(plannedQtyNum > 0)) {
-      window.alert('Planned Quantity (M) must be greater than 0.');
+      setSaveError('Planned Quantity (M) must be greater than 0.');
       return;
     }
+    if (!form.vendor) { setSaveError('Select a vendor / processor.'); return; }
+    if (!form.fabricItem) { setSaveError('Select a fabric item.'); return; }
     const lossNum = Number(form.expectedLoss) || 0;
     const returnNum = Number(form.expectedReturnQty) || (plannedQtyNum * (1 - lossNum / 100));
 
     const payload = {
-      planNo: form.planNo || nextPlanNumber(plans),
       date: form.date,
       process: form.process,
       processCategory: form.processCategory,
@@ -207,8 +271,14 @@ export function ProcessPlanForm({
       remarks: form.remarks,
     };
 
-    if (onSave) {
-      onSave(payload);
+    if (!onSave) return;
+    setSaving(true);
+    try {
+      await onSave(payload);
+    } catch (err) {
+      setSaveError(errorMessage(err, 'Could not save the process plan.'));
+    } finally {
+      setSaving(false);
     }
   };
 
@@ -228,6 +298,7 @@ export function ProcessPlanForm({
                 <input
                   readOnly
                   value={form.planNo}
+                  placeholder="Auto-generated on save"
                   className="w-full rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 font-mono font-medium text-slate-700 outline-none"
                 />
               </div>
@@ -252,11 +323,11 @@ export function ProcessPlanForm({
                 <select
                   required
                   value={form.process}
-                  onChange={(e) => setForm({ ...form, process: e.target.value })}
+                  onChange={handleProcessChange}
                   className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-slate-800 outline-none focus:border-blue-400"
                 >
-                  {PROCESS_OPTIONS.map((o) => (
-                    <option key={o} value={o}>{o}</option>
+                  {processList.map((o) => (
+                    <option key={o.id || o.name} value={o.name}>{o.name}</option>
                   ))}
                 </select>
               </div>
@@ -267,7 +338,8 @@ export function ProcessPlanForm({
                   onChange={(e) => setForm({ ...form, processCategory: e.target.value })}
                   className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-slate-800 outline-none focus:border-blue-400"
                 >
-                  {PROCESS_CATEGORY_OPTIONS.map((o) => (
+                  <option value="">Select Category</option>
+                  {processCategoryList.map((o) => (
                     <option key={o} value={o}>{o}</option>
                   ))}
                 </select>
@@ -290,7 +362,8 @@ export function ProcessPlanForm({
                 onChange={handleVendorChange}
                 className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-slate-800 outline-none focus:border-blue-400"
               >
-                {VENDOR_OPTIONS.map((v) => (
+                <option value="">Select Vendor</option>
+                {vendorNames.map((v) => (
                   <option key={v} value={v}>{v}</option>
                 ))}
               </select>
@@ -300,7 +373,7 @@ export function ProcessPlanForm({
               <input
                 value={form.contactPerson}
                 onChange={(e) => setForm({ ...form, contactPerson: e.target.value })}
-                placeholder="e.g. Raj Patel"
+                placeholder="Contact person"
                 className="w-full rounded-lg border border-slate-200 px-3 py-2 text-slate-800 outline-none focus:border-blue-400"
               />
             </div>
@@ -309,7 +382,7 @@ export function ProcessPlanForm({
               <input
                 value={form.phone}
                 onChange={(e) => setForm({ ...form, phone: e.target.value })}
-                placeholder="e.g. +91 98785 43210"
+                placeholder="Phone"
                 className="w-full rounded-lg border border-slate-200 px-3 py-2 font-mono text-slate-800 outline-none focus:border-blue-400"
               />
             </div>
@@ -328,10 +401,11 @@ export function ProcessPlanForm({
                 <select
                   required
                   value={form.fabricItem}
-                  onChange={(e) => setForm({ ...form, fabricItem: e.target.value })}
+                  onChange={handleFabricChange}
                   className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-slate-800 outline-none focus:border-blue-400"
                 >
-                  {FABRIC_ITEM_OPTIONS.map((f) => (
+                  <option value="">Select Fabric Item</option>
+                  {fabricNames.map((f) => (
                     <option key={f} value={f}>{f}</option>
                   ))}
                 </select>
@@ -351,16 +425,17 @@ export function ProcessPlanForm({
                 <label className="block font-semibold text-slate-600 mb-1">
                   Fabric Quality <span className="text-rose-500">*</span>
                 </label>
-                <select
+                <input
                   required
+                  list="pp-quality-options"
                   value={form.fabricQuality}
                   onChange={(e) => setForm({ ...form, fabricQuality: e.target.value })}
+                  placeholder="Fabric quality"
                   className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-slate-800 outline-none focus:border-blue-400"
-                >
-                  {FABRIC_QUALITY_OPTIONS.map((q) => (
-                    <option key={q} value={q}>{q}</option>
-                  ))}
-                </select>
+                />
+                <datalist id="pp-quality-options">
+                  {qualityOptions.map((q) => (<option key={q} value={q} />))}
+                </datalist>
               </div>
               <div>
                 <label className="block font-semibold text-slate-600 mb-1">Taka / Roll No.</label>
@@ -374,15 +449,16 @@ export function ProcessPlanForm({
             </div>
             <div>
               <label className="block font-semibold text-slate-600 mb-1">Shade / Colour</label>
-              <select
+              <input
+                list="pp-shade-options"
                 value={form.shade}
                 onChange={(e) => setForm({ ...form, shade: e.target.value })}
+                placeholder="Shade / colour"
                 className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-slate-800 outline-none focus:border-blue-400"
-              >
-                {SHADE_OPTIONS.map((s) => (
-                  <option key={s} value={s}>{s}</option>
-                ))}
-              </select>
+              />
+              <datalist id="pp-shade-options">
+                {shadeOptions.map((o) => (<option key={o} value={o} />))}
+              </datalist>
             </div>
           </div>
         </div>
@@ -517,7 +593,8 @@ export function ProcessPlanForm({
                 onChange={(e) => setForm({ ...form, assignedEmployee: e.target.value })}
                 className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-slate-800 outline-none focus:border-blue-400"
               >
-                {EMPLOYEE_OPTIONS.map((emp) => (
+                <option value="">Select Employee</option>
+                {employeeNames.map((emp) => (
                   <option key={emp} value={emp}>{emp}</option>
                 ))}
               </select>
@@ -529,10 +606,12 @@ export function ProcessPlanForm({
                 onChange={(e) => setForm({ ...form, approver: e.target.value })}
                 className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-slate-800 outline-none focus:border-blue-400"
               >
-                {APPROVER_OPTIONS.map((app) => (
+                <option value="">Select Approver</option>
+                {employeeNames.map((app) => (
                   <option key={app} value={app}>{app}</option>
                 ))}
               </select>
+              {employeeError && <p className="mt-1 text-[11px] text-rose-600">{employeeError}</p>}
             </div>
           </div>
         </div>
@@ -545,10 +624,14 @@ export function ProcessPlanForm({
           rows={2}
           value={form.remarks}
           onChange={(e) => setForm({ ...form, remarks: e.target.value })}
-          placeholder="Dyeing process for export order."
+          placeholder="Remarks"
           className="w-full rounded-lg border border-slate-200 p-3 text-[12.5px] text-slate-800 outline-none focus:border-blue-400"
         />
       </div>
+
+      {saveError && (
+        <div className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-[12px] font-semibold text-rose-600">{saveError}</div>
+      )}
 
       {/* ── Bottom Buttons ── */}
       <div className="flex items-center justify-end gap-3 pt-2">
@@ -561,9 +644,10 @@ export function ProcessPlanForm({
         </button>
         <button
           type="submit"
-          className="rounded-lg bg-[#2563eb] px-6 py-2 text-[12.5px] font-bold text-white hover:bg-[#1d4ed8] transition-colors shadow-2xs"
+          disabled={saving}
+          className="rounded-lg bg-[#2563eb] px-6 py-2 text-[12.5px] font-bold text-white hover:bg-[#1d4ed8] disabled:opacity-50 transition-colors shadow-2xs"
         >
-          Save Process Plan
+          {saving ? 'Saving…' : 'Save Process Plan'}
         </button>
       </div>
     </form>
@@ -616,7 +700,9 @@ export default function ProcessPlanListPage() {
   const navigate = useNavigate();
   const location = useLocation();
 
-  const [plans, setPlans] = useState(loadPlans);
+  const [plans, setPlans] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState('');
   const [processFilter, setProcessFilter] = useState('All');
   const [fabricFilter, setFabricFilter] = useState('All');
   const [vendorFilter, setVendorFilter] = useState('All');
@@ -630,34 +716,14 @@ export default function ProcessPlanListPage() {
   const [editingPlan, setEditingPlan] = useState(null);
   const [menuId, setMenuId] = useState(null);
 
-  const persist = (next) => {
-    setPlans(next);
-    savePlans(next);
-  };
-
-  // Backend-first loader: pull from GET /jobwork/process-plans/, retry
-  // offline creates, and merge — local unsynced rows are never wiped.
+  // Server is the source of truth: GET /jobwork/process-plans/.
   useEffect(() => {
     let live = true;
-    import('../../services/jobWorkSync').then(async ({ pullPlans, pushCreatePlan, reconcilePendingCreates, mergeServerRows, isJobWorkBackendEnabled }) => {
-      if (!isJobWorkBackendEnabled()) return;
-      try {
-        const reconciled = await reconcilePendingCreates(loadPlans(), pushCreatePlan);
-        if (live) {
-          const rows = await pullPlans();
-          if (Array.isArray(rows)) {
-            const merged = mergeServerRows(reconciled, rows);
-            setPlans(merged);
-            savePlans(merged);
-          } else {
-            setPlans(reconciled);
-            savePlans(reconciled);
-          }
-        } else {
-          savePlans(reconciled);
-        }
-      } catch { /* offline — keep cache */ }
-    });
+    purgeLegacyJobWorkCache();
+    fetchPlans()
+      .then((rows) => { if (live) setPlans(rows); })
+      .catch((err) => { if (live) setLoadError(errorMessage(err, 'Could not load process plans.')); })
+      .finally(() => { if (live) setLoading(false); });
     return () => {
       live = false;
     };
@@ -679,9 +745,13 @@ export default function ProcessPlanListPage() {
     }
   }, [location.search, isCreateRoute, plans]);
 
-  const processes = useMemo(() => ['All', ...new Set([...PROCESS_OPTIONS, ...plans.map((p) => p.process)].filter(Boolean))], [plans]);
-  const fabrics = useMemo(() => ['All', ...new Set([...FABRIC_ITEM_OPTIONS, ...plans.map((p) => p.fabricItem)].filter(Boolean))], [plans]);
-  const vendors = useMemo(() => ['All', ...new Set([...VENDOR_OPTIONS, ...plans.map((p) => p.vendor)].filter(Boolean))], [plans]);
+  const { processes: masterProcesses } = useJobWorkLookups();
+  const processes = useMemo(() => [
+    'All',
+    ...new Set([...(masterProcesses?.map((p) => p.name) || []), ...PROCESS_OPTIONS, ...plans.map((p) => p.process)].filter(Boolean))
+  ], [masterProcesses, plans]);
+  const fabrics = useMemo(() => ['All', ...new Set(plans.map((p) => p.fabricItem).filter(Boolean))], [plans]);
+  const vendors = useMemo(() => ['All', ...new Set(plans.map((p) => p.vendor).filter(Boolean))], [plans]);
 
   const filteredRows = useMemo(() => {
     return plans.filter((p) => {
@@ -716,37 +786,14 @@ export default function ProcessPlanListPage() {
     }
   };
 
+  // Throws on failure so the form shows the error and stays open.
   const handleSaveForm = async (payload) => {
     if (editingPlan) {
-      const updated = { ...editingPlan, ...payload };
-      const nextList = plans.map((p) => (p.id === editingPlan.id ? updated : p));
-      persist(nextList);
-      try {
-        const { pushUpdatePlan, isJobWorkBackendEnabled } = await import('../../services/jobWorkSync');
-        if (isJobWorkBackendEnabled()) {
-          await pushUpdatePlan(editingPlan.id, updated);
-        }
-      } catch (err) {
-        console.warn('Backend update failed:', err);
-      }
+      const saved = await updatePlan(editingPlan.id, { ...editingPlan, ...payload });
+      setPlans((prev) => prev.map((p) => (p.id === editingPlan.id ? saved : p)));
     } else {
-      const newPlan = {
-        id: `pp-${Date.now()}`,
-        ...payload,
-      };
-      const nextList = [newPlan, ...plans];
-      persist(nextList);
-      try {
-        const { pushCreatePlan, isJobWorkBackendEnabled } = await import('../../services/jobWorkSync');
-        if (isJobWorkBackendEnabled()) {
-          const saved = await pushCreatePlan(newPlan);
-          if (saved) {
-            persist([{ ...newPlan, ...saved }, ...plans]);
-          }
-        }
-      } catch (err) {
-        console.warn('Backend create failed:', err);
-      }
+      const saved = await createPlan(payload);
+      setPlans((prev) => [saved, ...prev]);
     }
 
     setIsFormOpen(false);
@@ -758,35 +805,28 @@ export default function ProcessPlanListPage() {
 
   const handleDuplicate = async (p) => {
     setMenuId(null);
-    const newPlan = {
-      ...p,
-      id: `pp-${Date.now()}`,
-      planNo: nextPlanNumber(plans),
-      status: 'Active',
-      date: todayISO(),
-    };
-    const nextList = [newPlan, ...plans];
-    persist(nextList);
     try {
-      const { pushCreatePlan, isJobWorkBackendEnabled } = await import('../../services/jobWorkSync');
-      if (isJobWorkBackendEnabled()) {
-        const saved = await pushCreatePlan(newPlan);
-        if (saved) persist([{ ...newPlan, ...saved }, ...plans]);
-      }
-    } catch {}
+      const saved = await createPlan({
+        ...p,
+        status: 'Active',
+        date: todayISO(),
+        charges: (p.charges || []).map(({ type, description, rate, qty }) => ({ type, description, rate, qty })),
+      });
+      setPlans((prev) => [saved, ...prev]);
+    } catch (err) {
+      window.alert(errorMessage(err, 'Could not duplicate the process plan.'));
+    }
   };
 
   const handleDelete = async (id) => {
-    if (!window.confirm('Delete this process plan?')) return;
-    const remaining = plans.filter((p) => p.id !== id);
-    persist(remaining);
     setMenuId(null);
+    if (!window.confirm('Delete this process plan?')) return;
     try {
-      const { pushDeletePlan, isJobWorkBackendEnabled } = await import('../../services/jobWorkSync');
-      if (isJobWorkBackendEnabled()) {
-        await pushDeletePlan(id);
-      }
-    } catch {}
+      await deletePlan(id);
+      setPlans((prev) => prev.filter((p) => p.id !== id));
+    } catch (err) {
+      window.alert(errorMessage(err, 'Could not delete the process plan.'));
+    }
   };
 
   // ─────────────────────────────────────────────────────────────
@@ -797,7 +837,7 @@ export default function ProcessPlanListPage() {
       <ProcessPlanForm
         plans={plans}
         isEdit={!!editingPlan}
-        initial={editingPlan || { planNo: nextPlanNumber(plans), date: todayISO() }}
+        initial={editingPlan || { date: todayISO() }}
         onSave={handleSaveForm}
         onClose={handleCancelForm}
       />
@@ -921,10 +961,12 @@ export default function ProcessPlanListPage() {
               </tr>
             </thead>
             <tbody>
-              {filteredRows.length === 0 ? (
+              {loading || loadError || filteredRows.length === 0 ? (
                 <tr>
-                  <td colSpan={13} className="px-4 py-12 text-center text-[12.5px] text-slate-400">
-                    No process plans recorded yet. Click "+ Create Process Plan" above to create one.
+                  <td colSpan={13} className={`px-4 py-12 text-center text-[12.5px] ${loadError ? 'font-semibold text-rose-600' : 'text-slate-400'}`}>
+                    {loading
+                      ? 'Loading process plans…'
+                      : loadError || 'No process plans recorded yet. Click "+ Create Process Plan" above to create one.'}
                   </td>
                 </tr>
               ) : (

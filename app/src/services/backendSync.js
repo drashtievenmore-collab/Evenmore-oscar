@@ -76,6 +76,12 @@ function lineToApi(line, index) {
     isBomPart: line.isBomPart ?? undefined,
     isUserModified: line.isUserModified ?? undefined,
     serials: Array.isArray(line.serials) ? line.serials : undefined,
+    // Proforma lines built from an order keep their order line (the server
+    // uses it to enforce invoice-only-what-was-dispatched).
+    salesOrderLine: isServerId(line.salesOrderLineId) ? line.salesOrderLineId : undefined,
+    // Lot/taka items: [{ lotTakaId, qty }] -- empty means FIFO on dispatch.
+    takaAllocations: Array.isArray(line.takaAllocations) && line.takaAllocations.length
+      ? line.takaAllocations : undefined,
   });
 }
 
@@ -122,6 +128,9 @@ function documentToApi(doc, { partyField = 'partyId', partyKeys = [] } = {}, { p
     stage: doc.stage || undefined,
     quotation: link(doc.quotationId || doc.sourceQuotationId),
     salesOrder: link(doc.salesOrderId || doc.sourceSalesOrderId),
+    // Purchase bill → its purchase order (ignored by documents without one).
+    purchaseOrder: link(doc.purchaseOrderId),
+    vendorBillNumber: doc.vendorBillNumber || undefined,
     crmDeal: link(doc.dealId),
     crmLead: link(doc.leadId),
     salesperson: doc.salesperson || undefined,
@@ -299,7 +308,7 @@ function vendorFromParty(row) {
     email: row.email || '',
     phone: row.phone || '',
     balance: num(row.balance),
-    paymentTerms: row.paymentTerms || 'Net 30',
+    paymentTerms: row.paymentTerms || '',
     status: row.status === 'Inactive' ? 'Inactive' : 'Active',
     gstin: row.gstin,
     _synced: true,
@@ -526,9 +535,19 @@ export const RESOURCES = {
   purchaseOrders: documentResource('/purchase/orders/', {
     partyField: 'vendorId', partyLabel: 'vendor', numberField: 'poNumber',
   }),
-  purchaseBills: documentResource('/purchase/bills/', {
-    partyField: 'vendorId', partyLabel: 'vendor', numberField: 'billNumber',
-  }),
+  purchaseBills: (() => {
+    const base = documentResource('/purchase/bills/', {
+      partyField: 'vendorId', partyLabel: 'vendor', numberField: 'billNumber',
+    });
+    return {
+      ...base,
+      fromApi: (row) => ({
+        ...base.fromApi(row),
+        purchaseOrderId: row.purchaseOrder || row.purchaseOrderId || undefined,
+        billDate: displayIn(row.date),
+      }),
+    };
+  })(),
   vendorBills: {
     path: '/purchase/vendor-bills/',
     toApi: (vb) => compact({
@@ -564,9 +583,41 @@ export const RESOURCES = {
       };
     },
   },
-  purchaseReturns: documentResource('/purchase/returns/', {
-    partyField: 'vendorId', partyLabel: 'vendor', numberField: 'returnNumber',
-  }),
+  // A debit note is always against one purchase bill; each line names the
+  // bill line it returns (the server checks the returnable balance).
+  purchaseReturns: (() => {
+    const base = documentResource('/purchase/returns/', {
+      partyField: 'vendorId', partyLabel: 'vendor', numberField: 'returnNumber',
+    });
+    return {
+      ...base,
+      toApi: (ret, opts = {}) => {
+        if (opts.partial) return base.toApi(ret, opts);
+        return compact({
+          vendorId: ret.vendorId || undefined,
+          purchaseBillId: ret.billId || ret.purchaseBillId || undefined,
+          date: isoOut(ret.date),
+          reason: ret.reason || undefined,
+          notes: ret.notes || undefined,
+          lineItems: (ret.items || ret.lineItems || []).map((line, i) => ({
+            ...lineToApi(line, i),
+            purchaseBillLineId: line.purchaseBillLineId || undefined,
+            returnedQty: num(line.returnedQty ?? line.qty),
+          })),
+        });
+      },
+      fromApi: (row) => {
+        const doc = base.fromApi(row);
+        return {
+          ...doc,
+          debitNoteNumber: row.debitNoteNumber || row.returnNumber,
+          billId: row.purchaseBillId || undefined,
+          reason: row.reason || '',
+          items: doc.items.map((l) => ({ ...l, qty: num(l.returnedQty ?? l.qty) })),
+        };
+      },
+    };
+  })(),
 
   paymentIns: {
     path: '/sales/payments/',
@@ -592,37 +643,53 @@ export const RESOURCES = {
     path: '/purchase/payments/',
     toApi: (p) => compact({
       vendorId: p.vendorId || p.partyId,
-      date: isoOut(p.date) || isoOut('Today'),
+      date: isoOut(p.date),
       amount: num(p.amount),
-      mode: p.mode || 'Bank Wire',
+      mode: p.mode || undefined,
       bankAccountId: p.bankAccountId || undefined,
       referenceNumber: p.reference || p.referenceNumber || undefined,
       notes: p.notes || undefined,
       billId: p.billId || p.linkedBillId || undefined,
     }),
+    // What is not allocated to a bill is an advance (vendor_advance_balance
+    // on the server works the same way).
     fromApi: (row) => ({
       ...row,
+      voucherNumber: row.paymentNumber,
       date: displayIn(row.date),
       vendor: row.vendorName,
       reference: row.referenceNumber,
+      amount: num(row.amount),
+      allocatedAmount: num(row.allocatedAmount),
+      unallocatedAmount: num(row.unallocatedAmount),
+      paymentType: num(row.allocatedAmount) > 0 ? 'Final' : 'Advance',
       _synced: true,
     }),
   },
   expenses: {
     path: '/purchase/expenses/',
     toApi: (e) => compact({
-      date: isoOut(e.date) || isoOut('Today'),
+      date: isoOut(e.date),
       categoryId: e.categoryId || undefined,
-      category: e.category || undefined,
       vendorId: e.vendorId || undefined,
-      amount: num(e.amount),
+      amount: e.amount !== undefined ? num(e.amount) : undefined,
       taxAmount: e.taxAmount !== undefined ? num(e.taxAmount) : undefined,
       paymentMode: e.paymentMode || e.mode || undefined,
       bankAccountId: e.bankAccountId || undefined,
-      description: e.description || e.notes || undefined,
+      notes: e.notes || e.description || undefined,
       referenceNumber: e.reference || e.referenceNumber || undefined,
     }),
-    fromApi: (row) => ({ ...row, date: displayIn(row.date), _synced: true }),
+    fromApi: (row) => ({
+      ...row,
+      date: displayIn(row.date),
+      category: row.categoryName || '',
+      payee: row.vendorName || row.notes || '',
+      paidVia: row.paymentMode || '',
+      amount: num(row.amount),
+      taxAmount: num(row.taxAmount),
+      total: num(row.total),
+      _synced: true,
+    }),
   },
 
   // ── the rest of the ERP state, which the registry used not to cover ───────
@@ -637,10 +704,22 @@ export const RESOURCES = {
       notes: t.notes || undefined,
       status: t.status || undefined,
       shipped_by: t.shipped_by || t.shippedBy || undefined,
+      // Each line may carry the selected takas: [{ lotTakaId, qty }].
       items: !partial || t.items !== undefined || t.lineItems !== undefined
-        ? (t.items || t.lineItems || []).map(lineToApi) : undefined,
+        ? (t.items || t.lineItems || []).map((line, i) => ({
+          ...lineToApi(line, i),
+          takas: Array.isArray(line.takas)
+            ? line.takas.map((tk) => ({ lotTakaId: tk.lotTakaId, qty: num(tk.qty) }))
+            : undefined,
+        })) : undefined,
     }),
-    fromApi: (row) => ({ ...row, date: displayIn(row.date), _synced: true }),
+    fromApi: (row) => ({
+      ...row,
+      transferNumber: row.transfer_number,
+      shippedBy: row.shipped_by,
+      date: displayIn(row.date),
+      _synced: true,
+    }),
   },
 
   serviceUsages: {

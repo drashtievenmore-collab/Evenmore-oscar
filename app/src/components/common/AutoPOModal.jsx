@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { X, ShoppingBag, CheckCircle2, ShieldAlert } from 'lucide-react';
 import { useERP } from '../../context/ERPContext';
-import { getCurrentDateFormatted } from '../../utils/dateUtils';
+import { getCurrentISODate } from '../../utils/dateUtils';
 export const AutoPOModal = ({
   isOpen,
   onClose,
@@ -12,16 +12,17 @@ export const AutoPOModal = ({
   sourceRef,
   sourceDocNumber,
 }) => {
-  const { vendors = [], items: masterItems = [], addPurchaseOrder, showToast } = useERP() || {};
+  const { vendors = [], items: masterItems = [], addPurchaseOrder } = useERP() || {};
   const activeItem = shortageItem || item;
-  const initialQty = requiredDeficitQty || defaultDeficitQty || 5;
-  const activeSource = sourceRef || sourceDocNumber || 'Sales Order Shortage';
-  const [selectedVendorId, setSelectedVendorId] = useState(vendors[0]?.id || '');
+  const initialQty = Number(requiredDeficitQty || defaultDeficitQty) || 0;
+  const activeSource = sourceRef || sourceDocNumber || '';
+  const [selectedVendorId, setSelectedVendorId] = useState('');
   const [selectedItemId, setSelectedItemId] = useState('');
   const [orderQty, setOrderQty] = useState(initialQty);
-  const [unitCost, setUnitCost] = useState(100);
-  const [expectedDate, setExpectedDate] = useState('In 7 business days');
+  const [unitCost, setUnitCost] = useState('');
+  const [expectedDate, setExpectedDate] = useState('');
   const [notes, setNotes] = useState('');
+  const [saving, setSaving] = useState(false);
 
   useEffect(() => {
     if (activeItem) {
@@ -34,13 +35,10 @@ export const AutoPOModal = ({
       );
       if (matched) {
         setSelectedItemId(matched.id);
-        setUnitCost(matched.costPrice || matched.unitCost || 100);
+        setUnitCost(matched.costPrice ?? matched.unitCost ?? '');
       }
-      setOrderQty(Math.max(1, initialQty));
-      setNotes(`Auto-requisition for ${activeSource} deficit replenishment`);
-    } else if (masterItems.length > 0 && !selectedItemId) {
-      setSelectedItemId(masterItems[0].id);
-      setUnitCost(masterItems[0].costPrice || masterItems[0].unitCost || 100);
+      setOrderQty(initialQty);
+      setNotes(activeSource ? `Replenishment for ${activeSource}` : '');
     }
   }, [activeItem, initialQty, activeSource, masterItems, selectedItemId]);
 
@@ -54,39 +52,40 @@ export const AutoPOModal = ({
 
   if (!isOpen) return null;
 
-  const targetMasterItem = masterItems.find((m) => m.id === selectedItemId) || masterItems[0];
-  const selectedVendor = vendors.find((v) => v.id === selectedVendorId) || vendors[0];
-  const totalPOAmount = orderQty * unitCost;
+  const targetMasterItem = masterItems.find((m) => m.id === selectedItemId);
+  const selectedVendor = vendors.find((v) => v.id === selectedVendorId);
+  const totalPOAmount = (Number(orderQty) || 0) * (Number(unitCost) || 0);
 
-  const handleCreatePO = (e) => {
+  const handleCreatePO = async (e) => {
     e.preventDefault();
-    if (!targetMasterItem || orderQty <= 0) return;
+    if (!targetMasterItem || !selectedVendor || !(Number(orderQty) > 0)) return;
     const lineItem = {
       id: `li-po-${Date.now()}`,
       itemId: targetMasterItem.id,
       itemSku: targetMasterItem.sku,
       description: targetMasterItem.name,
-      qty: orderQty,
-      rate: unitCost,
+      qty: Number(orderQty),
+      rate: Number(unitCost) || 0,
       discount: 0,
       tax: 0,
       amount: totalPOAmount,
     };
-    const newPO = addPurchaseOrder?.({
-      vendorId: selectedVendor?.id,
-      vendor: selectedVendor?.name || 'Arrow Electronics Supply',
-      date: getCurrentDateFormatted(),
-      expectedDate: expectedDate || 'In 7 business days',
-      amount: totalPOAmount,
-      total: totalPOAmount,
-      status: 'Issued',
-      items: [lineItem],
-      notes: notes || `Requisition for ${activeSource}`,
-    });
-    if (newPO && showToast) {
-      showToast(`Replenishment Purchase Order ${newPO.poNumber} issued to ${newPO.vendor}!`);
+    setSaving(true);
+    try {
+      await addPurchaseOrder({
+        vendorId: selectedVendor.id,
+        date: getCurrentISODate(),
+        expectedDate: expectedDate || undefined,
+        status: 'Issued',
+        items: [lineItem],
+        notes,
+      });
+      onClose();
+    } catch {
+      // The reason was shown; keep the requisition open.
+    } finally {
+      setSaving(false);
     }
-    onClose();
   };
 
   return (
@@ -137,11 +136,12 @@ export const AutoPOModal = ({
               onChange={(e) => {
                 setSelectedItemId(e.target.value);
                 const m = masterItems.find((it) => it.id === e.target.value);
-                if (m) setUnitCost(m.costPrice || m.unitCost || 100);
+                if (m) setUnitCost(m.costPrice ?? m.unitCost ?? '');
               }}
               className="w-full p-2 border border-slate-300 rounded-lg bg-white text-slate-800 font-medium"
               required
             >
+              <option value="">Select item</option>
               {(masterItems || []).map((m) => (
                 <option key={m.id} value={m.id}>
                   [{m.sku}] {m.name} (Stock: {m.availableQty ?? m.stock ?? 0} Avail)
@@ -161,9 +161,10 @@ export const AutoPOModal = ({
                 className="w-full p-2 border border-slate-300 rounded-lg bg-white text-slate-800 font-medium"
                 required
               >
+                <option value="">Select vendor</option>
                 {(vendors || []).map((v) => (
                   <option key={v.id} value={v.id}>
-                    {v.name} ({v.paymentTerms})
+                    {v.name}{v.paymentTerms ? ` (${v.paymentTerms})` : ''}
                   </option>
                 ))}
               </select>
@@ -171,7 +172,7 @@ export const AutoPOModal = ({
             <div>
               <label className="block font-semibold text-slate-700 mb-1">Expected Intake Date</label>
               <input
-                type="text"
+                type="date"
                 value={expectedDate}
                 onChange={(e) => setExpectedDate(e.target.value)}
                 className="w-full p-2 border border-slate-300 rounded-lg bg-white text-slate-800"
@@ -187,7 +188,7 @@ export const AutoPOModal = ({
                 min="1"
                 required
                 value={orderQty}
-                onChange={(e) => setOrderQty(Math.max(1, Number(e.target.value)))}
+                onChange={(e) => setOrderQty(e.target.value)}
                 className="w-full p-2 border border-slate-300 rounded-lg bg-white font-mono font-bold text-sm text-slate-900"
               />
             </div>
@@ -199,7 +200,7 @@ export const AutoPOModal = ({
                 min="0"
                 required
                 value={unitCost}
-                onChange={(e) => setUnitCost(Math.max(0, Number(e.target.value)))}
+                onChange={(e) => setUnitCost(e.target.value)}
                 className="w-full p-2 border border-slate-300 rounded-lg bg-white font-mono text-slate-900"
               />
             </div>
@@ -220,7 +221,7 @@ export const AutoPOModal = ({
             <div className="font-mono text-xs text-slate-600">
               Total PO:{' '}
               <strong className="text-slate-900 font-bold">
-                ${totalPOAmount.toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                ₹{totalPOAmount.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
               </strong>
             </div>
             <div className="flex items-center gap-2">
@@ -233,6 +234,7 @@ export const AutoPOModal = ({
               </button>
               <button
                 type="submit"
+                disabled={saving}
                 className="px-4 py-1.5 bg-[#1F2E4A] hover:bg-[#152033] text-white rounded-lg font-bold shadow-sm flex items-center gap-1.5 cursor-pointer"
               >
                 <CheckCircle2 className="w-3.5 h-3.5" /> Issue Purchase Order

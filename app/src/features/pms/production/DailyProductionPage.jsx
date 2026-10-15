@@ -1,11 +1,14 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import { ArrowLeft, Plus, Pencil, Trash2, X } from 'lucide-react';
+import { ArrowLeft, Plus, Pencil, Trash2, X, AlertTriangle, Lock } from 'lucide-react';
 import { Button } from '../../../components/ui/Button';
 import PageHeader from '../../../components/ui/PageHeader';
 import { api } from '../../../services/api';
+import { statusPill, isLockedStatus, errorText, fmtNum, listOf } from './productionStatus';
 
-const fmt = (n) => Number(n || 0).toLocaleString('en-IN');
+const fmt = fmtNum;
+const LIST_QUERY = { page_size: 200 };
+const numOrNull = (v) => (v === null || v === undefined || v === '' ? null : Number(v));
 
 const toDDMMYYYY = (iso) => {
   if (!iso) return '-';
@@ -19,16 +22,17 @@ function normalizeInstruction(item) {
   return {
     ...item,
     id: String(item.id),
-    piNumber: item.instructionNumber || item.instruction_number || item.piNumber || `PI-${item.id}`,
-    date: item.piDate || item.pi_date || item.date || '',
-    vendor: item.agencyName || item.agency_name || item.vendor || '',
+    piNumber: item.instructionNumber || '',
+    date: item.piDate || '',
+    vendor: item.agencyName || '',
     fabric: item.fabric || '',
-    processType: item.processType || item.process_type || '',
-    assignedQty: Number(item.orderMeter ?? item.order_meter ?? item.assignedQty ?? 0),
-    startDate: item.startDate || item.piDate || item.pi_date || '',
-    expectedDate: item.expectedCompletionDate || item.expected_completion_date || '',
-    employeeId: item.employeeId || item.employee_id || item.employee || '',
-    status: item.status || 'Draft',
+    processType: item.processType || '',
+    assignedQty: numOrNull(item.orderMeter),
+    totalProduced: numOrNull(item.totalProduced ?? item.cumulative),
+    balance: numOrNull(item.balance),
+    startDate: item.expectedStartDate || '',
+    employeeId: item.employeeId ? String(item.employeeId) : '',
+    status: item.status || '',
   };
 }
 
@@ -36,11 +40,11 @@ function normalizeEntry(e) {
   if (!e) return null;
   return {
     id: String(e.id),
-    date: e.entryDate || e.entry_date || e.date || '',
-    produced: Number(e.meters ?? e.produced ?? 0),
-    by: e.employeeName || e.employee_name || e.by || '—',
+    date: e.entryDate || '',
+    produced: Number(e.meters),
+    by: e.employeeName || '—',
     remarks: e.remarks || '',
-    employeeId: e.enteredByEmployeeId || e.entered_by_employee_id || e.employeeId || '',
+    employeeId: e.enteredByEmployeeId ? String(e.enteredByEmployeeId) : '',
   };
 }
 
@@ -55,6 +59,12 @@ export default function DailyProductionPage() {
   const [loading, setLoading] = useState(true);
   const [entriesLoading, setEntriesLoading] = useState(false);
   const [error, setError] = useState(null);
+  const [employeesError, setEmployeesError] = useState(null);
+  const [entriesError, setEntriesError] = useState(null);
+  const [actionError, setActionError] = useState(null);
+  const [formError, setFormError] = useState(null);
+  const [saving, setSaving] = useState(false);
+  const [reloadKey, setReloadKey] = useState(0);
 
   const [showModal, setShowModal] = useState(false);
   const [editing, setEditing] = useState(null);
@@ -67,30 +77,35 @@ export default function DailyProductionPage() {
   useEffect(() => {
     let live = true;
     setLoading(true);
-    Promise.all([
-      api.get('/production/instructions/').catch(() => ({ results: [] })),
-      api.get('/hrms/employees/').catch(() => ({ results: [] })),
+    setError(null);
+    Promise.allSettled([
+      api.get('/production/instructions/', { query: LIST_QUERY }),
+      api.get('/hrms/employees/', { query: LIST_QUERY }),
     ])
       .then(([piRes, empRes]) => {
         if (!live) return;
-        const piList = (Array.isArray(piRes) ? piRes : piRes?.results || []).map(normalizeInstruction).filter(Boolean);
-        setInstructions(piList);
-        const empList = Array.isArray(empRes) ? empRes : empRes?.results || [];
-        setEmployees(empList);
-
-        if (!selectedPiId && piList.length > 0) {
-          setSelectedPiId(piList[0].id);
+        if (piRes.status === 'fulfilled') {
+          const piList = listOf(piRes.value).map(normalizeInstruction).filter(Boolean);
+          setInstructions(piList);
+          setSelectedPiId((cur) => cur || (piList[0]?.id ?? ''));
+        } else {
+          setInstructions([]);
+          setError(errorText(piRes.reason, 'Failed to load production instructions'));
         }
-      })
-      .catch((err) => {
-        if (live) setError(err.message || 'Failed to load instructions');
+        if (empRes.status === 'fulfilled') {
+          setEmployees(listOf(empRes.value));
+          setEmployeesError(null);
+        } else {
+          setEmployees([]);
+          setEmployeesError(errorText(empRes.reason, 'Failed to load employees'));
+        }
       })
       .finally(() => {
         if (live) setLoading(false);
       });
 
     return () => { live = false; };
-  }, []);
+  }, [reloadKey]);
 
   const pi = useMemo(
     () => instructions.find((p) => String(p.id) === String(selectedPiId)) || instructions[0] || null,
@@ -102,8 +117,23 @@ export default function DailyProductionPage() {
   const fabric = pi?.fabric || '—';
   const assignedQty = Number(pi?.assignedQty) || 0;
   const startDate = pi?.startDate || '';
-  const expectedDate = pi?.expectedDate || '';
+  const piDate = pi?.date || '';
   const status = pi?.status || '';
+  // Server blocks daily entries on Draft and on Verified / PO Pending / PO Created / Closed.
+  const isLocked = isLockedStatus(status);
+  const isDraft = status === 'Draft';
+  const canRecord = Boolean(pi) && !isLocked && !isDraft;
+
+  // Re-read the instruction after an entry change: the server moves its status
+  // (Approved → Running → Partially Completed / Completed) and totals.
+  const refreshInstruction = async (id) => {
+    try {
+      const fresh = normalizeInstruction(await api.get(`/production/instructions/${id}/`));
+      setInstructions((prev) => prev.map((p) => (p.id === fresh.id ? fresh : p)));
+    } catch (err) {
+      setActionError(`Entry saved, but the instruction could not be refreshed: ${errorText(err)}`);
+    }
+  };
 
   // Load daily entries when selected PI changes
   useEffect(() => {
@@ -113,14 +143,16 @@ export default function DailyProductionPage() {
     }
     let live = true;
     setEntriesLoading(true);
-    api.get('/production/daily-entries/', { query: { instructionId: pi.id } })
+    setEntriesError(null);
+    api.get('/production/daily-entries/', { query: { instructionId: pi.id, ...LIST_QUERY } })
       .then((res) => {
         if (!live) return;
-        const list = (Array.isArray(res) ? res : res?.results || []).map(normalizeEntry).filter(Boolean);
-        setEntries(list);
+        setEntries(listOf(res).map(normalizeEntry).filter(Boolean));
       })
-      .catch(() => {
-        if (live) setEntries([]);
+      .catch((err) => {
+        if (!live) return;
+        setEntries([]);
+        setEntriesError(errorText(err, 'Failed to load daily entries'));
       })
       .finally(() => {
         if (live) setEntriesLoading(false);
@@ -134,19 +166,22 @@ export default function DailyProductionPage() {
     let cumulative = 0;
     return sorted.map((e) => {
       cumulative += Number(e.produced) || 0;
-      return { ...e, cumulative, balance: Math.max(0, assignedQty - cumulative) };
+      return { ...e, cumulative, balance: assignedQty - cumulative };
     });
   }, [entries, assignedQty]);
 
-  const totalProduced = rows.length ? rows[rows.length - 1].cumulative : 0;
-  const balanceQty = Math.max(0, assignedQty - totalProduced);
+  // Totals come from the server (instruction.totalProduced / balance).
+  const totalProduced = pi?.totalProduced ?? null;
+  const balanceQty = pi?.balance ?? null;
 
   const openAdd = () => {
+    if (!canRecord) return;
     setEditing(null);
     setFormDate(new Date().toISOString().slice(0, 10));
     setFormQty('');
     setFormRemarks('');
-    setFormEmployeeId(pi?.employeeId || (employees[0]?.id ? String(employees[0].id) : ''));
+    setFormEmployeeId(pi?.employeeId || '');
+    setFormError(null);
     setShowModal(true);
   };
 
@@ -156,17 +191,21 @@ export default function DailyProductionPage() {
     setFormQty(String(row.produced));
     setFormRemarks(row.remarks || '');
     setFormEmployeeId(row.employeeId || pi?.employeeId || '');
+    setFormError(null);
     setShowModal(true);
   };
 
   const handleSave = async (e) => {
     e.preventDefault();
-    if (!formDate) { alert('Date is required.'); return; }
-    if (!(Number(formQty) > 0)) { alert('Produced quantity must be greater than 0.'); return; }
-    if (!pi?.id) { alert('Select a Production Instruction first.'); return; }
+    setFormError(null);
+    if (!formDate) { setFormError('Date is required.'); return; }
+    if (!(Number(formQty) > 0)) { setFormError('Produced quantity must be greater than 0.'); return; }
+    if (!pi?.id) { setFormError('Select a Production Instruction first.'); return; }
 
-    const empId = formEmployeeId || pi.employeeId || employees[0]?.id;
+    const empId = formEmployeeId;
+    if (!editing && !empId) { setFormError('Select the employee who produced this entry.'); return; }
 
+    setSaving(true);
     try {
       if (editing) {
         const payload = {
@@ -174,6 +213,7 @@ export default function DailyProductionPage() {
           meters: Number(formQty),
           remarks: formRemarks,
         };
+        if (empId) payload.enteredByEmployeeId = empId;
         const updated = await api.patch(`/production/daily-entries/${editing.id}/`, payload);
         const norm = normalizeEntry(updated);
         setEntries((prev) => prev.map((item) => (item.id === norm.id ? norm : item)));
@@ -190,30 +230,37 @@ export default function DailyProductionPage() {
         setEntries((prev) => [...prev, norm]);
       }
       setShowModal(false);
+      await refreshInstruction(pi.id);
     } catch (err) {
-      alert(err.message || 'Failed to save daily entry');
+      setFormError(errorText(err, 'Failed to save daily entry'));
+    } finally {
+      setSaving(false);
     }
   };
 
   const handleDelete = async (id) => {
     if (!window.confirm('Delete this entry?')) return;
+    setActionError(null);
     try {
       await api.delete(`/production/daily-entries/${id}/`);
       setEntries((prev) => prev.filter((item) => item.id !== id));
+      if (pi?.id) await refreshInstruction(pi.id);
     } catch (err) {
-      alert(err.message || 'Failed to delete entry');
+      setActionError(errorText(err, 'Failed to delete entry'));
     }
   };
 
+  const withUnit = (n) => (n === null || n === undefined ? '—' : `${fmt(n)} m`);
+
   const infoCards = [
-    { label: 'PI No.', value: piNumber, extra: status ? <span className="inline-flex items-center rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-[10px] font-bold text-emerald-600">{status}</span> : null },
+    { label: 'PI No.', value: piNumber, extra: status ? <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-bold ${statusPill(status)}`}>{status}</span> : null },
     { label: 'Vendor', value: vendor },
     { label: 'Fabric', value: fabric },
-    { label: 'Assigned Quantity', value: `${fmt(assignedQty)} m` },
-    { label: 'Total Produced', value: `${fmt(totalProduced)} m`, highlight: 'bg-[#eef4ff] border-[#cfe0ff]', valueClass: 'text-[#2563eb]' },
-    { label: 'Balance Quantity', value: `${fmt(balanceQty)} m`, highlight: 'bg-[#fff8e6] border-[#fde9b8]', valueClass: 'text-[#17294e]' },
-    { label: 'Start Date', value: startDate || '—' },
-    { label: 'Expected Completion', value: expectedDate || '—' },
+    { label: 'Assigned Quantity', value: withUnit(pi?.assignedQty) },
+    { label: 'Total Produced', value: withUnit(totalProduced), highlight: 'bg-[#eef4ff] border-[#cfe0ff]', valueClass: 'text-[#2563eb]' },
+    { label: 'Balance Quantity', value: withUnit(balanceQty), highlight: 'bg-[#fff8e6] border-[#fde9b8]', valueClass: Number(balanceQty) < 0 ? 'text-rose-600' : 'text-[#17294e]' },
+    { label: 'PI Date', value: toDDMMYYYY(piDate) },
+    { label: 'Expected Start', value: toDDMMYYYY(startDate) },
   ];
 
   return (
@@ -231,16 +278,17 @@ export default function DailyProductionPage() {
           <div className="flex items-center gap-2">
             {instructions.length > 1 && (
               <select
-                value={selectedPiId}
+                value={pi?.id || ''}
                 onChange={(e) => {
                   setSelectedPiId(e.target.value);
                   setSearchParams({ pi: e.target.value });
+                  setActionError(null);
                 }}
                 className="rounded-lg border border-[#e2eaf5] bg-white px-3 py-2 text-[12px] font-semibold text-slate-700 outline-none"
               >
                 {instructions.map((p) => (
                   <option key={p.id} value={p.id}>
-                    {p.piNumber} - {p.vendor}
+                    {p.piNumber} - {p.vendor} ({p.status})
                   </option>
                 ))}
               </select>
@@ -255,6 +303,44 @@ export default function DailyProductionPage() {
         }
       />
 
+      {error && (
+        <div className="flex items-start gap-2 rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-[12px] font-semibold text-rose-700">
+          <AlertTriangle size={15} className="mt-0.5 shrink-0" />
+          <span className="flex-1">{error}</span>
+          <button type="button" onClick={() => setReloadKey((k) => k + 1)} className="rounded-md border border-rose-300 bg-white px-2 py-0.5 text-[11px] font-bold text-rose-700 hover:bg-rose-100">Retry</button>
+        </div>
+      )}
+      {actionError && (
+        <div className="flex items-start gap-2 rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-[12px] font-semibold text-rose-700">
+          <AlertTriangle size={15} className="mt-0.5 shrink-0" />
+          <span className="flex-1">{actionError}</span>
+          <button type="button" onClick={() => setActionError(null)} className="text-rose-400 hover:text-rose-700" title="Dismiss"><X size={14} /></button>
+        </div>
+      )}
+      {loading && (
+        <div className="rounded-xl border border-[#e2eaf5] bg-white px-4 py-8 text-center text-[12px] text-slate-500">Loading production instructions...</div>
+      )}
+      {!loading && !error && instructions.length === 0 && (
+        <div className="rounded-xl border border-[#e2eaf5] bg-white px-4 py-10 text-center">
+          <p className="text-[13px] font-extrabold text-[#17294e]">No production instructions yet</p>
+          <p className="mt-1 text-[11.5px] text-slate-400">Create and approve a production instruction before recording daily production.</p>
+        </div>
+      )}
+      {pi && isDraft && (
+        <div className="flex items-start gap-2 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-[12px] font-semibold text-amber-800">
+          <AlertTriangle size={15} className="mt-0.5 shrink-0" />
+          <span>Approve this instruction before recording production. Approve it from the Production Instructions list.</span>
+        </div>
+      )}
+      {pi && isLocked && (
+        <div className="flex items-start gap-2 rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-[12px] font-semibold text-slate-600">
+          <Lock size={14} className="mt-0.5 shrink-0" />
+          <span>This instruction is {status}. Daily production is locked and can no longer be added, edited or deleted.</span>
+        </div>
+      )}
+
+      {pi && (
+      <>
       {/* Info cards */}
       <div className="rounded-xl border border-[#e2eaf5] bg-white p-5 shadow-[0_1px_2px_rgba(16,42,82,0.05)]">
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-4 xl:grid-cols-8">
@@ -274,9 +360,11 @@ export default function DailyProductionPage() {
       <div className="rounded-xl border border-[#e2eaf5] bg-white shadow-[0_1px_2px_rgba(16,42,82,0.05)]">
         <div className="flex items-center justify-between p-4">
           <h2 className="text-[14px] font-extrabold text-[#17294e]">Daily Production Entries</h2>
-          <Button icon={Plus} onClick={openAdd} className="!rounded-lg !bg-[#2563eb] hover:!bg-[#1d4ed8]">
-            Add Daily Entry
-          </Button>
+          {canRecord && (
+            <Button icon={Plus} onClick={openAdd} className="!rounded-lg !bg-[#2563eb] hover:!bg-[#1d4ed8]">
+              Add Daily Entry
+            </Button>
+          )}
         </div>
         <div className="overflow-x-auto">
           <table className="w-full text-left text-[12px]">
@@ -299,14 +387,18 @@ export default function DailyProductionPage() {
                   <td className="px-4 py-3">{toDDMMYYYY(row.date)}</td>
                   <td className="px-4 py-3">{fmt(row.produced)}</td>
                   <td className="px-4 py-3">{fmt(row.cumulative)}</td>
-                  <td className="px-4 py-3">{fmt(row.balance)}</td>
+                  <td className={`px-4 py-3 ${row.balance < 0 ? 'text-rose-600' : ''}`}>{fmt(row.balance)}</td>
                   <td className="px-4 py-3">{row.by}</td>
                   <td className="px-4 py-3">{row.remarks || '-'}</td>
                   <td className="px-4 py-3">
-                    <div className="flex items-center gap-3">
-                      <button onClick={() => openEdit(row)} className="text-slate-400 hover:text-[#2563eb]" title="Edit"><Pencil size={14} /></button>
-                      <button onClick={() => handleDelete(row.id)} className="text-rose-400 hover:text-rose-600" title="Delete"><Trash2 size={14} /></button>
-                    </div>
+                    {!canRecord ? (
+                      <span className="text-slate-400">Locked</span>
+                    ) : (
+                      <div className="flex items-center gap-3">
+                        <button onClick={() => openEdit(row)} className="text-slate-400 hover:text-[#2563eb]" title="Edit"><Pencil size={14} /></button>
+                        <button onClick={() => handleDelete(row.id)} className="text-rose-400 hover:text-rose-600" title="Delete"><Trash2 size={14} /></button>
+                      </div>
+                    )}
                   </td>
                 </tr>
               ))}
@@ -317,13 +409,18 @@ export default function DailyProductionPage() {
                   </td>
                 </tr>
               )}
-              {!entriesLoading && rows.length === 0 && (
-                <tr><td colSpan={8} className="px-4 py-8 text-center text-slate-400">No entries yet. Click "Add Daily Entry" to record production.</td></tr>
+              {!entriesLoading && entriesError && (
+                <tr><td colSpan={8} className="px-4 py-8 text-center font-semibold text-rose-600">{entriesError}</td></tr>
+              )}
+              {!entriesLoading && !entriesError && rows.length === 0 && (
+                <tr><td colSpan={8} className="px-4 py-8 text-center text-slate-400">{canRecord ? 'No entries yet. Click "Add Daily Entry" to record production.' : 'No entries recorded.'}</td></tr>
               )}
             </tbody>
           </table>
         </div>
       </div>
+      </>
+      )}
 
       {/* Add / Edit modal */}
       {showModal && (
@@ -363,12 +460,16 @@ export default function DailyProductionPage() {
                   className="mt-1.5 w-full rounded-lg border border-[#e2eaf5] px-3 py-2.5 text-[13px] outline-none focus:border-[#2563eb]"
                 >
                   <option value="">Select employee...</option>
+                  {formEmployeeId && !employees.some((em) => String(em.id) === formEmployeeId) && (
+                    <option value={formEmployeeId}>{editing?.by || pi?.employeeName || 'Assigned employee'}</option>
+                  )}
                   {employees.map((em) => (
-                    <option key={em.id} value={em.id}>
-                      {em.name} ({em.employeeCode || em.employee_code || 'EMP'})
+                    <option key={em.id} value={String(em.id)}>
+                      {em.name}{em.employeeCode ? ` (${em.employeeCode})` : ''}
                     </option>
                   ))}
                 </select>
+                {employeesError && <p className="mt-1 text-[10.5px] font-semibold text-rose-600">{employeesError}</p>}
               </label>
               <label className="block">
                 <span className="text-[12px] font-bold text-slate-600">Remarks (Optional)</span>
@@ -382,9 +483,14 @@ export default function DailyProductionPage() {
               </label>
             </div>
 
+            {formError && (
+              <div className="mt-4 flex items-start gap-2 rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-[12px] font-semibold text-rose-700">
+                <AlertTriangle size={14} className="mt-0.5 shrink-0" /> <span>{formError}</span>
+              </div>
+            )}
             <div className="mt-6 flex justify-end gap-3">
               <button type="button" onClick={() => setShowModal(false)} className="rounded-lg border border-[#e2eaf5] px-5 py-2.5 text-[13px] font-bold text-slate-600 hover:bg-slate-50">Cancel</button>
-              <button type="submit" className="rounded-lg bg-[#2563eb] px-6 py-2.5 text-[13px] font-bold text-white hover:bg-[#1d4ed8]">{editing ? 'Update' : 'Save Entry'}</button>
+              <button type="submit" disabled={saving} className="rounded-lg bg-[#2563eb] px-6 py-2.5 text-[13px] font-bold text-white hover:bg-[#1d4ed8] disabled:opacity-50">{saving ? 'Saving…' : editing ? 'Update' : 'Save Entry'}</button>
             </div>
           </form>
         </div>

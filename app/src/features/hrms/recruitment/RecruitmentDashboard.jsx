@@ -56,7 +56,7 @@ export default function RecruitmentDashboard() {
     {
       label: "Open Positions",
       value: String(openPositionsCount),
-      sub: "+8.2% this month",
+      sub: `${jobs.length} total jobs`,
       to: "/hrms/recruitment/jobs",
       icon: Briefcase,
       color: "blue",
@@ -67,7 +67,7 @@ export default function RecruitmentDashboard() {
     {
       label: "Total Candidates",
       value: String(candidates.length),
-      sub: "+12.5% vs last week",
+      sub: `${candidates.filter((c) => c.stage !== "Hired" && c.stage !== "Rejected").length} in pipeline`,
       to: "/hrms/recruitment/candidates",
       icon: Users,
       color: "teal",

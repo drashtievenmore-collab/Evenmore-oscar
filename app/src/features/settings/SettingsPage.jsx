@@ -20,7 +20,6 @@ function GeneralSettings() {
     const {
         resetDemoData,
         exportDatabaseSnapshot,
-        importDatabaseSnapshot,
         currency: globalCurrency,
         setCurrency: setGlobalCurrency,
         companyProfile,
@@ -28,7 +27,7 @@ function GeneralSettings() {
         showToast,
     } = useERP();
     const [saved, setSaved] = useState(false);
-    const [companyName, setCompanyName] = useState(companyProfile?.name || 'Sweven Fabricators Pvt Ltd');
+    const [companyName, setCompanyName] = useState(companyProfile?.name || '');
     const [gstin, setGstin] = useState(companyProfile?.gstin || '');
     const [pan, setPan] = useState(companyProfile?.pan || '');
     const [address, setAddress] = useState(companyProfile?.address || '');
@@ -163,47 +162,14 @@ function GeneralSettings() {
             </button>
           </div>
 
-          {/* Import / Restore */}
-          <div className="p-4 bg-slate-50 border border-slate-200 rounded-xl space-y-2.5">
-            <div>
-              <p className="font-bold text-slate-900">Restore Database from Backup</p>
-              <p className="text-slate-500 text-[11px] mt-0.5">
-                Upload a previously saved `.json` database snapshot to restore your full ERP state.
-              </p>
-            </div>
-            <label className="inline-flex items-center gap-1.5 px-3.5 py-2 bg-white border border-slate-300 hover:bg-slate-100 text-slate-700 font-semibold rounded-lg cursor-pointer shadow-xs transition-colors">
-              <RotateCcw size={14} /> Upload & Restore Snapshot
-              <input
-                type="file"
-                accept=".json"
-                className="hidden"
-                onChange={(e) => {
-                  const file = e.target.files?.[0];
-                  if (file) {
-                    const reader = new FileReader();
-                    reader.onload = (event) => {
-                      try {
-                        const parsed = JSON.parse(event.target?.result);
-                        importDatabaseSnapshot(parsed);
-                      } catch (err) {
-                        showToast('Failed to parse uploaded JSON file.');
-                      }
-                    };
-                    reader.readAsText(file);
-                    e.target.value = '';
-                  }
-                }}
-              />
-            </label>
-          </div>
         </div>
 
         {/* Factory Reset */}
         <div className="pt-3 border-t border-slate-100 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 text-xs">
           <div>
-            <p className="font-semibold text-rose-800">Factory Reset & Re-Seed</p>
+            <p className="font-semibold text-slate-800">Reload From Server</p>
             <p className="text-slate-500 text-[11px]">
-              Erase local modifications and restore clean factory demo records.
+              Discard what this screen is holding and re-read every collection from the server.
             </p>
           </div>
           {!showConfirmReset ? (
@@ -212,7 +178,7 @@ function GeneralSettings() {
               onClick={() => setShowConfirmReset(true)}
               className="px-3.5 py-1.5 text-xs font-semibold text-rose-700 bg-rose-50 border border-rose-200 hover:bg-rose-100 rounded-lg transition-colors flex items-center gap-1.5 whitespace-nowrap cursor-pointer"
             >
-              <RotateCcw className="w-3.5 h-3.5"/> Reset to Factory Seed
+              <RotateCcw className="w-3.5 h-3.5"/> Reload Data
             </button>
           ) : (
             <div className="flex flex-wrap lg:flex-nowrap items-center gap-2">
@@ -228,7 +194,7 @@ function GeneralSettings() {
                 onClick={handleResetData}
                 className="px-4 py-1.5 text-xs font-bold text-white bg-rose-600 hover:bg-rose-700 rounded-lg shadow-sm flex items-center gap-1.5 cursor-pointer"
               >
-                <AlertTriangle className="w-3.5 h-3.5"/> Confirm Factory Reset
+                <AlertTriangle className="w-3.5 h-3.5"/> Confirm Reload
               </button>
             </div>
           )}
