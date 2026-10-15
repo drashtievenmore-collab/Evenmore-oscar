@@ -195,7 +195,7 @@ export const ProformaInvoicesPage = () => {
   const handleOpenCreateModal = () => {
     const cust = customers[0];
     setSelectedCustomerId(cust?.id || '');
-    setProformaNumber(`PI-2026-${String(proformaInvoices.length + 101).padStart(3, '0')}`);
+    setProformaNumber(''); // allocated by the server on save
     setProformaDate(new Date().toISOString().split('T')[0]);
     setValidUntil('30 Days');
     setLinkedSoId('None');
@@ -280,9 +280,9 @@ export const ProformaInvoicesPage = () => {
 
     const payload = {
       id: editingPi ? editingPi.id : undefined,
-      proformaNumber: proformaNumber || `PI-2026-${String(proformaInvoices.length + 101).padStart(3, '0')}`,
+      proformaNumber: proformaNumber || undefined,
       customerId: cust?.id,
-      customer: cust?.name || 'Acme Corp',
+      customer: cust?.name,
       customerContact: contactPerson || cust?.contactPerson || '',
       billingAddress,
       shippingAddress,
@@ -332,7 +332,7 @@ export const ProformaInvoicesPage = () => {
 
   const handleClonePi = (pi) => {
     setSelectedCustomerId(pi.customerId || customers[0]?.id || '');
-    setProformaNumber(`PI-2026-${String(proformaInvoices.length + 102).padStart(3, '0')}`);
+    setProformaNumber(''); // allocated by the server on save
     setProformaDate(new Date().toISOString().split('T')[0]);
     setValidUntil(pi.validUntil || '30 Days');
     setLinkedSoId(pi.salesOrderId || pi.linkedSo || 'None');
@@ -676,7 +676,7 @@ export const ProformaInvoicesPage = () => {
                       <div className="flex items-center justify-between font-bold text-slate-800">
                         <span>{selectedCustomer.name}</span>
                         <span className="text-blue-700 font-mono text-[10px] bg-blue-50 px-1.5 py-0.5 rounded border border-blue-200">
-                          Credit Limit: ₹{(selectedCustomer.creditLimit || 50000).toLocaleString('en-IN')}
+                          Credit Limit: {Number(selectedCustomer.creditLimit) > 0 ? `₹${Number(selectedCustomer.creditLimit).toLocaleString('en-IN')}` : 'Not set'}
                         </span>
                       </div>
                       <div className="flex flex-wrap gap-x-3 gap-y-0.5 text-slate-600 text-[10px]">
@@ -694,9 +694,10 @@ export const ProformaInvoicesPage = () => {
                     <label className="font-semibold text-slate-700 block mb-1">Proforma Invoice #</label>
                     <input
                       type="text"
-                      required
+                      readOnly
                       value={proformaNumber}
-                      onChange={(e) => setProformaNumber(e.target.value)}
+                      placeholder="Assigned on save"
+                      title="Numbers come from the PI series on the server"
                       className="w-full p-2 border border-slate-300 rounded bg-white text-slate-800 font-mono font-bold"
                     />
                   </div>

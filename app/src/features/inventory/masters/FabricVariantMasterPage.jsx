@@ -21,23 +21,11 @@ import { fabricMasterSync, isBackendEnabled, describeError } from '../../../serv
 import { uploadFileToBackend } from '../../../services/fileUploadService';
 
 const PER_PAGE = 10;
-const STORAGE_KEY = 'fabricMaster:fabricVariants';
 const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
 
-function readLocal(key = STORAGE_KEY) {
-  try {
-    return JSON.parse(localStorage.getItem(key) || '[]');
-  } catch {
-    return [];
-  }
-}
-
-function writeLocal(rows) {
-  try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(rows));
-  } catch {
-    // storage full or blocked fallback
-  }
+// Masters are never read from browser storage; without a session the list is empty.
+function readLocal() {
+  return [];
 }
 
 function readAsDataUrl(file) {
@@ -180,12 +168,9 @@ export default function FabricVariantMasterPage() {
     };
   }, [qualities, designs, shades, units]);
 
-  const updateLocalRows = (updater) => {
-    setRows((prev) => {
-      const next = updater(prev);
-      writeLocal(next);
-      return next;
-    });
+  // Without a server session nothing can be saved; no local copy is kept.
+  const updateLocalRows = () => {
+    throw new Error('You are not signed in to the server — nothing was saved.');
   };
 
   const viewRows = useMemo(() => rows.map(view), [rows, view]);

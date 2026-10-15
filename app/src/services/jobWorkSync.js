@@ -1,7 +1,15 @@
 /**
- * jobWorkSync — backend translation layer for Job Work.
- * Uses the shared api client (JWT, /api/v1). With no token it is inert
- * and callers fall back to localStorage, so the app stays usable offline.
+ * jobWorkSync — backend API layer for Job Work.
+ *
+ * The server is the source of truth: nothing here caches business records
+ * in the browser. Every call throws on failure so the page can show the
+ * error and keep the unsaved record off screen.
+ *
+ * Child rows of a Job Work Order (materials / outwards / inwards / charges /
+ * reprocesses / documents) and of a Process Plan (charges) are written one
+ * at a time through their per-row endpoints. A header PATCH never carries
+ * child rows. Document numbers (JWO, outward, inward, reprocess) are
+ * allocated by the server.
  */
 import { api } from './api';
 import { getStoredToken } from '../utils/authUtils';
@@ -21,532 +29,391 @@ function rowsFrom(body) {
   return body?.results || [];
 }
 
+const num = (v) => Number(v ?? 0) || 0;
+const orUndef = (v) => (v === '' || v === null || v === undefined ? undefined : v);
+
 /* ── mapping: server already speaks camelCase (BaseModelSerializer) ── */
 
 export function jwoFromApi(row) {
   if (!row) return row;
   return {
     id: row.id,
-    jwoNo: row.jwoNo || row.jwo_no,
-    processPlanId: row.processPlanId,
+    jwoNo: row.jwoNo || '',
+    processPlanId: row.processPlanId || null,
     process: row.process || '',
-    vendor: row.vendor || row.vendor_name || '',
-    orderDate: row.orderDate || row.order_date || '',
-    plannedQty: Number(row.plannedQty ?? row.planned_qty ?? 0),
-    rate: Number(row.rate ?? 0),
-    totalAmount: Number(row.totalAmount ?? row.total_amount ?? 0),
-    expectedCompletion: row.expectedCompletion || row.expected_completion || '',
-    status: row.status || 'In-Process',
+    vendor: row.vendor || '',
+    orderDate: row.orderDate || '',
+    plannedQty: num(row.plannedQty),
+    rate: num(row.rate),
+    totalAmount: num(row.totalAmount),
+    expectedCompletion: row.expectedCompletion || '',
+    status: row.status || '',
     remarks: row.remarks || '',
+    updatedAt: row.updated_at || row.updatedAt || '',
     materials: (row.materials || []).map((m) => ({
       id: m.id,
       fabricItem: m.fabricItem || '',
       fabricQuality: m.fabricQuality || '',
       shade: m.shade || '',
-      lotNo: m.lotNo || m.lot_no || '',
-      qty: Number(m.qty ?? 0),
-      rate: Number(m.rate ?? 0),
-      amount: Number(m.amount ?? 0),
+      lotNo: m.lotNo || '',
+      qty: num(m.qty),
+      rate: num(m.rate),
+      amount: num(m.amount),
     })),
     outwards: (row.outwards || []).map((o) => ({
       id: o.id,
       no: o.no || '',
       date: o.date || '',
-      qty: Number(o.qty ?? 0),
-      lrNo: o.lrNo || o.lr_no || '',
+      qty: num(o.qty),
+      lrNo: o.lrNo || '',
       transporter: o.transporter || '',
-      status: o.status || 'Sent',
+      warehouse: o.warehouse || '',
+      vehicleNo: o.vehicleNo || '',
+      driver: o.driver || '',
+      remarks: o.remarks || '',
+      status: o.status || '',
     })),
     inwards: (row.inwards || []).map((r) => ({
       id: r.id,
       no: r.no || '',
       date: r.date || '',
-      qty: Number(r.qty ?? 0),
-      accepted: Number(r.accepted ?? 0),
-      rejected: Number(r.rejected ?? 0),
-      challanNo: r.challanNo || r.challan_no || '',
-      status: r.status || 'Received',
+      qty: num(r.qty),
+      accepted: num(r.accepted),
+      rejected: num(r.rejected),
+      challanNo: r.challanNo || '',
+      status: r.status || '',
     })),
     charges: (row.charges || []).map((c) => ({
       id: c.id,
       type: c.type || '',
       description: c.description || '',
-      rate: Number(c.rate ?? 0),
-      qty: Number(c.qty ?? 0),
-      amount: Number(c.amount ?? Number(c.qty || 0) * Number(c.rate || 0)),
-      status: c.status || 'Active',
+      rate: num(c.rate),
+      qty: num(c.qty),
+      amount: num(c.amount),
+      status: c.status || '',
     })),
     reprocesses: (row.reprocesses || []).map((r) => ({
       id: r.id,
       no: r.no || '',
-      inwardNo: r.inwardNo || r.inward_no || '',
+      inwardNo: r.inwardNo || '',
       date: r.date || '',
-      qty: Number(r.qty ?? 0),
+      qty: num(r.qty),
       reason: r.reason || '',
-      expectedReturn: r.expectedReturn || r.expected_return || '',
-      status: r.status || 'Pending',
+      expectedReturn: r.expectedReturn || '',
+      status: r.status || '',
       remarks: r.remarks || '',
     })),
     documents: (row.documents || []).map((d) => ({
       id: d.id,
-      type: d.type || d.documentType || d.document_type || 'Other',
-      no: d.no || d.documentNo || d.document_no || '',
+      type: d.type || 'Other',
+      no: d.no || '',
       date: d.date || '',
-      fileName: d.fileName || d.file_name || d.name || '',
-      uploadedBy: d.uploadedBy || d.uploaded_by || 'Admin',
-      url: d.url || d.file || '',
-      fileId: d.fileId || d.file_id || '',
+      fileName: d.fileName || '',
+      uploadedBy: d.uploadedBy || '',
+      url: d.url || '',
+      fileId: d.fileId || '',
+      remarks: d.remarks || '',
     })),
-    _synced: true,
+    lossEntries: (row.lossEntries || row.losses || []).map((l) => ({
+      id: l.id,
+      lossReasonId: l.lossReasonId || '',
+      lossReasonName: l.lossReasonName || l.loss_reason_name || '',
+      qty: num(l.qty),
+      status: l.status || 'Pending',
+      approvedBy: l.approvedBy || '',
+      approvedAt: l.approvedAt || '',
+      remarks: l.remarks || '',
+    })),
   };
 }
 
-export function jwoToApi(jwo) {
-  const cleanLines = (lines, map) =>
-    (lines || [])
-      .filter((l) => l && (l.qty || l.quantity || l.fabricItem || l.no || l.type || l.fileName))
-      .map(map);
-  return {
-    processPlanId: jwo.processPlanId || undefined,
-    process: jwo.process || '',
-    vendor: jwo.vendor || '',
-    orderDate: jwo.orderDate || undefined,
-    plannedQty: Number(jwo.plannedQty ?? 0),
-    rate: Number(jwo.rate ?? 0),
-    totalAmount: Number(jwo.totalAmount ?? 0),
-    expectedCompletion: jwo.expectedCompletion || undefined,
-    status: jwo.status || 'In-Process',
-    remarks: jwo.remarks || undefined,
-    materials: cleanLines(jwo.materials, (m) => ({
-      ...(typeof m.id === 'string' && m.id.length === 36 ? { id: m.id } : {}),
-      fabricItem: m.fabricItem || '',
-      fabricQuality: m.fabricQuality || '',
-      shade: m.shade || '',
-      lotNo: m.lotNo || '',
-      qty: Number(m.qty ?? 0),
-      rate: Number(m.rate ?? 0),
-      amount: Number(m.amount ?? Number(m.qty || 0) * Number(m.rate || 0)),
-    })),
-    outwards: cleanLines(jwo.outwards, (o) => ({
-      ...(typeof o.id === 'string' && o.id.length === 36 ? { id: o.id } : {}),
-      no: o.no || '',
-      date: o.date || undefined,
-      qty: Number(o.qty ?? 0),
-      lrNo: o.lrNo || '',
-      transporter: o.transporter || '',
-      status: o.status || 'Sent',
-    })),
-    inwards: cleanLines(jwo.inwards, (r) => ({
-      ...(typeof r.id === 'string' && r.id.length === 36 ? { id: r.id } : {}),
-      no: r.no || '',
-      date: r.date || undefined,
-      qty: Number(r.qty ?? 0),
-      accepted: Number(r.accepted ?? Math.max(0, Number(r.qty || 0) - Number(r.rejected || 0))),
-      rejected: Number(r.rejected ?? 0),
-      challanNo: r.challanNo || '',
-      status: r.status || 'Received',
-    })),
-    charges: cleanLines(jwo.charges, (c) => ({
-      ...(typeof c.id === 'string' && c.id.length === 36 ? { id: c.id } : {}),
-      type: c.type || '',
-      description: c.description || '',
-      rate: Number(c.rate ?? 0),
-      qty: Number(c.qty ?? 0),
-      amount: Number(c.amount ?? Number(c.qty || 0) * Number(c.rate || 0)),
-      status: c.status || 'Active',
-    })),
-    reprocesses: cleanLines(jwo.reprocesses, (r) => ({
-      ...(typeof r.id === 'string' && r.id.length === 36 ? { id: r.id } : {}),
-      no: r.no || '',
-      inwardNo: r.inwardNo || '',
-      date: r.date || undefined,
-      qty: Number(r.qty ?? 0),
-      reason: r.reason || '',
-      expectedReturn: r.expectedReturn || undefined,
-      status: r.status || 'Pending',
-      remarks: r.remarks || undefined,
-    })),
-    documents: cleanLines(jwo.documents, (d) => ({
-      ...(typeof d.id === 'string' && d.id.length === 36 ? { id: d.id } : {}),
-      type: d.type || '',
-      no: d.no || '',
-      date: d.date || undefined,
-      fileName: d.fileName || '',
-      uploadedBy: d.uploadedBy || 'Admin',
-      url: d.url || '',
-      fileId: d.fileId || undefined,
-    })),
-  };
+/** Header fields only — child rows go through the per-row endpoints. */
+export function jwoHeaderToApi(jwo) {
+  const out = {};
+  if (jwo.processPlanId !== undefined) out.processPlanId = jwo.processPlanId || null;
+  if (jwo.processMasterId !== undefined) out.processMasterId = jwo.processMasterId || null;
+  if (jwo.process !== undefined) out.process = jwo.process || '';
+  if (jwo.vendorId !== undefined) out.vendorId = jwo.vendorId || null;
+  if (jwo.vendor !== undefined) out.vendor = jwo.vendor || '';
+  if (jwo.orderDate !== undefined) out.orderDate = orUndef(jwo.orderDate);
+  if (jwo.rate !== undefined) out.rate = num(jwo.rate);
+  if (jwo.expectedCompletion !== undefined) out.expectedCompletion = jwo.expectedCompletion || null;
+  if (jwo.expectedLossPct !== undefined) out.expectedLossPct = num(jwo.expectedLossPct);
+  if (jwo.status !== undefined) out.status = jwo.status;
+  if (jwo.remarks !== undefined) out.remarks = jwo.remarks || '';
+  return out;
+}
+
+const ROW_MAPPERS = {
+  materials: (m) => ({
+    fabricItem: m.fabricItem || '',
+    fabricQuality: m.fabricQuality || '',
+    shade: m.shade || '',
+    lotNo: m.lotNo || '',
+    qty: num(m.qty),
+    rate: num(m.rate),
+  }),
+  outwards: (o) => ({
+    date: orUndef(o.date),
+    qty: num(o.qty),
+    lrNo: o.lrNo || '',
+    transporter: o.transporter || '',
+    warehouse: o.warehouse || '',
+    vehicleNo: o.vehicleNo || '',
+    driver: o.driver || '',
+    remarks: o.remarks || '',
+    ...(o.takas ? { takas: o.takas } : {}),
+    ...(o.status ? { status: o.status } : {}),
+  }),
+  inwards: (r) => ({
+    date: orUndef(r.date),
+    qty: num(r.qty),
+    ...(r.accepted !== undefined && r.accepted !== '' ? { accepted: num(r.accepted) } : {}),
+    rejected: num(r.rejected),
+    challanNo: r.challanNo || '',
+    ...(r.takas ? { takas: r.takas } : {}),
+    ...(r.status ? { status: r.status } : {}),
+  }),
+  losses: (l) => ({
+    lossReasonId: l.lossReasonId || null,
+    qty: num(l.qty),
+    remarks: l.remarks || '',
+    ...(l.status ? { status: l.status } : {}),
+  }),
+  charges: (c) => ({
+    type: c.type || '',
+    description: c.description || '',
+    rate: num(c.rate),
+    qty: num(c.qty),
+    ...(c.status ? { status: c.status } : {}),
+  }),
+  reprocesses: (r) => ({
+    inwardNo: r.inwardNo || '',
+    date: orUndef(r.date),
+    qty: num(r.qty),
+    reason: r.reason || '',
+    expectedReturn: r.expectedReturn || null,
+    ...(r.status ? { status: r.status } : {}),
+    remarks: r.remarks || '',
+  }),
+  documents: (d) => ({
+    type: d.type || 'Other',
+    no: d.no || '',
+    date: orUndef(d.date),
+    fileName: d.fileName || '',
+    fileId: d.fileId || null,
+    remarks: d.remarks || '',
+  }),
+};
+
+/** Create payload: header plus the initial rows the form collected. */
+export function jwoCreateToApi(jwo) {
+  const body = jwoHeaderToApi(jwo);
+  ['materials', 'outwards', 'inwards', 'charges'].forEach((kind) => {
+    const rows = (jwo[kind] || []).filter(Boolean);
+    if (rows.length) body[kind] = rows.map(ROW_MAPPERS[kind]);
+  });
+  return body;
 }
 
 export function planFromApi(row) {
   if (!row) return row;
-  const expQty = Number(row.expectedQty ?? row.expected_qty ?? row.plannedQty ?? row.planned_qty ?? 0);return {
+  const expQty = num(row.expectedQty);
+  return {
     id: row.id,
-    planNo: row.planNo || row.plan_no,
+    planNo: row.planNo || '',
     date: row.date || '',
     process: row.process || '',
-    processCategory: row.processCategory || row.process_category || '',
-    vendor: row.vendor || row.vendor_name || '',
-    contactPerson: row.contactPerson || row.contact_person || '',
+    processCategory: row.processCategory || '',
+    vendor: row.vendor || '',
+    contactPerson: row.contactPerson || '',
     phone: row.phone || '',
     email: row.email || '',
     address: row.address || '',
-    fabricItem: row.fabricItem || row.fabric_item || '',
-    greyLotNo: row.greyLotNo || row.grey_lot_no || '',
-    fabricQuality: row.fabricQuality || row.fabric_quality || '',
-    takaRollNo: row.takaRollNo || row.taka_roll_no || '',
+    fabricItem: row.fabricItem || '',
+    greyLotNo: row.greyLotNo || '',
+    fabricQuality: row.fabricQuality || '',
+    takaRollNo: row.takaRollNo || '',
     shade: row.shade || '',
     expectedQty: expQty,
     plannedQty: expQty,
-    expectedLoss: Number(row.expectedLoss ?? row.expected_loss ?? 0),
-    expectedReturnQty: Number(row.expectedReturnQty ?? row.expected_return_qty ?? 0),
-    weight: Number(row.weight ?? 0),
-    finishedWeight: Number(row.finishedWeight ?? row.finished_weight ?? 0),
-    noOfRolls: Number(row.noOfRolls ?? row.no_of_rolls ?? 0),
-    startDate: row.startDate || row.start_date || '',
-    targetDate: row.targetDate || row.target_date || row.expectedCompletionDate || row.expected_completion_date || '',
-    expectedCompletionDate: row.expectedCompletionDate || row.expected_completion_date || row.targetDate || row.target_date || '',
-    assignedEmployee: row.assignedEmployee || row.assigned_employee || '',
+    expectedLoss: num(row.expectedLoss),
+    expectedReturnQty: num(row.expectedReturnQty),
+    weight: num(row.weight),
+    finishedWeight: num(row.finishedWeight),
+    noOfRolls: num(row.noOfRolls),
+    startDate: row.startDate || '',
+    targetDate: row.targetDate || row.expectedCompletionDate || '',
+    expectedCompletionDate: row.expectedCompletionDate || row.targetDate || '',
+    assignedEmployee: row.assignedEmployee || '',
     approver: row.approver || '',
-    status: row.status || 'Active',
+    status: row.status || '',
     remarks: row.remarks || '',
+    created_at: row.created_at || '',
+    updatedAt: row.updated_at || '',
     charges: (row.charges || []).map((c) => ({
       id: c.id,
       type: c.type || '',
       description: c.description || '',
-      rate: Number(c.rate ?? 0),
-      qty: Number(c.qty ?? 0),
-      amount: Number(c.amount ?? Number(c.qty || 0) * Number(c.rate || 0)),
-      status: c.status || 'Active',
+      rate: num(c.rate),
+      qty: num(c.qty),
+      amount: num(c.amount),
+      status: c.status || '',
     })),
-    _synced: true,
   };
 }
 
-export function planToApi(p) {
-  const qty = Number(p.plannedQty ?? p.expectedQty ?? 0);
-  return {
-    date: p.date || undefined,
+/** Plan header fields. `withCharges` only on create. */
+export function planToApi(p, { withCharges = false } = {}) {
+  const qty = num(p.plannedQty ?? p.expectedQty);
+  const body = {
+    date: orUndef(p.date),
     process: p.process || '',
-    processCategory: p.processCategory || undefined,
+    processCategory: p.processCategory || null,
     vendor: p.vendor || '',
-    contactPerson: p.contactPerson || undefined,
-    phone: p.phone || undefined,
+    contactPerson: p.contactPerson || null,
+    phone: p.phone || null,
     fabricItem: p.fabricItem || '',
-    greyLotNo: p.greyLotNo || undefined,
+    greyLotNo: p.greyLotNo || null,
     fabricQuality: p.fabricQuality || '',
-    takaRollNo: p.takaRollNo || undefined,
-    shade: p.shade || undefined,
+    takaRollNo: p.takaRollNo || null,
+    shade: p.shade || null,
     expectedQty: qty,
-    expectedLoss: Number(p.expectedLoss ?? 0),
-    expectedReturnQty: Number(p.expectedReturnQty ?? 0),
-    weight: p.weight ? Number(p.weight) : undefined,
-    finishedWeight: p.finishedWeight ? Number(p.finishedWeight) : undefined,
-    noOfRolls: p.noOfRolls ? Number(p.noOfRolls) : undefined,
-    startDate: p.startDate || undefined,
-    expectedCompletionDate: p.expectedCompletionDate || p.targetDate || undefined,
-    targetDate: p.expectedCompletionDate || p.targetDate || undefined,
-    email: p.email || undefined,
-    address: p.address || undefined,
-    assignedEmployee: p.assignedEmployee || undefined,
-    approver: p.approver || undefined,
-    status: p.status || 'Active',
-    remarks: p.remarks || undefined,
-    charges: (p.charges || []).map((c) => ({
-      ...(typeof c.id === 'string' && c.id.length === 36 ? { id: c.id } : {}),
-      type: c.type || '',
-      description: c.description || '',
-      rate: Number(c.rate ?? 0),
-      qty: Number(c.qty ?? 0),
-      amount: Number(c.amount ?? Number(c.qty || 0) * Number(c.rate || 0)),
-      status: c.status || 'Active',
-    })),
+    expectedLoss: num(p.expectedLoss),
+    expectedReturnQty: num(p.expectedReturnQty),
+    weight: p.weight ? num(p.weight) : null,
+    finishedWeight: p.finishedWeight ? num(p.finishedWeight) : null,
+    noOfRolls: p.noOfRolls ? num(p.noOfRolls) : null,
+    startDate: p.startDate || null,
+    expectedCompletionDate: p.expectedCompletionDate || p.targetDate || null,
+    email: p.email || null,
+    address: p.address || null,
+    assignedEmployee: p.assignedEmployee || null,
+    approver: p.approver || null,
+    remarks: p.remarks || null,
   };
+  if (p.status) body.status = p.status;
+  if (withCharges) body.charges = (p.charges || []).map(ROW_MAPPERS.charges);
+  return body;
 }
 
-/* ── API calls ── */
+/* ── Job Work Orders ── */
 
-const isUuid = (id) => typeof id === 'string' && /^[0-9a-f-]{36}$/i.test(id);
-
-/**
- * Push rows the server has never seen (created offline — non-UUID ids) and
- * swap in the server ids. Returns the list. Failures stay local for the
- * next load instead of being dropped.
- */
-export async function reconcilePendingCreates(cached, pushCreate) {
-  const pending = (cached || []).filter((r) => r && !isUuid(r.id));
-  if (pending.length === 0) return cached;
-  let next = [...cached];
-  for (const local of pending) {
-    try {
-      const saved = await pushCreate(local);
-      if (saved) next = next.map((r) => (r.id === local.id ? { ...local, ...saved } : r));
-    } catch { /* retry on the next load */ }
-  }
-  return next;
+export async function fetchJWOs() {
+  const body = await api.get('/jobwork/orders/', { query: { limit: PAGE_SIZE } });
+  return rowsFrom(body).map(jwoFromApi);
 }
 
-/**
- * Server rows win by id; rows the server has never seen (no `_synced`
- * stamp) are kept so offline creates survive a refresh.
- */
-export function mergeServerRows(cached, serverRows) {
-  const rows = Array.isArray(serverRows) ? serverRows : [];
-  const ids = new Set(rows.map((r) => String(r.id)));
-  return [
-    ...(cached || []).filter((r) => r && !r._synced && !ids.has(String(r.id))),
-    ...rows,
-  ];
+export async function fetchJWO(id) {
+  return jwoFromApi(await api.get(`/jobwork/orders/${id}/`));
 }
 
-function dataUrlToFile(dataUrl, name) {
-  const [head, data] = String(dataUrl || '').split(',');
-  const mime = /data:(.*?);/.exec(head || '')?.[1] || 'application/octet-stream';
-  const bin = atob(data || '');
-  const bytes = new Uint8Array(bin.length);
-  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
-  return new File([bytes], name || 'document', { type: mime });
+export async function createJWO(jwo) {
+  return jwoFromApi(await api.post('/jobwork/orders/', jwoCreateToApi(jwo)));
 }
 
-/**
- * Retry-upload order documents whose bytes never reached the server
- * (offline at attach time). Rows keep a data-URL preview locally, so the
- * bytes are still here to send. Returns the order with `fileId`s filled in.
- */
-export async function uploadPendingJWODocs(jwo) {
-  const docs = jwo?.documents || [];
-  if (!docs.some((d) => d && !d.fileId && typeof d.url === 'string' && d.url.startsWith('data:'))) {
-    return jwo;
-  }
-  const { uploadFileToBackend } = await import('./fileUploadService');
-  let changed = false;
-  const next = [];
-  for (const d of docs) {
-    if (d && !d.fileId && typeof d.url === 'string' && d.url.startsWith('data:')) {
-      try {
-        const fileId = await uploadFileToBackend(dataUrlToFile(d.url, d.fileName), d.fileName || 'document', 'jobwork_document');
-        changed = true;
-        next.push({ ...d, fileId });
-        continue;
-      } catch (err) {
-        console.warn('[jobWorkSync] doc upload retry failed:', err?.message || err);
-      }
-    }
-    next.push(d);
-  }
-  return changed ? { ...jwo, documents: next } : jwo;
+export async function updateJWOHeader(id, fields) {
+  return jwoFromApi(await api.patch(`/jobwork/orders/${id}/`, jwoHeaderToApi(fields)));
 }
 
-export async function pullJWOs() {
-  if (!isJobWorkBackendEnabled()) return null;
-  try {
-    const body = await api.get('/jobwork/orders/', { query: { limit: PAGE_SIZE } });
-    return rowsFrom(body).map(jwoFromApi);
-  } catch (err) {
-    console.warn('[jobWorkSync] pull orders failed:', err?.message || err);
-    return null;
-  }
-}
-
-export async function pushCreateJWO(jwo) {
-  if (!isJobWorkBackendEnabled()) return null;
-  const body = await api.post('/jobwork/orders/', jwoToApi(jwo));
-  return jwoFromApi(body);
-}
-
-export async function pushUpdateJWO(id, jwo) {
-  if (!isJobWorkBackendEnabled()) return null;
-  const isUuid = typeof id === 'string' && /^[0-9a-f-]{36}$/i.test(id);
-  if (!isUuid) return null;
-  const body = await api.patch(`/jobwork/orders/${id}/`, jwoToApi(jwo));
-  return jwoFromApi(body);
-}
-
-export async function pushDeleteJWO(id) {
-  if (!isJobWorkBackendEnabled()) return false;
-  const isUuid = typeof id === 'string' && /^[0-9a-f-]{36}$/i.test(id);
-  if (!isUuid) return false;
+export async function deleteJWO(id) {
   await api.delete(`/jobwork/orders/${id}/`);
   return true;
 }
 
-export async function pullPlans() {
-  if (!isJobWorkBackendEnabled()) return null;
-  try {
-    const body = await api.get('/jobwork/process-plans/', { query: { limit: PAGE_SIZE } });
-    return rowsFrom(body).map(planFromApi);
-  } catch (err) {
-    console.warn('[jobWorkSync] pull plans failed:', err?.message || err);
-    return null;
-  }
+/** Approval point (approve_jobwork). */
+export async function closeJWO(id, options) {
+  const payload = typeof options === 'string' ? { remarks: options } : (options || {});
+  return jwoFromApi(await api.post(`/jobwork/orders/${id}/close/`, payload));
 }
 
-export async function pushCreatePlan(plan) {
-  if (!isJobWorkBackendEnabled()) return null;
-  const body = await api.post('/jobwork/process-plans/', planToApi(plan));
-  return planFromApi(body);
+/** kind: materials | outwards | inwards | charges | reprocesses | documents */
+export async function createJWORow(orderId, kind, row) {
+  return api.post(`/jobwork/orders/${orderId}/${kind}/`, ROW_MAPPERS[kind](row));
 }
 
-export async function pushUpdatePlan(id, plan) {
-  if (!isJobWorkBackendEnabled()) return null;
-  const isUuid = typeof id === 'string' && /^[0-9a-f-]{36}$/i.test(id);
-  if (!isUuid) return null;
-  const body = await api.patch(`/jobwork/process-plans/${id}/`, planToApi(plan));
-  return planFromApi(body);
+export async function updateJWORow(orderId, kind, rowId, row) {
+  return api.patch(`/jobwork/orders/${orderId}/${kind}/${rowId}/`, ROW_MAPPERS[kind](row));
 }
 
-export async function pushDeletePlan(id) {
-  if (!isJobWorkBackendEnabled()) return false;
-  const isUuid = typeof id === 'string' && /^[0-9a-f-]{36}$/i.test(id);
-  if (!isUuid) return false;
+export async function deleteJWORow(orderId, kind, rowId) {
+  await api.delete(`/jobwork/orders/${orderId}/${kind}/${rowId}/`);
+  return true;
+}
+
+/* ── Process Plans ── */
+
+export async function fetchPlans() {
+  const body = await api.get('/jobwork/process-plans/', { query: { limit: PAGE_SIZE } });
+  return rowsFrom(body).map(planFromApi);
+}
+
+export async function fetchPlan(id) {
+  return planFromApi(await api.get(`/jobwork/process-plans/${id}/`));
+}
+
+export async function createPlan(plan) {
+  return planFromApi(await api.post('/jobwork/process-plans/', planToApi(plan, { withCharges: true })));
+}
+
+export async function updatePlan(id, plan) {
+  return planFromApi(await api.patch(`/jobwork/process-plans/${id}/`, planToApi(plan)));
+}
+
+export async function deletePlan(id) {
   await api.delete(`/jobwork/process-plans/${id}/`);
   return true;
 }
 
-/* ── vendor process instructions (grey-fabric PI) ── */
-
-export function vpiFromApi(row) {
-  if (!row) return row;
-  return {
-    id: row.id,
-    piNumber: row.piNumber || row.pi_number,
-    poId: row.poId || row.po_id || '',
-    poNumber: row.poNumber || row.po_number || '',
-    vendorId: row.vendorId || row.vendor_id || '',
-    vendor: row.vendor || '',
-    fabric: row.fabric || '',
-    fabricSku: row.fabricSku || row.fabric_sku || '',
-    processType: row.processType || row.process_type || '',
-    assignedEmployee: row.assignedEmployee || row.assigned_employee || '',
-    assignedQty: Number(row.assignedQty ?? row.assigned_qty ?? 0),
-    producedQty: Number(row.producedQty ?? row.produced_qty ?? 0),
-    date: row.date || '',
-    startDate: row.startDate || row.start_date || '',
-    expectedCompletionDate: row.expectedCompletionDate || row.expected_completion_date || '',
-    status: row.status || 'In Progress',
-    remarks: row.remarks || '',
-    _synced: true,
-  };
+/** Approval points (approve_jobwork). */
+export async function approvePlan(id) {
+  return planFromApi(await api.post(`/jobwork/process-plans/${id}/approve/`, {}));
 }
 
-export function vpiToApi(pi) {
-  return {
-    poId: pi.poId || undefined,
-    poNumber: pi.poNumber || undefined,
-    vendorId: pi.vendorId || undefined,
-    vendor: pi.vendor || '',
-    fabric: pi.fabric || '',
-    fabricSku: pi.fabricSku || undefined,
-    processType: pi.processType || '',
-    assignedEmployee: pi.assignedEmployee || undefined,
-    assignedQty: Number(pi.assignedQty ?? 0),
-    producedQty: Number(pi.producedQty ?? 0),
-    date: pi.date || undefined,
-    startDate: pi.startDate || undefined,
-    expectedCompletionDate: pi.expectedCompletionDate || undefined,
-    status: pi.status || 'In Progress',
-    remarks: pi.remarks || undefined,
-  };
+export async function completePlan(id) {
+  return planFromApi(await api.post(`/jobwork/process-plans/${id}/complete/`, {}));
 }
 
-export async function pullVPIs() {
-  if (!isJobWorkBackendEnabled()) return null;
-  try {
-    const body = await api.get('/jobwork/process-instructions/', { query: { limit: PAGE_SIZE } });
-    return rowsFrom(body).map(vpiFromApi);
-  } catch (err) {
-    console.warn('[jobWorkSync] pull instructions failed:', err?.message || err);
-    return null;
-  }
+export async function createPlanCharge(planId, charge) {
+  return api.post(`/jobwork/process-plans/${planId}/charges/`, ROW_MAPPERS.charges(charge));
 }
 
-export async function pushCreateVPI(pi) {
-  if (!isJobWorkBackendEnabled()) return null;
-  const body = await api.post('/jobwork/process-instructions/', vpiToApi(pi));
-  return vpiFromApi(body);
+export async function updatePlanCharge(planId, chargeId, charge) {
+  return api.patch(`/jobwork/process-plans/${planId}/charges/${chargeId}/`, ROW_MAPPERS.charges(charge));
 }
 
-export async function pushUpdateVPI(id, pi) {
-  if (!isJobWorkBackendEnabled()) return null;
-  const isUuid = typeof id === 'string' && /^[0-9a-f-]{36}$/i.test(id);
-  if (!isUuid) return null;
-  const body = await api.patch(`/jobwork/process-instructions/${id}/`, vpiToApi(pi));
-  return vpiFromApi(body);
-}
-
-export async function pushDeleteVPI(id) {
-  if (!isJobWorkBackendEnabled()) return false;
-  const isUuid = typeof id === 'string' && /^[0-9a-f-]{36}$/i.test(id);
-  if (!isUuid) return false;
-  await api.delete(`/jobwork/process-instructions/${id}/`);
+export async function deletePlanCharge(planId, chargeId) {
+  await api.delete(`/jobwork/process-plans/${planId}/charges/${chargeId}/`);
   return true;
 }
 
-/* ── VPI daily progress entries ── */
-
-export function vpiEntryFromApi(row) {
-  if (!row) return row;
-  return {
-    id: row.id,
-    instructionId: row.instructionId || row.instruction_id || '',
-    date: row.date || '',
-    produced: Number(row.producedQty ?? row.produced_qty ?? row.produced ?? 0),
-    producedQty: Number(row.producedQty ?? row.produced_qty ?? row.produced ?? 0),
-    by: row.enteredBy || row.entered_by || '',
-    enteredBy: row.enteredBy || row.entered_by || '',
-    remarks: row.remarks || '',
-    photoFileId: row.photoFileId || row.photo_file || undefined,
-    photo: row.photoUrl || row.photo_url || '',
-    photoUrl: row.photoUrl || row.photo_url || '',
-    _synced: true,
-  };
-}
-
-export async function pullVPIEntries(instructionId) {
-  if (!isJobWorkBackendEnabled()) return null;
-  try {
-    const query = { limit: PAGE_SIZE, ...(instructionId ? { instructionId } : {}) };
-    const body = await api.get('/jobwork/pi-entries/', { query });
-    const rows = rowsFrom(body).map(vpiEntryFromApi);
-    return instructionId ? rows.filter((r) => String(r.instructionId) === String(instructionId)) : rows;
-  } catch (err) {
-    console.warn('[jobWorkSync] pull pi entries failed:', err?.message || err);
-    return null;
+/** Human-readable message from an api.js error. */
+export function errorMessage(err, fallback = 'Could not save. Please try again.') {
+  if (!err) return fallback;
+  const fe = err.payload?.field_errors || err.payload?.fieldErrors;
+  const base = err.payload?.message || err.message || fallback;
+  if (fe && typeof fe === 'object') {
+    const details = Object.values(fe).flat().filter(Boolean).join(' ');
+    if (details && !base.includes(details)) return `${base} ${details}`;
   }
+  return base;
 }
 
-export async function pushCreateVPIEntry(entry) {
-  if (!isJobWorkBackendEnabled()) return null;
-  const body = await api.post('/jobwork/pi-entries/', {
-    instructionId: entry.instructionId || entry.piId,
-    date: entry.date || undefined,
-    producedQty: Number(entry.produced ?? entry.producedQty ?? 0),
-    enteredBy: entry.by || entry.enteredBy || undefined,
-    remarks: entry.remarks || undefined,
-    photoFileId: entry.photoFileId || undefined,
-  });
-  return vpiEntryFromApi(body);
+export async function lookupJWORate({ processorId, processId, fabricQualityId }) {
+  const query = {};
+  if (processorId) query.processorId = processorId;
+  if (processId) query.processId = processId;
+  if (fabricQualityId) query.fabricQualityId = fabricQualityId;
+  return api.get('/jobwork/orders/lookup-rate/', { query });
 }
 
-export async function pushUpdateVPIEntry(id, entry) {
-  if (!isJobWorkBackendEnabled()) return null;
-  const isUuid = typeof id === 'string' && /^[0-9a-f-]{36}$/i.test(id);
-  if (!isUuid) return null;
-  const body = await api.patch(`/jobwork/pi-entries/${id}/`, {
-    date: entry.date || undefined,
-    producedQty: entry.produced ?? entry.producedQty ?? undefined,
-    enteredBy: entry.by || entry.enteredBy || undefined,
-    remarks: entry.remarks ?? undefined,
-    photoFileId: entry.photoFileId || undefined,
-  });
-  return vpiEntryFromApi(body);
+export async function approveJWOLoss(orderId, lossId) {
+  return api.post(`/jobwork/orders/${orderId}/losses/${lossId}/approve/`, {});
 }
 
-export async function pushDeleteVPIEntry(id) {
-  if (!isJobWorkBackendEnabled()) return false;
-  const isUuid = typeof id === 'string' && /^[0-9a-f-]{36}$/i.test(id);
-  if (!isUuid) return false;
-  await api.delete(`/jobwork/pi-entries/${id}/`);
-  return true;
+export async function fetchProcessorLedger(processorId) {
+  const query = {};
+  if (processorId) query.processorId = processorId;
+  return api.get('/jobwork/orders/processor-ledger/', { query });
 }
+

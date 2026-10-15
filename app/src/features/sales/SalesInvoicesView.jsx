@@ -261,11 +261,10 @@ export const SalesInvoicesView = ({ invoices = [], onCreateInvoice, searchTerm: 
             return;
         }
 
-        const nextNumber = `INV-2026-${String(invoices.length + 101).padStart(3, '0')}`;
+        // The INV number is allocated by the server at finalization.
         const newInvoicePayload = {
-            invoiceNumber: nextNumber,
             customerId: cust?.id,
-            customer: cust?.name || 'Acme Corp',
+            customer: cust?.name,
             billingAddress,
             shippingAddress: effectiveShipAddress,
             salesOrderId: so?.id,

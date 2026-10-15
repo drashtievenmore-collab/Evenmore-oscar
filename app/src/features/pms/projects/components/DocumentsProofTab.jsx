@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { Upload, Send, ShieldCheck, Layers, Check, RefreshCw, Clock, AlertCircle, Link2 } from 'lucide-react';
 import { Button } from '../../../../components/ui/Button';
 import { EmptyStatePms } from '../../components/EmptyStatePms';
-import { MockPdfViewer } from '../../components/MockPdfViewer';
+import { ProofViewer } from '../../components/ProofViewer';
 import { ClientApprovalModal } from '../../components/ClientApprovalModal';
 import { ShareProofModal } from '../../approval/ShareProofModal';
 import { UploadProofModal } from './UploadProofModal';
@@ -271,7 +271,7 @@ export function DocumentsProofTab({ project }) {
 
           {/* Preview + comments */}
           <div className="space-y-3">
-            <MockPdfViewer
+            <ProofViewer
               document={selected}
               projectName={project.productDetails?.productName}
               annotations={annotations[selected?.id] ?? []}

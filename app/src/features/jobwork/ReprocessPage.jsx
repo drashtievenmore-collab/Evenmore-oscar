@@ -13,7 +13,8 @@ import {
   X,
   XCircle,
 } from 'lucide-react';
-import { loadJWOs, loadJWOsAsync, saveJWOs, numIN, toDDMMYYYY } from './jobWorkOrdersStore';
+import { numIN, toDDMMYYYY, purgeLegacyJobWorkCache } from './jobWorkOrdersStore';
+import { fetchJWOs, createJWORow, updateJWORow, deleteJWORow, errorMessage } from '../../services/jobWorkSync';
 import PageHeader from '../../components/ui/PageHeader';
 
 /**
@@ -92,7 +93,11 @@ export function inwardRemaining(order, inwardNo, excludeId = null) {
 
 export default function ReprocessPage() {
   const navigate = useNavigate();
-  const [orders, setOrders] = useState(loadJWOs);
+  const [orders, setOrders] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState('');
+  const [formError, setFormError] = useState('');
+  const [saving, setSaving] = useState(false);
 
   // Draft filters (edited in the controls) + applied filters (used by the table).
   const [draft, setDraft] = useState({ rpNo: 'All', jwoNo: 'All', vendor: 'All', process: 'All', fabric: 'All', status: 'All', from: '', to: '' });
@@ -111,13 +116,15 @@ export default function ReprocessPage() {
     remarks: '',
   });
 
+  const reload = async () => setOrders(await fetchJWOs());
+
   useEffect(() => {
     let live = true;
-    loadJWOsAsync()
-      .then((rows) => {
-        if (live && Array.isArray(rows)) setOrders(rows);
-      })
-      .catch(() => {});
+    purgeLegacyJobWorkCache();
+    fetchJWOs()
+      .then((rows) => { if (live) setOrders(rows); })
+      .catch((err) => { if (live) setLoadError(errorMessage(err, 'Could not load reprocess records.')); })
+      .finally(() => { if (live) setLoading(false); });
     return () => { live = false; };
   }, []);
 
@@ -196,6 +203,7 @@ export default function ReprocessPage() {
       status: 'Pending',
       remarks: '',
     });
+    setFormError('');
     setShowForm(true);
   };
 
@@ -211,44 +219,27 @@ export default function ReprocessPage() {
       status: r.status || 'Pending',
       remarks: r.remarks || '',
     });
+    setFormError('');
     setShowForm(true);
   };
 
-  const nextReprocessNo = () => {
-    const max = rows.reduce((m, r) => Math.max(m, Number(String(r.no || '').replace(/\D/g, '')) || 0), 0);
-    return `RP-2026-${String(max + 1).padStart(3, '0')}`;
-  };
-
-  const persist = (next) => {
-    setOrders(next);
-    try { saveJWOs(next); } catch { /* ignore */ }
-  };
-
-  const syncParent = (parentId, next) => {
-    import('../../services/jobWorkSync').then(({ pushUpdateJWO, isJobWorkBackendEnabled }) => {
-      if (!isJobWorkBackendEnabled()) return;
-      const updated = next.find((o) => String(o.id) === String(parentId));
-      if (updated) pushUpdateJWO(updated.id, updated).catch(() => {});
-    }).catch(() => {});
-  };
-
-  const handleSave = (e) => {
+  const handleSave = async (e) => {
     e.preventDefault();
-    if (!form.jwoId) { window.alert('Select a Job Work Order first.'); return; }
-    if (!form.inwardNo) { window.alert('Select the Original Inward receipt first.'); return; }
+    setFormError('');
+    if (!form.jwoId) { setFormError('Select a Job Work Order first.'); return; }
+    if (!form.inwardNo) { setFormError('Select the Original Inward receipt first.'); return; }
     const qty = Number(form.qty);
-    if (!(qty > 0)) { window.alert('Reprocess quantity must be greater than 0.'); return; }
+    if (!(qty > 0)) { setFormError('Reprocess quantity must be greater than 0.'); return; }
     const parent = orders.find((o) => String(o.id) === String(form.jwoId));
-    if (!parent) { window.alert('Selected JWO no longer exists.'); return; }
+    if (!parent) { setFormError('Selected JWO no longer exists.'); return; }
     const allow = inwardRemaining(parent, form.inwardNo, editing?.id);
     if (qty > allow) {
-      window.alert(`Only ${allow.toLocaleString('en-IN')} M remains available on ${form.inwardNo} (received ${numIN(Number(selectedInward?.qty) || 0)} M).`);
+      setFormError(`Only ${allow.toLocaleString('en-IN')} M remains available on ${form.inwardNo} (received ${numIN(Number(selectedInward?.qty) || 0)} M).`);
       return;
     }
-    if (!form.reason.trim()) { window.alert('Enter the reason for reprocessing.'); return; }
+    if (!form.reason.trim()) { setFormError('Enter the reason for reprocessing.'); return; }
+    // The server allocates the reprocess number.
     const entry = {
-      id: editing?.id || `r-${Date.now()}`,
-      no: editing?.no || nextReprocessNo(),
       inwardNo: form.inwardNo,
       date: form.date,
       qty,
@@ -257,26 +248,31 @@ export default function ReprocessPage() {
       status: form.status,
       remarks: form.remarks || '',
     };
-    const next = orders.map((o) => {
-      if (String(o.id) !== String(parent.id)) return o;
-      const list = [...(o.reprocesses || [])];
-      const idx = list.findIndex((x) => String(x.id) === String(entry.id));
-      if (idx >= 0) list[idx] = entry;
-      else list.push(entry);
-      return { ...o, reprocesses: list };
-    });
-    persist(next);
-    syncParent(parent.id, next);
-    setShowForm(false);
+    setSaving(true);
+    try {
+      if (editing && String(editing.jwoId) === String(parent.id)) {
+        await updateJWORow(parent.id, 'reprocesses', editing.id, entry);
+      } else {
+        if (editing) await deleteJWORow(editing.jwoId, 'reprocesses', editing.id);
+        await createJWORow(parent.id, 'reprocesses', entry);
+      }
+      await reload();
+      setShowForm(false);
+    } catch (err) {
+      setFormError(errorMessage(err, 'Could not save the reprocess record.'));
+    } finally {
+      setSaving(false);
+    }
   };
 
-  const handleDelete = (r) => {
+  const handleDelete = async (r) => {
     if (!window.confirm(`Delete reprocess ${r.no}?`)) return;
-    const next = orders.map((o) => (String(o.id) === String(r.jwoId)
-      ? { ...o, reprocesses: (o.reprocesses || []).filter((x) => String(x.id) !== String(r.id)) }
-      : o));
-    persist(next);
-    syncParent(r.jwoId, next);
+    try {
+      await deleteJWORow(r.jwoId, 'reprocesses', r.id);
+      await reload();
+    } catch (err) {
+      window.alert(errorMessage(err, 'Could not delete the reprocess record.'));
+    }
   };
 
   const openJWO = (r) => navigate(`/job-work/orders/${r.jwoId}`);
@@ -414,7 +410,13 @@ export default function ReprocessPage() {
                   </td>
                 </tr>
               ))}
-              {filtered.length === 0 && (
+              {loading && (
+                <tr><td colSpan={16} className="px-4 py-10 text-center text-[12px] text-slate-400">Loading…</td></tr>
+              )}
+              {!loading && loadError && (
+                <tr><td colSpan={16} className="px-4 py-10 text-center text-[12px] font-semibold text-rose-600">{loadError}</td></tr>
+              )}
+              {!loading && !loadError && filtered.length === 0 && (
                 <tr>
                   <td colSpan={16} className="px-4 py-10 text-center">
                     <p className="text-[13px] font-extrabold text-[#17294e]">No reprocess records found</p>
@@ -537,9 +539,12 @@ export default function ReprocessPage() {
                 <label className="block font-semibold text-slate-700 mb-1 text-[12px]">Remarks</label>
                 <textarea rows={2} value={form.remarks} onChange={(e) => setForm((f) => ({ ...f, remarks: e.target.value }))} placeholder="Remarks…" maxLength={500} className="w-full border border-slate-300 rounded-lg p-2 bg-white text-slate-800 text-[13px]" />
               </div>
+              {formError && (
+                <div className="sm:col-span-2 rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-[12px] font-semibold text-rose-600">{formError}</div>
+              )}
               <div className="sm:col-span-2 flex justify-end gap-2 pt-2 border-t border-slate-100">
                 <button type="button" onClick={() => setShowForm(false)} className="px-4 py-2 border border-slate-300 text-slate-700 rounded-lg hover:bg-slate-100 font-bold text-[12px]">Cancel</button>
-                <button type="submit" className="px-5 py-2 bg-[#2563eb] hover:bg-[#1d4ed8] text-white rounded-lg font-bold text-[12px]">{editing ? 'Save Changes' : 'Create Reprocess'}</button>
+                <button type="submit" disabled={saving} className="px-5 py-2 bg-[#2563eb] hover:bg-[#1d4ed8] disabled:opacity-50 text-white rounded-lg font-bold text-[12px]">{saving ? 'Saving…' : editing ? 'Save Changes' : 'Create Reprocess'}</button>
               </div>
             </form>
           </div>

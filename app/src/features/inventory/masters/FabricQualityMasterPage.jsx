@@ -20,22 +20,10 @@ import {
 import { fabricMasterSync, isBackendEnabled, describeError } from '../../../services/fabricMasterSync';
 
 const PER_PAGE = 10;
-const STORAGE_KEY = 'fabricMaster:fabricQualities';
 
+// Masters are never read from browser storage; without a session the list is empty.
 function readLocalQualities() {
-  try {
-    return JSON.parse(localStorage.getItem(STORAGE_KEY) || '[]');
-  } catch {
-    return [];
-  }
-}
-
-function writeLocalQualities(items) {
-  try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(items));
-  } catch {
-    // local storage fallback
-  }
+  return [];
 }
 
 const emptyForm = () => ({
@@ -93,9 +81,9 @@ export default function FabricQualityMasterPage() {
     if (!backendOn) {
       setRows(readLocalQualities());
       try {
-        setFabricTypes(JSON.parse(localStorage.getItem('fabricMaster:fabricTypes') || '[]'));
-        setUnits(JSON.parse(localStorage.getItem('fabricMaster:units') || '[]'));
-        setFabrics(JSON.parse(localStorage.getItem('fabricMaster:fabrics') || '[]'));
+        setFabricTypes([]);
+        setUnits([]);
+        setFabrics([]);
       } catch {
         // empty fallback
       }
@@ -147,12 +135,9 @@ export default function FabricQualityMasterPage() {
     return () => document.removeEventListener('click', handleOutsideClick);
   }, []);
 
-  const updateLocalRows = (updater) => {
-    setRows((prev) => {
-      const updated = updater(prev);
-      writeLocalQualities(updated);
-      return updated;
-    });
+  // Without a server session nothing can be saved; no local copy is kept.
+  const updateLocalRows = () => {
+    throw new Error('You are not signed in to the server — nothing was saved.');
   };
 
   // Filtered rows

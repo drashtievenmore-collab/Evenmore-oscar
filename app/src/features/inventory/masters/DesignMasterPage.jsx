@@ -24,29 +24,17 @@ import { uploadFileToBackend } from '../../../services/fileUploadService';
 // Design Master — list (slide 3) plus an Add / Edit / View popup (slide 4)
 // laid out like the Fabric Quality Master popup. Logged in → rows live in
 // Postgres (/inventory/designs/) and the image goes through the two-step
-// file upload. No session → localStorage,
+// file upload. No session → nothing can be saved (no browser copy),
 // with the image kept as a data URL.
 
 const PER_PAGE = 10;
-const STORAGE_KEY = 'fabricMaster:designs';
 const PATTERN_TYPES = ['Printed', 'Yarn Dyed', 'Jacquard', 'Dobby', 'Solid', 'Embroidered', 'Other'];
 const SEASON_SUGGESTIONS = ['Regular', 'Premium', 'Summer 2025', 'Winter 2025', 'Festive 2025'];
 const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
 
+// Masters are never read from browser storage; without a session the list is empty.
 function readLocal() {
-  try {
-    return JSON.parse(localStorage.getItem(STORAGE_KEY) || '[]');
-  } catch {
-    return [];
-  }
-}
-
-function writeLocal(rows) {
-  try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(rows));
-  } catch {
-    // storage full or blocked — the in-memory list still works
-  }
+  return [];
 }
 
 function readAsDataUrl(file) {
@@ -146,12 +134,9 @@ export default function DesignMasterPage() {
     if (imagePreview?.startsWith('blob:')) URL.revokeObjectURL(imagePreview);
   }, [imagePreview]);
 
-  const updateLocalRows = (updater) => {
-    setRows((prev) => {
-      const next = updater(prev);
-      writeLocal(next);
-      return next;
-    });
+  // Without a server session nothing can be saved; no local copy is kept.
+  const updateLocalRows = () => {
+    throw new Error('You are not signed in to the server — nothing was saved.');
   };
 
   const filtered = useMemo(() => {

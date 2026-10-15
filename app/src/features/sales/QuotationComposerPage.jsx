@@ -397,7 +397,7 @@ export default function QuotationComposerPage({ embedded = null } = {}) {
   function buildPayload(status) {
     return {
       customerId: customer?.id || '',
-      customer: partyLabel || 'Acme Corp',
+      customer: partyLabel || '',
       contactPerson: contactPerson.trim(),
       salesPerson,
       broker: broker.trim(),

@@ -106,7 +106,7 @@ export const PrintInvoiceModal = ({ isOpen, onClose, invoice, balanceDue = 0, })
                   Payment Due: <strong className="text-slate-900">{invoice.dueDate || 'Net 30 Days'}</strong>
                 </p>
                 <p className="text-xs text-blue-700 font-semibold">
-                  Reference: {invoice.salesOrderRef || 'SO-2026-004'}
+                  Reference: {invoice.salesOrderRef || '—'}
                 </p>
               </div>
 

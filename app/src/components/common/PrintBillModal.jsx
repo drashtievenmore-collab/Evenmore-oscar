@@ -77,7 +77,7 @@ export const PrintBillModal = ({ isOpen, onClose, bill, balanceDue = 0, }) => {
                   Due Date: <strong className="text-slate-900">{bill.dueDate || 'Net 30 Days'}</strong>
                 </p>
                 <p className="text-xs text-blue-700 font-semibold">
-                  Matched PO: {bill.poRef || bill.linkedPo || 'PO-2026-0301'}
+                  Matched PO: {bill.poRef || bill.linkedPo || '—'}
                 </p>
               </div>
 
@@ -192,7 +192,7 @@ export const PrintBillModal = ({ isOpen, onClose, bill, balanceDue = 0, }) => {
                 Audit Verification Details
               </span>
               <p className="text-[10px] text-slate-500 leading-normal">
-                This bill has been matched against Purchase Order <strong>{bill.poRef || 'PO-2026'}</strong> and verified at the warehouse goods receiving dock. All items entered into physical stock.
+                This bill has been matched against Purchase Order <strong>{bill.poRef || bill.linkedPo || '—'}</strong> and verified at the warehouse goods receiving dock. All items entered into physical stock.
               </p>
             </div>
 

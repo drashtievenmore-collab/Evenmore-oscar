@@ -1,8 +1,8 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Eye, MoreHorizontal, Pencil, Plus, Trash2, X } from 'lucide-react';
-import { loadJWOs, loadJWOsAsync, saveJWOs, numIN, toDDMMYYYY } from './jobWorkOrdersStore';
-import { loadPlans } from './ProcessPlanListPage';
+import { numIN, toDDMMYYYY, purgeLegacyJobWorkCache } from './jobWorkOrdersStore';
+import { fetchJWOs, fetchPlans, createJWORow, deleteJWORow, errorMessage } from '../../services/jobWorkSync';
 import PageHeader from '../../components/ui/PageHeader';
 
 const statusPill = (s) =>
@@ -43,8 +43,12 @@ function flattenOutwards(orders, plans) {
 
 export default function JobWorkOutwardPage() {
   const navigate = useNavigate();
-  const [orders, setOrders] = useState(loadJWOs);
-  const [plans, setPlans] = useState(loadPlans);
+  const [orders, setOrders] = useState([]);
+  const [plans, setPlans] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState('');
+  const [formError, setFormError] = useState('');
+  const [saving, setSaving] = useState(false);
   const [outwardNo, setOutwardNo] = useState('All');
   const [jwoNo, setJwoNo] = useState('All');
   const [vendor, setVendor] = useState('All');
@@ -67,13 +71,23 @@ export default function JobWorkOutwardPage() {
     remarks: '',
   });
 
+  const reload = async () => {
+    const [jwoRows, planRows] = await Promise.all([fetchJWOs(), fetchPlans()]);
+    setOrders(jwoRows);
+    setPlans(planRows);
+  };
+
   useEffect(() => {
     let live = true;
-    loadJWOsAsync()
-      .then((rows) => {
-        if (live && Array.isArray(rows)) setOrders(rows);
+    purgeLegacyJobWorkCache();
+    Promise.all([fetchJWOs(), fetchPlans()])
+      .then(([jwoRows, planRows]) => {
+        if (!live) return;
+        setOrders(jwoRows);
+        setPlans(planRows);
       })
-      .catch(() => {});
+      .catch((err) => { if (live) setLoadError(errorMessage(err, 'Could not load outward challans.')); })
+      .finally(() => { if (live) setLoading(false); });
     return () => { live = false; };
   }, []);
 
@@ -96,14 +110,15 @@ export default function JobWorkOutwardPage() {
     return true;
   }), [rows, outwardNo, jwoNo, vendor, process, status, fromDate, toDate]);
 
-  const handleDelete = (r) => {
-    if (!window.confirm(`Delete outward ${r.no}?`)) return;
-    const next = orders.map((o) => (String(o.id) === String(r.jwoId)
-      ? { ...o, outwards: (o.outwards || []).filter((x) => String(x.id) !== String(r.id)) }
-      : o));
-    setOrders(next);
-    try { saveJWOs(next); } catch { /* ignore */ }
+  const handleDelete = async (r) => {
     setMenuId(null);
+    if (!window.confirm(`Delete outward ${r.no}?`)) return;
+    try {
+      await deleteJWORow(r.jwoId, 'outwards', r.id);
+      await reload();
+    } catch (err) {
+      window.alert(errorMessage(err, 'Could not delete the outward challan.'));
+    }
   };
 
   const selectedJWO = useMemo(
@@ -127,30 +142,26 @@ export default function JobWorkOutwardPage() {
       status: 'Sent',
       remarks: '',
     });
+    setFormError('');
     setShowForm(true);
   };
 
-  const nextOutwardNo = () => {
-    const max = rows.reduce((m, r) => Math.max(m, Number(String(r.no || '').replace(/\D/g, '')) || 0), 0);
-    return `OUT-2026-${String(max + 1).padStart(3, '0')}`;
-  };
-
-  const handleSave = (e) => {
+  const handleSave = async (e) => {
     e.preventDefault();
-    if (!form.jwoId) { window.alert('Select a Job Work Order first.'); return; }
+    setFormError('');
+    if (!form.jwoId) { setFormError('Select a Job Work Order first.'); return; }
     const qty = Number(form.qty);
-    if (!(qty > 0)) { window.alert('Outward quantity must be greater than 0.'); return; }
+    if (!(qty > 0)) { setFormError('Outward quantity must be greater than 0.'); return; }
     const parent = orders.find((o) => String(o.id) === String(form.jwoId));
-    if (!parent) { window.alert('Selected JWO no longer exists.'); return; }
+    if (!parent) { setFormError('Selected JWO no longer exists.'); return; }
     const used = (parent.outwards || []).reduce((s, o) => s + (Number(o.qty) || 0), 0);
     const remaining = Number(parent.plannedQty || 0) - used;
     if (qty > remaining) {
-      window.alert(`Only ${remaining.toLocaleString('en-IN')} M remains to outward on ${parent.jwoNo}.`);
+      setFormError(`Only ${remaining.toLocaleString('en-IN')} M remains to outward on ${parent.jwoNo}.`);
       return;
     }
+    // The server allocates the outward challan number.
     const entry = {
-      id: `o-${Date.now()}`,
-      no: nextOutwardNo(),
       date: form.date,
       qty,
       warehouse: form.warehouse,
@@ -161,18 +172,16 @@ export default function JobWorkOutwardPage() {
       status: form.status,
       remarks: form.remarks,
     };
-    const next = orders.map((o) => (String(o.id) === String(parent.id)
-      ? { ...o, outwards: [...(o.outwards || []), entry] }
-      : o));
-    setOrders(next);
-    try { saveJWOs(next); } catch { /* ignore */ }
-    // Background backend sync of the parent JWO (same records the detail tab reads).
-    import('../../services/jobWorkSync').then(({ pushUpdateJWO, isJobWorkBackendEnabled }) => {
-      if (!isJobWorkBackendEnabled()) return;
-      const updatedParent = next.find((o) => String(o.id) === String(parent.id));
-      if (updatedParent) pushUpdateJWO(updatedParent.id, updatedParent).catch(() => {});
-    }).catch(() => {});
-    setShowForm(false);
+    setSaving(true);
+    try {
+      await createJWORow(parent.id, 'outwards', entry);
+      await reload();
+      setShowForm(false);
+    } catch (err) {
+      setFormError(errorMessage(err, 'Could not save the outward challan.'));
+    } finally {
+      setSaving(false);
+    }
   };
 
   const selectCls = 'mt-1 w-full rounded-lg border border-slate-200 bg-white px-2.5 py-2 text-[12px] font-medium text-slate-700 outline-none';
@@ -185,6 +194,7 @@ export default function JobWorkOutwardPage() {
         subtitle="Track material sent to vendors for job work processing."
         breadcrumb={[
           { label: 'Dashboard', path: '/dashboard' },
+          { label: 'PMS', path: '/pms' },
           { label: 'Job Work / Processing' },
           { label: 'Job Work Outward' },
         ]}
@@ -299,7 +309,13 @@ export default function JobWorkOutwardPage() {
                   </td>
                 </tr>
               ))}
-              {filtered.length === 0 && (
+              {loading && (
+                <tr><td colSpan={16} className="px-4 py-10 text-center text-[12px] text-slate-400">Loading…</td></tr>
+              )}
+              {!loading && loadError && (
+                <tr><td colSpan={16} className="px-4 py-10 text-center text-[12px] font-semibold text-rose-600">{loadError}</td></tr>
+              )}
+              {!loading && !loadError && filtered.length === 0 && (
                 <tr>
                   <td colSpan={16} className="px-4 py-10 text-center">
                     <p className="text-[13px] font-extrabold text-[#17294e]">No outward challans found</p>
@@ -388,9 +404,12 @@ export default function JobWorkOutwardPage() {
                 <label className="block font-semibold text-slate-700 mb-1 text-[12px]">Remarks</label>
                 <textarea rows={2} value={form.remarks} onChange={(e) => setForm((f) => ({ ...f, remarks: e.target.value }))} placeholder="Remarks…" maxLength={500} className="w-full border border-slate-300 rounded-lg p-2 bg-white text-slate-800 text-[13px]" />
               </div>
+              {formError && (
+                <div className="sm:col-span-2 rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-[12px] font-semibold text-rose-600">{formError}</div>
+              )}
               <div className="sm:col-span-2 flex justify-end gap-2 pt-2 border-t border-slate-100">
                 <button type="button" onClick={() => setShowForm(false)} className="px-4 py-2 border border-slate-300 text-slate-700 rounded-lg hover:bg-slate-100 font-bold text-[12px]">Cancel</button>
-                <button type="submit" className="px-5 py-2 bg-[#2563eb] hover:bg-[#1d4ed8] text-white rounded-lg font-bold text-[12px]">Create Outward</button>
+                <button type="submit" disabled={saving} className="px-5 py-2 bg-[#2563eb] hover:bg-[#1d4ed8] disabled:opacity-50 text-white rounded-lg font-bold text-[12px]">{saving ? 'Saving…' : 'Create Outward'}</button>
               </div>
             </form>
           </div>

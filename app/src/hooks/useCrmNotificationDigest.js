@@ -17,14 +17,11 @@ const EVENT_ENTITY_LABELS = {
   contract: 'Contract',
 };
 
-function readStoredValue(key, fallback) {
-  try {
-    if (typeof localStorage === 'undefined') return fallback;
-    const raw = localStorage.getItem(key);
-    return raw ? JSON.parse(raw) : fallback;
-  } catch {
-    return fallback;
-  }
+// These legacy keys used to hold CRM business rows in browser storage. Nothing
+// writes them any more and business data is never read from the browser, so
+// they resolve to empty; server-backed CRM events still feed the digest.
+function readStoredValue(_key, fallback) {
+  return fallback;
 }
 
 function loadCrmSnapshot() {

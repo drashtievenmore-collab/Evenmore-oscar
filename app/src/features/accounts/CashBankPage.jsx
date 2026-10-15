@@ -1,260 +1,442 @@
-import React, { useState } from 'react';
-import { useERP } from '../../context/ERPContext';
-import { DataTable } from '../../components/ui/DataTable';
-import { StatCard } from '../../components/ui/StatCard';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { Plus, ArrowRightLeft } from 'lucide-react';
+import { api } from '../../services/api';
 import { Button } from '../../components/ui/Button';
-import { Landmark, Plus, DollarSign, CheckCircle2, X } from 'lucide-react';
+import { Modal } from '../../components/ui/Modal';
+import { Pagination } from '../../components/ui/Pagination';
 import { PageHeader } from '../../components/common/PageHeader';
+import {
+  Card,
+  EmptyRow,
+  ErrorState,
+  Kpi,
+  LoadingState,
+  describeApiError,
+  fetchAllPages,
+  formatDate,
+  formatINR,
+  inputClass,
+  labelClass,
+  thClass,
+  todayISO,
+  unwrapList,
+} from './accountingShared';
+
 const cashBankGuide = {
-    title: 'Cash & Bank Accounts (Treasury)',
-    subtitle: 'Treasury liquidity monitoring, corporate banking, and automated reconciliation',
-    purpose: 'Use this page to monitor company cash on hand and institutional bank balances. Recording transactions in Sales, Purchasing, or Payments automatically updates these account balances.',
-    workflow: ['Link Bank Account', 'Process ERP Transactions', 'Track Live Cash Balances', 'Perform Month-End Reconciliation'],
-    keyTerms: [
-        {
-            term: 'Liquid Treasury',
-            definition: 'Immediate cash and bank reserves available to meet working capital requirements and supplier payables.',
-        },
-        {
-            term: 'Operating Account',
-            definition: 'Primary checking account used for day-to-day vendor disbursements and customer invoice settlements.',
-        },
-        {
-            term: 'Automated Posting',
-            definition: 'When invoices or bills are marked paid, the corresponding bank ledger balance is updated immediately.',
-        },
-        {
-            term: 'Reconciliation',
-            definition: 'Cross-verifying ERP bank ledger entries against official monthly bank statements.',
-        },
-    ],
-    tips: [
-        'Settling sales invoices or issuing vendor vouchers automatically updates cash/bank account ledger balances.',
-    ],
+  title: 'Cash & Bank Accounts (Treasury)',
+  subtitle: 'Bank and cash balances from the ledger, and inter-account transfers',
+  purpose:
+    'Balances are opening balance plus every posted debit and credit on the linked ledger account. Recording receipts, payments and transfers updates them on the server.',
+  workflow: ['Link bank / cash account to a ledger account', 'Post ERP transactions', 'Track balances', 'Transfer funds between accounts'],
+  keyTerms: [
+    { term: 'Ledger account', definition: 'The chart-of-accounts entry the bank account posts to.' },
+    { term: 'Inter-account transfer', definition: 'Moves funds between two of your accounts; the server posts a balanced journal entry with no P&L impact.' },
+  ],
+  tips: ['Transfers are posted immediately and appear in the General Ledger.'],
 };
+
+const BANK_TYPES = ['Bank', 'Cash', 'UPI', 'Card'];
+const TRANSFER_PAGE_SIZE = 25;
+
+const emptyBank = () => ({
+  name: '',
+  type: '',
+  accountId: '',
+  bankName: '',
+  accountNumber: '',
+  ifsc: '',
+  branch: '',
+  openingBalance: '',
+  isDefault: false,
+});
+
+const emptyTransfer = () => ({
+  fromAccountId: '',
+  toAccountId: '',
+  amount: '',
+  date: todayISO(),
+  reference: '',
+  notes: '',
+});
+
 export const CashBankPage = () => {
-    const { bankAccounts, addBankAccount, addInterbankTransfer, transfers = [], formatCurrency, formatDateDDMMYYYY, getCurrentDateFormatted } = useERP();
-    const [isModalOpen, setIsModalOpen] = useState(false);
-    const [showTransfer, setShowTransfer] = useState(false); // [PHASE-2E] inter-bank transfer panel
-    const [transferFrom, setTransferFrom] = useState('');
-    const [transferTo, setTransferTo] = useState('');
-    const [transferAmt, setTransferAmt] = useState(0);
-    const [transferRef, setTransferRef] = useState('');
-    const [newAcc, setNewAcc] = useState({
-        bankName: '',
-        accountNumber: '',
-        accountName: 'Operating Account',
-        accountType: 'Current Operating',
-        balance: 10000,
-    });
-    const totalLiquidity = bankAccounts.reduce((sum, a) => sum + a.balance, 0);
-    const columns = [
-        {
-            header: 'Financial Institution',
-            key: 'bankName',
-            render: (a) => (<div className="flex items-center gap-2">
-          <div className="p-1.5 rounded bg-slate-100 text-[#1F2E4A]">
-            <Landmark size={16}/>
-          </div>
-          <div>
-            <p className="font-semibold text-slate-900">{a.bankName}</p>
-            <p className="text-[11px] font-mono text-slate-500">{a.accountNumber}</p>
-          </div>
-        </div>),
-        },
-        {
-            header: 'Account Classification',
-            key: 'accountType',
-            render: (a) => (<span className="px-2 py-0.5 rounded bg-slate-100 font-medium text-slate-700 text-[11px]">
-          {a.accountType || 'Operating'}
-        </span>),
-        },
-        {
-            header: 'Ledger Balance',
-            key: 'balance',
-            align: 'right',
-            render: (a) => (<span className="font-bold text-slate-900 font-mono text-sm">
-          {formatCurrency(a.balance)}
-        </span>),
-        },
-        {
-            header: 'Last Reconciled',
-            key: 'lastReconciled',
-            align: 'center',
-            render: (a) => (<span className="text-slate-500 text-xs">
-          {formatDateDDMMYYYY(a.lastReconciled || 'Oct 24, 2026')}
-        </span>),
-        },
-        {
-            header: 'Status',
-            key: 'status',
-            align: 'center',
-            render: () => (<span className="inline-flex px-2.5 py-0.5 rounded-full text-xs font-semibold bg-emerald-50 text-emerald-800 border border-emerald-200">
-          Connected
-        </span>),
-        },
-    ];
-    const handleCreate = (e) => {
-        e.preventDefault();
-        if (!newAcc.bankName)
-            return;
-        addBankAccount({
-            bankName: newAcc.bankName,
-            accountName: newAcc.accountName || newAcc.bankName,
-            accountNumber: newAcc.accountNumber || '•••• 1234',
-            accountType: newAcc.accountType || 'Current Operating',
-            // [PHASE-4] Sweven INR default (was hardcoded 'USD')
-            currency: 'INR',
-            balance: Number(newAcc.balance) || 0,
-            lastReconciled: getCurrentDateFormatted(),
-        });
-        setIsModalOpen(false);
+  const [banks, setBanks] = useState([]);
+  const [banksLoading, setBanksLoading] = useState(true);
+  const [banksError, setBanksError] = useState('');
+
+  const [balances, setBalances] = useState(null);
+  const [balancesError, setBalancesError] = useState('');
+
+  const [transfers, setTransfers] = useState(null);
+  const [transferPage, setTransferPage] = useState(1);
+  const [transfersLoading, setTransfersLoading] = useState(true);
+  const [transfersError, setTransfersError] = useState('');
+
+  const [ledgerAccounts, setLedgerAccounts] = useState([]);
+  const [ledgerError, setLedgerError] = useState('');
+
+  const [showBankForm, setShowBankForm] = useState(false);
+  const [bankForm, setBankForm] = useState(emptyBank);
+  const [bankSaving, setBankSaving] = useState(false);
+  const [bankFormError, setBankFormError] = useState('');
+
+  const [showTransferForm, setShowTransferForm] = useState(false);
+  const [transferForm, setTransferForm] = useState(emptyTransfer);
+  const [transferSaving, setTransferSaving] = useState(false);
+  const [transferFormError, setTransferFormError] = useState('');
+
+  const loadBanks = useCallback(async () => {
+    setBanksLoading(true);
+    setBanksError('');
+    try {
+      setBanks(await fetchAllPages(api, '/accounts/bank-accounts/'));
+    } catch (err) {
+      setBanks([]);
+      setBanksError(describeApiError(err));
+    } finally {
+      setBanksLoading(false);
+    }
+  }, []);
+
+  const loadBalances = useCallback(async () => {
+    setBalancesError('');
+    try {
+      setBalances(await api.get('/accounts/balances/'));
+    } catch (err) {
+      setBalances(null);
+      setBalancesError(describeApiError(err));
+    }
+  }, []);
+
+  const loadTransfers = useCallback(async () => {
+    setTransfersLoading(true);
+    setTransfersError('');
+    try {
+      setTransfers(await api.get('/accounts/transfers/', { query: { page: transferPage, page_size: TRANSFER_PAGE_SIZE } }));
+    } catch (err) {
+      setTransfers(null);
+      setTransfersError(describeApiError(err));
+    } finally {
+      setTransfersLoading(false);
+    }
+  }, [transferPage]);
+
+  useEffect(() => {
+    loadBanks();
+    loadBalances();
+  }, [loadBanks, loadBalances]);
+
+  useEffect(() => {
+    loadTransfers();
+  }, [loadTransfers]);
+
+  const openBankForm = async () => {
+    setBankForm(emptyBank());
+    setBankFormError('');
+    setShowBankForm(true);
+    try {
+      setLedgerAccounts(await fetchAllPages(api, '/accounts/chart-of-accounts/', { type: 'Asset' }));
+      setLedgerError('');
+    } catch (err) {
+      setLedgerError(describeApiError(err));
+    }
+  };
+
+  const bankById = useMemo(() => Object.fromEntries(banks.map((b) => [b.id, b])), [banks]);
+  const bankName = (id) => (bankById[id] ? bankById[id].name : id);
+
+  const handleCreateBank = async (e) => {
+    e.preventDefault();
+    if (!bankForm.name.trim() || !bankForm.type || !bankForm.accountId) {
+      setBankFormError('Name, type and ledger account are required.');
+      return;
+    }
+    const payload = {
+      name: bankForm.name.trim(),
+      type: bankForm.type,
+      accountId: bankForm.accountId,
+      bankName: bankForm.bankName.trim() || null,
+      accountNumber: bankForm.accountNumber.trim() || null,
+      ifsc: bankForm.ifsc.trim() || null,
+      branch: bankForm.branch.trim() || null,
+      isDefault: bankForm.isDefault,
     };
-    return (<div className="space-y-6">
-      <PageHeader title="Cash & Bank Accounts" subtitle="Real-time liquidity monitoring, treasury accounts, and automated statement reconciliation." guide={cashBankGuide} actions={<Button icon={Plus} onClick={() => setIsModalOpen(true)}>
-            Add Bank Account
-          </Button>}/>
+    if (bankForm.openingBalance !== '') payload.openingBalance = bankForm.openingBalance;
+    setBankSaving(true);
+    setBankFormError('');
+    try {
+      await api.post('/accounts/bank-accounts/', payload);
+      setShowBankForm(false);
+      await Promise.all([loadBanks(), loadBalances()]);
+    } catch (err) {
+      setBankFormError(describeApiError(err));
+    } finally {
+      setBankSaving(false);
+    }
+  };
+
+  const handleCreateTransfer = async (e) => {
+    e.preventDefault();
+    const f = transferForm;
+    if (!f.fromAccountId || !f.toAccountId || !f.date) {
+      setTransferFormError('Source, destination and date are required.');
+      return;
+    }
+    if (f.fromAccountId === f.toAccountId) {
+      setTransferFormError('Source and destination must be different accounts.');
+      return;
+    }
+    if (!(Number(f.amount) > 0)) {
+      setTransferFormError('Amount must be greater than zero.');
+      return;
+    }
+    setTransferSaving(true);
+    setTransferFormError('');
+    try {
+      await api.post('/accounts/transfers/', {
+        fromAccountId: f.fromAccountId,
+        toAccountId: f.toAccountId,
+        amount: f.amount,
+        date: f.date,
+        reference: f.reference.trim() || null,
+        notes: f.notes.trim() || null,
+      });
+      setShowTransferForm(false);
+      setTransferForm(emptyTransfer());
+      if (transferPage !== 1) setTransferPage(1);
+      await Promise.all([loadTransfers(), loadBanks(), loadBalances()]);
+    } catch (err) {
+      setTransferFormError(describeApiError(err));
+    } finally {
+      setTransferSaving(false);
+    }
+  };
+
+  const transferRows = unwrapList(transfers);
+  const balanceRows = unwrapList(balances);
+
+  return (
+    <div className="space-y-6">
+      <PageHeader
+        title="Cash & Bank Accounts"
+        subtitle="Ledger balances of bank and cash accounts, and inter-account transfers."
+        guide={cashBankGuide}
+        actions={
+          <div className="flex flex-wrap gap-2">
+            <Button variant="outline" icon={ArrowRightLeft} onClick={() => { setTransferForm(emptyTransfer()); setTransferFormError(''); setShowTransferForm(true); }} disabled={banks.length < 2}>
+              New Transfer
+            </Button>
+            <Button icon={Plus} onClick={openBankForm}>Add Bank / Cash Account</Button>
+          </div>
+        }
+      />
 
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-        <StatCard label="Total Liquid Cash & Treasury" value={formatCurrency(totalLiquidity)} icon={DollarSign} highlight/>
-        <StatCard label="Operating Accounts" value={`${bankAccounts.length} Accounts`} icon={Landmark}/>
-        {/* [PHASE-2E] live treasury movements + open transfers */}
-        <StatCard label="Recent Transfers" value={`${transfers.length} Movements`} icon={CheckCircle2} subtext={transfers.length > 0 ? `Latest: ${transfers[0].transferNumber}` : 'No inter-bank movements yet'} />
+        <Kpi
+          label="Total Liquidity"
+          value={balances ? formatINR(balances.aggregates?.totalBalance) : '—'}
+          tone="text-slate-900"
+          note={balancesError ? 'Balances unavailable' : 'Sum of ledger balances (server)'}
+        />
+        <Kpi label="Bank & Cash Accounts" value={banksLoading ? '—' : String(banks.length)} />
+        <Kpi label="Transfers Recorded" value={transfers ? String(transfers.count ?? 0) : '—'} />
       </div>
+      <ErrorState message={balancesError ? `Balances could not be loaded — ${balancesError}` : ''} onRetry={loadBalances} />
 
-      {/* ── [PHASE-2E] Inter-Bank Transfer (treasury reshuffling, no P&L impact) ── */}
-      <div className="bg-white border border-[#CED4DA] rounded-lg shadow-xs">
-        <div className="px-5 py-4 border-b border-[#CED4DA] flex flex-wrap lg:flex-nowrap items-center justify-between gap-2 lg:gap-0">
-          <div>
-            <h3 className="font-bold text-sm text-[#1F2E4A]">Inter-Bank Transfer</h3>
-            <p className="text-xs text-slate-500 mt-0.5">Move cash between company bank accounts. A mirrored journal entry is auto-posted; P&amp;L is unaffected.</p>
-          </div>
-          <button onClick={() => setShowTransfer(!showTransfer)} className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded-lg cursor-pointer whitespace-nowrap transition">
-            {showTransfer ? 'Close' : 'New Transfer'}
-          </button>
-        </div>
-        {showTransfer && (
-          <div className="p-4 sm:p-5">
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-[1fr_1fr_160px_auto] gap-3 items-end">
-              <div>
-                <label className="block text-[11px] font-semibold text-slate-600 mb-1">From Account *</label>
-                <select value={transferFrom} onChange={(e) => setTransferFrom(e.target.value)} className="w-full border border-slate-300 rounded-lg p-2 bg-white text-slate-800 text-xs">
-                  <option value="">Select source...</option>
-                  {bankAccounts.map((a) => (
-                    <option key={a.id} value={a.id}>{a.bankName} — {formatCurrency(a.balance)}</option>
-                  ))}
-                </select>
-              </div>
-              <div>
-                <label className="block text-[11px] font-semibold text-slate-600 mb-1">To Account *</label>
-                <select value={transferTo} onChange={(e) => setTransferTo(e.target.value)} className="w-full border border-slate-300 rounded-lg p-2 bg-white text-slate-800 text-xs">
-                  <option value="">Select destination...</option>
-                  {bankAccounts.filter((a) => a.id !== transferFrom).map((a) => (
-                    <option key={a.id} value={a.id}>{a.bankName} — {formatCurrency(a.balance)}</option>
-                  ))}
-                </select>
-              </div>
-              <div>
-                <label className="block text-[11px] font-semibold text-slate-600 mb-1">Amount (₹) *</label>
-                <input type="number" min="0.01" step="0.01" value={transferAmt || ''} onChange={(e) => setTransferAmt(Number(e.target.value))} placeholder="0" className="w-full border border-slate-300 rounded-lg p-2 bg-white text-slate-900 font-mono text-xs" />
-              </div>
-              <button
-                type="button"
-                disabled={!transferFrom || !transferTo || transferFrom === transferTo || transferAmt <= 0}
-                onClick={() => {
-                  addInterbankTransfer({ fromAccountId: transferFrom, toAccountId: transferTo, amount: transferAmt, reference: transferRef, date: getCurrentDateFormatted() });
-                  setTransferFrom(''); setTransferTo(''); setTransferAmt(0); setTransferRef('');
-                }}
-                className="px-4 py-2 bg-[#1F2E4A] hover:bg-[#152033] text-white rounded-lg text-xs font-bold shadow-sm cursor-pointer disabled:opacity-50 transition"
-              >
-                Execute Transfer
-              </button>
-            </div>
-            <div className="mt-3">
-              <input type="text" value={transferRef} onChange={(e) => setTransferRef(e.target.value)} placeholder="Internal reference (optional)" className="w-full sm:w-80 border border-slate-200 rounded-lg p-1.5 text-xs text-slate-700 bg-slate-50" />
-            </div>
-          </div>
-        )}
-      </div>
-
-      {/* [PHASE-2E] Recent inter-bank transfers log */}
-      {transfers.length > 0 && (
-        <div className="bg-white border border-[#CED4DA] rounded-lg overflow-hidden">
-          <div className="px-5 py-3 border-b border-slate-100">
-            <h3 className="font-bold text-xs text-[#1F2E4A]">Inter-Bank Transfer Ledger</h3>
-          </div>
+      <Card title="Bank & Cash Register" subtitle="Balance = opening balance + posted debits − credits on the linked ledger account.">
+        <ErrorState message={banksError} onRetry={loadBanks} />
+        {banksLoading ? (
+          <LoadingState label="Loading accounts…" />
+        ) : !banksError && (
           <div className="overflow-x-auto">
-            <table className="w-full min-w-[640px] lg:min-w-0 text-left text-xs text-slate-600">
-              <thead className="bg-slate-50 uppercase font-semibold text-slate-500 tracking-wider border-b border-slate-200">
+            <table className="w-full min-w-[760px] text-left text-xs text-slate-600">
+              <thead className="bg-slate-50 border-b border-[#dce5f4]">
                 <tr>
-                  <th className="py-2 px-3">Ref</th>
-                  <th className="py-2 px-3">Date</th>
-                  <th className="py-2 px-3">From</th>
-                  <th className="py-2 px-3">To</th>
-                  <th className="py-2 px-3 text-right">Amount</th>
-                  <th className="py-2 px-3 text-center">Status</th>
+                  <th className={thClass}>Account</th>
+                  <th className={thClass}>Type</th>
+                  <th className={thClass}>Bank / Branch</th>
+                  <th className={thClass}>Account No. / IFSC</th>
+                  <th className={thClass}>Ledger Account</th>
+                  <th className={`${thClass} text-right`}>Opening</th>
+                  <th className={`${thClass} text-right`}>Balance</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
-                {transfers.slice(0, 10).map((tr) => (
-                  <tr key={tr.id} className="hover:bg-slate-50/70">
-                    <td className="p-2 font-mono font-semibold text-slate-800">{tr.transferNumber}</td>
-                    <td className="p-2 font-mono text-slate-500">{formatDateDDMMYYYY(tr.date)}</td>
-                    <td className="p-2">{tr.fromAccount}</td>
-                    <td className="p-2">{tr.toAccount}</td>
-                    <td className="p-2 text-right font-mono font-bold text-rose-600">{formatCurrency(tr.amount)}</td>
-                    <td className="p-2 text-center"><span className="inline-flex px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200">{tr.status}</span></td>
+                {banks.length === 0 && <EmptyRow colSpan={7} message="No bank or cash accounts yet. Add one to start tracking balances." />}
+                {banks.map((b) => (
+                  <tr key={b.id} className="hover:bg-slate-50">
+                    <td className="py-2 px-3">
+                      <span className="font-semibold text-slate-800">{b.name}</span>
+                      {b.isDefault && <span className="ml-2 inline-flex px-1.5 py-0.5 rounded text-[10px] font-bold bg-blue-50 text-blue-700 border border-blue-200">Default</span>}
+                      {b.isActive === false && <span className="ml-2 inline-flex px-1.5 py-0.5 rounded text-[10px] font-bold bg-slate-100 text-slate-500">Inactive</span>}
+                    </td>
+                    <td className="py-2 px-3">{b.type}</td>
+                    <td className="py-2 px-3">{[b.bankName, b.branch].filter(Boolean).join(' · ') || '—'}</td>
+                    <td className="py-2 px-3 font-mono">{[b.accountNumber, b.ifsc].filter(Boolean).join(' · ') || '—'}</td>
+                    <td className="py-2 px-3">{b.accountName || '—'}</td>
+                    <td className="py-2 px-3 text-right font-mono">{formatINR(b.openingBalance)}</td>
+                    <td className="py-2 px-3 text-right font-mono font-bold text-slate-900">{formatINR(b.balance)}</td>
                   </tr>
                 ))}
               </tbody>
             </table>
           </div>
-        </div>
+        )}
+      </Card>
+
+      {balanceRows.length > 0 && (
+        <Card title="Ledger Balances" subtitle="As reported by /accounts/balances/.">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+            {balanceRows.map((r) => (
+              <div key={r.id} className="border border-[#dce5f4] rounded-xl p-3">
+                <p className="text-[11px] font-semibold text-slate-500">{r.name}{r.bankName ? ` · ${r.bankName}` : ''}</p>
+                <p className="font-mono font-bold text-slate-900 mt-1">{formatINR(r.balance)}</p>
+              </div>
+            ))}
+          </div>
+        </Card>
       )}
 
-      <DataTable title="Bank & Cash Register" data={bankAccounts} columns={columns} keyExtractor={(a) => a.id} searchPlaceholder="Search bank accounts..." searchFilter={(a, term) => String(a.bankName ?? '').toLowerCase().includes(term) ||
-            String(a.accountNumber ?? '').toLowerCase().includes(term) ||
-            (a.accountType || '').toLowerCase().includes(term)}/>
-
-      {isModalOpen && (<div className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-2 sm:p-4">
-          <div className="bg-white rounded-lg border border-[#CED4DA] max-w-md w-full p-4 sm:p-6 shadow-xl text-xs max-h-[95vh] overflow-y-auto">
-            <div className="flex items-center justify-between pb-3 border-b border-[#CED4DA]">
-              <h3 className="font-bold text-base text-[#1F2E4A]">Link New Bank Account</h3>
-              <button onClick={() => setIsModalOpen(false)} className="text-slate-400 hover:text-slate-600 cursor-pointer">
-                <X size={18}/>
-              </button>
-            </div>
-            <form onSubmit={handleCreate} className="space-y-4 mt-4">
-              <div>
-                <label className="font-semibold text-slate-700 block mb-1">Financial Institution *</label>
-                <input type="text" required placeholder="e.g. Bank of America Commercial" value={newAcc.bankName} onChange={(e) => setNewAcc({ ...newAcc, bankName: e.target.value })} className="w-full p-2 border border-[#CED4DA] rounded bg-[#F8F9FA]"/>
-              </div>
-              <div>
-                <label className="font-semibold text-slate-700 block mb-1">Account Number Mask</label>
-                <input type="text" placeholder="e.g. •••• 9921" value={newAcc.accountNumber} onChange={(e) => setNewAcc({ ...newAcc, accountNumber: e.target.value })} className="w-full p-2 border border-[#CED4DA] rounded bg-[#F8F9FA]"/>
-              </div>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <div>
-                  <label className="font-semibold text-slate-700 block mb-1">Account Type</label>
-                  <select value={newAcc.accountType} onChange={(e) => setNewAcc({ ...newAcc, accountType: e.target.value })} className="w-full p-2 border border-[#CED4DA] rounded bg-[#F8F9FA]">
-                    <option value="Current Operating">Current Operating</option>
-                    <option value="Treasury Reserve">Treasury Reserve</option>
-                    <option value="Petty Cash">Petty Cash</option>
-                  </select>
-                </div>
-                <div>
-                  <label className="font-semibold text-slate-700 block mb-1">Opening Balance ($)</label>
-                  <input type="number" value={newAcc.balance} onChange={(e) => setNewAcc({ ...newAcc, balance: Number(e.target.value) })} className="w-full p-2 border border-[#CED4DA] rounded bg-[#F8F9FA]"/>
-                </div>
-              </div>
-              <div className="flex flex-wrap lg:flex-nowrap justify-end gap-3 pt-3 border-t border-[#CED4DA]">
-                <Button variant="outline" type="button" onClick={() => setIsModalOpen(false)}>
-                  Cancel
-                </Button>
-                <Button type="submit">Link Account</Button>
-              </div>
-            </form>
+      <Card title="Inter-Account Transfers" subtitle="Each transfer posts a balanced journal entry on the server; P&L is unaffected.">
+        <ErrorState message={transfersError} onRetry={loadTransfers} />
+        {transfersLoading ? (
+          <LoadingState label="Loading transfers…" />
+        ) : !transfersError && (
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[680px] text-left text-xs text-slate-600">
+              <thead className="bg-slate-50 border-b border-[#dce5f4]">
+                <tr>
+                  <th className={thClass}>Date</th>
+                  <th className={thClass}>From</th>
+                  <th className={thClass}>To</th>
+                  <th className={thClass}>Reference</th>
+                  <th className={thClass}>Notes</th>
+                  <th className={`${thClass} text-right`}>Amount</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100">
+                {transferRows.length === 0 && <EmptyRow colSpan={6} message="No transfers recorded yet." />}
+                {transferRows.map((t) => (
+                  <tr key={t.id} className="hover:bg-slate-50">
+                    <td className="py-2 px-3 font-mono whitespace-nowrap">{formatDate(t.date)}</td>
+                    <td className="py-2 px-3">{bankName(t.fromAccountId)}</td>
+                    <td className="py-2 px-3">{bankName(t.toAccountId)}</td>
+                    <td className="py-2 px-3 font-mono">{t.reference || '—'}</td>
+                    <td className="py-2 px-3">{t.notes || '—'}</td>
+                    <td className="py-2 px-3 text-right font-mono font-bold text-slate-900">{formatINR(t.amount)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </div>
-        </div>)}
-    </div>);
+        )}
+        {transfers && (transfers.count ?? 0) > TRANSFER_PAGE_SIZE && (
+          <div className="mt-3">
+            <Pagination total={transfers.count} page={transferPage} pageSize={TRANSFER_PAGE_SIZE} onChange={setTransferPage} />
+          </div>
+        )}
+      </Card>
+
+      <Modal isOpen={showBankForm} onClose={bankSaving ? undefined : () => setShowBankForm(false)} title="Add Bank / Cash Account" size="lg">
+        <form onSubmit={handleCreateBank} className="space-y-3 text-xs">
+          <ErrorState message={ledgerError ? `Ledger accounts could not be loaded — ${ledgerError}` : ''} />
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div>
+              <label className={labelClass}>Display Name *</label>
+              <input required value={bankForm.name} onChange={(e) => setBankForm({ ...bankForm, name: e.target.value })} className={inputClass} />
+            </div>
+            <div>
+              <label className={labelClass}>Type *</label>
+              <select required value={bankForm.type} onChange={(e) => setBankForm({ ...bankForm, type: e.target.value })} className={inputClass}>
+                <option value="">Select type…</option>
+                {BANK_TYPES.map((t) => <option key={t} value={t}>{t}</option>)}
+              </select>
+            </div>
+            <div className="sm:col-span-2">
+              <label className={labelClass}>Ledger Account (Chart of Accounts, Asset) *</label>
+              <select required value={bankForm.accountId} onChange={(e) => setBankForm({ ...bankForm, accountId: e.target.value })} className={inputClass}>
+                <option value="">Select ledger account…</option>
+                {ledgerAccounts.map((a) => (
+                  <option key={a.id} value={a.id}>{a.code ? `${a.code} - ` : ''}{a.name}{a.subtype ? ` (${a.subtype})` : ''}</option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className={labelClass}>Bank Name</label>
+              <input value={bankForm.bankName} onChange={(e) => setBankForm({ ...bankForm, bankName: e.target.value })} className={inputClass} />
+            </div>
+            <div>
+              <label className={labelClass}>Branch</label>
+              <input value={bankForm.branch} onChange={(e) => setBankForm({ ...bankForm, branch: e.target.value })} className={inputClass} />
+            </div>
+            <div>
+              <label className={labelClass}>Account Number</label>
+              <input value={bankForm.accountNumber} onChange={(e) => setBankForm({ ...bankForm, accountNumber: e.target.value })} className={`${inputClass} font-mono`} />
+            </div>
+            <div>
+              <label className={labelClass}>IFSC</label>
+              <input value={bankForm.ifsc} onChange={(e) => setBankForm({ ...bankForm, ifsc: e.target.value.toUpperCase() })} className={`${inputClass} font-mono`} />
+            </div>
+            <div>
+              <label className={labelClass}>Opening Balance (₹)</label>
+              <input type="number" step="0.01" value={bankForm.openingBalance} onChange={(e) => setBankForm({ ...bankForm, openingBalance: e.target.value })} className={`${inputClass} font-mono`} />
+            </div>
+            <label className="flex items-center gap-2 pt-5 text-slate-700 font-semibold">
+              <input type="checkbox" checked={bankForm.isDefault} onChange={(e) => setBankForm({ ...bankForm, isDefault: e.target.checked })} />
+              Default account
+            </label>
+          </div>
+          <ErrorState message={bankFormError} />
+          <div className="flex flex-wrap justify-end gap-2 pt-3 border-t border-[#dce5f4]">
+            <Button type="button" variant="outline" onClick={() => setShowBankForm(false)} disabled={bankSaving}>Cancel</Button>
+            <Button type="submit" disabled={bankSaving}>{bankSaving ? 'Saving…' : 'Save Account'}</Button>
+          </div>
+        </form>
+      </Modal>
+
+      <Modal isOpen={showTransferForm} onClose={transferSaving ? undefined : () => setShowTransferForm(false)} title="New Inter-Account Transfer" size="lg">
+        <form onSubmit={handleCreateTransfer} className="space-y-3 text-xs">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div>
+              <label className={labelClass}>From Account *</label>
+              <select required value={transferForm.fromAccountId} onChange={(e) => setTransferForm({ ...transferForm, fromAccountId: e.target.value })} className={inputClass}>
+                <option value="">Select source…</option>
+                {banks.map((b) => <option key={b.id} value={b.id}>{b.name} — {formatINR(b.balance)}</option>)}
+              </select>
+            </div>
+            <div>
+              <label className={labelClass}>To Account *</label>
+              <select required value={transferForm.toAccountId} onChange={(e) => setTransferForm({ ...transferForm, toAccountId: e.target.value })} className={inputClass}>
+                <option value="">Select destination…</option>
+                {banks.filter((b) => b.id !== transferForm.fromAccountId).map((b) => <option key={b.id} value={b.id}>{b.name} — {formatINR(b.balance)}</option>)}
+              </select>
+            </div>
+            <div>
+              <label className={labelClass}>Amount (₹) *</label>
+              <input type="number" min="0.01" step="0.01" required value={transferForm.amount} onChange={(e) => setTransferForm({ ...transferForm, amount: e.target.value })} className={`${inputClass} font-mono`} />
+            </div>
+            <div>
+              <label className={labelClass}>Date *</label>
+              <input type="date" required value={transferForm.date} onChange={(e) => setTransferForm({ ...transferForm, date: e.target.value })} className={inputClass} />
+            </div>
+            <div>
+              <label className={labelClass}>Reference</label>
+              <input value={transferForm.reference} onChange={(e) => setTransferForm({ ...transferForm, reference: e.target.value })} className={inputClass} />
+            </div>
+            <div>
+              <label className={labelClass}>Notes</label>
+              <input value={transferForm.notes} onChange={(e) => setTransferForm({ ...transferForm, notes: e.target.value })} className={inputClass} />
+            </div>
+          </div>
+          <ErrorState message={transferFormError} />
+          <div className="flex flex-wrap justify-end gap-2 pt-3 border-t border-[#dce5f4]">
+            <Button type="button" variant="outline" onClick={() => setShowTransferForm(false)} disabled={transferSaving}>Cancel</Button>
+            <Button type="submit" disabled={transferSaving}>{transferSaving ? 'Posting…' : 'Post Transfer'}</Button>
+          </div>
+        </form>
+      </Modal>
+    </div>
+  );
 };
+
+export default CashBankPage;

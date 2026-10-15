@@ -21,7 +21,7 @@ import { BarcodeLabelModal } from '../../components/common/BarcodeLabelModal';
 import { ImportModal } from '../../components/common/ImportModal';
 
 export const ItemsMasterPage = () => {
-    const { items, itemParts = [], addInventoryItem, vendors, addPurchaseOrder, formatCurrency } = useERP();
+    const { items, itemParts = [], addInventoryItem, vendors, addPurchaseOrder, formatCurrency, showToast, getCurrentISODate } = useERP();
     const navigate = useNavigate();
     const location = useLocation();
     
@@ -45,64 +45,77 @@ export const ItemsMasterPage = () => {
 
     const [selectedBarcodeItem, setSelectedBarcodeItem] = useState(null);
     const [restockSuccess, setRestockSuccess] = useState(false);
+    const [restockVendorId, setRestockVendorId] = useState('');
+    const [restocking, setRestocking] = useState(false);
     const [isImportOpen, setIsImportOpen] = useState(false);
 
+    // Import creates item masters only. Rows without a name are skipped
+    // (nothing is invented); opening stock is never set from a file — it
+    // comes in through a stock document.
     const handleImportCsv = (rows) => {
-        rows.forEach((r, idx) => {
+        const num = (v) => {
+            const n = parseFloat(v);
+            return Number.isFinite(n) ? n : undefined;
+        };
+        let skipped = 0;
+        rows.forEach((r) => {
+            const name = (r['NAME'] || r['Name'] || r['Product Name'] || '').trim();
+            if (!name) { skipped += 1; return; }
             addInventoryItem({
-                sku: r['SKU'] || r['Sku'] || r['Part Number'] || `SKU-IMP-${Date.now().toString().slice(-4)}-${idx + 1}`,
-                name: r['NAME'] || r['Name'] || r['Product Name'] || `Imported Item ${idx + 1}`,
-                category: r['CATEGORY'] || r['Category'] || 'Passive Components',
-                itemKind: isMachineView ? 'Machine' : (r['KIND'] || 'Part'),
-                uom: r['UOM'] || r['Unit'] || 'Pcs',
-                unitCost: parseFloat(r['COST'] || r['Cost Price'] || r['costPrice'] || '25') || 25,
-                costPrice: parseFloat(r['COST'] || r['Cost Price'] || r['costPrice'] || '25') || 25,
-                sellingPrice: parseFloat(r['PRICE'] || r['Selling Price'] || r['sellingPrice'] || '45') || 45,
-                availableQty: parseInt(r['QTY'] || r['Stock'] || r['stock'] || '50', 10) || 50,
-                reorderLevel: parseInt(r['REORDER'] || r['Reorder Level'] || '10', 10) || 10,
-                location: r['LOCATION'] || r['Location'] || 'Main Central Warehouse',
+                sku: r['SKU'] || r['Sku'] || r['Part Number'] || '',
+                name,
+                category: r['CATEGORY'] || r['Category'] || undefined,
+                itemKind: isMachineView ? 'Machine' : (r['KIND'] || undefined),
+                uom: r['UOM'] || r['Unit'] || undefined,
+                unitCost: num(r['COST'] || r['Cost Price'] || r['costPrice']),
+                costPrice: num(r['COST'] || r['Cost Price'] || r['costPrice']),
+                sellingPrice: num(r['PRICE'] || r['Selling Price'] || r['sellingPrice']),
+                reorderLevel: num(r['REORDER'] || r['Reorder Level']),
             });
         });
+        if (skipped > 0) {
+            showToast?.(`${skipped} row(s) skipped — the item name is required.`);
+        }
     };
 
     // Detect depleted items in current view
     const lowStockItems = displayItems.filter((i) => (i.availableQty ?? i.stock ?? 0) <= (i.reorderLevel || 5));
 
-    const handleBulkSmartRestock = () => {
+    const handleBulkSmartRestock = async () => {
         if (lowStockItems.length === 0) return;
-        const defaultVendor = vendors[0];
-        
+        const vendor = vendors.find((v) => v.id === restockVendorId);
+        if (!vendor) {
+            showToast?.('Select the vendor for the restock purchase order.');
+            return;
+        }
+        // Deficit up to twice the reorder level; rate is the item's own cost.
         const restockItems = lowStockItems.map((it) => {
-            const deficit = Math.max(10, (it.reorderLevel || 10) * 2 - (it.availableQty ?? it.stock ?? 0));
-            const unitRate = it.costPrice ?? it.unitCost ?? 50;
+            const deficit = Math.max(1, (Number(it.reorderLevel) || 0) * 2 - (it.availableQty ?? it.stock ?? 0));
             return {
-                id: `li-restock-${Date.now()}-${it.id}`,
                 itemId: it.id,
                 itemSku: it.sku,
                 description: it.name,
                 qty: deficit,
-                rate: unitRate,
+                rate: Number(it.costPrice ?? it.unitCost ?? 0),
                 discount: 0,
-                tax: 18,
-                amount: Math.round(deficit * unitRate * 1.18 * 100) / 100,
+                tax: Number(it.taxRate ?? 0),
             };
         });
-
-        const totalAmt = restockItems.reduce((acc, it) => acc + it.amount, 0);
-        addPurchaseOrder({
-            poNumber: `PO-AUTO-${Date.now().toString().slice(-4)}`,
-            vendorId: defaultVendor?.id,
-            vendor: defaultVendor?.name || 'Cisco Systems Direct',
-            date: new Date().toISOString().split('T')[0],
-            expectedDate: 'In 5 days (Auto-Restock)',
-            amount: totalAmt,
-            total: totalAmt,
-            status: 'Draft',
-            lineItems: restockItems,
-            items: restockItems,
-        });
-        setRestockSuccess(true);
-        setTimeout(() => setRestockSuccess(false), 5000);
+        setRestocking(true);
+        try {
+            await addPurchaseOrder({
+                vendorId: vendor.id,
+                date: getCurrentISODate(),
+                status: 'Draft',
+                items: restockItems,
+            });
+            setRestockSuccess(true);
+            setTimeout(() => setRestockSuccess(false), 5000);
+        } catch {
+            // The reason was shown.
+        } finally {
+            setRestocking(false);
+        }
     };
 
     const columns = [
@@ -545,9 +558,15 @@ export const ItemsMasterPage = () => {
               </p>
             </div>
           </div>
-          <button onClick={handleBulkSmartRestock} className="px-3.5 py-1.5 bg-amber-600 hover:bg-amber-700 text-white rounded-lg font-bold flex items-center gap-1.5 shadow-xs cursor-pointer transition-colors shrink-0">
+          <div className="flex items-center gap-2 shrink-0">
+          <select value={restockVendorId} onChange={(e) => setRestockVendorId(e.target.value)} className="border border-amber-300 rounded-lg p-1.5 bg-white text-slate-800 text-xs">
+            <option value="">Select vendor</option>
+            {(vendors || []).map((v) => <option key={v.id} value={v.id}>{v.name}</option>)}
+          </select>
+          <button onClick={handleBulkSmartRestock} disabled={restocking || !restockVendorId} className="px-3.5 py-1.5 bg-amber-600 hover:bg-amber-700 disabled:opacity-50 text-white rounded-lg font-bold flex items-center gap-1.5 shadow-xs cursor-pointer transition-colors shrink-0">
             <Zap size={14}/> ⚡ Smart Restock All ({lowStockItems.length})
           </button>
+          </div>
         </div>)}
 
       {restockSuccess && (<div className="p-3 bg-emerald-50 border border-emerald-200 rounded-xl flex flex-wrap lg:flex-nowrap items-center justify-between gap-2 lg:gap-0 text-xs text-emerald-800">

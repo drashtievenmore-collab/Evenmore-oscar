@@ -83,7 +83,8 @@ export const DeliveryChallansPage = () => {
 
     const openAddModal = () => {
         setDraftChallan(null);
-        const defaultSo = salesOrders.find((o) => o.stage !== 'Delivered' && o.stage !== 'Invoiced') || salesOrders[0];
+        // Only orders with quantity still to dispatch can be picked.
+        const defaultSo = salesOrders.find((o) => o.stage === 'Confirmed' || o.stage === 'Partially Dispatched');
         if (defaultSo) {
             setSelectedSoId(defaultSo.id);
             setLineItems(prepareOrderLines(defaultSo));
@@ -143,7 +144,11 @@ export const DeliveryChallansPage = () => {
 
     const handleCreate = (e) => {
         e.preventDefault();
-        const order = draftChallan || salesOrders.find((o) => o.id === selectedSoId) || salesOrders[0];
+        const order = draftChallan || salesOrders.find((o) => o.id === selectedSoId);
+        if (!order) {
+            setValidationError('Select the sales order to dispatch against.');
+            return;
+        }
         
         // Over-delivery validation
         for (const item of lineItems) {
@@ -168,14 +173,15 @@ export const DeliveryChallansPage = () => {
 
         const created = addDeliveryChallan({
             ...(draftChallan ? { ...draftChallan, id: draftChallan.id } : {}),
-            challanNumber: draftChallan?.challanNumber || `DC-2026-${String(deliveryChallans.length + 45).padStart(3, '0')}`,
+            // The challan number is allocated by the server (DC series).
+            challanNumber: draftChallan?.challanNumber,
             salesOrderId: draftChallan ? undefined : order?.id,
             sourceSalesOrderId: draftChallan ? undefined : order?.id,
-            salesOrderNumber: order?.orderNumber || (draftChallan ? '' : 'SO-2026-0102'),
-            sourceSalesOrderNumber: order?.orderNumber || (draftChallan ? '' : 'SO-2026-0102'),
-            linkedSo: order?.orderNumber || (draftChallan ? '' : 'SO-2026-0102'),
+            salesOrderNumber: order?.orderNumber || '',
+            sourceSalesOrderNumber: order?.orderNumber || '',
+            linkedSo: order?.orderNumber || '',
             customerId: order?.customerId,
-            customer: order?.customer || 'Walk-in Customer',
+            customer: order?.customer,
             dispatchDate: new Date().toISOString().split('T')[0],
             transporter,
             vehicleNo,

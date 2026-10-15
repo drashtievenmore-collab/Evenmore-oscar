@@ -89,14 +89,6 @@ function Kpi({ icon: Icon, value, label, trend, iconBg, iconColor, wave, arrowBg
   );
 }
 
-const DEMO_RECENT = [
-  { po: 'PO-0001', supplier: 'Vendor A', fabric: 'Cotton Grey', qty: 40000, date: '01 Oct 2026', exp: '10 Oct 2026', status: 'Fully Received', value: '₹20,00,000' },
-  { po: 'PO-0002', supplier: 'Vendor A', fabric: 'Cotton Grey', qty: 20000, date: '05 Oct 2026', exp: '15 Oct 2026', status: 'Partially Received', value: '₹10,40,000' },
-  { po: 'PO-0003', supplier: 'Vendor A', fabric: 'Polyester Grey', qty: 15000, date: '08 Oct 2026', exp: '18 Oct 2026', status: 'Approved', value: '₹7,20,000' },
-  { po: 'PO-0004', supplier: 'Vendor A', fabric: 'Viscose Grey', qty: 10000, date: '12 Oct 2026', exp: '20 Oct 2026', status: 'Pending Approval', value: '₹5,50,000' },
-  { po: 'PO-0005', supplier: 'Vendor A', fabric: 'Cotton Grey', qty: 25000, date: '15 Oct 2026', exp: '25 Oct 2026', status: 'Draft', value: '₹13,00,000' },
-];
-
 const STATUS_PILL = {
   Draft: 'bg-amber-50 text-amber-600 border-amber-200',
   'Pending Approval': 'bg-yellow-50 text-yellow-700 border-yellow-200',
@@ -188,14 +180,16 @@ export const PurchaseOrdersPage = () => {
         setIsFullscreen(false);
         setShowAddModal(true);
     };
-    const handleCreate = (e) => {
+    const [saving, setSaving] = useState(false);
+    const handleCreate = async (e) => {
         e.preventDefault();
         const validLines = lineItems.filter((it) => it.itemId && Number(it.qty) > 0 && Number(it.rate) > 0);
         if (!selectedVendorId) { alert('Vendor is required.'); return; }
         if (!poDate) { alert('PO Date is required.'); return; }
         if (!expectedDate) { alert('Expected Delivery is required.'); return; }
         if (validLines.length === 0) { alert('Add at least one fabric line with quantity and rate.'); return; }
-        const vend = vendors.find((v) => v.id === selectedVendorId) || vendors[0];
+        const vend = vendors.find((v) => v.id === selectedVendorId);
+        if (!vend) { alert('Vendor is required.'); return; }
         const normalizedLines = validLines.map((it) => ({
             ...it,
             qty: Number(it.qty),
@@ -205,18 +199,22 @@ export const PurchaseOrdersPage = () => {
             tax: 0,
             discount: 0,
         }));
-        const totalAmt = normalizedLines.reduce((acc, it) => acc + it.amount, 0);
-        addPurchaseOrder({
-            vendorId: vend?.id,
-            vendor: vend?.name || 'Direct Vendor',
-            amount: totalAmt,
-            date: formatDateDDMMYYYY(poDate),
-            expectedDate: expectedDate || addDaysISO(getCurrentISODate(), 10),
-            status: 'Draft',
-            items: normalizedLines,
-            notes: remarks || '',
-        });
-        handleCloseCreateModal();
+        setSaving(true);
+        try {
+            await addPurchaseOrder({
+                vendorId: vend.id,
+                date: poDate,
+                expectedDate,
+                status: 'Draft',
+                items: normalizedLines,
+                notes: remarks || '',
+            });
+            handleCloseCreateModal();
+        } catch {
+            // The reason was shown; the form stays open with what was typed.
+        } finally {
+            setSaving(false);
+        }
     };
     const issuePo = (id) => {
         updatePurchaseOrderStatus(id, 'Pending Approval');
@@ -227,9 +225,13 @@ export const PurchaseOrdersPage = () => {
     const startProductionPo = (id) => {
         updatePurchaseOrderStatus(id, 'In Production');
     };
-    const handleConvertToBill = (poId) => {
-        convertPurchaseOrderToBill(poId);
-        navigate('/purchase/bills');
+    const handleConvertToBill = async (poId) => {
+        try {
+            await convertPurchaseOrderToBill(poId);
+            navigate('/purchase/bills');
+        } catch {
+            // The reason was shown; stay on the order.
+        }
     };
     const getPoTimelineSteps = (po) => {
         const isIssued = po.status !== 'Draft';
@@ -409,7 +411,7 @@ export const PurchaseOrdersPage = () => {
           raw: p,
         }));
       }
-      return DEMO_RECENT;
+      return [];
     }, [purchaseOrders, purchaseBills, units]);
 
     const fabricTotals = useMemo(() => {
@@ -717,7 +719,7 @@ export const PurchaseOrdersPage = () => {
                         </div>
                         <div className="flex flex-wrap gap-x-3 gap-y-0.5 text-slate-600 text-[10px]">
                           <span>Code: <strong>{vend.code || '—'}</strong></span>
-                          <span>POC: <strong>{vend.contactPerson || 'Vendor Rep'}</strong></span>
+                          <span>POC: <strong>{vend.contactPerson || '—'}</strong></span>
                           <span>Email: {vend.email || '—'}</span>
                           <span>Phone: {vend.phone || '—'}</span>
                           {(vend.gstin || vend.gstNumber || vend.gst) && <span>GST No: <strong>{vend.gstin || vend.gstNumber || vend.gst}</strong></span>}
@@ -729,7 +731,7 @@ export const PurchaseOrdersPage = () => {
                 <div>
                   <label className="block font-semibold text-slate-700 mb-1">PO Number</label>
                   <input type="text" readOnly value="Auto-Generate" className="w-full border border-slate-200 rounded-lg p-2 bg-slate-50 text-slate-500 font-medium cursor-not-allowed"/>
-                  <p className="text-[10px] text-slate-400 mt-1">Auto-generated when PO is saved (e.g. PO-2026-0201). User cannot type it.</p>
+                  <p className="text-[10px] text-slate-400 mt-1">Allocated by the server when the PO is saved.</p>
                 </div>
                 <div>
                   <label className="block font-semibold text-slate-700 mb-1">PO Date *</label>
@@ -818,7 +820,7 @@ export const PurchaseOrdersPage = () => {
               </div>
               <div className="flex flex-wrap lg:flex-nowrap justify-end gap-2 pt-3 border-t border-slate-200">
                 <button type="button" onClick={handleCloseCreateModal} className="px-3 py-1.5 border border-slate-300 text-slate-700 rounded-lg hover:bg-slate-100 font-medium">Cancel</button>
-                <button type="submit" className="px-4 py-1.5 bg-[#1F2E4A] hover:bg-[#152033] text-white rounded-lg font-bold shadow-sm">Save & Issue Purchase Order</button>
+                <button type="submit" disabled={saving} className="px-4 py-1.5 bg-[#1F2E4A] hover:bg-[#152033] text-white rounded-lg font-bold shadow-sm disabled:opacity-60">{saving ? 'Saving…' : 'Save & Issue Purchase Order'}</button>
               </div>
             </form>
           </div>
@@ -848,7 +850,7 @@ export const PurchaseOrdersPage = () => {
                     <strong className="text-slate-900 text-sm block">{selectedPo.vendor}</strong>
                     <div className="text-slate-600 mt-1 flex items-start gap-1">
                       <MapPin size={12} className="text-slate-400 shrink-0 mt-0.5" />
-                      <span>{selectedPo.billingAddress?.line1 || 'Corporate Headquarters'}<br />{selectedPo.billingAddress?.city || 'Mumbai'}, {selectedPo.billingAddress?.state || 'Maharashtra'} - {selectedPo.billingAddress?.pincode || '400001'}</span>
+                      <span>{[selectedPo.billingAddress?.line1, selectedPo.billingAddress?.city, selectedPo.billingAddress?.state, selectedPo.billingAddress?.pincode].filter(Boolean).join(', ') || '—'}</span>
                     </div>
                   </div>
                   <div>

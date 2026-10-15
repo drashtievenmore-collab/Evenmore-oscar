@@ -3,23 +3,14 @@ import { useEffect, useState } from 'react';
 import { fabricMasterSync, isBackendEnabled } from '../services/fabricMasterSync';
 
 // One shared copy of the UOM master for every screen that picks a unit.
-// Logged in → /inventory/units/; no session → the UOM page's localStorage copy.
+// Read from /inventory/units/; without a session there are no units.
 
-const LOCAL_KEY = 'fabricMaster:units';
 let cache = null;
 let inflight = null;
 const listeners = new Set();
 
-function readLocal() {
-  try {
-    return JSON.parse(localStorage.getItem(LOCAL_KEY) || '[]');
-  } catch {
-    return [];
-  }
-}
-
 async function load() {
-  if (!isBackendEnabled()) return readLocal();
+  if (!isBackendEnabled()) return [];
   const rows = await fabricMasterSync.pull('units');
   return rows || [];
 }

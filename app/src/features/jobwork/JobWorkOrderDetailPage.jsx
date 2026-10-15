@@ -25,20 +25,25 @@ import {
   Download,
   ExternalLink,
 } from 'lucide-react';
+import { jwoKpis, numIN, toDDMMYYYY, purgeLegacyJobWorkCache } from './jobWorkOrdersStore';
 import {
-  loadJWOs,
-  saveJWOs,
-  syncJWOToBackend,
-  jwoKpis,
-  numIN,
-  toDDMMYYYY,
-} from './jobWorkOrdersStore';
+  fetchJWO,
+  updateJWOHeader,
+  closeJWO,
+  createJWORow,
+  updateJWORow,
+  deleteJWORow,
+  approveJWOLoss,
+  errorMessage,
+} from '../../services/jobWorkSync';
+import { api } from '../../services/api';
 import PageHeader from '../../components/ui/PageHeader';
 
 const TABS = [
   'Material Details',
   'Outward Challans',
   'Inward Receipts',
+  'Approved Losses',
   'Production / WIP',
   'Charges',
   'Documents',
@@ -52,38 +57,33 @@ const statusPill = (s) => {
   return 'bg-blue-50 text-blue-600 border-blue-200';
 };
 
-const nextOutwardNo = (outwards = []) => {
-  const max = (outwards || []).reduce((m, o) => {
-    const num = Number(String(o.no || '').replace(/\D/g, '')) || 0;
-    return Math.max(m, num);
-  }, 0);
-  return `JWO-OUT-${String(max + 1).padStart(3, '0')}`;
-};
-
-const nextInwardNo = (inwards = []) => {
-  const max = (inwards || []).reduce((m, r) => {
-    const num = Number(String(r.no || '').replace(/\D/g, '')) || 0;
-    return Math.max(m, num);
-  }, 0);
-  return `JWO-IN-${String(max + 1).padStart(3, '0')}`;
-};
-
 export default function JobWorkOrderDetailPage() {
   const { id } = useParams();
   const navigate = useNavigate();
-  const [orders, setOrders] = useState(loadJWOs);
+  const [jwo, setJwo] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState('');
+  const [saving, setSaving] = useState(false);
   const [tab, setTab] = useState('Inward Receipts');
 
-  // Backend-first: refresh from GET /jobwork/orders/ when logged in.
+  // Server is the source of truth: GET /jobwork/orders/{id}/.
   useEffect(() => {
     let live = true;
-    import('./jobWorkOrdersStore').then(({ loadJWOsAsync }) =>
-      loadJWOsAsync().then((rows) => {
-        if (live && Array.isArray(rows)) setOrders(rows);
-      }),
-    );
+    purgeLegacyJobWorkCache();
+    setLoading(true);
+    fetchJWO(id)
+      .then((row) => { if (live) setJwo(row); })
+      .catch((err) => { if (live) setLoadError(errorMessage(err, 'Could not load the job work order.')); })
+      .finally(() => { if (live) setLoading(false); });
+
+    api.get('/masters/loss-reasons/')
+      .then((res) => {
+        if (live) setLossReasonsList(Array.isArray(res) ? res : (res?.results || []));
+      })
+      .catch(() => {});
+
     return () => { live = false; };
-  }, []);
+  }, [id]);
 
   // Modals state
   const [showAddMaterial, setShowAddMaterial] = useState(false);
@@ -97,6 +97,14 @@ export default function JobWorkOrderDetailPage() {
   const [editingInward, setEditingInward] = useState(null);
   const [viewingInward, setViewingInward] = useState(null);
 
+  const [showLossModal, setShowLossModal] = useState(false);
+  const [lossReasonsList, setLossReasonsList] = useState([]);
+  const [lossForm, setLossForm] = useState({
+    lossReasonId: '',
+    qty: '',
+    remarks: '',
+  });
+
   const [showChargeModal, setShowChargeModal] = useState(false);
   const [editingCharge, setEditingCharge] = useState(null);
   const [viewingCharge, setViewingCharge] = useState(null);
@@ -108,10 +116,8 @@ export default function JobWorkOrderDetailPage() {
     type: 'QC Report',
     no: '',
     date: new Date().toISOString().slice(0, 10),
-    fileName: 'QC_Report.pdf',
-    uploadedBy: 'Admin',
+    fileName: '',
     file: null,
-    fileDataUrl: '',
   });
 
   const [showEditHeader, setShowEditHeader] = useState(false);
@@ -164,42 +170,27 @@ export default function JobWorkOrderDetailPage() {
 
   const [remarksText, setRemarksText] = useState('');
 
-  const jwo = useMemo(
-    () => orders.find((o) => String(o.id) === String(id) || String(o.jwoNo) === String(id)),
-    [orders, id],
-  );
-
   React.useEffect(() => {
     if (jwo) {
       setRemarksText(jwo.remarks || '');
     }
   }, [jwo]);
 
-  // Charges Memo — above the early return so hook order never changes.
-  const charges = useMemo(() => {
-    if (!jwo) return [];
-    if (jwo.charges && jwo.charges.length > 0) {
-      return jwo.charges;
-    }
-    return [
-      {
-        id: `c-primary-${jwo.id}`,
-        type: `${jwo.process} Charge`,
-        description: `${jwo.process} Processing`,
-        rate: Number(jwo.rate) || 0,
-        qty: Number(jwo.plannedQty) || 0,
-        amount: Number(jwo.totalAmount) || (Number(jwo.rate) * Number(jwo.plannedQty)),
-        status: 'Active',
-      },
-    ];
-  }, [jwo]);
+  // Charges are the server rows only — nothing is synthesised.
+  const charges = useMemo(() => (jwo?.charges || []), [jwo]);
 
   if (!jwo) {
     return (
       <div className="min-h-[calc(100vh-62px)] bg-[#eef3fb] p-3 md:p-4">
         <div className="mt-3 rounded-xl border border-[#e2eaf5] bg-white p-10 text-center">
-          <p className="text-[14px] font-extrabold text-[#17294e]">Job Work Order not found</p>
-          <p className="mt-1 text-[12px] text-slate-400">This job work order no longer exists.</p>
+          {loading ? (
+            <p className="text-[13px] text-slate-400">Loading job work order…</p>
+          ) : (
+            <>
+              <p className="text-[14px] font-extrabold text-[#17294e]">Job Work Order not found</p>
+              <p className="mt-1 text-[12px] text-slate-400">{loadError || 'This job work order no longer exists.'}</p>
+            </>
+          )}
           <button
             onClick={() => navigate('/job-work/orders')}
             className="mt-4 inline-flex items-center gap-1.5 rounded-lg border border-[#e2eaf5] px-4 py-2 text-[12px] font-bold text-[#2563eb] hover:bg-slate-50"
@@ -216,30 +207,24 @@ export default function JobWorkOrderDetailPage() {
   const totalInwardQty = (jwo.inwards || []).reduce((s, r) => s + (Number(r.qty) || 0), 0);
   const totalAccepted = (jwo.inwards || []).reduce((s, r) => s + (Number(r.accepted) || 0), 0);
   const totalRejected = (jwo.inwards || []).reduce((s, r) => s + (Number(r.rejected) || 0), 0);
+  const isClosed = jwo.status === 'Closed';
 
-  const persist = (next) => {
-    setOrders(next);
-    saveJWOs(next);
-    // Fire-and-forget backend PATCH for the changed order (backend owns numbers).
+  /**
+   * Run one server write, then re-read the order (server-computed totals,
+   * numbers). Returns true on success; on failure shows the error and the
+   * open modal keeps the user's input — nothing unsaved is shown as saved.
+   */
+  const save = async (fn, fallback) => {
+    setSaving(true);
     try {
-      const changed = (Array.isArray(next) ? next : []).find((o) => o && jwo && String(o.id) === String(jwo.id));
-      if (changed) {
-        import('../../services/jobWorkSync').then(async ({ pushUpdateJWO, uploadPendingJWODocs, isJobWorkBackendEnabled }) => {
-          if (!isJobWorkBackendEnabled()) return;
-          try {
-            // Documents attached while offline finally upload here.
-            const ready = await uploadPendingJWODocs(changed);
-            if (ready !== changed) {
-              const reconciled = (Array.isArray(next) ? next : []).map((o) => (o && jwo && String(o.id) === String(jwo.id) ? ready : o));
-              setOrders(reconciled);
-              try { saveJWOs(reconciled); } catch { /* ignore */ }
-            }
-            await pushUpdateJWO(ready.id, ready);
-          } catch { /* offline — local cache already saved */ }
-        });
-      }
-    } catch {
-      /* offline — local cache already saved */
+      await fn();
+      setJwo(await fetchJWO(jwo.id));
+      return true;
+    } catch (err) {
+      window.alert(errorMessage(err, fallback));
+      return false;
+    } finally {
+      setSaving(false);
     }
   };
 
@@ -255,18 +240,74 @@ export default function JobWorkOrderDetailPage() {
     setShowEditHeader(true);
   };
 
-  const handleSaveHeader = (e) => {
+  const handleSaveHeader = async (e) => {
     e.preventDefault();
-    const updated = {
-      ...jwo,
+    const ok = await save(() => updateJWOHeader(jwo.id, {
       process: headerForm.process,
       vendor: headerForm.vendor,
       orderDate: headerForm.orderDate,
       expectedCompletion: headerForm.expectedCompletion,
       status: headerForm.status,
-    };
-    persist(orders.map((o) => (o.id === jwo.id ? updated : o)));
-    setShowEditHeader(false);
+    }), 'Could not update the job work order.');
+    if (ok) setShowEditHeader(false);
+  };
+
+  // Approval point (approve_jobwork): close the order, freezing its rows with reconciliation gate.
+  const handleCloseOrder = async () => {
+    const totalApprovedLoss = (jwo.lossEntries || [])
+      .filter((l) => l.status === 'Approved')
+      .reduce((s, l) => s + (Number(l.qty) || 0), 0);
+    const variance = totalOutward - totalInwardQty - totalApprovedLoss;
+    const tolPct = Number(jwo.expectedLossPct) || 3;
+    const allowed = Math.round((totalOutward * tolPct / 100) * 100) / 100;
+
+    if (totalOutward > 0 && Math.abs(variance) > allowed) {
+      if (!window.confirm(
+        `Reconciliation Gate Alert:\n` +
+        `Total Sent: ${numIN(totalOutward)} M\n` +
+        `Total Received: ${numIN(totalInwardQty)} M\n` +
+        `Approved Loss: ${numIN(totalApprovedLoss)} M\n` +
+        `Net Variance: ${numIN(variance)} M (Allowed: ${numIN(allowed)} M, ${tolPct}%)\n\n` +
+        `The difference exceeds the allowed tolerance. Do you want to force close this order with manager override?`
+      )) return;
+      await save(() => closeJWO(jwo.id, { force: true }), 'Could not close the job work order.');
+    } else {
+      if (!window.confirm(`Close ${jwo.jwoNo}? Its rows can no longer be changed.`)) return;
+      await save(() => closeJWO(jwo.id), 'Could not close the job work order.');
+    }
+  };
+
+  // Loss Handlers
+  const handleOpenAddLoss = () => {
+    setLossForm({
+      lossReasonId: lossReasonsList[0]?.id || '',
+      qty: '',
+      remarks: '',
+    });
+    setShowLossModal(true);
+  };
+
+  const handleSaveLoss = async (e) => {
+    e.preventDefault();
+    const qty = Number(lossForm.qty);
+    if (!(qty > 0)) {
+      window.alert('Loss quantity must be greater than 0.');
+      return;
+    }
+    const ok = await save(
+      () => createJWORow(jwo.id, 'losses', {
+        lossReasonId: lossForm.lossReasonId,
+        qty,
+        remarks: lossForm.remarks,
+      }),
+      'Could not record the loss entry.',
+    );
+    if (ok) setShowLossModal(false);
+  };
+
+  const handleApproveLoss = async (lossId) => {
+    if (!window.confirm('Approve this loss entry?')) return;
+    await save(() => approveJWOLoss(jwo.id, lossId), 'Could not approve the loss entry.');
   };
 
   // Material Handlers
@@ -278,7 +319,7 @@ export default function JobWorkOrderDetailPage() {
       shade: '',
       lotNo: '',
       qty: '',
-      rate: String(jwo.rate || ''),
+      rate: jwo.rate ? String(jwo.rate) : '',
     });
     setShowAddMaterial(true);
   };
@@ -297,68 +338,30 @@ export default function JobWorkOrderDetailPage() {
     setShowAddMaterial(true);
   };
 
-  const handleDeleteMaterial = (mId) => {
-    if (!window.confirm('Delete this material item?')) return;
-    const remainingMaterials = (jwo.materials || []).filter((m) => m.id !== mId);
-    const newPlannedQty = remainingMaterials.reduce((s, m) => s + (Number(m.qty) || 0), 0);
-    const newTotalAmount = remainingMaterials.reduce((s, m) => s + (Number(m.amount) || 0), 0);
-    const updated = {
-      ...jwo,
-      materials: remainingMaterials,
-      plannedQty: newPlannedQty,
-      totalAmount: newTotalAmount,
-    };
-    persist(orders.map((o) => (o.id === jwo.id ? updated : o)));
+  const handleDeleteMaterial = async (mId) => {
     setOpenActionMenuId(null);
+    if (!window.confirm('Delete this material item?')) return;
+    await save(() => deleteJWORow(jwo.id, 'materials', mId), 'Could not delete the material.');
   };
 
-  const handleSaveMaterial = (e) => {
+  const handleSaveMaterial = async (e) => {
     e.preventDefault();
-    const qty = Number(materialForm.qty) || 0;
-    const rate = Number(materialForm.rate) || 0;
-    const amount = qty * rate;
-
-    let nextMaterials = [...(jwo.materials || [])];
-    if (editingMaterial) {
-      nextMaterials = nextMaterials.map((m) =>
-        m.id === editingMaterial.id
-          ? {
-              ...m,
-              fabricItem: materialForm.fabricItem,
-              fabricQuality: materialForm.fabricQuality,
-              shade: materialForm.shade,
-              lotNo: materialForm.lotNo,
-              qty,
-              rate,
-              amount,
-            }
-          : m,
-      );
-    } else {
-      const newMat = {
-        id: `m-${Date.now()}`,
-        fabricItem: materialForm.fabricItem,
-        fabricQuality: materialForm.fabricQuality,
-        shade: materialForm.shade,
-        lotNo: materialForm.lotNo,
-        qty,
-        rate,
-        amount,
-      };
-      nextMaterials.push(newMat);
-    }
-
-    const newPlannedQty = nextMaterials.reduce((s, m) => s + (Number(m.qty) || 0), 0);
-    const newTotalAmount = nextMaterials.reduce((s, m) => s + (Number(m.amount) || 0), 0);
-
-    const updated = {
-      ...jwo,
-      materials: nextMaterials,
-      plannedQty: newPlannedQty,
-      totalAmount: newTotalAmount,
+    const row = {
+      fabricItem: materialForm.fabricItem,
+      fabricQuality: materialForm.fabricQuality,
+      shade: materialForm.shade,
+      lotNo: materialForm.lotNo,
+      qty: Number(materialForm.qty) || 0,
+      rate: Number(materialForm.rate) || 0,
     };
-    persist(orders.map((o) => (o.id === jwo.id ? updated : o)));
-    setShowAddMaterial(false);
+    // Planned qty / total amount are recomputed by the server.
+    const ok = await save(
+      () => (editingMaterial
+        ? updateJWORow(jwo.id, 'materials', editingMaterial.id, row)
+        : createJWORow(jwo.id, 'materials', row)),
+      'Could not save the material.',
+    );
+    if (ok) setShowAddMaterial(false);
   };
 
   // Outward Handlers
@@ -366,7 +369,7 @@ export default function JobWorkOrderDetailPage() {
     setEditingOutward(null);
     const remainingQty = Math.max(0, Number(jwo.plannedQty || 0) - totalOutward);
     setOutwardForm({
-      no: nextOutwardNo(jwo.outwards),
+      no: '',
       date: new Date().toISOString().slice(0, 10),
       qty: remainingQty > 0 ? String(remainingQty) : '',
       lrNo: '',
@@ -394,51 +397,33 @@ export default function JobWorkOrderDetailPage() {
     setViewingOutward(o);
   };
 
-  const handleDeleteOutward = (outwardId) => {
-    if (!window.confirm('Delete this outward challan?')) return;
-    const remaining = (jwo.outwards || []).filter((o) => o.id !== outwardId);
-    persist(orders.map((o) => (o.id === jwo.id ? { ...o, outwards: remaining } : o)));
+  const handleDeleteOutward = async (outwardId) => {
     setOpenActionMenuId(null);
+    if (!window.confirm('Delete this outward challan?')) return;
+    await save(() => deleteJWORow(jwo.id, 'outwards', outwardId), 'Could not delete the outward challan.');
   };
 
-  const handleSaveOutward = (e) => {
+  const handleSaveOutward = async (e) => {
     e.preventDefault();
     const qty = Number(outwardForm.qty);
     if (!(qty > 0)) {
       window.alert('Quantity must be greater than 0.');
       return;
     }
-
-    let nextOutwards = [...(jwo.outwards || [])];
-    if (editingOutward) {
-      nextOutwards = nextOutwards.map((o) =>
-        o.id === editingOutward.id
-          ? {
-              ...o,
-              no: outwardForm.no,
-              date: outwardForm.date,
-              qty,
-              lrNo: outwardForm.lrNo,
-              transporter: outwardForm.transporter,
-              status: outwardForm.status,
-            }
-          : o,
-      );
-    } else {
-      const entry = {
-        id: `o-${Date.now()}`,
-        no: outwardForm.no,
-        date: outwardForm.date,
-        qty,
-        lrNo: outwardForm.lrNo,
-        transporter: outwardForm.transporter,
-        status: outwardForm.status,
-      };
-      nextOutwards.push(entry);
-    }
-
-    persist(orders.map((o) => (o.id === jwo.id ? { ...o, outwards: nextOutwards } : o)));
-    setShowOutwardModal(false);
+    const row = {
+      date: outwardForm.date,
+      qty,
+      lrNo: outwardForm.lrNo,
+      transporter: outwardForm.transporter,
+      status: outwardForm.status,
+    };
+    const ok = await save(
+      () => (editingOutward
+        ? updateJWORow(jwo.id, 'outwards', editingOutward.id, { ...editingOutward, ...row })
+        : createJWORow(jwo.id, 'outwards', row)),
+      'Could not save the outward challan.',
+    );
+    if (ok) setShowOutwardModal(false);
   };
 
   // Inward Handlers
@@ -446,7 +431,7 @@ export default function JobWorkOrderDetailPage() {
     setEditingInward(null);
     const latestOutward = (jwo.outwards || [])[0]?.no || '';
     setInwardForm({
-      no: nextInwardNo(jwo.inwards),
+      no: '',
       date: new Date().toISOString().slice(0, 10),
       qty: '',
       accepted: '',
@@ -476,14 +461,13 @@ export default function JobWorkOrderDetailPage() {
     setViewingInward(r);
   };
 
-  const handleDeleteInward = (inwardId) => {
-    if (!window.confirm('Delete this inward receipt?')) return;
-    const remaining = (jwo.inwards || []).filter((r) => r.id !== inwardId);
-    persist(orders.map((o) => (o.id === jwo.id ? { ...o, inwards: remaining } : o)));
+  const handleDeleteInward = async (inwardId) => {
     setOpenActionMenuId(null);
+    if (!window.confirm('Delete this inward receipt?')) return;
+    await save(() => deleteJWORow(jwo.id, 'inwards', inwardId), 'Could not delete the inward receipt.');
   };
 
-  const handleSaveInward = (e) => {
+  const handleSaveInward = async (e) => {
     e.preventDefault();
     const qty = Number(inwardForm.qty);
     if (!(qty > 0)) {
@@ -491,56 +475,39 @@ export default function JobWorkOrderDetailPage() {
       return;
     }
     const rejected = Math.max(0, Number(inwardForm.rejected) || 0);
-    const accepted = Math.max(0, Number(inwardForm.accepted) || Math.max(0, qty - rejected));
-
-    let nextInwards = [...(jwo.inwards || [])];
-    if (editingInward) {
-      nextInwards = nextInwards.map((r) =>
-        r.id === editingInward.id
-          ? {
-              ...r,
-              no: inwardForm.no,
-              date: inwardForm.date,
-              qty,
-              accepted,
-              rejected,
-              challanNo: inwardForm.challanNo,
-              status: inwardForm.status,
-            }
-          : r,
-      );
-    } else {
-      const entry = {
-        id: `i-${Date.now()}`,
-        no: inwardForm.no,
-        date: inwardForm.date,
-        qty,
-        accepted,
-        rejected,
-        challanNo: inwardForm.challanNo,
-        status: inwardForm.status,
-      };
-      nextInwards.push(entry);
-    }
-
-    persist(orders.map((o) => (o.id === jwo.id ? { ...o, inwards: nextInwards } : o)));
-    setShowInwardModal(false);
+    const accepted = inwardForm.accepted !== '' ? Math.max(0, Number(inwardForm.accepted) || 0) : Math.max(0, qty - rejected);
+    const row = {
+      date: inwardForm.date,
+      qty,
+      accepted,
+      rejected,
+      challanNo: inwardForm.challanNo,
+      status: inwardForm.status,
+    };
+    // The server checks qty against what is still at the vendor.
+    const ok = await save(
+      () => (editingInward
+        ? updateJWORow(jwo.id, 'inwards', editingInward.id, row)
+        : createJWORow(jwo.id, 'inwards', row)),
+      'Could not save the inward receipt.',
+    );
+    if (ok) setShowInwardModal(false);
   };
 
-  const handleSaveRemarks = () => {
-    persist(orders.map((o) => (o.id === jwo.id ? { ...o, remarks: remarksText } : o)));
-    window.alert('Remarks saved successfully.');
+  const handleSaveRemarks = async () => {
+    const ok = await save(() => updateJWOHeader(jwo.id, { remarks: remarksText }), 'Could not save remarks.');
+    if (ok) window.alert('Remarks saved successfully.');
   };
 
-  // Charges Memo & Handlers (memo moved above the early return)
+  // Charges Handlers
 
   const handleOpenAddCharge = () => {
     setEditingCharge(null);
     setChargeForm({
-      type: `${jwo.process} Charge`,
-      description: `${jwo.process} Processing`,
-      rate: String(jwo.rate || ''),
-      qty: String(jwo.plannedQty || ''),
+      type: '',
+      description: '',
+      rate: jwo.rate ? String(jwo.rate) : '',
+      qty: jwo.plannedQty ? String(jwo.plannedQty) : '',
       status: 'Active',
     });
     setShowChargeModal(true);
@@ -563,77 +530,54 @@ export default function JobWorkOrderDetailPage() {
     setViewingCharge(c);
   };
 
-  const handleDeleteCharge = (chargeId) => {
-    if (!window.confirm('Delete this charge?')) return;
-    const remaining = charges.filter((c) => c.id !== chargeId);
-    persist(orders.map((o) => (o.id === jwo.id ? { ...o, charges: remaining } : o)));
+  const handleDeleteCharge = async (chargeId) => {
     setOpenActionMenuId(null);
+    if (!window.confirm('Delete this charge?')) return;
+    await save(() => deleteJWORow(jwo.id, 'charges', chargeId), 'Could not delete the charge.');
   };
 
-  const handleSaveCharge = (e) => {
+  const handleSaveCharge = async (e) => {
     e.preventDefault();
-    const rate = Number(chargeForm.rate) || 0;
-    const qty = Number(chargeForm.qty) || 0;
-    const amount = rate * qty;
-
-    let nextCharges = [...charges];
-    if (editingCharge) {
-      nextCharges = nextCharges.map((c) =>
-        c.id === editingCharge.id
-          ? {
-              ...c,
-              type: chargeForm.type,
-              description: chargeForm.description,
-              rate,
-              qty,
-              amount,
-              status: chargeForm.status,
-            }
-          : c,
-      );
-    } else {
-      const entry = {
-        id: `c-${Date.now()}`,
-        type: chargeForm.type,
-        description: chargeForm.description,
-        rate,
-        qty,
-        amount,
-        status: chargeForm.status,
-      };
-      nextCharges.push(entry);
-    }
-
-    persist(orders.map((o) => (o.id === jwo.id ? { ...o, charges: nextCharges } : o)));
-    setShowChargeModal(false);
+    const row = {
+      type: chargeForm.type,
+      description: chargeForm.description,
+      rate: Number(chargeForm.rate) || 0,
+      qty: Number(chargeForm.qty) || 0,
+      status: chargeForm.status,
+    };
+    const ok = await save(
+      () => (editingCharge
+        ? updateJWORow(jwo.id, 'charges', editingCharge.id, row)
+        : createJWORow(jwo.id, 'charges', row)),
+      'Could not save the charge.',
+    );
+    if (ok) setShowChargeModal(false);
   };
 
   // Document List (plain computation — no hook, safe after early return)
   const documentsList = (() => {
-    if (!jwo) return [];
     const list = [];
-    // 1. Primary Job Work Order document
+    // 1. The order itself (generated from the order record)
     list.push({
       id: `doc-jwo-${jwo.id}`,
       type: 'Job Work Order',
       no: jwo.jwoNo,
       date: jwo.orderDate,
       fileName: `${jwo.jwoNo}.pdf`,
-      uploadedBy: 'Admin',
+      uploadedBy: 'System',
       isSystem: true,
       sourceType: 'jwo',
       sourceData: jwo,
     });
     // 2. Outward Challans
     (jwo.outwards || []).forEach((o) => {
-      const cleanNo = String(o.no || '').replace(/\s+/g, '_');
       list.push({
-        id: `doc-out-${o.id || o.no}`,
+        id: `doc-out-${o.id}`,
         type: 'Outward Challan',
         no: o.no,
         date: o.date,
-        fileName: `Outward_Challan_${cleanNo.replace(/\D/g, '') || '001'}.pdf`,
-        uploadedBy: 'Admin',
+        fileName: `${String(o.no || '').replace(/\s+/g, '_')}.pdf`,
+        uploadedBy: 'System',
         isSystem: true,
         sourceType: 'outward',
         sourceData: o,
@@ -641,28 +585,27 @@ export default function JobWorkOrderDetailPage() {
     });
     // 3. Inward Receipts
     (jwo.inwards || []).forEach((r) => {
-      const cleanNo = String(r.no || '').replace(/\s+/g, '_');
       list.push({
-        id: `doc-in-${r.id || r.no}`,
+        id: `doc-in-${r.id}`,
         type: 'Inward Receipt',
         no: r.no,
         date: r.date,
-        fileName: `Inward_Receipt_${cleanNo.replace(/\D/g, '') || '001'}.pdf`,
-        uploadedBy: 'Admin',
+        fileName: `${String(r.no || '').replace(/\s+/g, '_')}.pdf`,
+        uploadedBy: 'System',
         isSystem: true,
         sourceType: 'inward',
         sourceData: r,
       });
     });
-    // 4. Custom Uploaded Documents
-    (jwo.documents || []).forEach((d, idx) => {
+    // 4. Uploaded documents (server rows)
+    (jwo.documents || []).forEach((d) => {
       list.push({
-        id: d.id || `doc-custom-${idx}`,
+        id: d.id,
         type: d.type || 'Other',
-        no: d.no || `DOC-${String(idx + 1).padStart(3, '0')}`,
-        date: d.date || jwo.orderDate,
-        fileName: d.fileName || d.file_name || 'document.pdf',
-        uploadedBy: d.uploadedBy || 'Admin',
+        no: d.no || '—',
+        date: d.date || '',
+        fileName: d.fileName || '',
+        uploadedBy: d.uploadedBy || '—',
         url: d.url || '',
         fileId: d.fileId || '',
         isCustom: true,
@@ -672,15 +615,12 @@ export default function JobWorkOrderDetailPage() {
   })();
 
   const handleOpenUploadDoc = () => {
-    const nextDocNum = `QC-${String((jwo?.documents || []).length + 1).padStart(3, '0')}`;
     setDocForm({
       type: 'QC Report',
-      no: nextDocNum,
+      no: '',
       date: new Date().toISOString().slice(0, 10),
-      fileName: 'QC_Report.pdf',
-      uploadedBy: 'Admin',
+      fileName: '',
       file: null,
-      fileDataUrl: '',
     });
     setShowUploadDocModal(true);
   };
@@ -688,62 +628,41 @@ export default function JobWorkOrderDetailPage() {
   const handleFileChange = (e) => {
     const file = e.target.files?.[0];
     if (file) {
-      const reader = new FileReader();
-      reader.onload = () => {
-        setDocForm((prev) => ({
-          ...prev,
-          file,
-          fileName: file.name,
-          fileDataUrl: reader.result,
-        }));
-      };
-      reader.readAsDataURL(file);
+      setDocForm((prev) => ({ ...prev, file, fileName: file.name }));
     }
   };
 
   const handleSaveUploadDoc = async (e) => {
     e.preventDefault();
+    if (!docForm.file) {
+      window.alert('Choose a file to upload.');
+      return;
+    }
     setIsUploadingDoc(true);
     try {
-      let fileUrl = docForm.fileDataUrl;
-      let fileId = null;
-
-      // Connect with backend file upload service if available
-      if (docForm.file) {
-        try {
-          const { uploadFileToBackend } = await import('../../services/fileUploadService');
-          fileId = await uploadFileToBackend(docForm.file, docForm.fileName, 'jobwork_document');
-        } catch (uploadErr) {
-          console.warn('[uploadDoc] Backend upload attempt failed, falling back to local storage:', uploadErr);
-        }
-      }
-
-      const newDoc = {
-        id: `doc-${Date.now()}`,
+      // Bytes go to /files/ first; the document row only links the committed file.
+      const { uploadFileToBackend } = await import('../../services/fileUploadService');
+      const fileId = await uploadFileToBackend(docForm.file, docForm.fileName, 'jobwork_document');
+      if (!fileId) throw new Error('File upload failed. Please sign in and try again.');
+      const ok = await save(() => createJWORow(jwo.id, 'documents', {
         type: docForm.type || 'Other',
-        no: docForm.no || `DOC-${Date.now().toString().slice(-4)}`,
-        date: docForm.date || new Date().toISOString().slice(0, 10),
-        fileName: docForm.fileName || (docForm.file?.name) || `${docForm.type.replace(/\s+/g, '_')}.pdf`,
-        uploadedBy: docForm.uploadedBy || 'Admin',
-        url: fileUrl || '',
-        fileId: fileId || '',
-      };
-
-      const nextDocs = [...(jwo.documents || []), newDoc];
-      persist(orders.map((o) => (o.id === jwo.id ? { ...o, documents: nextDocs } : o)));
-      setShowUploadDocModal(false);
+        no: docForm.no,
+        date: docForm.date,
+        fileName: docForm.fileName || docForm.file.name,
+        fileId,
+      }), 'Could not save the document.');
+      if (ok) setShowUploadDocModal(false);
     } catch (err) {
-      window.alert(`Error saving document: ${err?.message || err}`);
+      window.alert(errorMessage(err, 'Could not upload the document.'));
     } finally {
       setIsUploadingDoc(false);
     }
   };
 
-  const handleDeleteDoc = (docId) => {
-    if (!window.confirm('Delete this uploaded document?')) return;
-    const remaining = (jwo.documents || []).filter((d) => d.id !== docId);
-    persist(orders.map((o) => (o.id === jwo.id ? { ...o, documents: remaining } : o)));
+  const handleDeleteDoc = async (docId) => {
     setOpenActionMenuId(null);
+    if (!window.confirm('Delete this uploaded document?')) return;
+    await save(() => deleteJWORow(jwo.id, 'documents', docId), 'Could not delete the document.');
   };
 
   const handleViewDoc = (doc) => {
@@ -1519,6 +1438,120 @@ export default function JobWorkOrderDetailPage() {
     </div>
   );
 
+  const renderLossesSection = () => {
+    const totalApprovedLoss = (jwo.lossEntries || [])
+      .filter((l) => l.status === 'Approved')
+      .reduce((s, l) => s + (Number(l.qty) || 0), 0);
+    const netVariance = totalOutward - totalInwardQty - totalApprovedLoss;
+    const tolPct = Number(jwo.expectedLossPct) || 3;
+    const allowedVariance = Math.round((totalOutward * tolPct / 100) * 100) / 100;
+    const isReconciled = totalOutward === 0 || Math.abs(netVariance) <= allowedVariance;
+
+    return (
+      <div className="space-y-4">
+        <div className="flex items-center justify-between gap-2">
+          <div>
+            <h3 className="text-[15px] font-bold text-[#17294e]">Approved Losses & Reconciliation</h3>
+            <p className="text-[11.5px] text-slate-500">Record and approve process loss / shrinkage to satisfy the JWO reconciliation gate.</p>
+          </div>
+          <button
+            onClick={handleOpenAddLoss}
+            className="inline-flex items-center gap-1.5 rounded-lg bg-[#2563eb] px-3.5 py-2 text-[12px] font-bold text-white shadow-xs hover:bg-[#1d4ed8]"
+          >
+            <Plus size={14} className="stroke-[2.5]" /> Record Loss Entry
+          </button>
+        </div>
+
+        {/* Reconciliation Strip */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3">
+          <div className="rounded-xl border border-slate-200 bg-white p-3 shadow-2xs">
+            <span className="text-[11px] font-semibold text-slate-500">Total Sent (Outward)</span>
+            <div className="mt-1 text-[16px] font-extrabold text-slate-900">{numIN(totalOutward)} M</div>
+          </div>
+          <div className="rounded-xl border border-slate-200 bg-white p-3 shadow-2xs">
+            <span className="text-[11px] font-semibold text-slate-500">Total Received (Inward)</span>
+            <div className="mt-1 text-[16px] font-extrabold text-slate-900">{numIN(totalInwardQty)} M</div>
+          </div>
+          <div className="rounded-xl border border-slate-200 bg-white p-3 shadow-2xs">
+            <span className="text-[11px] font-semibold text-slate-500">Approved Loss</span>
+            <div className="mt-1 text-[16px] font-extrabold text-emerald-600">{numIN(totalApprovedLoss)} M</div>
+          </div>
+          <div className="rounded-xl border border-slate-200 bg-white p-3 shadow-2xs">
+            <span className="text-[11px] font-semibold text-slate-500">Net Variance</span>
+            <div className={`mt-1 text-[16px] font-extrabold ${netVariance > allowedVariance ? 'text-rose-600' : 'text-slate-900'}`}>
+              {numIN(netVariance)} M
+            </div>
+          </div>
+          <div className={`rounded-xl border p-3 shadow-2xs ${isReconciled ? 'border-emerald-200 bg-emerald-50/60' : 'border-rose-200 bg-rose-50/60'}`}>
+            <span className="text-[11px] font-semibold text-slate-600">Reconciliation Gate</span>
+            <div className={`mt-1 text-[13px] font-bold flex items-center gap-1 ${isReconciled ? 'text-emerald-700' : 'text-rose-700'}`}>
+              {isReconciled ? (
+                <>
+                  <CheckCircle2 size={14} /> Reconciled (≤ {tolPct}%)
+                </>
+              ) : (
+                <>
+                  <AlertCircle size={14} /> Blocked (&gt; {allowedVariance} M)
+                </>
+              )}
+            </div>
+          </div>
+        </div>
+
+        {/* Losses Table */}
+        <div className="overflow-x-auto rounded-lg border border-slate-200/80 bg-white">
+          <table className="w-full min-w-[760px] text-left text-[12px]">
+            <thead>
+              <tr className="border-b border-slate-200/80 bg-[#f8fafc] text-[11px] font-bold text-slate-700">
+                <th className="px-3.5 py-2.5 w-10 text-center">#</th>
+                <th className="px-3.5 py-2.5">Loss Reason</th>
+                <th className="px-3.5 py-2.5 text-center">Quantity (M)</th>
+                <th className="px-3.5 py-2.5 text-center">Status</th>
+                <th className="px-3.5 py-2.5">Approved By</th>
+                <th className="px-3.5 py-2.5">Remarks</th>
+                <th className="px-3.5 py-2.5 text-center w-28">Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {(jwo.lossEntries || []).length === 0 ? (
+                <tr>
+                  <td colSpan={7} className="px-3.5 py-8 text-center text-slate-400">
+                    No loss entries recorded. Click "+ Record Loss Entry" to account for process shrinkage.
+                  </td>
+                </tr>
+              ) : (
+                (jwo.lossEntries || []).map((l, idx) => (
+                  <tr key={l.id || idx} className="border-b border-slate-100 hover:bg-slate-50/50">
+                    <td className="px-3.5 py-3 text-center text-slate-500 font-medium">{idx + 1}</td>
+                    <td className="px-3.5 py-3 font-semibold text-slate-800">{l.lossReasonName || 'Process Loss'}</td>
+                    <td className="px-3.5 py-3 text-center font-mono font-bold text-slate-900">{numIN(l.qty)}</td>
+                    <td className="px-3.5 py-3 text-center">
+                      <span className={`inline-block rounded-md border px-2.5 py-0.5 text-[10.5px] font-bold ${l.status === 'Approved' ? 'bg-emerald-50 text-emerald-600 border-emerald-200' : 'bg-amber-50 text-amber-600 border-amber-200'}`}>
+                        {l.status}
+                      </span>
+                    </td>
+                    <td className="px-3.5 py-3 text-slate-600">{l.approvedBy || '—'}</td>
+                    <td className="px-3.5 py-3 text-slate-600">{l.remarks || '—'}</td>
+                    <td className="px-3.5 py-3 text-center">
+                      {l.status !== 'Approved' && (
+                        <button
+                          onClick={() => handleApproveLoss(l.id)}
+                          className="inline-flex items-center gap-1 rounded-md border border-emerald-200 bg-emerald-50 px-2.5 py-1 text-[11px] font-bold text-emerald-700 hover:bg-emerald-100 shadow-2xs"
+                        >
+                          <CheckCircle2 size={12} /> Approve
+                        </button>
+                      )}
+                    </td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    );
+  };
+
   const renderRemarksSection = () => (
     <div className="space-y-3">
       <h3 className="text-[14px] font-bold text-[#17294e]">Order Remarks & Special Instructions</h3>
@@ -1547,6 +1580,7 @@ export default function JobWorkOrderDetailPage() {
         title={`${jwo.process} Job Work Order - ${jwo.jwoNo}`}
         breadcrumb={[
           { label: 'Dashboard', path: '/dashboard' },
+          { label: 'PMS', path: '/pms' },
           { label: 'Job Work / Processing' },
           { label: 'Job Work Orders', path: '/job-work/orders' },
           { label: jwo.jwoNo },
@@ -1576,6 +1610,15 @@ export default function JobWorkOrderDetailPage() {
             >
               <Pencil size={13} /> Edit
             </button>
+            {!isClosed && (
+              <button
+                onClick={handleCloseOrder}
+                disabled={saving}
+                className="inline-flex items-center gap-1.5 rounded-lg border border-emerald-300 bg-white px-3.5 py-2 text-[12px] font-bold text-emerald-700 hover:bg-emerald-50 disabled:opacity-50"
+              >
+                <CheckCircle2 size={13} /> Close Order
+              </button>
+            )}
             <button
               onClick={() => window.print()}
               className="inline-flex items-center gap-1.5 rounded-lg border border-[#e2eaf5] bg-white px-3.5 py-2 text-[12px] font-bold text-slate-600 hover:bg-slate-50"
@@ -1659,6 +1702,7 @@ export default function JobWorkOrderDetailPage() {
           {tab === 'Material Details' && renderMaterialSection()}
           {tab === 'Outward Challans' && renderOutwardSection()}
           {tab === 'Inward Receipts' && renderInwardSection()}
+          {tab === 'Approved Losses' && renderLossesSection()}
           {tab === 'Production / WIP' && renderWipSection()}
           {tab === 'Charges' && renderChargesSection()}
           {tab === 'Documents' && renderDocumentsSection()}
@@ -1685,11 +1729,10 @@ export default function JobWorkOrderDetailPage() {
               <div>
                 <label className="block font-semibold text-slate-600 mb-1">Outward No.</label>
                 <input
-                  required
+                  readOnly
                   value={outwardForm.no}
-                  onChange={(e) => setOutwardForm({ ...outwardForm, no: e.target.value })}
-                  placeholder="e.g. JWO-OUT-001"
-                  className="w-full rounded-lg border border-slate-200 px-3 py-2 font-mono outline-none focus:border-blue-400"
+                  placeholder="Auto-generated on save"
+                  className="w-full rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 font-mono outline-none"
                 />
               </div>
               <div className="grid grid-cols-2 gap-3">
@@ -1788,11 +1831,10 @@ export default function JobWorkOrderDetailPage() {
               <div>
                 <label className="block font-semibold text-slate-600 mb-1">Inward No.</label>
                 <input
-                  required
+                  readOnly
                   value={inwardForm.no}
-                  onChange={(e) => setInwardForm({ ...inwardForm, no: e.target.value })}
-                  placeholder="e.g. JWO-IN-001"
-                  className="w-full rounded-lg border border-slate-200 px-3 py-2 font-mono outline-none focus:border-blue-400"
+                  placeholder="Auto-generated on save"
+                  className="w-full rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 font-mono outline-none"
                 />
               </div>
               <div className="grid grid-cols-2 gap-3">
@@ -2221,6 +2263,7 @@ export default function JobWorkOrderDetailPage() {
                   <option value="In-Process">In-Process</option>
                   <option value="Completed">Completed</option>
                   <option value="Draft">Draft</option>
+                  <option value="Closed">Closed</option>
                 </select>
               </div>
               <div className="flex justify-end gap-2 pt-2">
@@ -2435,11 +2478,7 @@ export default function JobWorkOrderDetailPage() {
                   value={docForm.type}
                   onChange={(e) => {
                     const t = e.target.value;
-                    setDocForm((prev) => ({
-                      ...prev,
-                      type: t,
-                      fileName: `${t.replace(/\s+/g, '_')}.pdf`,
-                    }));
+                    setDocForm((prev) => ({ ...prev, type: t }));
                   }}
                   className="w-full rounded-lg border border-slate-200 px-3 py-2 outline-none focus:border-blue-400 bg-white"
                 >
@@ -2456,7 +2495,6 @@ export default function JobWorkOrderDetailPage() {
                 <div>
                   <label className="block font-semibold text-slate-600 mb-1">Document No.</label>
                   <input
-                    required
                     value={docForm.no}
                     onChange={(e) => setDocForm({ ...docForm, no: e.target.value })}
                     placeholder="e.g. QC-001"
@@ -2478,6 +2516,7 @@ export default function JobWorkOrderDetailPage() {
                 <label className="block font-semibold text-slate-600 mb-1">File Attachment (PDF, Image)</label>
                 <input
                   type="file"
+                  required
                   accept=".pdf,.png,.jpg,.jpeg,.doc,.docx"
                   onChange={handleFileChange}
                   className="w-full rounded-lg border border-slate-200 px-3 py-2 text-[11.5px] outline-none focus:border-blue-400 file:mr-2 file:rounded-md file:border-0 file:bg-blue-50 file:px-2.5 file:py-1 file:text-[11.5px] file:font-semibold file:text-blue-700 hover:file:bg-blue-100"
@@ -2491,16 +2530,6 @@ export default function JobWorkOrderDetailPage() {
                   onChange={(e) => setDocForm({ ...docForm, fileName: e.target.value })}
                   placeholder="e.g. QC_Report.pdf"
                   className="w-full rounded-lg border border-slate-200 px-3 py-2 font-mono outline-none focus:border-blue-400"
-                />
-              </div>
-              <div>
-                <label className="block font-semibold text-slate-600 mb-1">Uploaded By</label>
-                <input
-                  required
-                  value={docForm.uploadedBy}
-                  onChange={(e) => setDocForm({ ...docForm, uploadedBy: e.target.value })}
-                  placeholder="e.g. Admin"
-                  className="w-full rounded-lg border border-slate-200 px-3 py-2 outline-none focus:border-blue-400"
                 />
               </div>
               <div className="flex justify-end gap-2 pt-2">
@@ -2684,6 +2713,78 @@ export default function JobWorkOrderDetailPage() {
                 </button>
               </div>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── MODAL: Record Loss Entry ── */}
+      {showLossModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4 backdrop-blur-xs">
+          <div className="w-full max-w-md rounded-xl bg-white p-5 shadow-2xl">
+            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+              <h3 className="text-[14px] font-bold text-[#17294e]">Record Loss / Shrinkage Entry</h3>
+              <button
+                onClick={() => setShowLossModal(false)}
+                className="grid h-7 w-7 place-items-center rounded-lg text-slate-400 hover:bg-slate-100"
+              >
+                <X size={16} />
+              </button>
+            </div>
+            <form onSubmit={handleSaveLoss} className="mt-4 space-y-3 text-[12px]">
+              <div>
+                <label className="block font-semibold text-slate-600 mb-1">Loss Reason *</label>
+                <select
+                  required
+                  value={lossForm.lossReasonId}
+                  onChange={(e) => setLossForm({ ...lossForm, lossReasonId: e.target.value })}
+                  className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-slate-800 outline-none focus:border-blue-400"
+                >
+                  <option value="">Select Loss Reason</option>
+                  {lossReasonsList.map((r) => (
+                    <option key={r.id} value={r.id}>{r.code ? `[${r.code}] ` : ''}{r.name}</option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="block font-semibold text-slate-600 mb-1">Loss Quantity (M) *</label>
+                <input
+                  type="number"
+                  step="0.01"
+                  min="0.01"
+                  required
+                  placeholder="e.g. 40"
+                  value={lossForm.qty}
+                  onChange={(e) => setLossForm({ ...lossForm, qty: e.target.value })}
+                  className="w-full rounded-lg border border-slate-200 px-3 py-2 font-mono font-bold text-slate-800 outline-none focus:border-blue-400"
+                />
+              </div>
+              <div>
+                <label className="block font-semibold text-slate-600 mb-1">Remarks</label>
+                <textarea
+                  rows={2}
+                  value={lossForm.remarks}
+                  onChange={(e) => setLossForm({ ...lossForm, remarks: e.target.value })}
+                  placeholder="e.g. Approved process shrinkage after dyeing"
+                  className="w-full rounded-lg border border-slate-200 p-2.5 text-slate-800 outline-none focus:border-blue-400"
+                />
+              </div>
+              <div className="flex justify-end gap-2 border-t border-slate-100 pt-3">
+                <button
+                  type="button"
+                  onClick={() => setShowLossModal(false)}
+                  className="rounded-lg border border-slate-200 px-4 py-2 font-bold text-slate-600 hover:bg-slate-50"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={saving}
+                  className="rounded-lg bg-[#2563eb] px-4 py-2 font-bold text-white hover:bg-[#1d4ed8] disabled:opacity-50"
+                >
+                  {saving ? 'Recording…' : 'Record Loss'}
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}

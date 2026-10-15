@@ -89,7 +89,7 @@ const CAPACITY_UNIT_OPTIONS = ['Tons', 'Kg', 'Litres', 'Taka'];
 const getInitialFormData = (party) => {
     if (!party) {
         return {
-            code: `PARTY-${Math.floor(100 + Math.random() * 900)}`,
+            code: '',
             type: 'Customer',
             vendorType: '',
             vehicleNumber: '',
@@ -145,7 +145,7 @@ const getInitialFormData = (party) => {
 
     return {
         id: party.id,
-        code: party.code || `PARTY-${Math.floor(100 + Math.random() * 900)}`,
+        code: party.code || '',
         type: party.type || 'Customer',
         vendorType: party.vendorType || party.vendor_type || '',
         vehicleNumber: party.vehicleNumber || party.vehicle_number || '',
@@ -570,7 +570,7 @@ export const PartyWizardModal = ({ isOpen, onClose, onSave, existingParty = null
                                             value={formData.code}
                                             onChange={(e) => updateField('code', e.target.value.toUpperCase())}
                                             className="w-full pl-9 pr-3 py-2.5 bg-soft border border-border rounded-xl font-mono text-xs uppercase font-bold text-text focus:bg-card focus:border-primary focus:ring-2 focus:ring-primary/20 transition outline-none"
-                                            placeholder="PARTY-001"
+                                            placeholder="Auto-assigned on save"
                                         />
                                     </div>
                                 </div>

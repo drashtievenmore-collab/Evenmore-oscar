@@ -93,7 +93,7 @@ export const PrintDeliveryChallanModal = ({ isOpen, onClose, challan }) => {
                                     Dispatch Date: <strong className="text-slate-900">{challan.date || new Date().toLocaleDateString('en-GB')}</strong>
                                 </p>
                                 <p className="text-xs text-slate-600">
-                                    Linked Sales Order: <strong className="text-slate-900">{challan.soRef || challan.salesOrderRef || 'SO-2026-004'}</strong>
+                                    Linked Sales Order: <strong className="text-slate-900">{challan.soRef || challan.salesOrderRef || '—'}</strong>
                                 </p>
                                 <p className="text-xs text-blue-700 font-semibold">
                                     Waybill / LR #: {challan.lrNumber || 'LR-88392-EXP'}
@@ -138,7 +138,7 @@ export const PrintDeliveryChallanModal = ({ isOpen, onClose, challan }) => {
                     <div className="grid grid-cols-4 gap-3 bg-slate-100/70 p-3 rounded-lg border border-slate-200 text-[11px]">
                         <div>
                             <span className="text-[10px] font-bold uppercase text-slate-400 block">Transporter / Fleet</span>
-                            <strong className="text-slate-900">{challan.transporter || 'Express Line Freight Logistics'}</strong>
+                            <strong className="text-slate-900">{challan.transporter || '—'}</strong>
                         </div>
                         <div>
                             <span className="text-[10px] font-bold uppercase text-slate-400 block">Vehicle / Container #</span>

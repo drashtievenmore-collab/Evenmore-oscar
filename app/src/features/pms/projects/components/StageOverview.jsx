@@ -50,7 +50,8 @@ function StageIcon({ name, department }) {
     [/complet|trophy|handoff/, Trophy],
     [/grey|gray|production|weav|knit|fabric/, Boxes],
   ];
-  const [, Icon] = pick.find(([re]) => re.test(text)) ?? [, CircleDot];
+  const match = pick.find(([re]) => re.test(text));
+  const Icon = match ? match[1] : CircleDot;
   return <Icon size={22} strokeWidth={1.8} />;
 }
 

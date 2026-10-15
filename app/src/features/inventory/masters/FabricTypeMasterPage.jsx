@@ -24,10 +24,9 @@ import { uploadFileToBackend } from '../../../services/fileUploadService';
 // Fabric Type / Classification — list (slide 7) plus an Add / Edit / View
 // popup (slide 8). Logged in → rows live in Postgres (/inventory/fabric-types/)
 // and the image goes through the two-step file upload. No session →
-// localStorage, with the image kept as a data URL.
+// nothing (no browser copy is kept).
 
 const PER_PAGE = 10;
-const STORAGE_KEY = 'fabricMaster:fabricTypes';
 const PROCESS_STAGES = ['Grey', 'Dyed', 'Printed', 'Finished'];
 const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
 const CSV_HEADER = ['Type Code', 'Type Name', 'Process Stage', 'Description', 'Status'];
@@ -41,20 +40,9 @@ const STAGE_BADGE = {
   Finished: 'bg-emerald-50 text-emerald-600 border-emerald-200',
 };
 
+// Masters are never read from browser storage; without a session the list is empty.
 function readLocal() {
-  try {
-    return JSON.parse(localStorage.getItem(STORAGE_KEY) || '[]');
-  } catch {
-    return [];
-  }
-}
-
-function writeLocal(rows) {
-  try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(rows));
-  } catch {
-    // storage full or blocked — the in-memory list still works
-  }
+  return [];
 }
 
 function readAsDataUrl(file) {
@@ -175,12 +163,9 @@ export default function FabricTypeMasterPage() {
     if (imagePreview?.startsWith('blob:')) URL.revokeObjectURL(imagePreview);
   }, [imagePreview]);
 
-  const updateLocalRows = (updater) => {
-    setRows((prev) => {
-      const next = updater(prev);
-      writeLocal(next);
-      return next;
-    });
+  // Without a server session nothing can be saved; no local copy is kept.
+  const updateLocalRows = () => {
+    throw new Error('You are not signed in to the server — nothing was saved.');
   };
 
   const sorted = useMemo(
@@ -376,7 +361,8 @@ export default function FabricTypeMasterPage() {
       setLoadError('');
       const failures = [];
       let added = 0;
-      let local = backendOn ? null : [...rows];
+      if (!backendOn) { setImporting(false); setLoadError('You are not signed in to the server — nothing was saved.'); return; }
+      let local = null;
       for (let i = 1; i < parsed.length; i++) {
         const [code, name, stage, description, status] = parsed[i];
         const lineNo = i + 1;
@@ -402,7 +388,7 @@ export default function FabricTypeMasterPage() {
           failures.push(`Row ${lineNo} (${item.code}): ${describeError(err)}`);
         }
       }
-      if (!backendOn) { writeLocal(local); setRows(local); } else await loadData();
+      await loadData();
       setImporting(false);
       setNotice(`Imported ${added} fabric type${added === 1 ? '' : 's'}.`);
       if (failures.length) setLoadError(`${failures.length} row(s) skipped — ${failures.slice(0, 3).join('; ')}${failures.length > 3 ? '…' : ''}`);

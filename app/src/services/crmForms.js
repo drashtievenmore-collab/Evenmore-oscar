@@ -13,25 +13,8 @@
 import { useCrmStore } from '../stores/crmStore';
 import { isBackendEnabled, isServerId } from './resourceSync';
 
-const LOCAL_KEY = 'crmFormsV1';
-
-function readLocal() {
-  try {
-    const raw = localStorage.getItem(LOCAL_KEY);
-    const parsed = raw ? JSON.parse(raw) : [];
-    return Array.isArray(parsed) ? parsed : [];
-  } catch {
-    return [];
-  }
-}
-
-function writeLocal(forms) {
-  try {
-    localStorage.setItem(LOCAL_KEY, JSON.stringify(forms));
-  } catch {
-    /* private mode — session-only, still works until refresh */
-  }
-}
+// Form definitions are server records: no copy is kept in browser storage.
+const NOT_SIGNED_IN = 'You are not signed in to the server — the form was not saved.';
 
 export const LEAD_FORM = 'lead';
 export const TASK_FORM = 'task';
@@ -51,12 +34,7 @@ export function loadForms(kind = LEAD_FORM) {
   const inStore = dedupe(
     (useCrmStore.getState().forms || []).filter((form) => form && (form.kind || LEAD_FORM) === kind),
   );
-  const local = dedupe(readLocal().filter((form) => form && (form.kind || LEAD_FORM) === kind));
-  if (inStore.length === 0) return local;
-  const ids = new Set(inStore.map((form) => String(form.id)));
-  // Local-only drafts (ids the server has never confirmed) still show;
-  // confirmed rows always come from the store so a refresh matches the server.
-  return [...inStore, ...local.filter((form) => !ids.has(String(form.id)))];
+  return inStore;
 }
 
 /** temp/local id -> confirmed server UUID, filled in as creates resolve. */
@@ -88,27 +66,19 @@ function enqueueSave(key, task) {
   return tail;
 }
 
-/** Swap a temp row in the offline cache for its confirmed server row. */
-function reconcileLocal(requestedId, saved, kind) {
+/** Remember which server id a temp id became, so later edits update it. */
+function reconcileLocal(requestedId, saved) {
   if (!saved || !saved.id) return;
   const serverId = String(saved.id);
   if (String(requestedId) !== serverId) serverIdByTempId.set(String(requestedId), serverId);
-  try {
-    const rest = readLocal().filter(
-      (form) => form && String(form.id) !== String(requestedId) && String(form.id) !== serverId,
-    );
-    writeLocal([...rest, { ...saved, kind: saved.kind || kind }]);
-  } catch {
-    /* private mode — store still holds the confirmed row */
-  }
 }
 
 /** Persist the form list a builder just produced.
  *
  * Returns a promise `{ ok, results, errors }` — callers must await it and
  * surface `errors` instead of navigating away assuming success. Drafts are
- * written to the offline cache synchronously first, so a failed save keeps
- * the work in this browser instead of discarding it.
+ * not kept in the browser: a failed save is reported, and what was typed stays
+ * in the open builder until the user retries.
  */
 export function saveForms(next = [], kind = LEAD_FORM) {
   const seen = new Map();
@@ -123,17 +93,10 @@ export function saveForms(next = [], kind = LEAD_FORM) {
   if (JSON.stringify(merged) === JSON.stringify(previous)) {
     return Promise.resolve({ ok: true, noop: true, results: [] });
   }
-  // Drafts first: a rejected server save must not wipe what was typed.
-  writeLocal(merged);
   if (!isBackendEnabled()) {
-    // Offline: the store update IS the save, so the builder, the Create
-    // Lead modal and the preview render the edit immediately.
-    try {
-      useCrmStore.setState({ forms: merged });
-    } catch {
-      /* store not ready */
-    }
-    return Promise.resolve({ ok: true, offline: true, results: [] });
+    // Without a session nothing can be saved, and nothing is kept locally.
+    const error = new Error(NOT_SIGNED_IN);
+    return Promise.resolve({ ok: false, results: [], errors: [{ error }] });
   }
   const store = useCrmStore.getState();
   const sameKind = (form) => (form && (form.kind || LEAD_FORM)) === kind;
@@ -172,7 +135,7 @@ export function saveForms(next = [], kind = LEAD_FORM) {
           saved = await live.updateRecord('forms', old.id, row);
         }
         if (!saved) throw new Error('The server did not save the form.');
-        reconcileLocal(requestedKey, saved, kind);
+        reconcileLocal(requestedKey, saved);
         return { id: requestedKey, saved };
       } catch (err) {
         console.warn('[CRM] form not saved:', err?.message || err);

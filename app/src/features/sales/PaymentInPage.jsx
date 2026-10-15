@@ -53,17 +53,19 @@ export const PaymentInPage = () => {
     };
     const handleRecord = (e) => {
         e.preventDefault();
-        const inv = invoices.find((i) => i.id === selectedInvoiceId) || invoices[0];
-        const cust = customers.find((c) => c.name === inv?.customer || c.id === inv?.customerId);
+        const inv = invoices.find((i) => i.id === selectedInvoiceId);
+        if (!inv) return; // the invoice must be chosen explicitly
+        const cust = customers.find((c) => c.id === inv.customerId || c.name === inv.customer);
         addPaymentIn({
-            customerId: cust?.id,
-            customer: inv?.customer || cust?.name || 'Walk-in Customer',
-            invoiceId: inv?.id,
-            invoiceNumber: inv?.invoiceNumber || 'INV-2026-001',
+            customerId: cust?.id || inv.customerId,
+            customer: inv.customer || cust?.name,
+            invoiceId: inv.id,
+            invoiceNumber: inv.invoiceNumber,
             date: getCurrentDateFormatted(),
             mode,
             amount: Number(amount) || 0,
-            reference: reference || `REC-${Date.now()}`,
+            // The receipt number is allocated by the server.
+            reference: reference || undefined,
         });
         setShowAddModal(false);
     };

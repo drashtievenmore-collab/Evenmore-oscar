@@ -261,7 +261,7 @@ export const CreateWarrantyCardModal = ({
             id: existingCard?.id || `wc-${Date.now()}`,
             cardNumber: existingCard?.cardNumber || `WC-2026-${String(warranties.length + 100).padStart(5, '0')}`,
             customerId: challan.customerId || matchedCustomer?.id,
-            customerName: challan.customer || matchedCustomer?.name || 'Acme Corp',
+            customerName: challan.customer || matchedCustomer?.name || '',
             customerCode: matchedCustomer?.code || 'CUST-001',
             contactPerson: matchedCustomer?.contactPerson || '',
             email: matchedCustomer?.email || 'customer@client.com',

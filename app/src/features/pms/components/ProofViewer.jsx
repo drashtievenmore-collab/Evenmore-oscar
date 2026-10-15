@@ -13,26 +13,17 @@ import {
 } from 'lucide-react';
 
 /**
- * MockPdfViewer — proof renderer with photo/PDF support and comment stream.
+ * ProofViewer — proof renderer with photo/PDF support and comment stream.
  *
  * Renders real uploaded photos and PDFs when available from user uploads,
- * or gracefully displays a technical schematic blueprint for simulated mock proofs.
+ * or shows an empty state when no file is available.
  */
 
 function pageCountFor(doc) {
-  // Deterministic per file so paging is stable across re-renders.
-  const seed = (doc?.fileName ?? '').split('').reduce((n, c) => n + c.charCodeAt(0), 0);
-  return 2 + (seed % 3); // 2–4 pages
+  return Math.max(1, Number(doc?.pageCount) || 1);
 }
 
-const SHEET_META = [
-  ['Scale', '1:20'],
-  ['Material', 'SS-304'],
-  ['Sheet', '2 mm'],
-  ['Tolerance', '±0.1 mm'],
-];
-
-export function MockPdfViewer({ document: doc, projectName, annotations = [], onAddAnnotation }) {
+export function ProofViewer({ document: doc, projectName, annotations = [], onAddAnnotation }) {
   const [page, setPage] = useState(1);
   const [zoom, setZoom] = useState(1);
   const [draft, setDraft] = useState('');
@@ -42,7 +33,7 @@ export function MockPdfViewer({ document: doc, projectName, annotations = [], on
 
   const fileSource =
     doc?.fileData ||
-    (doc?.previewUrl && !doc.previewUrl.startsWith('/mock/') ? doc.previewUrl : null);
+    (doc?.previewUrl || null);
   const hasRealFile = Boolean(fileSource);
   const isImage =
     doc?.fileType?.startsWith('image/') ||
@@ -297,49 +288,9 @@ export function MockPdfViewer({ document: doc, projectName, annotations = [], on
             </div>
           )
         ) : (
-          /* Mock sheet fallback */
-          <div className="p-3 sm:p-5 bg-slate-100 flex justify-center-safe lg:justify-center overflow-auto" style={{ minHeight: 340 }}>
-            <div
-              className="bg-white border border-slate-300 shadow-sm"
-              style={{
-                width: 460 * zoom,
-                minHeight: 300 * zoom,
-                transition: 'width 0.2s ease',
-                padding: 16 * zoom,
-              }}
-            >
-              <div className="border-2 border-slate-800 h-full flex flex-col" style={{ minHeight: 268 * zoom }}>
-                <div className="border-b-2 border-slate-800 px-3 py-2 text-center">
-                  <p className="font-bold text-slate-800 tracking-wide" style={{ fontSize: 11 * zoom }}>
-                    TECHNICAL BLUEPRINT — {(projectName ?? 'ASSEMBLY').toUpperCase()}
-                  </p>
-                </div>
-
-                <div className="flex-1 flex items-center justify-center p-4">
-                  {/* A deliberately schematic drawing, not a fake screenshot. */}
-                  <svg viewBox="0 0 200 120" style={{ width: 240 * zoom, height: 144 * zoom }} role="img" aria-label="Schematic drawing">
-                    <rect x="20" y="20" width="160" height="80" fill="none" stroke="#334155" strokeWidth="2" />
-                    <rect x="34" y="34" width="60" height="52" fill="none" stroke="#94a3b8" strokeWidth="1" strokeDasharray="3 2" />
-                    <circle cx="140" cy="46" r="8" fill="none" stroke="#334155" strokeWidth="1.5" />
-                    <circle cx="140" cy="76" r="8" fill="none" stroke="#334155" strokeWidth="1.5" />
-                    <line x1="20" y1="110" x2="180" y2="110" stroke="#64748b" strokeWidth="0.8" />
-                    <text x="100" y="117" textAnchor="middle" fontSize="7" fill="#64748b">2200 mm</text>
-                    <text x="46" y="64" fontSize="7" fill="#94a3b8">PANEL {safePage}</text>
-                  </svg>
-                </div>
-
-                <div className="border-t-2 border-slate-800 px-3 py-1.5 flex flex-wrap gap-x-4 gap-y-0.5">
-                  {SHEET_META.map(([k, v]) => (
-                    <span key={k} className="text-slate-600" style={{ fontSize: 8 * zoom }}>
-                      <strong>{k}:</strong> {v}
-                    </span>
-                  ))}
-                  <span className="text-slate-400 ml-auto" style={{ fontSize: 8 * zoom }}>
-                    Sheet {safePage} of {pages}
-                  </span>
-                </div>
-              </div>
-            </div>
+          <div className="flex flex-col items-center justify-center gap-1 bg-slate-50 p-6 text-center" style={{ minHeight: 340 }}>
+            <p className="text-[13px] font-bold text-slate-600">No preview available</p>
+            <p className="text-[12px] text-slate-400">The uploaded file for this version could not be loaded.</p>
           </div>
         )}
       </div>
@@ -405,4 +356,4 @@ export function MockPdfViewer({ document: doc, projectName, annotations = [], on
   );
 }
 
-export default MockPdfViewer;
+export default ProofViewer;

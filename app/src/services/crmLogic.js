@@ -526,34 +526,4 @@ export function clampSidebarWidth(width, min = 200, max = 420) {
   return Math.min(max, Math.max(min, Number(width) || min));
 }
 
-// ── Persistence (logic only — not wired into components) ─────────────────
-
-const CRM_STORAGE_KEY = 'evenmore_crm_v1_state';
-
-export function loadCrmState(storage = typeof localStorage !== 'undefined' ? localStorage : null) {
-  try {
-    if (!storage) return null;
-    const raw = storage.getItem(CRM_STORAGE_KEY);
-    return raw ? JSON.parse(raw) : null;
-  } catch {
-    return null;
-  }
-}
-
-export function saveCrmState(state, storage = typeof localStorage !== 'undefined' ? localStorage : null) {
-  try {
-    storage?.setItem(CRM_STORAGE_KEY, JSON.stringify(state));
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-export function clearCrmState(storage = typeof localStorage !== 'undefined' ? localStorage : null) {
-  try {
-    storage?.removeItem(CRM_STORAGE_KEY);
-    return true;
-  } catch {
-    return false;
-  }
-}
+// CRM state is never persisted in the browser: the server is the source of truth.

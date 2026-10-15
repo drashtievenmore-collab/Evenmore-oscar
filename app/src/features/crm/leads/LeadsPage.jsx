@@ -417,7 +417,7 @@ export default function LeadsPage() {
       return saved;
     } catch (err) {
       const message = `Lead not saved — ${describeError(err)}`;
-      if (throwOnError) throw new Error(message);
+      if (throwOnError) throw new Error(message, { cause: err });
       showToast?.(message);
       return null;
     }

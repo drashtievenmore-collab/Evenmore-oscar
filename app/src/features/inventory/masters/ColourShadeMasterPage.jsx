@@ -21,7 +21,6 @@ import {
 import { fabricMasterSync, isBackendEnabled, describeError } from '../../../services/fabricMasterSync';
 
 const PER_PAGE = 10;
-const STORAGE_KEY = 'fabricMaster:shades';
 
 // ── Colour Conversion Utilities ──
 function hexToRgb(hex) {
@@ -502,20 +501,9 @@ function ColourPickerCard({ value, onChange }) {
   );
 }
 
+// Masters are never read from browser storage; without a session the list is empty.
 function readLocalShades() {
-  try {
-    return JSON.parse(localStorage.getItem(STORAGE_KEY) || '[]');
-  } catch {
-    return [];
-  }
-}
-
-function writeLocalShades(items) {
-  try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(items));
-  } catch {
-    // local storage fallback
-  }
+  return [];
 }
 
 const emptyForm = () => ({
@@ -599,12 +587,9 @@ export default function ColourShadeMasterPage() {
     return () => document.removeEventListener('click', handleOutsideClick);
   }, []);
 
-  const updateLocalRows = (updater) => {
-    setRows((prev) => {
-      const updated = updater(prev);
-      writeLocalShades(updated);
-      return updated;
-    });
+  // Without a server session nothing can be saved; no local copy is kept.
+  const updateLocalRows = () => {
+    throw new Error('You are not signed in to the server — nothing was saved.');
   };
 
   // Filtered rows

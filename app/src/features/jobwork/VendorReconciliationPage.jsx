@@ -13,93 +13,9 @@ import {
   ClipboardList,
   XCircle,
 } from 'lucide-react';
-import { loadJWOs, loadJWOsAsync, numIN } from './jobWorkOrdersStore';
+import { api } from '../../services/api';
+import { numIN } from './jobWorkOrdersStore';
 import PageHeader from '../../components/ui/PageHeader';
-
-/**
- * Vendor Reconciliation — AUTOMATIC / DERIVED register.
- *
- * There is intentionally NO add/create form, NO manual quantity field and
- * NO separate storage here. Every row is derived live from the Job Work
- * Order + its Outward Challans and Inward Receipts (the same records the
- * JWO detail tabs read/write):
- *
- *   totalOutward = Σ outwards.qty
- *   totalInward  = Σ inwards.qty
- *   acceptedQty  = Σ inwards.accepted
- *   rejectedQty  = Σ inwards.rejected
- *   pendingQty   = totalOutward − totalInward
- *   difference   = pendingQty (the unreconciled balance with the vendor)
- *
- * Status:
- *   pendingQty = 0                          → Reconciled
- *   pendingQty > 0 and expected date passed → Mismatch
- *   pendingQty > 0 otherwise                → Pending
- *
- * Any create/edit of an Outward Challan or Inward Receipt updates the
- * underlying JWO, so this register refreshes automatically (backend-first
- * pull + local cache, same as the Outward / Inward / Pending pages).
- *
- * Reconciliation-specific notes (difference reason, remarks, supporting
- * documents, verification) live on the JWO itself — Remarks tab and
- * Documents tab of the JWO detail page — so quantities are never
- * re-entered or duplicated.
- */
-
-const EPS = 0.0001;
-
-const todayISO = () => {
-  const d = new Date();
-  const m = String(d.getMonth() + 1).padStart(2, '0');
-  const day = String(d.getDate()).padStart(2, '0');
-  return `${d.getFullYear()}-${m}-${day}`;
-};
-
-/** Derive one reconciliation row per JWO that has material sent out. */
-export function deriveReconciliationRows(orders, today = todayISO()) {
-  return (orders || [])
-    .map((o) => {
-      const mat = (o.materials || [])[0] || {};
-      const totalOutward = (o.outwards || []).reduce((s, w) => s + (Number(w.qty) || 0), 0);
-      const totalInward = (o.inwards || []).reduce((s, r) => s + (Number(r.qty) || 0), 0);
-      const acceptedQty = (o.inwards || []).reduce(
-        (s, r) => s + (r.accepted !== '' && r.accepted != null ? Number(r.accepted) : Math.max(0, Number(r.qty || 0) - Number(r.rejected || 0))),
-        0,
-      );
-      const rejectedQty = (o.inwards || []).reduce((s, r) => s + (Number(r.rejected) || 0), 0);
-      const pendingQty = Math.max(0, totalOutward - totalInward);
-      const difference = pendingQty;
-      const expectedReturnDate = o.expectedCompletion || '';
-      let status;
-      if (pendingQty <= EPS) {
-        status = 'Reconciled';
-      } else if (expectedReturnDate && today > String(expectedReturnDate).slice(0, 10)) {
-        status = 'Mismatch';
-      } else {
-        status = 'Pending';
-      }
-      return {
-        jwoId: o.id,
-        jwoNo: o.jwoNo || '',
-        orderDate: String(o.orderDate || '').slice(0, 10),
-        vendor: o.vendor || '',
-        process: o.process || '',
-        fabricItem: mat.fabricItem || '',
-        fabricQuality: mat.fabricQuality || '',
-        shade: mat.shade || '',
-        totalOutward,
-        totalInward,
-        acceptedQty,
-        rejectedQty,
-        pendingQty,
-        difference,
-        status,
-      };
-    })
-    // Only JWOs with material actually sent out have something to reconcile.
-    .filter((r) => r.totalOutward > EPS)
-    .sort((a, b) => String(a.jwoNo || '').localeCompare(String(b.jwoNo || '')));
-}
 
 const statusPill = (s) =>
   s === 'Reconciled'
@@ -113,7 +29,9 @@ const StatusIcon = ({ status }) =>
 
 export default function VendorReconciliationPage() {
   const navigate = useNavigate();
-  const [orders, setOrders] = useState(loadJWOs);
+  const [rows, setRows] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
   const [fJwo, setFJwo] = useState('All');
   const [fVendor, setFVendor] = useState('All');
   const [fProcess, setFProcess] = useState('All');
@@ -122,19 +40,25 @@ export default function VendorReconciliationPage() {
   const [fFrom, setFFrom] = useState('');
   const [fTo, setFTo] = useState('');
 
-  // Backend-first: same source the Outward / Inward / Pending pages read,
-  // so any challan / receipt create or edit is reflected here automatically.
   useEffect(() => {
     let live = true;
-    loadJWOsAsync()
-      .then((rows) => {
-        if (live && Array.isArray(rows)) setOrders(rows);
+    setLoading(true);
+    api.get('/jobwork/orders/vendor-reconciliation/')
+      .then((res) => {
+        if (!live) return;
+        const list = Array.isArray(res) ? res : res?.results || [];
+        setRows(list);
+        setError(null);
       })
-      .catch(() => {});
+      .catch((err) => {
+        if (!live) return;
+        setError(err.message || 'Failed to load vendor reconciliation');
+      })
+      .finally(() => {
+        if (live) setLoading(false);
+      });
     return () => { live = false; };
   }, []);
-
-  const rows = useMemo(() => deriveReconciliationRows(orders), [orders]);
 
   const jwoNos = useMemo(() => ['All', ...new Set(rows.map((r) => r.jwoNo).filter(Boolean))], [rows]);
   const vendors = useMemo(() => ['All', ...new Set(rows.map((r) => r.vendor).filter(Boolean))], [rows]);
@@ -294,7 +218,21 @@ export default function VendorReconciliationPage() {
                   </td>
                 </tr>
               ))}
-              {filtered.length === 0 && (
+              {loading && (
+                <tr>
+                  <td colSpan={15} className="px-4 py-10 text-center text-slate-500">
+                    Loading vendor reconciliation...
+                  </td>
+                </tr>
+              )}
+              {!loading && error && (
+                <tr>
+                  <td colSpan={15} className="px-4 py-10 text-center text-red-600">
+                    {error}
+                  </td>
+                </tr>
+              )}
+              {!loading && !error && filtered.length === 0 && (
                 <tr>
                   <td colSpan={15} className="px-4 py-10 text-center">
                     <p className="text-[13px] font-extrabold text-[#17294e]">No reconciliation records found</p>

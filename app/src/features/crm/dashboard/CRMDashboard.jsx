@@ -2,7 +2,7 @@ import CrmKpiCard from '../common/CrmKpiCard';
 import PageHeader from "../../../components/ui/PageHeader";
 import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
-import { Users, UserPlus, Clock, TrendingUp, DollarSign, Search, Mail, CalendarDays, FileText, ClipboardList, Video, Send } from "lucide-react";
+import { Users, UserPlus, Clock, TrendingUp, DollarSign, Search, Mail, Phone, CalendarDays, FileText, ClipboardList, Video, Send } from "lucide-react";
 import { useCrmStore } from "../../../stores/crmStore";
 import { initials, describeError } from "../../../services/crmSync";
 import { useERP } from "../../../context/ERPContext";
@@ -207,15 +207,18 @@ export default function DashboardView() {
   }
   const handleCompleteSuccess = () => setCompleteTarget(null);
   const recent = leads.slice(0, 5);
-  const todayTasks = tasks.filter((t) => t.dueDate === todayISO).slice(0, 2);
-  const nextOrder = salesOrders[0];
-  const nextQuote = quotations[0];
-  const calendar = [
-    ...todayTasks.map((t) => ({ time: "10:00 AM", title: t.title + " - " + t.lead, sub: t.company || t.owner, color: "#2f6fed" })),
-    { time: "11:00 AM", title: "Team Meeting", sub: "Sales review " + collectedTotal.toLocaleString("en-IN") + " collected", color: "#8b5cf6" },
-    { time: "02:00 PM", title: "Demo - " + (leads[2]?.name || "Lead"), sub: (leads[2]?.company || "") + (nextOrder ? " | " + nextOrder.orderNumber : ""), color: "#10b981" },
-    { time: "05:00 PM", title: "Send Quotations", sub: (nextQuote ? nextQuote.quoteNumber + " " + formatCurrency(nextQuote.amount || 0) : quotationsTotal + " pipeline"), color: "#f59e0b" }
-  ].slice(0, 4);
+  const CAL_COLORS = ["#2f6fed", "#8b5cf6", "#10b981", "#f59e0b"];
+  const calendar = tasks
+    .filter((t) => t.dueDate === todayISO && t.status !== "Completed")
+    .sort((x, y) => String(x.dueTime || "").localeCompare(String(y.dueTime || "")))
+    .slice(0, 4)
+    .map((t, i) => ({
+      key: t.id || `${t.title}-${i}`,
+      time: t.dueTime || "Today",
+      title: t.lead ? `${t.title} - ${t.lead}` : t.title,
+      sub: t.company || t.owner || "",
+      color: CAL_COLORS[i % CAL_COLORS.length],
+    }));
   return (
     <div className="grid-cols-1 lg:grid-cols-none" style={{ display: "grid", gap: 14, background: "#f6f9ff", minHeight: "100%" }}>
       <PageHeader
@@ -404,8 +407,11 @@ export default function DashboardView() {
             <Link to="/crm/tasks" style={{ fontSize: 12, fontWeight: 700, color: "#2f6fed" }}>View Calendar</Link>
           </div>
           <div style={{ display: "grid", gap: 12, marginTop: 12 }}>
+            {calendar.length === 0 && (
+              <span style={{ fontSize: 12, color: "#64748b" }}>No tasks due today.</span>
+            )}
             {calendar.map((c) => (
-              <div key={c.title} style={{ display: "flex", gap: 10, alignItems: "flex-start" }}>
+              <div key={c.key} style={{ display: "flex", gap: 10, alignItems: "flex-start" }}>
                 <span style={{ fontSize: 11, fontWeight: 800, color: "#475569", width: 64, flexShrink: 0, paddingTop: 2 }}>{c.time}</span>
                 <span style={{ width: 3, borderRadius: 99, background: c.color, alignSelf: "stretch" }} />
                 <span>

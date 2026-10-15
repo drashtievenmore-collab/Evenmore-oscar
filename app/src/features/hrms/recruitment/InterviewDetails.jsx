@@ -267,7 +267,7 @@ export default function InterviewDetails() {
                   <span>Interviewer Feedback & Recommendation</span>
                 </div>
                 <p className="text-[13px] text-slate-700 dark:text-slate-300 leading-relaxed">
-                  {it.feedback || "Candidate demonstrated exceptional domain problem-solving abilities and clear architectural thought process. Culture fit is high."}
+                  {it.feedback || "No feedback recorded."}
                 </p>
               </div>
             </div>

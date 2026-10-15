@@ -153,6 +153,7 @@ export function UploadProofModal({ isOpen, onClose, project, stage, onUploaded }
 
     const found = {};
     if (!fileName.trim()) found.fileName = 'A file name is required.';
+    if (!selectedFile) found.fileName = 'Choose the proof file to upload.';
     if (!uploaderId) found.uploaderId = 'Record who produced this version.';
     setErrors(found);
     if (Object.keys(found).length > 0) return;
@@ -162,14 +163,11 @@ export function UploadProofModal({ isOpen, onClose, project, stage, onUploaded }
     try {
       const uploader = employees.find((emp) => emp.id === uploaderId);
       const resolvedType = fileType || (fileName.toLowerCase().endsWith('.pdf') ? 'application/pdf' : 'image/png');
-      const resolvedSize = fileSizeFormatted || `${(2 + Math.random() * 4).toFixed(1)} MB`;
+      const resolvedSize = fileSizeFormatted || '';
 
       let fileId = null;
       if (isBackendEnabled()) {
-        const fileToUpload =
-          selectedFile ||
-          new Blob([`%PDF-1.4\n% Proof: ${fileName.trim()}\n`], { type: resolvedType });
-        fileId = await uploadFileToBackend(fileToUpload, fileName.trim(), 'pms_document');
+        fileId = await uploadFileToBackend(selectedFile, fileName.trim(), 'pms_document');
       }
 
       addDocument(
@@ -181,7 +179,7 @@ export function UploadProofModal({ isOpen, onClose, project, stage, onUploaded }
           fileSize: resolvedSize,
           fileType: resolvedType,
           fileData: fileData || null,
-          previewUrl: fileData || `/mock/pdf/${fileName.trim().toLowerCase()}`,
+          previewUrl: fileData || null,
           uploadedBy: { id: uploader.id, name: uploader.name },
           comments: comments.trim(),
           is_proof: true,

@@ -78,7 +78,7 @@ export const AddEditItemPage = () => {
   );
   const [name, setName] = useState('');
   const [category, setCategory] = useState(categories[0]?.name || 'Networking Hardware');
-  const [vendor, setVendor] = useState(vendors[0]?.name || 'Cisco Direct');
+  const [vendor, setVendor] = useState('');
 
   // Dynamic Units & Conversions
   // Units come from the UOM master — no hardcoded defaults that may not exist there.
@@ -165,12 +165,12 @@ export const AddEditItemPage = () => {
   const [imagePreview, setImagePreview] = useState('');
   const [isDraggingFile, setIsDraggingFile] = useState(false);
 
-  const [costPrice, setCostPrice] = useState('45.50');
-  const [sellingPrice, setSellingPrice] = useState('129.99');
-  const [availableQty, setAvailableQty] = useState('50');
-  const [reorderLevel, setReorderLevel] = useState('15');
-  const [location, setLocation] = useState(locations[0]?.name || 'Main Central Hub');
-  const [description, setDescription] = useState('High-performance industrial grade component designed for mission-critical operations with extended durability and certified specifications.');
+  const [costPrice, setCostPrice] = useState('');
+  const [sellingPrice, setSellingPrice] = useState('');
+  const [availableQty, setAvailableQty] = useState('0');
+  const [reorderLevel, setReorderLevel] = useState('');
+  const [location, setLocation] = useState(locations[0]?.name || '');
+  const [description, setDescription] = useState('');
 
   // Dynamic Custom Field Values
   const [customFieldValues, setCustomFieldValues] = useState({});
@@ -248,7 +248,7 @@ export const AddEditItemPage = () => {
       setName(existingItem.name);
       setItemKind(existingItem.itemKind || 'Standalone');
       setCategory(existingItem.category || categories[0]?.name || 'Networking Hardware');
-      setVendor(existingItem.vendor || vendors[0]?.name || 'Cisco Direct');
+      setVendor(existingItem.vendor || '');
       setUom(existingItem.salesUnit || existingItem.uom || '');
       setPurchaseUnit(existingItem.purchaseUnit || existingItem.uom || '');
       setSalesUnit(existingItem.salesUnit || existingItem.uom || '');
@@ -268,10 +268,10 @@ export const AddEditItemPage = () => {
       setSacCode(existingItem.sacCode || '');
       setSerialNumbersText((existingItem.serialNumbers || []).join('\n'));
       setImagePreview(existingItem.image || existingItem.imageUrl || '');
-      setCostPrice(String(existingItem.costPrice || existingItem.unitCost || '45.00'));
-      setSellingPrice(String(existingItem.sellingPrice || '120.00'));
+      setCostPrice(String(existingItem.costPrice ?? existingItem.unitCost ?? ''));
+      setSellingPrice(String(existingItem.sellingPrice ?? ''));
       setAvailableQty(String(existingItem.availableQty ?? existingItem.stock ?? '0'));
-      setReorderLevel(String(existingItem.reorderLevel || '10'));
+      setReorderLevel(String(existingItem.reorderLevel ?? ''));
       setLocation(existingItem.location || locations[0]?.name || 'Main Central Hub');
       setDescription(existingItem.description || '');
       setItemLifecycle(existingItem.lifecycleStatus || 'Active');
@@ -309,9 +309,9 @@ export const AddEditItemPage = () => {
     }
     else if (!isEditMode) {
       const prefix = queryKind === 'Machine' ? 'MACH' : queryKind === 'Part' ? 'PART' : queryKind === 'Fabric' ? 'FAB' : 'PRD';
-      const generatedSku = `${prefix}-${Math.floor(1000 + Math.random() * 9000)}`;
-      setSku(generatedSku);
-      setBatchPrefix(`SN-${generatedSku}-`);
+      // The SKU is allocated by the server when left blank (ITM series).
+      setSku('');
+      setBatchPrefix(`SN-${prefix}-`);
       const targetKind = queryKind || itemKind;
       if (queryKind) {
         setItemKind(queryKind);
@@ -665,8 +665,8 @@ export const AddEditItemPage = () => {
       costPrice: parsedCost,
       unitCost: parsedCost,
       sellingPrice: parsedSelling,
-      availableQty: parsedQty,
-      stock: parsedQty,
+      // availableQty / stock are never sent: stock is computed from the
+      // movement ledger and changes only through documents.
       reorderLevel: parsedReorder,
       location,
       status: computedStatus,
@@ -925,7 +925,7 @@ export const AddEditItemPage = () => {
                     SKU Code *
                   </label>
                   <input
-                    required
+                    required={isEditMode}
                     type="text"
                     value={sku}
                     onChange={(e) => {
@@ -935,7 +935,7 @@ export const AddEditItemPage = () => {
                       }
                     }}
                     className="w-full h-10 border border-slate-200 rounded-xl px-3 bg-slate-50 text-slate-800 font-mono text-xs focus:bg-white focus:outline-none focus:border-blue-600 focus:ring-2 focus:ring-blue-500/20"
-                    placeholder="PRD-0001"
+                    placeholder={isEditMode ? '' : 'Leave blank to auto-assign'}
                   />
                 </div>
                 <div>
@@ -1345,9 +1345,6 @@ export const AddEditItemPage = () => {
                         checked={trackingMode === 'Batch'}
                         onChange={() => {
                           setTrackingMode('Batch');
-                          if (!batchNumber) {
-                            setBatchNumber(`LOT-${new Date().toISOString().slice(0, 10).replace(/-/g, '')}-${Math.floor(100 + Math.random() * 900)}`);
-                          }
                         }}
                         className="text-blue-600"
                       />
@@ -1543,13 +1540,9 @@ export const AddEditItemPage = () => {
                       <span className="text-xs font-bold text-slate-800">
                         Batch / Lot Tracking Parameters
                       </span>
-                      <button
-                        type="button"
-                        onClick={() => setBatchNumber(`LOT-${new Date().toISOString().slice(0, 10).replace(/-/g, '')}-${Math.floor(100 + Math.random() * 900)}`)}
-                        className="px-2.5 py-1 bg-blue-50 hover:bg-blue-100 border border-blue-200 rounded-lg text-blue-700 text-[11px] font-semibold transition cursor-pointer flex items-center gap-1"
-                      >
-                        <Sparkles size={11} /> Auto-Gen Batch Code
-                      </button>
+                      <span className="text-[11px] text-slate-500">
+                        Lot numbers are allocated by the server on receipt when left blank.
+                      </span>
                     </div>
 
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -1607,15 +1600,16 @@ export const AddEditItemPage = () => {
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-1">
                       <div>
                         <label className="block text-xs font-semibold text-slate-700 mb-1">
-                          Initial Batch Quantity ({salesUnit || 'Unit'})
+                          Available Stock ({salesUnit || 'Unit'})
                         </label>
                         <input
                           type="number"
+                          readOnly
                           value={availableQty}
-                          onChange={(e) => setAvailableQty(e.target.value)}
-                          className="w-full h-10 border border-slate-200 rounded-xl px-3 bg-white text-slate-800 font-mono text-xs focus:outline-none focus:border-blue-600"
-                          placeholder="50"
+                          className="w-full h-10 border border-slate-200 rounded-xl px-3 bg-slate-50 text-slate-600 font-mono text-xs cursor-not-allowed"
+                          placeholder="0"
                         />
+                        <p className="text-[11px] text-slate-400 mt-1">Stock is maintained through documents (GRN, Job Work, Dispatch, etc.).</p>
                       </div>
                       <div>
                         <label className="block text-xs font-semibold text-slate-700 mb-1">
@@ -1635,15 +1629,16 @@ export const AddEditItemPage = () => {
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                     <div>
                       <label className="block text-xs font-semibold text-slate-700 mb-1">
-                        Initial Stock Level ({salesUnit || 'Unit'})
+                        Available Stock ({salesUnit || 'Unit'})
                       </label>
                       <input
                         type="number"
+                        readOnly
                         value={availableQty}
-                        onChange={(e) => setAvailableQty(e.target.value)}
-                        className="w-full h-10 border border-slate-200 rounded-xl px-3 bg-white text-slate-800 font-mono text-xs focus:outline-none focus:border-blue-600"
-                        placeholder="50"
+                        className="w-full h-10 border border-slate-200 rounded-xl px-3 bg-slate-50 text-slate-600 font-mono text-xs cursor-not-allowed"
+                        placeholder="0"
                       />
+                      <p className="text-[11px] text-slate-400 mt-1">Stock is maintained through documents (GRN, Job Work, Dispatch, etc.).</p>
                     </div>
                     <div>
                       <label className="block text-xs font-semibold text-slate-700 mb-1">
@@ -2542,15 +2537,16 @@ export const AddEditItemPage = () => {
               </div>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-xs font-semibold text-amber-800 mb-1">Initial Stock Level (Meter)</label>
+                  <label className="block text-xs font-semibold text-amber-800 mb-1">Available Stock (Meter)</label>
                   <input
                     type="number"
                     min="0"
+                    readOnly
                     value={availableQty}
-                    onChange={(e) => setAvailableQty(e.target.value)}
-                    className="w-full h-10 border border-amber-200 rounded-xl px-3 bg-white text-slate-800 text-xs focus:outline-none focus:border-amber-400"
-                    placeholder="e.g. 0.0"
+                    className="w-full h-10 border border-amber-200 rounded-xl px-3 bg-amber-50/50 text-slate-600 text-xs cursor-not-allowed"
+                    placeholder="0"
                   />
+                  <p className="text-[11px] text-amber-700 mt-1">Stock is maintained through documents (GRN, Job Work, Dispatch, etc.).</p>
                 </div>
                 <div>
                   <label className="block text-xs font-semibold text-amber-800 mb-1">Safety Reorder Level (Meter)</label>

@@ -128,18 +128,8 @@ function getDynamicTaskOptions(masterTasks = []) {
   const names = (Array.isArray(masterTasks) ? masterTasks : [])
     .map((m) => m.name || m.title)
     .filter(Boolean);
-  if (names.length > 0) return [...new Set(names)];
-  try {
-    const raw = localStorage.getItem('leadMasterTasksV1');
-    if (raw) {
-      const parsed = JSON.parse(raw);
-      if (Array.isArray(parsed) && parsed.length > 0) {
-        const cached = parsed.map((m) => m.name).filter(Boolean);
-        return [...new Set(cached)];
-      }
-    }
-  } catch { /* ignore */ }
-  return [];
+  // Master tasks come from the server only — no browser-stored copy.
+  return [...new Set(names)];
 }
 
 /**

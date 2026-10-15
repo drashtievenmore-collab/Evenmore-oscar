@@ -357,6 +357,7 @@ async function readAggregate(path, query, label) {
 }
 
 export const pullDashboard = (query) => readAggregate('/pms/dashboard/', query, 'dashboard');
+export const pullDashboardOverview = (query) => readAggregate('/pms/dashboard/overview/', query, 'dashboard overview');
 export const pullNavBadges = () => readAggregate('/pms/nav-badges/', null, 'nav badges');
 export const pullMyProjects = (query) => readAggregate('/pms/my-projects/', query, 'my projects');
 export const pullMyTasks = (query) => readAggregate('/pms/my-tasks/', query, 'my tasks');

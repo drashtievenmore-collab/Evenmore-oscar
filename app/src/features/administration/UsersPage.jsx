@@ -47,6 +47,14 @@ import {
 
 const USERS_PER_PAGE = 16;
 
+// Temporary password from the browser's cryptographic RNG; the user changes it on first login.
+function generateTempPassword() {
+  const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789';
+  const bytes = crypto.getRandomValues(new Uint8Array(10));
+  const body = Array.from(bytes, (b) => chars[b % chars.length]).join('');
+  return `${body}@${(bytes[0] % 90) + 10}`;
+}
+
 /**
  * Case-insensitive contains, safe on a field the server left unset — a user can
  * exist before they have been given a role, a department or an employee number.
@@ -1373,9 +1381,7 @@ export function UsersPage() {
                   <button
                     type="button"
                     onClick={() =>
-                      setNewPassword(
-                        'Evenmore@' + Math.floor(1000 + Math.random() * 9000) + '!'
-                      )
+                      setNewPassword(generateTempPassword())
                     }
                     className="px-3 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl font-semibold"
                   >

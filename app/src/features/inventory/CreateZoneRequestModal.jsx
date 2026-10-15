@@ -38,21 +38,20 @@ export const CreateZoneRequestModal = ({ isOpen, onClose, onSubmit, }) => {
             month: 'short',
             day: 'numeric',
         }) + `, ${today.getHours().toString().padStart(2, '0')}:${today.getMinutes().toString().padStart(2, '0')}`;
-        const reqNum = `#REQ-${Math.floor(8000 + Math.random() * 900)}`;
         onSubmit({
-            requestNumber: reqNum,
+            // The server allocates the request number (REQ series).
             requestedBy,
-            avatarInitials: initials || 'SJ',
+            avatarInitials: initials,
             product,
             sku,
             qty: Number(qty) || 1,
             zone,
-            targetSector: `${zone} (Sector ${Math.floor(1 + Math.random() * 8)})`,
+            targetSector: zone,
             date: formattedDate,
             submittedAt: `Submitted ${formattedDate}`,
             status: 'Requested',
-            notes: notes.trim() || 'Restock request initiated by floor engineer.',
-            warehouseStock: Math.floor(25 + Math.random() * 60),
+            notes: notes.trim(),
+            // warehouseStock is computed by the server per line.
             managerSignoffNeeded: zone === 'Zone A' || zone === 'Zone D',
         });
         onClose();

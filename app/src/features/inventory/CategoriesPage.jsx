@@ -34,23 +34,11 @@ import { fabricMasterSync, isBackendEnabled, describeError } from '../../service
 import { uploadFileToBackend } from '../../services/fileUploadService';
 
 const PER_PAGE = 10;
-const STORAGE_KEY = 'inventory:fabricCategories';
 const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
 
+// Masters are never read from browser storage; without a session the list is empty.
 function readLocalCategories() {
-  try {
-    return JSON.parse(localStorage.getItem(STORAGE_KEY) || '[]');
-  } catch {
-    return [];
-  }
-}
-
-function writeLocalCategories(rows) {
-  try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(rows));
-  } catch {
-    // local storage fallback
-  }
+  return [];
 }
 
 function readAsDataUrl(file) {
@@ -167,12 +155,9 @@ export const CategoriesPage = () => {
 
   const byId = (id) => categories.find((c) => String(c.id) === String(id)) || null;
 
-  const updateLocalRows = (updater) => {
-    setCategories((prev) => {
-      const next = updater(prev);
-      writeLocalCategories(next);
-      return next;
-    });
+  // Without a server session nothing can be saved; no local copy is kept.
+  const updateLocalRows = () => {
+    throw new Error('You are not signed in to the server — nothing was saved.');
   };
 
   // Filtered rows

@@ -145,9 +145,8 @@ export const PrintSalesOrderModal = ({ isOpen, onClose, order }) => {
                                 ORDERED BY (CLIENT ACCOUNT)
                             </span>
                             <p className="text-sm font-bold text-slate-900">{order.customer || 'Client Account'}</p>
-                            <p className="text-slate-600 text-[11px]">Commercial Enterprise Customer</p>
-                            <p className="text-slate-500 text-[11px]">Payment Terms: Net 30 Commercial Credit</p>
-                            <p className="text-slate-500 text-[11px]">Shipping Method: Dedicated Freight Logistics</p>
+                            {order.paymentTerms && <p className="text-slate-500 text-[11px]">Payment Terms: {order.paymentTerms}</p>}
+                            {order.transporter && <p className="text-slate-500 text-[11px]">Transporter: {order.transporter}</p>}
                         </div>
                     </div>
 

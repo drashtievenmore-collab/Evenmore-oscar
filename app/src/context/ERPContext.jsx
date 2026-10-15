@@ -107,13 +107,6 @@ export const ERPProvider = ({ children, }) => {
     const [paymentIns, setPaymentIns] = useState([]);
     const [salesReturns, setSalesReturns] = useState([]);
     const [purchaseOrders, setPurchaseOrders] = useState([]);
-    const [productionInstructions, setProductionInstructions] = useState(() => {
-        try {
-            return JSON.parse(localStorage.getItem('oscar_productionInstructions') || '[]');
-        } catch {
-            return [];
-        }
-    });
     const [purchaseBills, setPurchaseBills] = useState([]);
     const [vendorBills, setVendorBills] = useState([]);
     const [paymentOuts, setPaymentOuts] = useState([]);
@@ -126,29 +119,20 @@ export const ERPProvider = ({ children, }) => {
     const [monthEndAudits, setMonthEndAudits] = useState([]);
     const [bankAccounts, setBankAccounts] = useState([]);
     const [journalEntries, setJournalEntries] = useState([]);
-    // ── [PHASE-2C] QC quality standards master (steel: dimensional + weight + surface checks)
-    //   Seed rows model Sweven's metal-intake checks; used to guide GRN QC review.
-    const defaultQualityStandards = [
-        { id: 'qs-ms-angle', name: 'MS Angle – Structural', category: 'Structural Steel', checks: ['Dimension tolerance ±2 mm', 'Weight variance within tolerance %', 'Surface: no scale / spalling', 'Check length, leg, thickness, mass'], tolerancePct: 2, active: true },
-        { id: 'qs-chequered', name: 'Chequered Plate – MS', category: 'Flat Steel', checks: ['Thickness per IS 2062', 'Chequer height 1.0–1.4 mm', 'Flatness ≤ 4 mm bow per 1 m', 'Mass per theoretical kg'], tolerancePct: 3, active: true },
-        { id: 'qs-hr-sheet', name: 'HR Sheet / Coil', category: 'Flat Steel', checks: ['Gauge per IS 1079', 'Edges trimmed, no oil stains', 'Width tolerance ±2 mm', 'Weighed on receipt'], tolerancePct: 2, active: true },
-        { id: 'qs-sq-pipe', name: 'Square Pipe – Structural', category: 'Structural Steel', checks: ['Section size per IS 4923', 'Wall thickness ±5%', 'Bend/straightness check', 'Weight variance within tolerance %'], tolerancePct: 2.5, active: true },
-    ];
-    const [qualityStandards, setQualityStandards] = useState(defaultQualityStandards);
+    // QC quality standards are a server master (/purchase/quality-standards/).
+    const [qualityStandards, setQualityStandards] = useState([]);
     const [inventoryMovements, setInventoryMovements] = useState([]);
     const [warranties, setWarranties] = useState([]);
     const [currency, setCurrencyState] = useState(() => {
         return localStorage.getItem('evenmore_currency') || 'INR (₹)';
     });
+    // Filled from GET /settings/company-profile/ — no invented company details.
     const [companyProfile, setCompanyProfileState] = useState({
-        // [PHASE-2E.1] Sweven demo company default — Maharashtra GSTIN so intra-state
-        //   prints show CGST+SGST split and the letterhead carries GSTIN/PAN/address.
-        //   Editable from Settings → Company Profile. Keep `name` aligned with app branding.
-        name: 'Sweven Fabricators Pvt Ltd',
-        gstin: '27AABCU9912E1Z8',
-        pan: 'AABCU9912E',
-        address: 'Plot 14, MIDC Industrial Area, Waluj, Aurangabad, Maharashtra 431136',
-        phone: '+91 80 4920 1100',
+        name: '',
+        gstin: '',
+        pan: '',
+        address: '',
+        phone: '',
     });
     const [liveRates, setLiveRates] = useState(DEFAULT_RATES);
     const [toastMessage, setToastMessage] = useState(null);
@@ -207,18 +191,7 @@ export const ERPProvider = ({ children, }) => {
         bankAccounts: setBankAccounts,
         journalEntries: setJournalEntries,
         itemParts: setItemParts,
-        // Guide rows ship with the app; server rows join them (matched by
-        // name) instead of blanking the QC checklist when the backend is empty.
-        qualityStandards: (rows) => setQualityStandards((prev) => {
-            const server = Array.isArray(rows) ? rows : [];
-            if (server.length === 0) return prev;
-            const names = new Set(server.map((r) => String(r?.name || '').toLowerCase()));
-            return [
-                ...server,
-                ...(Array.isArray(prev) ? prev : []).filter((r) =>
-                    r && !isServerId(r.id) && !names.has(String(r?.name || '').toLowerCase())),
-            ];
-        }),
+        qualityStandards: setQualityStandards,
     };
 
     const [backendStatus, setBackendStatus] = useState({ connected: false, loading: false, lastSyncAt: null });
@@ -481,6 +454,40 @@ export const ERPProvider = ({ children, }) => {
     };
 
     /**
+     * Reject a create before it reaches the server: the reason is shown and
+     * thrown, so the calling form can stay open with what the user typed.
+     */
+    const rejectCreate = (message) => {
+        showToast(message);
+        const err = new Error(message);
+        err.shown = true;
+        return err;
+    };
+
+    /**
+     * Server-first create. Nothing is added to local state until the server
+     * has accepted the record; the row that lands in state is the server's
+     * (its id, its document number, its totals). A failure shows the reason
+     * and throws, leaving no unsaved record on screen.
+     */
+    const createOnServer = async (key, record, setter, { label = 'Record', refresh = [] } = {}) => {
+        if (!isBackendEnabled()) {
+            throw rejectCreate(`${label} not saved — you are not signed in to the server.`);
+        }
+        let saved;
+        try {
+            saved = await pushCreate(key, record);
+        } catch (err) {
+            console.warn(`[ERP] could not save ${key}:`, err);
+            throw rejectCreate(`${label} not saved — ${describeError(err)}`);
+        }
+        if (!saved) throw rejectCreate(`${label} not saved — the server returned nothing.`);
+        setter((prev) => [saved, ...(Array.isArray(prev) ? prev : []).filter((r) => r.id !== saved.id)]);
+        if (refresh.length) refreshCollections(refresh);
+        return saved;
+    };
+
+    /**
      * Re-read collections after a server-side action (finalize, cancel,
      * receive-goods …) that posts stock and ledger rows behind the scenes.
      * Server rows win by id; local-only rows (offline creates) are kept.
@@ -583,7 +590,8 @@ export const ERPProvider = ({ children, }) => {
         // Sum open reservations from Sales Orders in 'Draft' / 'Confirmed' / 'Packing'
         let reservedQty = 0;
         salesOrders.forEach((so) => {
-            if (so.stage !== 'Delivered' && so.stage !== 'Invoiced' && so.stage !== 'Cancelled' && so.status !== 'Cancelled') {
+            // Mirrors backend NON_RESERVING_STAGES: only Confirmed / Partially Dispatched reserve.
+            if (['Confirmed', 'Partially Dispatched'].includes(so.stage) && so.status !== 'Cancelled') {
                 if (so.items && Array.isArray(so.items)) {
                     so.items.forEach((line) => {
                         if (line.itemId === targetId || line.itemSku?.toLowerCase() === targetSku.toLowerCase()) {
@@ -823,8 +831,8 @@ export const ERPProvider = ({ children, }) => {
     const addFaultyPart = (newPart) => {
         const part = {
             id: `fp-${Date.now()}`,
-            rmaNumber: newPart.rmaNumber ||
-                `RMA-2026-${Math.floor(1000 + Math.random() * 9000)}`,
+            // Server-allocated (RMA series); blank until the save returns.
+            rmaNumber: newPart.rmaNumber || '',
             date: newPart.date || getCurrentDateFormatted(),
             product: newPart.product || 'Unknown Hardware Item',
             sku: newPart.sku || 'SKU-GEN-01',
@@ -958,17 +966,8 @@ export const ERPProvider = ({ children, }) => {
     };
 
     const createInvoice = (newInvoice) => {
-        const invItems = newInvoice.items && newInvoice.items.length > 0
-            ? newInvoice.items
-            : [
-                {
-                    id: `item-${Date.now()}`,
-                    description: 'Standard Order Merchandise',
-                    qty: 1,
-                    rate: newInvoice.subtotal || newInvoice.total || 1000,
-                    amount: newInvoice.subtotal || newInvoice.total || 1000,
-                },
-            ];
+        // No invented placeholder line: an invoice carries what the user entered.
+        const invItems = Array.isArray(newInvoice.items) ? newInvoice.items : [];
 
         // Dynamic tax calculation
         let subtotal = 0;
@@ -1029,9 +1028,9 @@ export const ERPProvider = ({ children, }) => {
 
         const invoice = {
             id: newInvoice.id || `inv-${Date.now()}`,
-            invoiceNumber: newInvoice.invoiceNumber || `INV-2026-${String(invoices.length + 101).padStart(3, '0')}`,
+            invoiceNumber: newInvoice.invoiceNumber || '', // allocated by the server on finalize
             customerId: newInvoice.customerId || cust?.id,
-            customer: newInvoice.customer || cust?.name || 'Acme Corp',
+            customer: newInvoice.customer || cust?.name || '',
             billingAddress,
             shippingAddress,
             linkedSo: newInvoice.linkedSo || newInvoice.salesOrderId,
@@ -1071,42 +1070,9 @@ export const ERPProvider = ({ children, }) => {
 
         // If finalized, post financial records and inventory
         if (isFinalized) {
-            // Inventory Safe Handling (Case A, B, C):
-            const soId = invoice.salesOrderId || invoice.linkedSo;
-            const hasChallan = Boolean(
-                invoice.dispatchedViaChallan ||
-                (soId && deliveryChallans.some((dc) => dc.salesOrderId === soId || dc.salesOrderNumber === soId || dc.linkedSo === soId))
-            );
-
-            if (!hasChallan) {
-                // Direct Invoice: Deduct inventory stock
-                invItems.forEach((line) => {
-                    const targetSku = line.sku || line.itemSku;
-                    const item = items.find((i) => i.id === line.itemId || (targetSku && i.sku?.toLowerCase() === targetSku.toLowerCase()));
-                    if (item || line.itemId) {
-                        recordMovement({
-                            itemId: item?.id || line.itemId || `itm-${Date.now()}`,
-                            itemSku: item?.sku || targetSku || 'GEN-SKU',
-                            itemName: item?.name || line.name || line.description,
-                            type: 'SALE',
-                            quantity: -(Number(line.qty) || 1),
-                            unitCost: item?.costPrice || line.rate || 0,
-                            referenceType: 'SalesInvoice',
-                            referenceId: invoice.id,
-                            referenceNumber: invoice.invoiceNumber,
-                            notes: `Direct sale to ${invoice.customer} per ${invoice.invoiceNumber}`,
-                        });
-                    }
-                });
-            }
-
-            // Update customer outstanding balance
-            if (invoice.customer) {
-                setCustomers((prev) => prev.map((c) => String(c.name ?? '').toLowerCase() === String(invoice.customer ?? '').toLowerCase() || (invoice.customerId && c.id === invoice.customerId)
-                    ? { ...c, balance: c.balance + invoice.total }
-                    : c));
-            }
-
+            // Stock (SALE movements), COGS and the customer balance are posted
+            // by the server on finalize; the refresh after persistCreate brings
+            // them in. Nothing is mirrored locally.
             showToast(`Invoice ${invoice.invoiceNumber} created and finalized.`);
         } else {
             showToast(`Draft Invoice ${invoice.invoiceNumber} saved.`);
@@ -1257,49 +1223,16 @@ export const ERPProvider = ({ children, }) => {
 
         if (!finalized) return undefined;
 
-        // Inventory Safe Handling (Case A, B, C):
-        const soId = finalized.salesOrderId || finalized.linkedSo;
-        const hasChallan = Boolean(
-            finalized.dispatchedViaChallan ||
-            (soId && deliveryChallans.some((dc) => dc.salesOrderId === soId || dc.salesOrderNumber === soId || dc.linkedSo === soId))
-        );
-
-        if (!hasChallan) {
-            // Direct Invoice: Deduct inventory stock
-            (finalized.items || []).forEach((line) => {
-                const targetSku = line.sku || line.itemSku;
-                const item = items.find((i) => i.id === line.itemId || (targetSku && i.sku?.toLowerCase() === targetSku.toLowerCase()));
-                if (item || line.itemId) {
-                    recordMovement({
-                        itemId: item?.id || line.itemId || `itm-${Date.now()}`,
-                        itemSku: item?.sku || targetSku || 'GEN-SKU',
-                        itemName: item?.name || line.name || line.description,
-                        type: 'SALE',
-                        quantity: -(Number(line.qty) || 1),
-                        unitCost: item?.costPrice || line.rate || 0,
-                        referenceType: 'SalesInvoice',
-                        referenceId: finalized.id,
-                        referenceNumber: finalized.invoiceNumber,
-                        notes: `Direct sale to ${finalized.customer} per ${finalized.invoiceNumber}`,
-                    });
-                }
-            });
-        }
-
-        // Update customer outstanding balance
-        if (finalized.customer) {
-            setCustomers((prev) => prev.map((c) => String(c.name ?? '').toLowerCase() === String(finalized.customer ?? '').toLowerCase() || (finalized.customerId && c.id === finalized.customerId)
-                ? { ...c, balance: c.balance + finalized.total }
-                : c));
-        }
+        // Stock (SALE movements), COGS and the customer balance are posted by
+        // the server's finalize action; the refresh below brings them in.
 
         // Auto-create Journal Entry for Revenue & AR — server-side: the
         // finalize action posts Dr Debtors / Cr Sales itself, and the
         // re-read below brings that entry in. A local mirror here would
         // double-count in the ledger views.
         runDocAction('invoices', finalized.id, 'finalize', {}, setInvoices, {
-            refresh: ['invoices', 'journalEntries', 'inventoryMovements', 'parties'],
-        }).catch(() => {});
+            refresh: ['invoices', 'journalEntries', 'inventoryMovements', 'parties', 'items', 'salesOrders'],
+        }).catch(() => refreshCollections(['invoices'])); // failed: restore the server's row
         showToast(`Invoice ${finalized.invoiceNumber} finalized and posted to General Ledger.`);
         return finalized;
     };
@@ -1382,7 +1315,7 @@ export const ERPProvider = ({ children, }) => {
 
     // ── PROFORMA INVOICES ACTIONS ──────────────────────────────────────────────
     const addProformaInvoice = (pi) => {
-        const subtotal = Number(pi.subtotal) || (pi.items ? pi.items.reduce((sum, it) => sum + (Number(it.rate || 0) * Number(it.qty || 1)), 0) : 0) || 5000;
+        const subtotal = Number(pi.subtotal) || (pi.items ? pi.items.reduce((sum, it) => sum + (Number(it.rate || 0) * Number(it.qty || 1)), 0) : 0);
         const discountTotal = Number(pi.discountTotal) || 0;
         const taxableAmount = Math.max(0, subtotal - discountTotal);
         const cgst = pi.cgst !== undefined ? Number(pi.cgst) : Math.round(taxableAmount * 0.09 * 100) / 100;
@@ -1392,12 +1325,12 @@ export const ERPProvider = ({ children, }) => {
         const roundOff = Number(pi.roundOff) || 0;
         const grandTotal = Number(pi.grandTotal || pi.total) || Math.round((taxableAmount + cgst + sgst + igst + otherCharges + roundOff) * 100) / 100;
 
-        const nextNumber = pi.proformaNumber || `PI-2026-${String(proformaInvoices.length + 5).padStart(3, '0')}`;
+        const nextNumber = pi.proformaNumber || ''; // allocated by the server (PI series)
         const newPI = {
             id: pi.id || `pi-${Date.now()}`,
             proformaNumber: nextNumber,
             customerId: pi.customerId,
-            customer: pi.customer || 'Acme Corp',
+            customer: pi.customer || '',
             customerContact: pi.customerContact || '',
             billingAddress: pi.billingAddress || null,
             shippingAddress: pi.shippingAddress || null,
@@ -1485,7 +1418,7 @@ export const ERPProvider = ({ children, }) => {
         const subtotal = invoiceOverrides.subtotal ?? (targetItems.reduce((sum, item) => sum + (Number(item.amount || 0) || (Number(item.qty || 1) * Number(item.rate || 0))), 0) || pi.subtotal);
         const tax = invoiceOverrides.tax ?? (pi.cgst + pi.sgst + pi.igst || Math.round(subtotal * 0.18 * 100) / 100);
         const grandTotal = invoiceOverrides.total ?? Math.round((subtotal + tax) * 100) / 100;
-        const nextInvNumber = `INV-2026-${String(invoices.length + 101).padStart(3, '0')}`;
+        const nextInvNumber = ''; // allocated by the server on finalize
 
         const newInvoice = {
             id: `inv-${Date.now()}`,
@@ -1495,7 +1428,7 @@ export const ERPProvider = ({ children, }) => {
             billingAddress: createAddressSnapshot(pi.billingAddress),
             shippingAddress: createAddressSnapshot(pi.shippingAddress),
             salesOrderId: pi.salesOrderId,
-            linkedSo: pi.linkedSo || (pi.salesOrderId ? `SO-2026-${String(invoices.length + 101).padStart(4, '0')}` : 'Direct Proforma'),
+            linkedSo: pi.linkedSo || salesOrders.find((o) => o.id === pi.salesOrderId)?.orderNumber || '',
             proformaInvoiceId: pi.id,
             linkedPi: pi.proformaNumber,
             date: getCurrentDateFormatted(),
@@ -1534,8 +1467,8 @@ export const ERPProvider = ({ children, }) => {
     const addZoneRequest = (newReq) => {
         const req = {
             id: `req-${Date.now()}`,
-            requestNumber: newReq.requestNumber ||
-                `#REQ-${Math.floor(8000 + Math.random() * 900)}`,
+            // Server-allocated (REQ series); blank until the save returns.
+            requestNumber: newReq.requestNumber || '',
             requestedBy: newReq.requestedBy || 'Sarah Jenkins',
             avatarInitials: newReq.avatarInitials || 'SJ',
             product: newReq.product || 'Standard Spare Component',
@@ -1613,10 +1546,12 @@ export const ERPProvider = ({ children, }) => {
         const isService = item.itemKind === 'Service';
         const isSerial = item.trackingMode === 'Serial';
         const serials = Array.isArray(item.serialNumbers) ? item.serialNumbers : [];
-        const calculatedQty = isService ? 0 : (isSerial ? serials.length : (item.availableQty ?? 10));
+        // Stock is never set from the item form: it comes from documents.
+        const calculatedQty = isService ? 0 : (isSerial ? serials.length : 0);
         const newItem = {
             id: item.id || `itm-${Date.now()}`,
-            sku: item.sku || `ITM-${Math.floor(1000 + Math.random() * 9000)}`,
+            // Blank SKU -> the server allocates one (ITM series).
+            sku: item.sku || '',
             name: item.name || 'New Hardware Item',
             category: item.category || 'General',
             categoryId: item.categoryId || undefined,
@@ -1963,20 +1898,8 @@ export const ERPProvider = ({ children, }) => {
         const diff = isAbsolute ? adjustment - targetItem.availableQty : adjustment;
         if (diff === 0)
             return;
-        const mirror = recordMovement({
-            itemId: targetItem.id,
-            itemSku: targetItem.sku,
-            itemName: targetItem.name,
-            type: 'ADJUSTMENT',
-            quantity: diff,
-            unitCost: targetItem.costPrice,
-            referenceType: 'StockAdjustment',
-            referenceId: `adj-${Date.now()}`,
-            referenceNumber: `ADJ-${Math.floor(1000 + Math.random() * 9000)}`,
-            notes: reason,
-        });
-        // Server-side adjustment posts the ADJUSTMENT movement authoritatively
-        // (api.md §7.2); drop the local mirror once posted and re-read.
+        // The server posts the ADJUSTMENT movement (api.md §7.2); nothing is
+        // written locally, the stock is re-read once it is saved.
         if (isBackendEnabled() && isServerId(targetItem.id)) {
             api.post('/inventory/adjustments/', {
                 itemId: targetItem.id,
@@ -1984,9 +1907,6 @@ export const ERPProvider = ({ children, }) => {
                 isAbsolute: false,
                 reason,
             }).then(() => {
-                if (mirror?.id) {
-                    setInventoryMovements((prev) => prev.filter((m) => m.id !== mirror.id));
-                }
                 refreshCollections(['items', 'inventoryMovements']);
             }).catch((err) => {
                 console.warn('[ERP] stock adjustment not saved:', err);
@@ -2151,14 +2071,14 @@ export const ERPProvider = ({ children, }) => {
         const defaultAddresses = resolvePartyAddresses(quote.customerId, quote.customer);
         const newQ = {
             id: quote.id || `q-${Date.now()}`,
-            quoteNumber: quote.quoteNumber || `EST-2026-${String(quotations.length + 91).padStart(3, '0')}`,
+            quoteNumber: quote.quoteNumber || '', // allocated by the server
             dealId: quote.dealId,
             dealReference: quote.dealReference,
             terms: quote.terms,
             termsAndConditions: quote.termsAndConditions,
             freight: quote.freight,
             customerId: quote.customerId,
-            customer: quote.customer || 'Acme Corp',
+            customer: quote.customer || '',
             contactPerson: quote.contactPerson || '',
             salesPerson: quote.salesPerson || '',
             broker: quote.broker || '',
@@ -2420,7 +2340,7 @@ export const ERPProvider = ({ children, }) => {
         ];
         const newOrder = {
             id: `so-${Date.now()}`,
-            orderNumber: `SO-2026-${String(salesOrders.length + 101).padStart(4, '0')}`,
+            orderNumber: '', // allocated by the server (SO series)
             quotationId: quote.id,
             quotationNumber: quote.quoteNumber,
             sourceQuotationId: quote.id,
@@ -2450,7 +2370,7 @@ export const ERPProvider = ({ children, }) => {
     };
     const addSalesOrder = (order) => {
         const orderAmt = order.amount ||
-            (order.items ? order.items.reduce((acc, it) => acc + (it.amount || it.qty * it.rate), 0) : 0) || 5000;
+            (order.items ? order.items.reduce((acc, it) => acc + (it.amount || it.qty * it.rate), 0) : 0);
         const defaultAddresses = resolvePartyAddresses(order.customerId, order.customer);
         const formattedItems = (order.items || []).map((line, idx) => ({
             ...line,
@@ -2465,14 +2385,13 @@ export const ERPProvider = ({ children, }) => {
         }));
         const newOrder = {
             id: order.id || `so-${Date.now()}`,
-            orderNumber: order.orderNumber ||
-                `SO-2026-${String(salesOrders.length + 101).padStart(4, '0')}`,
+            orderNumber: order.orderNumber || '', // allocated by the server
             quotationId: order.quotationId,
             quotationNumber: order.quotationNumber,
             sourceQuotationId: order.sourceQuotationId || order.quotationId,
             sourceQuotationNumber: order.sourceQuotationNumber || order.quotationNumber,
             customerId: order.customerId,
-            customer: order.customer || 'Acme Corp',
+            customer: order.customer || '',
             billingAddress: createAddressSnapshot(order.billingAddress) || defaultAddresses.billing,
             shippingAddress: createAddressSnapshot(order.shippingAddress) || defaultAddresses.shipping,
             date: formatDateDDMMYYYY(order.date || 'Today'),
@@ -2513,186 +2432,36 @@ export const ERPProvider = ({ children, }) => {
         showToast(`Sales Order ${order.orderNumber} cancelled.`);
         return { success: true, message: `Sales Order ${order.orderNumber} cancelled.` };
     };
-    const convertSalesOrderToChallan = (orderId) => {
+    // Order conversions run on the server (partial quantities, QC gates,
+    // dispatch-before-invoice and numbering are all enforced there); the
+    // screen only refreshes from the server afterwards.
+    const convertSalesOrderToChallan = (orderId, payload = {}) => {
         const order = salesOrders.find((o) => o.id === orderId);
-        if (!order)
-            return undefined;
-        if (order.stage === 'Cancelled') {
-            showToast(`Cannot create Challan from Cancelled Sales Order.`);
-            return undefined;
-        }
-        // ── [PHASE-2C] QC gate — never dispatch unchecked steel ──
-        // Lines still to dispatch that trace back to a Pending/Rejected/Rework inbound
-        //   receipt are held until QC clears (updateQCStatus → 'Approved').
-        const inboundHold = (order.items || []).filter((line) =>
-            Number(line.remainingQty ?? (Number(line.orderedQty ?? line.qty ?? 0) - Number(line.deliveredQty || 0))) > 0 &&
-            getItemQCBlock(line.itemId || line.itemSku || line.sku)
-        );
-        if (inboundHold.length > 0) {
-            showToast(`Dispatch blocked — QC pending/rejected for: ${inboundHold.map((l) => l.name || l.description || 'item').join(', ')}. Approve inbound QC before dispatch.`);
-            return undefined;
-        }
-        
-        // Prepare line items for delivery (dispatch remaining quantities)
-        const dispatchLines = (order.items || []).map((line) => {
-            const ordQty = Number(line.orderedQty ?? line.qty ?? 1);
-            const delQty = Number(line.deliveredQty ?? 0);
-            const remQty = Math.max(0, ordQty - delQty);
-            return {
-                ...line,
-                qty: remQty > 0 ? remQty : ordQty,
-                dispatchedQty: remQty > 0 ? remQty : ordQty,
-            };
-        });
-
-        const newChallan = {
-            id: `dc-${Date.now()}`,
-            challanNumber: `DC-2026-${String(deliveryChallans.length + 80).padStart(3, '0')}`,
-            salesOrderId: order.id,
-            salesOrderNumber: order.orderNumber,
-            sourceSalesOrderId: order.id,
-            sourceSalesOrderNumber: order.orderNumber,
-            linkedSo: order.orderNumber,
-            customerId: order.customerId,
-            customer: order.customer,
-            billingAddress: createAddressSnapshot(order.billingAddress),
-            shippingAddress: createAddressSnapshot(order.shippingAddress),
-            date: getCurrentDateFormatted(),
-            dispatchDate: getCurrentDateFormatted(),
-            transporter: '',
-            vehicleNo: '',
-            status: 'In Transit',
-            items: dispatchLines,
-            lineItems: dispatchLines,
-        };
-
-        return addDeliveryChallan(newChallan);
-    };
-    const convertSalesOrderToInvoice = (orderId) => {
-        const order = salesOrders.find((o) => o.id === orderId);
-        if (!order)
-            return undefined;
-        if (order.stage === 'Cancelled') {
-            showToast(`Cannot create Invoice from Cancelled Sales Order.`);
-            return undefined;
-        }
-
-        // ── [PHASE-2B] Double-billing guard: only invoice REMAINING qty per line ──
-        // Previously this built invoices from full ordered qty every time (line qty was
-        //   copied 1:1) with no deliveredQty/invoicedQty check and no block on an already
-        //   fully-invoiced SO. Now each line invoices (ordered − invoiced) and a fully
-        //   invoiced order is blocked — the mirror of PO→GRN→Bill integrity.
-        const srcLines = (order.items && order.items.length > 0)
-            ? order.items
-            : (order.lineItems && order.lineItems.length > 0)
-                ? order.lineItems
-                : [];
-        const totalOrderedQty = srcLines.reduce((s, l) => s + (Number(l.orderedQty ?? l.qty) || 0), 0);
-        const totalInvoicedQty = srcLines.reduce((s, l) => s + (Number(l.invoicedQty) || 0), 0);
-        const fullyInvoiced = totalOrderedQty > 0 && totalInvoicedQty >= totalOrderedQty - 0.001;
-        if (fullyInvoiced && srcLines.length > 0) {
-            showToast(`Sales Order ${order.orderNumber} is already fully invoiced (${totalInvoicedQty}/${totalOrderedQty} qty).`);
-            return undefined;
-        }
-
-        const sourceLines = (order.items && order.items.length > 0)
-            ? order.items
-            : (order.lineItems && order.lineItems.length > 0)
-                ? order.lineItems
-                : [];
-        const itemsList = sourceLines.length > 0
-            ? sourceLines.map((line, idx) => {
-                const orderedQty = Number(line.qty || line.orderedQty || 1);
-                const alreadyInvoiced = Number(line.invoicedQty) || 0;
-                const remainingQty = Math.max(0, orderedQty - alreadyInvoiced);
-                return {
-                    id: line.id || `item-${Date.now()}-${idx}`,
-                    itemId: line.itemId || '',
-                    sku: line.sku || line.itemSku || '',
-                    itemSku: line.sku || line.itemSku || '',
-                    name: line.name || line.description || `Deliverable Item ${idx + 1}`,
-                    description: line.name || line.description || `Deliverable Item ${idx + 1}`,
-                    // [PHASE-2B] qty now reflects remaining (ordered − invoiced); old code used full qty
-                    qty: remainingQty || 1,
-                    orderedQty,
-                    alreadyInvoicedQty: alreadyInvoiced,
-                    rate: line.rate || 0,
-                    discount: line.discount || line.discountPercent || 0,
-                    tax: line.tax !== undefined ? line.tax : (line.taxRate !== undefined ? line.taxRate : 18),
-                    amount: (remainingQty || 1) * (line.rate || 0),
-                };
+        if (!order) return Promise.resolve(undefined);
+        return api.post(`/sales/orders/${orderId}/convert-to-challan/`, payload)
+            .then((challan) => {
+                showToast(`Draft delivery challan ${challan?.challanNumber || ''} created for ${order.orderNumber}. Dispatch it to move stock.`);
+                refreshCollections(['deliveryChallans', 'salesOrders']);
+                return challan;
             })
-            : [
-                {
-                    id: `item-${Date.now()}`,
-                    description: `Fulfillment of ${order.orderNumber}`,
-                    name: `Fulfillment of ${order.orderNumber}`,
-                    qty: 1,
-                    rate: order.amount ?? 1000,
-                    discount: 0,
-                    tax: 18,
-                    amount: order.amount ?? 1000,
-                },
-            ];
-
-        // Check if Delivery Challan exists for this SO
-        const hasChallan = deliveryChallans.some((dc) => dc.salesOrderId === order.id || dc.salesOrderNumber === order.orderNumber || dc.linkedSo === order.orderNumber);
-
-        const newInvoice = {
-            id: `inv-${Date.now()}`,
-            invoiceNumber: `INV-2026-${String(invoices.length + 101).padStart(3, '0')}`,
-            salesOrderId: order.id,
-            sourceSalesOrderId: order.id,
-            customerId: order.customerId,
-            customer: order.customer,
-            billingAddress: createAddressSnapshot(order.billingAddress),
-            shippingAddress: createAddressSnapshot(order.shippingAddress),
-            linkedSo: order.orderNumber,
-            date: getCurrentDateFormatted(),
-            dueDate: addDaysISO(getCurrentISODate(), 30),
-            status: 'Unpaid',
-            items: itemsList,
-            lineItems: itemsList,
-            notes: `Tax invoice generated for Sales Order ${order.orderNumber}.`,
-            dispatchedViaChallan: hasChallan,
-        };
-
-        const createdInvoice = createInvoice(newInvoice);
-
-        // Update SO line items invoicedQty and stage
-        let updatedSo = null;
-        setSalesOrders((prev) => prev.map((o) => {
-            if (o.id !== orderId) return o;
-            const updatedItems = (o.items || []).map((line) => {
-                const orderedQty = Number(line.qty || line.orderedQty) || 1;
-                const remaining = Math.max(0, orderedQty - (Number(line.invoicedQty) || 0));
-                // [PHASE-2B] invoicedQty now increments by the invoiced (remaining) qty
-                return {
-                    ...line,
-                    invoicedQty: (line.invoicedQty || 0) + remaining,
-                };
+            .catch((err) => {
+                showToast(`Could not create challan — ${describeError(err)}`);
+                return undefined;
             });
-            const stillOpen = updatedItems.some((l) => (Number(l.qty ?? l.orderedQty) || 1) - (Number(l.invoicedQty) || 0) > 0.001);
-            return updatedSo = {
-                ...o,
-                stage: stillOpen ? 'Partially Invoiced' : 'Invoiced',
-                status: stillOpen ? 'Partially Invoiced' : 'Invoiced',
-                items: updatedItems,
-                lineItems: updatedItems,
-            };
-        }));
-
-        if (updatedSo) {
-            // The server has no "Partially …" order stages (ORDER_STAGES) —
-            // progress lives on the linked invoice/challan docs, which are
-            // already persisted. Only representable stages go up.
-            const SERVER_SO_STAGES = ['Draft', 'Confirmed', 'Packing', 'Dispatched', 'Delivered', 'Invoiced', 'Cancelled'];
-            if (SERVER_SO_STAGES.includes(updatedSo.stage)) {
-                persistUpdate('salesOrders', orderId, updatedSo, setSalesOrders);
-            }
-        }
-        showToast(`Generated invoice ${createdInvoice.invoiceNumber} for ${order.orderNumber}`);
-        return createdInvoice;
+    };
+    const convertSalesOrderToInvoice = (orderId, payload = {}) => {
+        const order = salesOrders.find((o) => o.id === orderId);
+        if (!order) return Promise.resolve(undefined);
+        return api.post(`/sales/orders/${orderId}/convert-to-invoice/`, payload)
+            .then((invoice) => {
+                showToast(`Draft invoice created for the dispatched quantity of ${order.orderNumber}.`);
+                refreshCollections(['invoices', 'salesOrders']);
+                return invoice;
+            })
+            .catch((err) => {
+                showToast(`Could not create invoice — ${describeError(err)}`);
+                return undefined;
+            });
     };
     const addDeliveryChallan = (challan) => {
         const previous = challan.id ? deliveryChallans.find(dc => dc.id === challan.id) : null;
@@ -2702,18 +2471,18 @@ export const ERPProvider = ({ children, }) => {
         const defaultAddresses = resolvePartyAddresses(challan.customerId, challan.customer);
         const newChallan = {
             id: challan.id || `dc-${Date.now()}`,
-            challanNumber: challan.challanNumber ||
-                `DC-2026-${String(deliveryChallans.length + 80).padStart(3, '0')}`,
+            // Allocated by the server; blank until the save returns.
+            challanNumber: challan.challanNumber || '',
             salesOrderId: challan.salesOrderId,
             sourceSalesOrderId: challan.salesOrderId,
             sourceQuotationId: challan.sourceQuotationId,
             sourceQuotationNumber: challan.sourceQuotationNumber,
             leadId: challan.leadId,
             dealId: challan.dealId,
-            salesOrderNumber: challan.salesOrderNumber || challan.linkedSo || (challan.sourceQuotationId ? '' : 'SO-2026-0102'),
-            linkedSo: challan.salesOrderNumber || challan.linkedSo || (challan.sourceQuotationId ? '' : 'SO-2026-0102'),
+            salesOrderNumber: challan.salesOrderNumber || challan.linkedSo || '',
+            linkedSo: challan.salesOrderNumber || challan.linkedSo || '',
             customerId: challan.customerId,
-            customer: challan.customer || 'Acme Corp',
+            customer: challan.customer || '',
             billingAddress: createAddressSnapshot(challan.billingAddress) || defaultAddresses.billing,
             shippingAddress: createAddressSnapshot(challan.shippingAddress) || defaultAddresses.shipping,
             date: challan.date || getCurrentISODate(),
@@ -2732,26 +2501,11 @@ export const ERPProvider = ({ children, }) => {
             return newChallan;
         }
 
-        // Record SALE movement and handle serial numbers
+        // Serial numbers removal for serialized items
         if (newChallan.items && newChallan.items.length > 0) {
             newChallan.items.forEach((line) => {
                 const targetSku = line.sku || line.itemSku;
                 const item = items.find((i) => i.id === line.itemId || (targetSku && i.sku?.toLowerCase() === targetSku.toLowerCase()));
-                const dispatchQty = Number(line.qty || line.dispatchedQty) || 1;
-                recordMovement({
-                    itemId: item?.id || line.itemId || `itm-${Date.now()}`,
-                    itemSku: item?.sku || targetSku || 'GEN-SKU',
-                    itemName: item?.name || line.name || line.description,
-                    type: 'SALE',
-                    quantity: -dispatchQty,
-                    unitCost: item?.costPrice || line.rate || 0,
-                    referenceType: 'DeliveryChallan',
-                    referenceId: newChallan.id,
-                    referenceNumber: newChallan.challanNumber,
-                    notes: `Dispatched to ${newChallan.customer} via ${newChallan.challanNumber}`,
-                });
-
-                // Serial numbers removal
                 const serialsToDispatch = line.selectedSerials || line.serialNumbers || (line.serialNumber ? [line.serialNumber] : []);
                 if (serialsToDispatch.length > 0 && item) {
                     removeSerialNumbers(item.id, serialsToDispatch);
@@ -2794,7 +2548,7 @@ export const ERPProvider = ({ children, }) => {
                     };
                 });
 
-                const newStage = allDelivered ? 'Delivered' : anyDelivered ? 'Partially Dispatched' : order.stage;
+                const newStage = allDelivered ? 'Fully Dispatched' : anyDelivered ? 'Partially Dispatched' : order.stage;
 
                 return {
                     ...order,
@@ -2836,14 +2590,9 @@ export const ERPProvider = ({ children, }) => {
         setDeliveryChallans((prev) => prev.map((c) => {
             if (c.id !== id)
                 return c;
-            if (status === 'Delivered') {
-                const soNum = c.salesOrderNumber || c.linkedSo;
-                if (soNum) {
-                    setSalesOrders((orders) => orders.map((o) => o.orderNumber === soNum && o.stage !== 'Invoiced'
-                        ? { ...o, stage: 'Delivered', status: 'Delivered' }
-                        : o));
-                }
-            }
+            // The order stage follows dispatched quantities on the server
+            // (Partially / Fully Dispatched); delivery of a challan does not
+            // change it, so nothing is mirrored locally here.
             return { ...c, status };
         }));
         persistUpdate('deliveryChallans', id, { status }, setDeliveryChallans);
@@ -2993,12 +2742,11 @@ export const ERPProvider = ({ children, }) => {
 
         const newPay = {
             id: pay.id || `pay-${Date.now()}`,
-            receiptNumber: pay.receiptNumber ||
-                `RCP-2026-${String(paymentIns.length + 90).padStart(3, '0')}`,
+            receiptNumber: pay.receiptNumber || '', // allocated by the server
             customerId: pay.customerId || targetInv?.customerId,
-            customer: pay.customer || targetInv?.customer || 'Acme Corp',
+            customer: pay.customer || targetInv?.customer || '',
             invoiceId: pay.invoiceId || targetInv?.id,
-            invoiceNumber: pay.invoiceNumber || targetInv?.invoiceNumber || 'INV-2026-001',
+            invoiceNumber: pay.invoiceNumber || targetInv?.invoiceNumber || '',
             date: pay.date || getCurrentDateFormatted(),
             mode: pay.mode || 'Bank Transfer',
             amount: payAmt,
@@ -3042,155 +2790,69 @@ export const ERPProvider = ({ children, }) => {
         showToast(`Recorded receipt of ${formatCurrency(payAmt)} from ${newPay.customer}`);
         return newPay;
     };
+    // Credit notes are created on the server: it enforces the returnable
+    // quantity per invoice line, routes stock by condition (Good / Hold /
+    // Reprocess / Second Quality / Reject), reverses COGS and posts the
+    // credit-note entry. Nothing is mirrored locally; a failed save leaves
+    // nothing on screen.
     const addSalesReturn = (ret) => {
         const inv = invoices.find((i) => i.id === ret.invoiceId || i.invoiceNumber === ret.invoiceRef);
-        if (inv) {
-            if (inv.status === 'Cancelled') {
-                showToast('Cannot create Sales Return against a cancelled invoice.');
-                return null;
-            }
-            if (inv.status === 'Draft' || inv.finalized === false) {
-                showToast('Cannot create Sales Return against a draft invoice. Please finalize the invoice first.');
-                return null;
-            }
+        if (!inv || !isServerId(inv.id)) {
+            showToast('Select a saved, finalized invoice to return against.');
+            return Promise.resolve(null);
         }
-
-        // Find previously returned serials across all active returns for this invoice
-        const previouslyReturnedSerials = salesReturns
-            .filter((sr) => (sr.invoiceId === ret.invoiceId || sr.invoiceRef === ret.invoiceRef) && sr.status !== 'Cancelled')
-            .flatMap((sr) => (sr.items || []).flatMap((it) => it.selectedSerials || []));
-
-        const returnLines = (ret.items || ret.lineItems || []).map((line, idx) => {
-            const invoicedQty = Number(line.invoicedQty ?? (inv?.items?.find((it) => (it.itemId && it.itemId === line.itemId) || (it.sku && it.sku === line.sku) || it.description === line.description)?.qty) ?? 1);
-            
-            // Calculate previously returned for this item on active returns
-            const prevReturned = salesReturns
-                .filter((sr) => (sr.invoiceId === ret.invoiceId || sr.invoiceRef === ret.invoiceRef) && sr.status !== 'Cancelled')
-                .reduce((sum, sr) => {
-                    const match = (sr.items || []).find((it) => (it.itemId && it.itemId === line.itemId) || (it.sku && it.sku === line.sku) || it.description === line.description);
-                    return sum + Number(match?.qty || 0);
-                }, 0);
-            
-            const returnableQty = Math.max(0, invoicedQty - prevReturned);
-            const requestedQty = Math.max(0, Number(line.qty || 0));
-            const qty = Math.min(requestedQty, returnableQty); // Over-return guard
-            const condition = line.condition || ret.condition || 'Good';
-            const rate = Number(line.rate || 0);
-            const tax = Number(line.tax !== undefined ? line.tax : 18);
-            const amount = Number(line.amount || Math.round(qty * rate * (1 + tax / 100) * 100) / 100);
-
-            // Filter out serials that were already returned
-            const validSerials = (line.selectedSerials || []).filter((s) => !previouslyReturnedSerials.includes(s));
-
-            return {
-                ...line,
-                id: line.id || `sr-item-${Date.now()}-${idx}`,
-                invoicedQty,
-                previouslyReturnedQty: prevReturned,
-                returnableQty,
-                qty,
-                condition,
-                rate,
-                tax,
-                amount,
-                selectedSerials: validSerials,
-            };
-        }).filter((l) => l.qty > 0);
-
-        if (returnLines.length === 0) {
-            showToast(`Cannot create return with 0 returnable quantity.`);
-            return null;
+        if (inv.status === 'Cancelled' || inv.status === 'Draft') {
+            showToast(`Cannot create a sales return against a ${String(inv.status).toLowerCase()} invoice.`);
+            return Promise.resolve(null);
         }
-
-        const totalAmount = returnLines.reduce((sum, it) => sum + it.amount, 0);
-        const defaultAddresses = resolvePartyAddresses(ret.customerId || inv?.customerId, ret.customer || inv?.customer);
-
-        const newRet = {
-            id: ret.id || `sr-${Date.now()}`,
-            returnNumber: ret.returnNumber || `SR-2026-${String(salesReturns.length + 13).padStart(3, '0')}`,
-            customerId: ret.customerId || inv?.customerId,
-            customer: ret.customer || inv?.customer || 'Cyberdyne Systems',
-            billingAddress: createAddressSnapshot(ret.billingAddress) || defaultAddresses.billing,
-            shippingAddress: createAddressSnapshot(ret.shippingAddress) || defaultAddresses.shipping,
-            invoiceId: ret.invoiceId || inv?.id,
-            invoiceRef: ret.invoiceRef || inv?.invoiceNumber || 'INV-2026-002',
-            date: ret.date || getCurrentDateFormatted(),
-            amount: totalAmount,
-            reason: ret.reason || 'Customer Return',
-            restocked: ret.restocked ?? true,
-            status: ret.status || 'Approved',
-            items: returnLines,
-            lineItems: returnLines,
+        const invoiceLines = inv.items || inv.lineItems || [];
+        const lineItems = (ret.items || ret.lineItems || [])
+            .filter((line) => Number(line.qty) > 0)
+            .map((line) => {
+                const source = invoiceLines.find((l) => l.id === line.invoiceLineId)
+                    || invoiceLines.find((l) => line.itemId && l.itemId === line.itemId);
+                return {
+                    salesInvoiceLineId: source?.id,
+                    itemId: line.itemId || source?.itemId || undefined,
+                    description: line.description || line.name || source?.description || source?.itemName || '',
+                    uom: source?.uom || undefined,
+                    qty: Number(line.qty),
+                    returnedQty: Number(line.qty),
+                    rate: Number(line.rate ?? source?.rate ?? 0),
+                    tax: Number(line.tax ?? source?.tax ?? 0),
+                    discount: Number(line.discount ?? source?.discount ?? 0),
+                    condition: line.condition || 'Hold',
+                    lotTakaId: line.lotTakaId || undefined,
+                    serials: Array.isArray(line.selectedSerials) && line.selectedSerials.length ? line.selectedSerials : undefined,
+                };
+            });
+        if (lineItems.length === 0) {
+            showToast('Enter a return quantity on at least one line.');
+            return Promise.resolve(null);
+        }
+        if (lineItems.some((l) => !l.salesInvoiceLineId)) {
+            showToast('Every returned line must come from a line of the original invoice.');
+            return Promise.resolve(null);
+        }
+        const payload = {
+            salesInvoiceId: inv.id,
+            partyId: inv.customerId || inv.partyId,
+            date: toISODate(ret.date) || getCurrentISODate(),
+            reason: ret.reason || undefined,
+            notes: ret.notes || undefined,
+            location: ret.locationId || undefined,
+            lineItems,
         };
-
-        setSalesReturns((prev) => [newRet, ...prev]);
-
-        // Process inventory according to condition
-        returnLines.forEach((line) => {
-            const targetSku = line.sku || line.itemSku;
-            const item = items.find((i) => i.id === line.itemId || (targetSku && i.sku?.toLowerCase() === targetSku.toLowerCase()));
-            
-            if (line.condition === 'Good' && newRet.restocked) {
-                // Return to available inventory
-                recordMovement({
-                    itemId: item?.id || line.itemId || `itm-${Date.now()}`,
-                    itemSku: item?.sku || targetSku || 'GEN-SKU',
-                    itemName: item?.name || line.name || line.description,
-                    type: 'SALES_RETURN',
-                    quantity: line.qty,
-                    unitCost: item?.costPrice || line.rate || 0,
-                    referenceType: 'SalesReturn',
-                    referenceId: newRet.id,
-                    referenceNumber: newRet.returnNumber,
-                    serials: line.selectedSerials,
-                    notes: `Restocked (${line.condition}) per ${newRet.returnNumber}: ${newRet.reason}`,
-                });
-
-                // Restore serials if Good & restocked
-                if (line.selectedSerials && line.selectedSerials.length > 0 && item) {
-                    addSerialNumbers(item.id, line.selectedSerials);
-                }
-            } else {
-                // Damaged or Scrap: Record quarantine return without increasing sellable stock
-                recordMovement({
-                    itemId: item?.id || line.itemId || `itm-${Date.now()}`,
-                    itemSku: item?.sku || targetSku || 'GEN-SKU',
-                    itemName: item?.name || line.name || line.description,
-                    type: line.condition === 'Scrap' ? 'SCRAP_RETURN' : 'DAMAGED_RETURN',
-                    quantity: 0, // Sellable stock unchanged
-                    unitCost: item?.costPrice || line.rate || 0,
-                    referenceType: 'SalesReturn',
-                    referenceId: newRet.id,
-                    referenceNumber: newRet.returnNumber,
-                    serials: line.selectedSerials,
-                    notes: `Quarantined/Inspection return (${line.condition}, Qty: ${line.qty}) per ${newRet.returnNumber}`,
-                });
-            }
-        });
-
-        // Reduce customer receivable balance
-        if (newRet.customer) {
-            setCustomers((prev) => prev.map((c) => String(c.name ?? '').toLowerCase() === newRet.customer?.toLowerCase() || (newRet.customerId && c.id === newRet.customerId)
-                ? { ...c, balance: Math.max(0, c.balance - totalAmount) }
-                : c));
-        }
-
-        // The credit-note journal entry is posted server-side with the
-        // return — no local mirror (it would double-count in ledger views).
-        showToast(`Credit Note ${newRet.returnNumber} issued for ${formatCurrency(totalAmount)}.`);
-        persistCreate('salesReturns', newRet, setSalesReturns, {
-            onServer: (saved) => {
-                if (saved && saved.id && saved.id !== newRet.id) {
-                    setInventoryMovements((prev) => prev.map((m) => (
-                        m.referenceId === newRet.id
-                            ? { ...m, referenceId: saved.id, referenceNumber: saved.returnNumber || m.referenceNumber }
-                            : m
-                    )));
-                }
+        return api.post('/sales/returns/', payload)
+            .then((saved) => {
+                showToast(`Credit note ${saved?.returnNumber || ''} issued.`);
                 refreshCollections(['salesReturns', 'invoices', 'journalEntries', 'inventoryMovements', 'parties', 'items']);
-            },
-        });
-        return newRet;
+                return saved;
+            })
+            .catch((err) => {
+                showToast(`Sales return not saved — ${describeError(err)}`);
+                return null;
+            });
     };
 
     const cancelSalesReturn = (returnId) => {
@@ -3239,32 +2901,24 @@ export const ERPProvider = ({ children, }) => {
         showToast(`Sales Return ${sr.returnNumber} cancelled.`);
         return { success: true, message: `Sales Return ${sr.returnNumber} cancelled.` };
     };
-    const addPurchaseOrder = (po) => {
-        const poLines = po.items || po.lineItems || [];
-        const poAmt = po.amount ||
-            (poLines.length > 0 ? poLines.reduce((acc, it) => acc + (it.amount || it.qty * it.rate), 0) : 0) || 2500;
-        const defaultAddresses = resolveVendorPartyAddresses(po.vendorId, po.vendor);
-        const newPo = {
-            id: po.id || `po-${Date.now()}`,
-            poNumber: po.poNumber ||
-                `PO-2026-${String(purchaseOrders.length + 201).padStart(4, '0')}`,
+    // Server-first: the PO number, totals and id come from the server
+    // (PO series in apps/core/numbering.py). Throws on failure.
+    const addPurchaseOrder = async (po) => {
+        const poLines = (po.items || po.lineItems || []).filter((l) => l && (l.itemId || l.description || l.name));
+        if (!po.vendorId) throw rejectCreate('Select a vendor for the purchase order.');
+        if (!po.date) throw rejectCreate('Enter the purchase order date.');
+        if (poLines.length === 0) throw rejectCreate('Add at least one line to the purchase order.');
+        if (poLines.some((l) => !(Number(l.qty) > 0))) throw rejectCreate('Every purchase order line needs a quantity greater than zero.');
+        const saved = await createOnServer('purchaseOrders', {
             vendorId: po.vendorId,
-            vendor: po.vendor || 'Arrow Electronics Supply',
-            billingAddress: createAddressSnapshot(po.billingAddress) || defaultAddresses.billing,
-            shippingAddress: createAddressSnapshot(po.shippingAddress) || defaultAddresses.shipping,
-            date: formatDateDDMMYYYY(po.date || 'Today'),
-            expectedDate: po.expectedDate || addDaysISO(getCurrentISODate(), 10),
-            amount: poAmt,
-            total: poAmt,
+            date: po.date,
+            expectedDate: po.expectedDate || undefined,
             status: po.status || 'Draft',
             items: poLines,
-            lineItems: poLines,
             notes: po.notes || '',
-        };
-        setPurchaseOrders((prev) => [newPo, ...prev]);
-        showToast(`Purchase Order ${newPo.poNumber} saved.`);
-        persistCreate('purchaseOrders', newPo, setPurchaseOrders);
-        return newPo;
+        }, setPurchaseOrders, { label: 'Purchase Order' });
+        showToast(`Purchase Order ${saved.poNumber} saved.`);
+        return saved;
     };
     const updatePurchaseOrderStatus = (id, status) => {
         const po = purchaseOrders.find((p) => p.id === id);
@@ -3356,361 +3010,56 @@ export const ERPProvider = ({ children, }) => {
         persistDelete('purchaseOrders', id);
         showToast(`Draft Purchase Order ${po.poNumber || ''} deleted.`);
     };
-    const persistProductionInstructions = (next) => {
-        try { localStorage.setItem('oscar_productionInstructions', JSON.stringify(next)); } catch { }
-        return next;
-    };
-    // Backend-first: vendor process instructions live in Postgres
-    // (GET /jobwork/process-instructions/) when logged in; localStorage is only the offline cache.
-    // Offline creates are retried here and merged — never wiped by a pull.
-    useEffect(() => {
-        let live = true;
-        const syncVPIs = () => {
-            import('../services/jobWorkSync').then(async ({ pullVPIs, pushCreateVPI, reconcilePendingCreates, mergeServerRows, isJobWorkBackendEnabled }) => {
-                if (!isJobWorkBackendEnabled()) return;
-                try {
-                    const cached = JSON.parse(localStorage.getItem('oscar_productionInstructions') || '[]');
-                    const reconciled = await reconcilePendingCreates(Array.isArray(cached) ? cached : [], pushCreateVPI);
-                    const rows = await pullVPIs();
-                    if (live && Array.isArray(rows)) {
-                        const merged = mergeServerRows(reconciled, rows);
-                        setProductionInstructions(merged);
-                        persistProductionInstructions(merged);
-                    }
-                } catch { /* offline — keep cache */ }
-            });
-        };
-        syncVPIs();
-        const onSession = () => syncVPIs();
-        window.addEventListener('evenmore:authorized', onSession);
-        return () => {
-            live = false;
-            window.removeEventListener('evenmore:authorized', onSession);
-        };
-    }, []);
-    const addProductionInstruction = (pi) => {
-        const newPi = {
-            id: pi.id || `pi-${Date.now()}`,
-            piNumber: pi.piNumber || `PI-${String(productionInstructions.length + 2001).padStart(4, '0')}`,
-            poId: pi.poId,
-            poNumber: pi.poNumber,
-            vendorId: pi.vendorId,
-            vendor: pi.vendor,
-            fabric: pi.fabric,
-            fabricSku: pi.fabricSku,
-            processType: pi.processType || '',
-            assignedEmployee: pi.assignedEmployee || '',
-            assignedQty: Number(pi.assignedQty) || 0,
-            uom: 'Meter',
-            producedQty: Number(pi.producedQty) || 0,
-            date: pi.date || getCurrentDateFormatted(),
-            startDate: pi.startDate,
-            expectedCompletionDate: pi.expectedCompletionDate,
-            status: pi.status || 'In Progress',
-            remarks: pi.remarks || '',
-        };
-        setProductionInstructions((prev) => {
-            const next = [newPi, ...prev];
-            return persistProductionInstructions(next);
-        });
-        // Push to backend; server owns piNumber — reconcile when it answers.
-        import('../services/jobWorkSync').then(({ pushCreateVPI, isJobWorkBackendEnabled }) => {
-            if (!isJobWorkBackendEnabled()) return;
-            pushCreateVPI(newPi).then((saved) => {
-                if (saved) {
-                    setProductionInstructions((prev) => persistProductionInstructions(
-                        prev.map((p) => (p.id === newPi.id ? { ...saved, uom: 'Meter' } : p)),
-                    ));
-                }
-            }).catch(() => {});
-        });
-        showToast(`Production Instruction ${newPi.piNumber} saved.`);
-        return newPi;
-    };
-    const updateProductionInstructionStatus = (id, status) => {
-        setProductionInstructions((prev) => {
-            const next = prev.map((p) => (p.id === id ? { ...p, status } : p));
-            return persistProductionInstructions(next);
-        });
-        import('../services/jobWorkSync').then(({ pushUpdateVPI, isJobWorkBackendEnabled }) => {
-            if (!isJobWorkBackendEnabled()) return;
-            pushUpdateVPI(id, { status }).catch(() => {});
-        });
-        showToast(`Production Instruction updated to ${status}.`);
-    };
-    const updateProductionInstruction = (id, patch) => {
-        setProductionInstructions((prev) => {
-            const next = prev.map((p) => (p.id === id ? { ...p, ...patch, assignedQty: patch.assignedQty !== undefined ? Number(patch.assignedQty) || 0 : p.assignedQty } : p));
-            return persistProductionInstructions(next);
-        });
-        import('../services/jobWorkSync').then(({ pushUpdateVPI, isJobWorkBackendEnabled }) => {
-            if (!isJobWorkBackendEnabled()) return;
-            pushUpdateVPI(id, patch).catch(() => {});
-        });
-        showToast('Production Instruction updated.');
-    };
-    const deleteProductionInstruction = (id) => {
-        setProductionInstructions((prev) => {
-            const next = prev.filter((p) => p.id !== id);
-            return persistProductionInstructions(next);
-        });
-        import('../services/jobWorkSync').then(({ pushDeleteVPI, isJobWorkBackendEnabled }) => {
-            if (!isJobWorkBackendEnabled()) return;
-            pushDeleteVPI(id).catch(() => {});
-        });
-        showToast('Production Instruction deleted.');
-    };
-    const convertPurchaseOrderToBill = (poId) => {
+    // The server clones the PO's un-billed lines into a Draft bill (BILL
+    // series), links the lines and the PO, and returns the bill. Throws on
+    // failure; nothing is added locally until it answers.
+    const convertPurchaseOrderToBill = async (poId) => {
         const po = purchaseOrders.find((p) => p.id === poId);
-        if (!po)
-            return undefined;
-        if (po.status === 'Cancelled') {
-            showToast('Cannot convert a cancelled Purchase Order.');
-            return undefined;
+        if (!po) throw rejectCreate('Purchase Order not found.');
+        if (po.status === 'Cancelled') throw rejectCreate('Cannot convert a cancelled Purchase Order.');
+        if (!isBackendEnabled() || !isServerId(po.id)) {
+            throw rejectCreate('Bill not created — this purchase order is not saved on the server.');
         }
-        
-        const poStatusInfo = getPoBilledStatus(po.id);
-        if (poStatusInfo.totalRemainingQty <= 0 && poStatusInfo.totalOrderedQty > 0) {
-            showToast(`Purchase Order ${po.poNumber} is already fully billed.`);
-            return poStatusInfo.activeBills[0];
+        let saved;
+        try {
+            const body = await api.post(`${RESOURCES.purchaseOrders.path}${po.id}/convert-to-bill/`, {});
+            saved = RESOURCES.purchaseBills.fromApi(body);
+        } catch (err) {
+            console.warn('[ERP] convert-to-bill failed:', err);
+            throw rejectCreate(`Bill not created — ${describeError(err)}`);
         }
-
-        // Bill only remaining quantities
-        const billLines = poStatusInfo.lines
-            .filter((l) => l.remainingQty > 0)
-            .map((l) => ({
-                ...l,
-                qty: l.remainingQty,
-                amount: Math.round(l.remainingQty * (l.rate || 0) * 100) / 100,
-            }));
-
-        const billAmt = billLines.reduce((sum, it) => sum + (it.amount || it.qty * (it.rate || 0)), 0) || (po.amount ?? 5000);
-        const defaultAddresses = resolveVendorPartyAddresses(po.vendorId, po.vendor);
-        const newBill = {
-            id: `pb-${Date.now()}`,
-            billNumber: `PB-2026-${String(purchaseBills.length + 16).padStart(3, '0')}`,
-            purchaseOrderId: po.id,
-            poRef: po.poNumber,
-            linkedPo: po.poNumber,
-            vendorId: po.vendorId,
-            vendor: po.vendor,
-            billingAddress: createAddressSnapshot(po.billingAddress) || defaultAddresses.billing,
-            shippingAddress: createAddressSnapshot(po.shippingAddress) || defaultAddresses.shipping,
-            billDate: getCurrentDateFormatted(),
-            date: getCurrentDateFormatted(),
-            dueDate: addDaysISO(getCurrentISODate(), 30),
-            amount: billAmt,
-            total: billAmt,
-            paidAmount: 0,
-            amountPaid: 0,
-            balanceDue: billAmt,
-            status: 'Unpaid',
-            // ── [PHASE-2B] PO→Bill conversion no longer auto-receives stock ──
-            // Old code: goodsReceived: true, — stock increased automatically at bill time.
-            // Goods are now received through the standalone Goods Receipt (GRN) page.
-            goodsReceived: false,
-            items: billLines,
-            lineItems: billLines,
-        };
-        setPurchaseBills((prev) => [newBill, ...prev]);
-
-        // Update PO status to Partially Billed or Billed
-        const willBeFullyBilled = poStatusInfo.totalRemainingQty <= billLines.reduce((s, it) => s + it.qty, 0);
-        setPurchaseOrders((prev) => prev.map((p) => p.id === poId ? { ...p, status: willBeFullyBilled ? 'Billed' : 'Partially Billed' } : p));
-
-        // Increase vendor AP liability across vendors and parties
-        syncVendorBalance(po.vendorId, po.vendor, billAmt);
-        // The bill's own journal entry is posted server-side with the bill —
-        // no local mirror (it would double-count in ledger views).
-        // ── [PHASE-2B] Auto-receive on PO→Bill kept only for pre-received (legacy) bills ──
-        // Old code auto-received inventory from every bill line at conversion time.
-        //   Now handled by GoodsReceiptPage (GRN). The block below still runs when the
-        //   bill was explicitly created as already received (goodsReceived: true).
-        // if (billLines.length > 0) {
-        //     billLines.forEach((line) => {
-        //         const targetSku = line.sku || line.itemSku;
-        //         const item = items.find((i) => i.id === line.itemId || (targetSku && i.sku?.toLowerCase() === targetSku.toLowerCase()));
-        //         if (item && item.trackingMode === 'Serial') {
-        //             const serials = line.selectedSerials || line.serialNumbers || (line.serialNumber ? [line.serialNumber] : []);
-        //             if (serials.length > 0) {
-        //                 addSerialNumbers(item.id, serials);
-        //             }
-        //         }
-        //         recordMovement({
-        //             itemId: item?.id || line.itemId || `itm-${Date.now()}`,
-        //             itemSku: item?.sku || targetSku || 'GEN-SKU',
-        //             itemName: item?.name || line.name || line.description,
-        //             type: 'PURCHASE',
-        //             quantity: line.qty || 1,
-        //             unitCost: line.rate || item?.costPrice || 0,
-        //             referenceType: 'PurchaseBill',
-        //             referenceId: newBill.id,
-        //             referenceNumber: newBill.billNumber,
-        //             serials: line.selectedSerials || line.serialNumbers || (line.serialNumber ? [line.serialNumber] : []),
-        //             notes: `Goods received via ${newBill.billNumber}`,
-        //         });
-        //     });
-        // }
-        if (newBill.goodsReceived === true && billLines.length > 0) {
-            billLines.forEach((line) => {
-                const targetSku = line.sku || line.itemSku;
-                const item = items.find((i) => i.id === line.itemId || (targetSku && i.sku?.toLowerCase() === targetSku.toLowerCase()));
-                if (item && item.trackingMode === 'Serial') {
-                    const serials = line.selectedSerials || line.serialNumbers || (line.serialNumber ? [line.serialNumber] : []);
-                    if (serials.length > 0) {
-                        addSerialNumbers(item.id, serials);
-                    }
-                }
-                recordMovement({
-                    itemId: item?.id || line.itemId || `itm-${Date.now()}`,
-                    itemSku: item?.sku || targetSku || 'GEN-SKU',
-                    itemName: item?.name || line.name || line.description,
-                    type: 'PURCHASE',
-                    quantity: line.qty || 1,
-                    unitCost: line.rate || item?.costPrice || 0,
-                    referenceType: 'PurchaseBill',
-                    referenceId: newBill.id,
-                    referenceNumber: newBill.billNumber,
-                    serials: line.selectedSerials || line.serialNumbers || (line.serialNumber ? [line.serialNumber] : []),
-                    notes: `Goods received via ${newBill.billNumber}`,
-                });
-            });
-        }
-        showToast(`Purchase Bill ${newBill.billNumber} created from ${po.poNumber}`);
-        persistCreate('purchaseBills', newBill, setPurchaseBills, {
-            onServer: (saved) => {
-                if (saved && saved.id && saved.id !== newBill.id) {
-                    setInventoryMovements((prev) => prev.map((m) => (
-                        m.referenceId === newBill.id
-                            ? { ...m, referenceId: saved.id, referenceNumber: saved.billNumber || m.referenceNumber }
-                            : m
-                    )));
-                }
-                refreshCollections(['purchaseBills', 'purchaseOrders', 'journalEntries', 'inventoryMovements', 'parties', 'items']);
-            },
-        });
-        return newBill;
+        setPurchaseBills((prev) => [saved, ...prev.filter((b) => b.id !== saved.id)]);
+        refreshCollections(['purchaseBills', 'purchaseOrders']);
+        showToast(`Purchase Bill ${saved.billNumber} created from ${po.poNumber}`);
+        return saved;
     };
-    const addPurchaseBill = (bill) => {
-        const billLines = bill.items || bill.lineItems || [];
-        const billAmt = bill.total || bill.amount ||
-            (billLines.length > 0 ? billLines.reduce((acc, it) => acc + (it.amount || it.qty * it.rate), 0) : 0) || 5000;
-        const defaultAddresses = resolveVendorPartyAddresses(bill.vendorId, bill.vendor);
-        const newBill = {
-            id: bill.id || `pb-${Date.now()}`,
-            billNumber: bill.billNumber ||
-                `PB-2026-${String(purchaseBills.length + 16).padStart(3, '0')}`,
-            purchaseOrderId: bill.purchaseOrderId,
-            poRef: bill.poRef || 'PO-2026-0210',
-            linkedPo: bill.linkedPo || bill.poRef || 'PO-2026-0210',
+    // Server-first: the bill number (BILL series), totals and the ledger
+    // posting all come from the server. Stock enters only through the GRN /
+    // receive-goods flow. Throws on failure.
+    const addPurchaseBill = async (bill) => {
+        const billLines = (bill.items || bill.lineItems || []).filter((l) => l && (l.itemId || l.description || l.name));
+        if (!bill.vendorId) throw rejectCreate('Select a vendor for the bill.');
+        if (!(bill.date || bill.billDate)) throw rejectCreate('Enter the bill date.');
+        if (billLines.length === 0) throw rejectCreate('Add at least one line to the bill.');
+        if (billLines.some((l) => !(Number(l.qty) > 0))) throw rejectCreate('Every bill line needs a quantity greater than zero.');
+        if (bill.purchaseOrderId) {
+            const po = purchaseOrders.find((p) => p.id === bill.purchaseOrderId);
+            if (po && po.status === 'Cancelled') throw rejectCreate('Cannot bill a cancelled Purchase Order.');
+        }
+        const saved = await createOnServer('purchaseBills', {
             vendorId: bill.vendorId,
-            vendor: bill.vendor || 'Cisco Systems Direct',
-            billingAddress: createAddressSnapshot(bill.billingAddress) || defaultAddresses.billing,
-            shippingAddress: createAddressSnapshot(bill.shippingAddress) || defaultAddresses.shipping,
-            billDate: bill.billDate || getCurrentDateFormatted(),
-            date: bill.date || getCurrentDateFormatted(),
-            dueDate: bill.dueDate || addDaysISO(getCurrentISODate(), 30),
-            amount: billAmt,
-            total: billAmt,
-            paidAmount: bill.paidAmount || bill.amountPaid || 0,
-            amountPaid: bill.amountPaid || bill.paidAmount || 0,
-            balanceDue: Math.max(0, billAmt - (bill.paidAmount || bill.amountPaid || 0)),
-            status: bill.status || 'Unpaid',
-            // ── [PHASE-2B] New bills are NOT auto-received: stock moves only on GRN ──
-            // Old code: goodsReceived: true, — every new bill immediately increased stock.
-            // Post-GRN-split a bill can exist with goodsReceived=false and stock only
-            //   changes when GoodsReceiptPage / receivePurchaseBillGoods marks it received.
-            goodsReceived: bill.goodsReceived !== undefined ? !!bill.goodsReceived : false,
+            purchaseOrderId: bill.purchaseOrderId || undefined,
+            vendorBillNumber: bill.vendorBillNumber || undefined,
+            date: bill.date || bill.billDate,
+            dueDate: bill.dueDate || undefined,
             items: billLines,
-            lineItems: billLines,
             notes: bill.notes || '',
-        };
-        setPurchaseBills((prev) => [newBill, ...prev]);
-
-        // If linked to a PO, update PO status to Partially Billed or Billed
-        if (newBill.purchaseOrderId || newBill.poRef || newBill.linkedPo) {
-            const targetPo = purchaseOrders.find((p) => p.id === newBill.purchaseOrderId || p.poNumber === newBill.poRef || p.poNumber === newBill.linkedPo);
-            if (targetPo && targetPo.status !== 'Cancelled') {
-                const poStatusInfo = getPoBilledStatus(targetPo.id);
-                const currentBilledQty = poStatusInfo.totalBilledQty + billLines.reduce((s, it) => s + Number(it.qty || 0), 0);
-                const isFullyBilled = poStatusInfo.totalOrderedQty > 0 && currentBilledQty >= poStatusInfo.totalOrderedQty;
-                setPurchaseOrders((prev) => prev.map((p) => p.id === targetPo.id ? { ...p, status: isFullyBilled ? 'Billed' : 'Partially Billed' } : p));
-            }
-        }
-
-        // Increase vendor AP liability across vendors and parties
-        syncVendorBalance(newBill.vendorId, newBill.vendor, billAmt);
-        // The bill's journal entry is posted server-side — no local mirror
-        // (it would double-count in ledger views).
-        // ── [PHASE-2B] Auto-stock on bill creation replaced by GRN-gated stock entry ──
-        // Old code auto-recorded PURCHASE movements for every bill line here
-        //   (noted below). Now movement happens ONLY when the bill was already
-        //   received (goodsReceived === true — e.g. legacy / pre-received bills);
-        //   otherwise stock enters via GoodsReceiptPage → receivePurchaseBillGoods.
-        // if (billLines.length > 0) {
-        //     billLines.forEach((line) => {
-        //         const targetSku = line.sku || line.itemSku;
-        //         const item = items.find((i) => i.id === line.itemId || (targetSku && i.sku?.toLowerCase() === targetSku.toLowerCase()));
-        //         if (item && item.trackingMode === 'Serial') {
-        //             const serials = line.selectedSerials || line.serialNumbers || (line.serialNumber ? [line.serialNumber] : []);
-        //             if (serials.length > 0) {
-        //                 addSerialNumbers(item.id, serials);
-        //             }
-        //         }
-        //         recordMovement({
-        //             itemId: item?.id || line.itemId || `itm-${Date.now()}`,
-        //             itemSku: item?.sku || targetSku || 'GEN-SKU',
-        //             itemName: item?.name || line.name || line.description,
-        //             type: 'PURCHASE',
-        //             quantity: line.qty || 1,
-        //             unitCost: line.rate || item?.costPrice || 0,
-        //             referenceType: 'PurchaseBill',
-        //             referenceId: newBill.id,
-        //             referenceNumber: newBill.billNumber,
-        //             serials: line.selectedSerials || line.serialNumbers || (line.serialNumber ? [line.serialNumber] : []),
-        //             notes: `Goods intake via ${newBill.billNumber}`,
-        //         });
-        //     });
-        // }
-        if (newBill.goodsReceived === true && billLines.length > 0) {
-            billLines.forEach((line) => {
-                const targetSku = line.sku || line.itemSku;
-                const item = items.find((i) => i.id === line.itemId || (targetSku && i.sku?.toLowerCase() === targetSku.toLowerCase()));
-                if (item && item.trackingMode === 'Serial') {
-                    const serials = line.selectedSerials || line.serialNumbers || (line.serialNumber ? [line.serialNumber] : []);
-                    if (serials.length > 0) {
-                        addSerialNumbers(item.id, serials);
-                    }
-                }
-                recordMovement({
-                    itemId: item?.id || line.itemId || `itm-${Date.now()}`,
-                    itemSku: item?.sku || targetSku || 'GEN-SKU',
-                    itemName: item?.name || line.name || line.description,
-                    type: 'PURCHASE',
-                    quantity: line.qty || 1,
-                    unitCost: line.rate || item?.costPrice || 0,
-                    referenceType: 'PurchaseBill',
-                    referenceId: newBill.id,
-                    referenceNumber: newBill.billNumber,
-                    serials: line.selectedSerials || line.serialNumbers || (line.serialNumber ? [line.serialNumber] : []),
-                    notes: `Goods intake via ${newBill.billNumber}`,
-                });
-            });
-        }
-        showToast(`Vendor Bill ${newBill.billNumber} recorded.`);
-        persistCreate('purchaseBills', newBill, setPurchaseBills, {
-            onServer: (saved) => {
-                if (saved && saved.id && saved.id !== newBill.id) {
-                    setInventoryMovements((prev) => prev.map((m) => (
-                        m.referenceId === newBill.id
-                            ? { ...m, referenceId: saved.id, referenceNumber: saved.billNumber || m.referenceNumber }
-                            : m
-                    )));
-                }
-                refreshCollections(['purchaseBills', 'purchaseOrders', 'journalEntries', 'inventoryMovements', 'parties', 'items']);
-            },
+        }, setPurchaseBills, {
+            label: 'Purchase Bill',
+            refresh: ['purchaseBills', 'purchaseOrders', 'journalEntries', 'parties', 'vendors'],
         });
-        return newBill;
+        showToast(`Purchase Bill ${saved.billNumber} recorded.`);
+        return saved;
     };
     const cancelPurchaseBill = (billId) => {
         const bill = purchaseBills.find((b) => b.id === billId);
@@ -3962,73 +3311,35 @@ export const ERPProvider = ({ children, }) => {
         showToast(`Vendor bill marked as ${status}.`);
     };
     // ── Vendor Bills (manual entry, backend contract: /purchase/vendor-bills/) ──
-    // Mirrors addPurchaseBill: synchronous optimistic local write, server owns
-    // ids/numbers/totals so its reply replaces the optimistic row via persist*.
-    const addVendorBill = (bill) => {
-        const rawLines = bill.lineItems || bill.items || [];
-        const normLines = rawLines.map((line, idx) => {
-            const qty = Number(line.qty ?? line.quantity ?? 0) || 0;
-            const rate = Number(line.rate ?? line.price ?? 0) || 0;
-            return {
-                id: line.id || `vb-item-${Date.now()}-${idx}`,
-                itemId: line.itemId || '',
-                sku: line.sku || line.itemSku || '',
-                itemSku: line.sku || line.itemSku || '',
-                itemName: line.itemName || line.name || line.description || '',
-                name: line.itemName || line.name || line.description || '',
-                description: line.itemName || line.name || line.description || '',
-                qty,
-                quantity: qty,
-                rate,
-                price: rate,
-                amount: Math.round(qty * rate * 100) / 100,
-            };
-        });
-        const subtotal = bill.subtotal !== undefined
-            ? Number(bill.subtotal)
-            : Math.round(normLines.reduce((s, l) => s + (l.qty * l.rate), 0) * 100) / 100;
-        const gstPct = bill.gstPct !== undefined ? Number(bill.gstPct) : 5;
-        const gstAmount = bill.gstAmount !== undefined
-            ? Number(bill.gstAmount)
-            : Math.round(subtotal * (gstPct / 100) * 100) / 100;
-        const total = bill.total !== undefined
-            ? Number(bill.total)
-            : Math.round((subtotal + gstAmount) * 100) / 100;
-        const vend = vendors.find((v) => v.id === bill.vendorId)
-            || vendors.find((v) => v.name?.toLowerCase() === String(bill.vendor || bill.vendorName || '').toLowerCase());
-        const linkedPo = bill.purchaseOrderId
-            ? purchaseOrders.find((p) => p.id === bill.purchaseOrderId || p.poNumber === bill.purchaseOrderId)
-            : null;
-        const newBill = {
-            id: bill.id || `vb-${Date.now()}`,
-            vendorBillNumber: bill.vendorBillNumber || bill.billNumber || `VB-2026-${String(vendorBills.length + 1).padStart(3, '0')}`,
-            billDate: formatDateDDMMYYYY(bill.billDate || bill.date || 'Today'),
-            date: formatDateDDMMYYYY(bill.billDate || bill.date || 'Today'),
-            vendorId: bill.vendorId || vend?.id,
-            vendor: bill.vendor || bill.vendorName || vend?.name || '',
-            vendorName: bill.vendorName || bill.vendor || vend?.name || '',
-            purchaseOrderId: bill.purchaseOrderId || linkedPo?.id || null,
-            poNumber: linkedPo?.poNumber || bill.poNumber || '',
-            grnId: bill.grnId || null,
-            attachmentFileId: bill.attachmentFileId || null,
-            fileName: bill.fileName || '',
-            subtotal,
-            gstPct,
-            gstAmount,
-            total,
-            amount: total,
+    // Server-first: the vendor's own invoice number is typed by the user; the
+    // server computes subtotal / GST / total. Throws on failure.
+    const addVendorBill = async (bill) => {
+        const rawLines = (bill.lineItems || bill.items || []).filter((l) => l && l.itemId);
+        if (!bill.vendorId) throw rejectCreate('Select a vendor.');
+        if (!String(bill.vendorBillNumber || '').trim()) throw rejectCreate('Enter the vendor bill / invoice number.');
+        if (!(bill.billDate || bill.date)) throw rejectCreate('Pick the bill date.');
+        if (rawLines.length === 0 || rawLines.some((l) => !(Number(l.qty ?? l.quantity) > 0))) {
+            throw rejectCreate('Add at least one item with billed quantity greater than 0.');
+        }
+        const saved = await createOnServer('vendorBills', {
+            vendorId: bill.vendorId,
+            vendorBillNumber: String(bill.vendorBillNumber).trim(),
+            billDate: bill.billDate || bill.date,
+            purchaseOrderId: bill.purchaseOrderId || undefined,
+            grnId: bill.grnId || undefined,
+            attachmentFileId: bill.attachmentFileId || undefined,
+            gstPct: bill.gstPct,
             remarks: bill.remarks || bill.notes || '',
-            notes: bill.remarks || bill.notes || '',
-            status: bill.status || 'Pending',
-            matchStatus: bill.matchStatus || 'Pending Matching',
-            purchaseBillId: bill.purchaseBillId || null,
-            items: normLines,
-            lineItems: normLines,
-        };
-        setVendorBills((prev) => [newBill, ...prev]);
-        showToast(`Vendor bill ${newBill.vendorBillNumber} saved.`);
-        persistCreate('vendorBills', newBill, setVendorBills);
-        return newBill;
+            lineItems: rawLines.map((line) => ({
+                itemId: line.itemId,
+                sku: line.sku || line.itemSku || undefined,
+                itemName: line.itemName || line.name || line.description || undefined,
+                qty: Number(line.qty ?? line.quantity),
+                rate: Number(line.rate ?? line.price ?? 0),
+            })),
+        }, setVendorBills, { label: 'Vendor bill' });
+        showToast(`Vendor bill ${saved.vendorBillNumber} saved.`);
+        return saved;
     };
     const updateVendorBill = (id, updates) => {
         let merged = null;
@@ -4234,145 +3545,76 @@ export const ERPProvider = ({ children, }) => {
             return null;
         }
     };
-    const addPaymentOut = (pay) => {
-        const payAmt = Number(pay.amount) || 1000;
-        // ── [PHASE-2D] Payment classification: Advance (against PO, no bill yet) vs Final/Bill ──
-        // Old code always treated the disbursement as a bill settlement. Sweven releases
-        //   advances to suppliers (steel on credit) which later adjust against the bill.
-        const paymentType = pay.paymentType || (pay.billId || pay.billNumber ? 'Final' : 'Advance');
-        const isAdvance = paymentType === 'Advance';
+    // Server-first disbursement. The server allocates the PAY-OUT number,
+    // allocates the payment to the bill (if any — otherwise it stays an
+    // unallocated advance) and posts the ledger. Throws on failure.
+    const addPaymentOut = async (pay) => {
+        const payAmt = Number(pay.amount);
         let targetBill = null;
-        if (pay.billId || pay.billNumber) {
-            targetBill = purchaseBills.find((b) => (pay.billId && b.id === pay.billId) || (pay.billNumber && b.billNumber === pay.billNumber));
-            if (targetBill) {
-                if (targetBill.status === 'Cancelled') {
-                    showToast('Cannot record payment against a cancelled bill.');
-                    return null;
-                }
-                if (targetBill.status === 'Paid' || (targetBill.balanceDue !== undefined && targetBill.balanceDue <= 0.01)) {
-                    showToast('Bill is already fully settled.');
-                    return null;
-                }
-                const remainingBal = targetBill.balanceDue !== undefined ? targetBill.balanceDue : Math.max(0, (targetBill.total || targetBill.amount || 0) - (targetBill.paidAmount || targetBill.amountPaid || 0));
-                if (!isAdvance && payAmt > remainingBal + 0.01) {
-                    showToast(`Disbursement amount (${formatCurrency(payAmt)}) exceeds remaining bill balance (${formatCurrency(remainingBal)}).`);
-                    return null;
-                }
+        if (pay.billId) {
+            targetBill = purchaseBills.find((b) => b.id === pay.billId);
+            if (!targetBill) throw rejectCreate('That bill is no longer available.');
+            if (targetBill.status === 'Cancelled') throw rejectCreate('Cannot record payment against a cancelled bill.');
+        }
+        const vendorId = pay.vendorId || targetBill?.vendorId;
+        if (!vendorId) throw rejectCreate('Select the vendor being paid.');
+        if (!pay.date) throw rejectCreate('Enter the payment date.');
+        if (!(payAmt > 0)) throw rejectCreate('Enter a payment amount greater than zero.');
+        if (!pay.mode) throw rejectCreate('Select the payment mode.');
+        if (pay.mode !== 'Cash' && !pay.bankAccountId) throw rejectCreate('Choose the bank account this payment was made from.');
+        if (targetBill) {
+            const remainingBal = Number(targetBill.balanceDue ?? 0);
+            if (remainingBal <= 0.01) throw rejectCreate('Bill is already fully settled.');
+            if (payAmt > remainingBal + 0.01) {
+                throw rejectCreate(`Disbursement amount (${formatCurrency(payAmt)}) exceeds remaining bill balance (${formatCurrency(remainingBal)}).`);
             }
         }
-
-        const targetPo = pay.poNumber && purchaseOrders.find((p) => p.poNumber === pay.poNumber || p.id === pay.poId) || (pay.poId && purchaseOrders.find((p) => p.id === pay.poId));
-
-        const newPay = {
-            id: pay.id || `pout-${Date.now()}`,
-            voucherNumber: pay.voucherNumber ||
-                `VOU-2026-${String(paymentOuts.length + 93).padStart(3, '0')}`,
-            vendorId: pay.vendorId || targetBill?.vendorId,
-            vendor: pay.vendor || targetBill?.vendor || 'Arrow Electronics Supply',
-            billId: isAdvance ? undefined : (pay.billId || targetBill?.id),
-            billNumber: isAdvance ? undefined : (pay.billNumber || targetBill?.billNumber || 'PB-2026-015'),
-            // [PHASE-2D] link advances to the purchase order they fund
-            poId: pay.poId || targetPo?.id,
-            poNumber: pay.poNumber || targetPo?.poNumber,
-            paymentType,
-            advanceApplied: Boolean(pay.advanceApplied),
-            date: pay.date || getCurrentDateFormatted(),
-            mode: pay.mode || 'ACH',
+        const saved = await createOnServer('paymentOuts', {
+            vendorId,
+            billId: targetBill?.id,
+            date: pay.date,
             amount: payAmt,
-            reference: pay.reference || 'ACH-994821',
-            status: 'Paid',
-        };
-        setPaymentOuts((prev) => [newPay, ...prev]);
-        // Update vendor bill payment tracking and dynamic status (skipped for pure advances)
-        if (!isAdvance && (newPay.billNumber || newPay.billId)) {
-            setPurchaseBills((prev) => prev.map((b) => {
-                if (b.billNumber === newPay.billNumber || (newPay.billId && b.id === newPay.billId)) {
-                    const currentPaid = Number(b.amountPaid ?? b.paidAmount ?? 0);
-                    const updatedPaid = currentPaid + payAmt;
-                    const totalBill = Number(b.total || b.amount || 0);
-                    const isFull = updatedPaid >= (totalBill - 0.01);
-                    const derivedStatus = updatedPaid <= 0 ? 'Unpaid' : isFull ? 'Paid' : 'Partially Paid';
-                    return {
-                        ...b,
-                        paidAmount: updatedPaid,
-                        amountPaid: updatedPaid,
-                        balanceDue: Math.max(0, totalBill - updatedPaid),
-                        status: derivedStatus,
-                    };
-                }
-                return b;
-            }));
-        }
-        // Decrease vendor balance liability only for bill settlements.
-        // Advances are vendor receivables (Dr Vendor Advances) and do not reduce AP.
-        if (!isAdvance) {
-            syncVendorBalance(newPay.vendorId, newPay.vendor, -payAmt);
-        }
-        // Deduct from Operating Bank Account (advance-applied adjustments already drew cash earlier)
-        if (!newPay.advanceApplied) {
-            setBankAccounts((prev) => prev.map((acc, idx) => idx === 0
-                ? { ...acc, balance: Math.max(0, acc.balance - payAmt) }
-                : acc));
-        }
-        // The disbursement's journal entry is posted server-side with the
-        // payment — no local mirror (it would double-count in ledger views).
-        if (isAdvance) {
-            showToast(`Advance of ${formatCurrency(payAmt)} released to ${newPay.vendor}${newPay.poNumber ? ` for ${newPay.poNumber}` : ''}`);
-        } else if (newPay.advanceApplied) {
-            showToast(`Advance of ${formatCurrency(payAmt)} applied to bill ${newPay.billNumber}`);
-        } else {
-            showToast(`Disbursed ${formatCurrency(payAmt)} to ${newPay.vendor}`);
-        }
-        persistCreate('paymentOuts', newPay, setPaymentOuts, {
-            onServer: () => refreshCollections(['paymentOuts', 'purchaseBills', 'journalEntries', 'parties', 'bankAccounts']),
+            mode: pay.mode,
+            bankAccountId: pay.bankAccountId || undefined,
+            reference: pay.reference || undefined,
+            notes: pay.notes || undefined,
+        }, setPaymentOuts, {
+            label: 'Payment',
+            refresh: ['paymentOuts', 'purchaseBills', 'journalEntries', 'parties', 'vendors', 'bankAccounts'],
         });
-        return newPay;
+        showToast(targetBill
+            ? `Payment ${saved.voucherNumber} of ${formatCurrency(payAmt)} recorded against ${targetBill.billNumber}.`
+            : `Advance ${saved.voucherNumber} of ${formatCurrency(payAmt)} recorded for ${saved.vendor || 'vendor'}.`);
+        return saved;
     };
-    // ── [PHASE-2D] Vendor / PO advance balance ──
-    // Advance balance = sum of 'Advance' paymentOuts − advance-applied adjustments for a vendor.
-    const getVendorAdvanceBalance = (vendorIdOrName, vendorName) => {
-        const matchVendor = (p) => {
-            if (!vendorIdOrName && !vendorName) return false;
-            if (vendorIdOrName && p.vendorId === vendorIdOrName) return true;
-            if (vendorIdOrName && p.vendor?.toLowerCase() === String(vendorIdOrName).toLowerCase()) return true;
-            // [PHASE-2D] fall back to the name arg for bills without a vendorId
-            if (vendorName && p.vendor?.toLowerCase() === String(vendorName).toLowerCase()) return true;
-            return false;
-        };
-        const released = paymentOuts
-            .filter((p) => p.paymentType === 'Advance' && matchVendor(p))
-            .reduce((s, p) => s + (Number(p.amount) || 0), 0);
-        const applied = paymentOuts
-            .filter((p) => p.advanceApplied === true && matchVendor(p))
-            .reduce((s, p) => s + (Number(p.amount) || 0), 0);
-        return Math.max(0, released - applied);
+    // Unapplied advance = what the vendor's active payments have not yet
+    // allocated to bills (same rule as the server's vendor_advance_balance).
+    const getVendorAdvanceBalance = (vendorId) => {
+        if (!vendorId) return 0;
+        const open = paymentOuts
+            .filter((p) => p.vendorId === vendorId && p.status !== 'Cancelled')
+            .reduce((s, p) => s + (Number(p.unallocatedAmount) || 0), 0);
+        return Math.max(0, Math.round(open * 100) / 100);
     };
-    // Apply an existing advance against a vendor bill (no new cash flow).
-    const applyVendorAdvanceToBill = (billId, amount) => {
+    // Apply existing advances to a bill — server action, no new cash flow.
+    const applyVendorAdvanceToBill = async (billId, amount) => {
         const bill = purchaseBills.find((b) => b.id === billId);
-        if (!bill) {
-            showToast('Bill not found.');
-            return null;
+        if (!bill) throw rejectCreate('Bill not found.');
+        const applyAmt = Number(amount);
+        if (!(applyAmt > 0)) throw rejectCreate('Enter an amount to apply.');
+        if (!isBackendEnabled() || !isServerId(bill.id)) throw rejectCreate('Advance not applied — this bill is not saved on the server.');
+        let saved;
+        try {
+            const body = await api.post(`${RESOURCES.purchaseBills.path}${bill.id}/apply-advance/`, { amount: applyAmt });
+            saved = RESOURCES.purchaseBills.fromApi(body);
+        } catch (err) {
+            console.warn('[ERP] apply-advance failed:', err);
+            throw rejectCreate(`Advance not applied — ${describeError(err)}`);
         }
-        const advance = getVendorAdvanceBalance(bill.vendorId, bill.vendor);
-        if (advance <= 0) {
-            showToast(`No unapplied advance balance for ${bill.vendor}.`);
-            return null;
-        }
-        const applyAmt = Math.min(Number(amount) || advance, advance);
-        if (applyAmt <= 0) return null;
-        return addPaymentOut({
-            vendorId: bill.vendorId,
-            vendor: bill.vendor,
-            billId: bill.id,
-            billNumber: bill.billNumber,
-            paymentType: 'Final',
-            advanceApplied: true,
-            amount: applyAmt,
-            date: getCurrentDateFormatted(),
-            mode: 'Advance Adjustment',
-            reference: `ADJ-${bill.billNumber}`,
-        });
+        reconcile(setPurchaseBills, bill.id, saved);
+        refreshCollections(['paymentOuts', 'purchaseBills', 'journalEntries', 'parties', 'vendors']);
+        showToast(`Advance of ${formatCurrency(applyAmt)} applied to bill ${bill.billNumber}`);
+        return saved;
     };
     // ── [PHASE-2C] QC review, approval & rework of received goods ──
     // qcStatus lives on the purchase bill receipt: 'Approved' (stock usable),
@@ -4459,217 +3701,31 @@ export const ERPProvider = ({ children, }) => {
         persistUpdate('qualityStandards', id, updates, setQualityStandards);
         showToast('Quality standard updated.');
     };
-    // ── [PHASE-2E] Chart of Accounts: derive balances from journal entries ──
-    // Account balances are computed on-the-fly from posted journal entries (no separate ledger).
-    // Assets (bank, AR, inventory, advances): Dr positive, Cr reduces. Liabilities/AP: Cr positive, Dr reduces.
-    const getAccountBalances = () => {
-        const balances = {};
-        const posted = journalEntries.filter((e) => e.status === 'Posted');
-        posted.forEach((e) => {
-            const dr = e.debitAccount || 'Unmapped';
-            const cr = e.creditAccount || 'Unmapped';
-            balances[dr] = (balances[dr] || 0) + (Number(e.amount) || 0);
-            balances[cr] = (balances[cr] || 0) - (Number(e.amount) || 0);
+    // Server-first debit note: the server allocates the PR number, checks the
+    // returnable balance per bill line, posts the PURCHASE_RETURN movements
+    // and the ledger. Throws on failure.
+    const addPurchaseReturn = async (ret) => {
+        const bill = purchaseBills.find((b) => b.id === ret.billId);
+        if (!bill) throw rejectCreate('Select the purchase bill being returned against.');
+        if (bill.status === 'Cancelled') throw rejectCreate('Cannot create Purchase Return against a cancelled bill.');
+        if (!ret.date) throw rejectCreate('Enter the return date.');
+        if (!String(ret.reason || '').trim()) throw rejectCreate('Enter the reason for the return.');
+        const lines = (ret.items || []).filter((l) => Number(l.qty) > 0);
+        if (lines.length === 0) throw rejectCreate('Specify at least one item with return quantity greater than 0.');
+        if (lines.some((l) => !l.purchaseBillLineId)) throw rejectCreate('Each returned line must reference a line of the bill.');
+        const saved = await createOnServer('purchaseReturns', {
+            vendorId: bill.vendorId,
+            billId: bill.id,
+            date: ret.date,
+            reason: String(ret.reason).trim(),
+            notes: ret.notes || undefined,
+            items: lines,
+        }, setPurchaseReturns, {
+            label: 'Debit Note',
+            refresh: ['purchaseReturns', 'purchaseBills', 'journalEntries', 'inventoryMovements', 'parties', 'vendors', 'items'],
         });
-        // Merge in live bank account balances so the COA reflects treasury
-        (bankAccounts || []).forEach((a) => {
-            const key = `1010 - Cash & Bank (${a.bankName || a.accountName || 'Operating'})`;
-            balances[key] = Number(a.balance) || 0;
-        });
-        return balances;
-    };
-    // ── [PHASE-2E] Inter-bank transfer (no net AP/AR change, just treasury reshuffling) ──
-    const addInterbankTransfer = (transfer) => {
-        const amt = Number(transfer.amount) || 0;
-        if (amt <= 0) { showToast('Transfer amount must be > 0.'); return null; }
-        const fromIdx = bankAccounts.findIndex((a) => a.id === transfer.fromAccountId);
-        const toIdx = bankAccounts.findIndex((a) => a.id === transfer.toAccountId);
-        if (fromIdx < 0 || toIdx < 0) { showToast('Select valid source and destination accounts.'); return null; }
-        if (fromIdx === toIdx) { showToast('Source and destination accounts must differ.'); return null; }
-        if (bankAccounts[fromIdx].balance < amt + 0.01) {
-            showToast(`Insufficient balance in ${bankAccounts[fromIdx].bankName}.`);
-            return null;
-        }
-        setBankAccounts((prev) => prev.map((a, idx) => {
-            if (idx === fromIdx) return { ...a, balance: Math.round((a.balance - amt) * 100) / 100 };
-            if (idx === toIdx) return { ...a, balance: Math.round((a.balance + amt) * 100) / 100 };
-            return a;
-        }));
-        const trNum = transfer.transferNumber || `TR-2026-${String((undefined?.length || 0) + 30 + transfers.length).padStart(3, '0')}`;
-        const newTr = {
-            id: `tr-${Date.now()}`,
-            transferNumber: trNum,
-            date: transfer.date || getCurrentDateFormatted(),
-            fromAccount: bankAccounts[fromIdx]?.bankName || 'Operating',
-            toAccount: bankAccounts[toIdx]?.bankName || 'Savings',
-            amount: amt,
-            reference: transfer.reference || '',
-            status: 'Completed',
-        };
-        setTransfers((prev) => [newTr, ...prev]);
-        // The transfer posts its own journal entry server-side
-        // (post_bank_transfer) — no local mirror (it would double-count).
-        // Bank-account rows must already exist server-side; temp accounts
-        // stay local-only.
-        if (isBackendEnabled()
-            && isServerId(bankAccounts[fromIdx]?.id)
-            && isServerId(bankAccounts[toIdx]?.id)) {
-            persistCreate('bankTransfers', {
-                ...newTr,
-                fromAccountId: bankAccounts[fromIdx].id,
-                toAccountId: bankAccounts[toIdx].id,
-                notes: `Inter-bank transfer ${bankAccounts[fromIdx]?.bankName} → ${bankAccounts[toIdx]?.bankName}`,
-            }, setTransfers, {
-                onServer: () => refreshCollections(['journalEntries', 'bankAccounts']),
-            });
-        }
-        showToast(`Inter-bank transfer ${trNum}: ${formatCurrency(amt)} moved from ${bankAccounts[fromIdx]?.bankName} to ${bankAccounts[toIdx]?.bankName}.`);
-        return newTr;
-    };
-    // ── [PHASE-2E] Budgets master: planned amounts by account/category ──
-    const defaultBudgets = [
-        { id: 'bud-rent', name: 'Office & Warehouse Rent', category: 'Facility', annualAmount: 360000, account: '5020 - Rent', active: true },
-        { id: 'bud-salary', name: 'Staff Salaries', category: 'Payroll', annualAmount: 2400000, account: '5010 - Salaries', active: true },
-        { id: 'bud-raw', name: 'Raw Material (MS Steel)', category: 'COGS', annualAmount: 5000000, account: '5030 - Raw Material', active: true },
-        { id: 'bud-utilities', name: 'Electricity & Power', category: 'Utilities', annualAmount: 480000, account: '5040 - Utilities', active: true },
-        { id: 'bud-freight', name: 'Freight & Logistics', category: 'Logistics', annualAmount: 720000, account: '5050 - Freight', active: true },
-        { id: 'bud-office', name: 'Office & Admin Supplies', category: 'Admin', annualAmount: 120000, account: '5060 - Office Supplies', active: true },
-    ];
-    const [budgets, setBudgets] = useState(defaultBudgets);
-    const addBudget = (b) => {
-        const newB = { id: b.id || `bud-${Date.now()}`, name: b.name || 'New Budget', category: b.category || 'General', annualAmount: Number(b.annualAmount) || 0, account: b.account || '5xxx - Expense', active: b.active !== false };
-        setBudgets((prev) => [newB, ...prev]);
-        showToast(`Budget "${newB.name}" created.`);
-        return newB;
-    };
-    const updateBudget = (id, updates) => {
-        setBudgets((prev) => prev.map((b) => b.id === id ? { ...b, ...updates } : b));
-    };
-    const addPurchaseReturn = (ret) => {
-        const bill = purchaseBills.find((b) => b.id === ret.billId || b.billNumber === ret.billRef);
-        if (bill && bill.status === 'Cancelled') {
-            showToast('Cannot create Purchase Return against a cancelled bill.');
-            return null;
-        }
-
-        // Calculate line items with validation against previous returns
-        const prevReturns = purchaseReturns.filter((pr) => (pr.billId === ret.billId || pr.billRef === ret.billRef) && pr.status !== 'Cancelled');
-        
-        let returnLines = [];
-        if (ret.items && ret.items.length > 0) {
-            returnLines = ret.items.map((line, idx) => {
-                const billedQty = Number(line.billedQty ?? (bill?.items?.find((it) => (it.itemId && it.itemId === line.itemId) || (it.sku && it.sku === line.sku))?.qty) ?? line.qty ?? 1);
-                const prevReturned = prevReturns.reduce((sum, pr) => {
-                    const match = (pr.items || []).find((it) => (it.itemId && it.itemId === line.itemId) || (it.sku && it.sku === line.sku));
-                    return sum + Number(match?.qty || 0);
-                }, 0);
-                const returnableQty = Math.max(0, billedQty - prevReturned);
-                const requestedQty = Math.max(0, Number(line.qty || 0));
-                const qty = Math.min(requestedQty, returnableQty);
-                const condition = line.condition || ret.condition || 'Good';
-                const rate = Number(line.rate || 0);
-                const amount = Number(line.amount || Math.round(qty * rate * 100) / 100);
-
-                return {
-                    ...line,
-                    id: line.id || `prt-item-${Date.now()}-${idx}`,
-                    billedQty,
-                    previouslyReturnedQty: prevReturned,
-                    returnableQty,
-                    qty,
-                    condition,
-                    rate,
-                    amount,
-                };
-            }).filter((l) => l.qty > 0);
-        }
-
-        const calculatedTotal = returnLines.reduce((sum, it) => sum + it.amount, 0);
-        const retAmt = calculatedTotal > 0 ? calculatedTotal : (ret.amount ?? 500);
-        const defaultAddresses = resolveVendorPartyAddresses(ret.vendorId || bill?.vendorId, ret.vendor || bill?.vendor);
-
-        const newDebit = {
-            id: ret.id || `prt-${Date.now()}`,
-            debitNoteNumber: ret.debitNoteNumber ||
-                `DN-2026-${String(purchaseReturns.length + 10).padStart(3, '0')}`,
-            vendorId: ret.vendorId || bill?.vendorId,
-            vendor: ret.vendor || bill?.vendor || 'Delta Controls & Hydraulics',
-            billingAddress: createAddressSnapshot(ret.billingAddress) || defaultAddresses.billing,
-            shippingAddress: createAddressSnapshot(ret.shippingAddress) || defaultAddresses.shipping,
-            billId: ret.billId || bill?.id,
-            billRef: ret.billRef || bill?.billNumber || 'PB-2026-015',
-            date: ret.date || getCurrentDateFormatted(),
-            amount: retAmt,
-            reason: ret.reason || 'Damaged goods on intake inspection',
-            status: ret.status || 'Pending Credit',
-            items: returnLines.length > 0 ? returnLines : (ret.items || []),
-        };
-        setPurchaseReturns((prev) => [newDebit, ...prev]);
-
-        // Record movements: Good condition removes sellable inventory; Damaged/Scrap recorded without affecting sellable
-        if (newDebit.items && newDebit.items.length > 0) {
-            newDebit.items.forEach((line) => {
-                const targetSku = line.sku || line.itemSku;
-                const item = items.find((i) => i.id === line.itemId || (targetSku && i.sku?.toLowerCase() === targetSku.toLowerCase()));
-                const isGood = line.condition === 'Good';
-                if (isGood && item && item.trackingMode === 'Serial') {
-                    const serials = line.selectedSerials || line.serialNumbers || (line.serialNumber ? [line.serialNumber] : []);
-                    if (serials.length > 0) {
-                        removeSerialNumbers(item.id, serials);
-                    }
-                }
-                recordMovement({
-                    itemId: item?.id || line.itemId || `itm-${Date.now()}`,
-                    itemSku: item?.sku || targetSku || 'GEN-SKU',
-                    itemName: item?.name || line.name || line.description,
-                    type: isGood ? 'PURCHASE_RETURN' : (line.condition === 'Scrap' ? 'SCRAP_RETURN' : 'DAMAGED_RETURN'),
-                    quantity: isGood ? -(line.qty || 1) : 0,
-                    // [PHASE-2A] weight-item returns reduce stock by the actual weighed kg returned
-                    weighedQty: (isGood && item?.isWeightItem && Number(line.returnedWeight) > 0) ? -Number(line.returnedWeight) : undefined,
-                    unitCost: item?.costPrice || line.rate || 0,
-                    referenceType: 'PurchaseReturn',
-                    referenceId: newDebit.id,
-                    referenceNumber: newDebit.debitNoteNumber,
-                    serials: line.selectedSerials || line.serialNumbers || (line.serialNumber ? [line.serialNumber] : []),
-                    notes: `Returned to ${newDebit.vendor} (${line.condition || 'Good'}): ${newDebit.reason}` + (item?.isWeightItem && Number(line.returnedWeight) > 0 ? ` (${line.returnedWeight} kg weighed)` : ''),
-                });
-            });
-        }
-        else if (newDebit.itemSku || newDebit.itemId) {
-            const targetItem = items.find((i) => (newDebit.itemId && i.id === newDebit.itemId) || (newDebit.itemSku && i.sku?.toLowerCase() === String(newDebit.itemSku ?? '').toLowerCase()));
-            if (targetItem) {
-                recordMovement({
-                    itemId: targetItem.id,
-                    itemSku: targetItem.sku,
-                    itemName: targetItem.name,
-                    type: 'PURCHASE_RETURN',
-                    quantity: -(newDebit.qty || 1),
-                    unitCost: targetItem.costPrice,
-                    referenceType: 'PurchaseReturn',
-                    referenceId: newDebit.id,
-                    referenceNumber: newDebit.debitNoteNumber,
-                    notes: `Returned to ${newDebit.vendor}: ${newDebit.reason}`,
-                });
-            }
-        }
-        // Reduce vendor liability balance across vendors and parties
-        syncVendorBalance(newDebit.vendorId, newDebit.vendor, -retAmt);
-        // The debit note's journal entry is posted server-side — no local
-        // mirror (it would double-count in ledger views).
-        showToast(`Debit Note ${newDebit.debitNoteNumber} issued.`);
-        persistCreate('purchaseReturns', newDebit, setPurchaseReturns, {
-            onServer: (saved) => {
-                if (saved && saved.id && saved.id !== newDebit.id) {
-                    setInventoryMovements((prev) => prev.map((m) => (
-                        m.referenceId === newDebit.id
-                            ? { ...m, referenceId: saved.id, referenceNumber: saved.debitNoteNumber || m.referenceNumber }
-                            : m
-                    )));
-                }
-                refreshCollections(['purchaseReturns', 'purchaseBills', 'journalEntries', 'inventoryMovements', 'parties', 'items']);
-            },
-        });
-        return newDebit;
+        showToast(`Debit Note ${saved.debitNoteNumber} issued.`);
+        return saved;
     };
     const cancelPurchaseReturn = (returnId) => {
         const pr = purchaseReturns.find((r) => r.id === returnId);
@@ -4720,29 +3776,30 @@ export const ERPProvider = ({ children, }) => {
         setPurchaseReturns((prev) => prev.map((r) => (r.id === id ? { ...r, status } : r)));
         persistUpdate('purchaseReturns', id, { status }, setPurchaseReturns);
     };
-    const addExpense = (exp) => {
-        const newExp = {
-            id: exp.id || `exp-${Date.now()}`,
-            expenseNumber: exp.expenseNumber ||
-                `EXP-2026-${String(expenses.length + 119).padStart(3, '0')}`,
-            category: exp.category || 'Logistics',
-            date: exp.date || getCurrentDateFormatted(),
-            payee: exp.payee || 'Freight Logistics Inc',
-            amount: exp.amount ?? 150,
-            paidVia: exp.paidVia || 'Corporate Card',
-            taxDeductible: exp.taxDeductible ?? true,
-        };
-        setExpenses((prev) => [newExp, ...prev]);
-        // Deduct from Operating Bank Account
-        setBankAccounts((prev) => prev.map((acc, idx) => idx === 0
-            ? { ...acc, balance: Math.max(0, acc.balance - (newExp.amount || 0)) }
-            : acc));
-        // The expense's journal entry is posted server-side — no local mirror.
-        showToast(`Expense voucher ${newExp.expenseNumber} recorded.`);
-        persistCreate('expenses', newExp, setExpenses, {
-            onServer: () => refreshCollections(['expenses', 'journalEntries', 'bankAccounts']),
+    // Server-first: EXP number, total and the ledger posting come from the
+    // server. Category is a configurable master (/accounts/expense-categories/).
+    const addExpense = async (exp) => {
+        if (!exp.date) throw rejectCreate('Enter the expense date.');
+        if (!exp.categoryId) throw rejectCreate('Select an expense category.');
+        if (!(Number(exp.amount) > 0)) throw rejectCreate('Enter an expense amount greater than zero.');
+        if (!exp.paymentMode) throw rejectCreate('Select how the expense was paid.');
+        if (exp.paymentMode === 'Credit' && !exp.vendorId) throw rejectCreate('Select the vendor for an expense on credit.');
+        const saved = await createOnServer('expenses', {
+            date: exp.date,
+            categoryId: exp.categoryId,
+            vendorId: exp.vendorId || undefined,
+            amount: Number(exp.amount),
+            taxAmount: exp.taxAmount !== undefined && exp.taxAmount !== '' ? Number(exp.taxAmount) : undefined,
+            paymentMode: exp.paymentMode,
+            bankAccountId: exp.bankAccountId || undefined,
+            notes: exp.notes || undefined,
+            reference: exp.reference || undefined,
+        }, setExpenses, {
+            label: 'Expense',
+            refresh: ['expenses', 'journalEntries', 'bankAccounts'],
         });
-        return newExp;
+        showToast(`Expense voucher ${saved.expenseNumber} recorded.`);
+        return saved;
     };
     const addLocation = (loc) => {
         const newLoc = {
@@ -4759,70 +3816,27 @@ export const ERPProvider = ({ children, }) => {
         persistCreate('locations', newLoc, setLocations);
         return newLoc;
     };
-    const addTransfer = (tr) => {
-        const newTr = {
-            id: tr.id || `tr-${Date.now()}`,
-            transferNumber: tr.transferNumber || `TR-${Math.floor(9900 + Math.random() * 90)}`,
-            sourceLocationId: tr.sourceLocationId,
-            sourceLocation: tr.sourceLocation || 'Main Central Warehouse',
-            destLocationId: tr.destLocationId,
-            destLocation: tr.destLocation || 'Assembly Bay Zone A',
-            date: tr.date || getCurrentDateFormatted(),
-            itemsCount: tr.itemsCount ?? 1,
-            status: tr.status || 'In Transit',
-            shippedBy: tr.shippedBy || 'Logistics Clerk',
-            vehicleNo: tr.vehicleNo || '',
-            items: tr.items || [],
-        };
-        setTransfers((prev) => [newTr, ...prev]);
-        // Record TRANSFER_OUT and TRANSFER_IN movements
-        if (newTr.items && newTr.items.length > 0) {
-            newTr.items.forEach((line) => {
-                const item = items.find((i) => i.id === line.itemId || i.sku?.toLowerCase() === line.itemSku?.toLowerCase());
-                // Transfer Out
-                recordMovement({
-                    itemId: item?.id || line.itemId || `itm-${Date.now()}`,
-                    itemSku: item?.sku || line.itemSku || 'GEN-SKU',
-                    itemName: item?.name || line.description,
-                    locationId: newTr.sourceLocationId || 'loc-1',
-                    locationName: newTr.sourceLocation,
-                    type: 'TRANSFER_OUT',
-                    quantity: -line.qty,
-                    unitCost: item?.costPrice || line.rate,
-                    referenceType: 'StockTransfer',
-                    referenceId: newTr.id,
-                    referenceNumber: newTr.transferNumber,
-                    notes: `Transfer OUT to ${newTr.destLocation}`,
-                });
-                // Transfer In
-                recordMovement({
-                    itemId: item?.id || line.itemId || `itm-${Date.now()}`,
-                    itemSku: item?.sku || line.itemSku || 'GEN-SKU',
-                    itemName: item?.name || line.description,
-                    locationId: newTr.destLocationId || 'loc-2',
-                    locationName: newTr.destLocation,
-                    type: 'TRANSFER_IN',
-                    quantity: line.qty,
-                    unitCost: item?.costPrice || line.rate,
-                    referenceType: 'StockTransfer',
-                    referenceId: newTr.id,
-                    referenceNumber: newTr.transferNumber,
-                    notes: `Transfer IN from ${newTr.sourceLocation}`,
-                });
-            });
+    const addTransfer = async (tr) => {
+        // The server allocates the TR number, validates the selected takas and
+        // posts the TRANSFER_OUT / TRANSFER_IN movements on dispatch; nothing
+        // is written locally, so a failed save leaves no phantom record.
+        const resource = RESOURCES.transfers;
+        try {
+            const created = await api.post(resource.path, resource.toApi(tr));
+            let saved = created;
+            if (tr.dispatchNow !== false && created?.id) {
+                saved = await api.post(`/inventory/transfers/${created.id}/dispatch/`, {});
+            }
+            const row = resource.fromApi ? resource.fromApi(saved) : saved;
+            setTransfers((prev) => [row, ...prev.filter((t) => t.id !== row.id)]);
+            refreshCollections(['transfers', 'inventoryMovements', 'items']);
+            showToast(`Transfer ${row.transferNumber || row.transfer_number || ''} ${tr.dispatchNow !== false ? 'dispatched' : 'created'}.`);
+            return row;
+        } catch (err) {
+            showToast(`Transfer not saved — ${describeError(err)}`);
+            refreshCollections(['transfers']);
+            throw err;
         }
-        showToast(`Transfer manifest ${newTr.transferNumber} created.`);
-        // Server owns the transfer number and posts the OUT/IN movements on
-        // receive; the re-read replaces the optimistic row and dedupes stock.
-        if (isServerId(newTr.sourceLocationId) && isServerId(newTr.destLocationId)) {
-            persistCreate('transfers', newTr, setTransfers, {
-                onServer: (saved) => {
-                    repointMovements(newTr.id, saved?.id);
-                    refreshCollections(['transfers', 'inventoryMovements', 'items']);
-                },
-            });
-        }
-        return newTr;
     };
     const updateTransferStatus = (id, status) => {
         setTransfers((prev) => prev.map((t) => (t.id === id ? { ...t, status } : t)));
@@ -4850,7 +3864,8 @@ export const ERPProvider = ({ children, }) => {
     const addServiceUsage = (usage) => {
         const newUsage = {
             id: usage.id || `su-${Date.now()}`,
-            ticketNumber: usage.ticketNumber || `TKT-${Math.floor(9000 + Math.random() * 900)}`,
+            // Server-allocated (TKT series); blank until the save returns.
+            ticketNumber: usage.ticketNumber || '',
             technician: usage.technician || 'Liam Vance',
             itemId: usage.itemId,
             sku: usage.sku || 'CAB-6-01',
@@ -4887,65 +3902,8 @@ export const ERPProvider = ({ children, }) => {
         }
         return newUsage;
     };
-    const addBankAccount = (acc) => {
-        const newAcc = {
-            id: acc.id || `ba-${Date.now()}`,
-            accountName: acc.accountName || 'Operating Account',
-            bankName: acc.bankName || 'Commercial Bank',
-            accountNumber: acc.accountNumber || `•••• ${Math.floor(1000 + Math.random() * 9000)}`,
-            balance: acc.balance ?? 10000,
-            currency: acc.currency || 'USD',
-        };
-        setBankAccounts((prev) => [...prev, newAcc]);
-        showToast(`Bank Account ${newAcc.bankName} added.`);
-        return newAcc;
-    };
-    const addJournalEntry = (entry) => {
-        const newEntry = {
-            id: entry.id || `je-${Date.now()}`,
-            entryNumber: entry.entryNumber || `JE-2026-${String(journalEntries.length + 81).padStart(3, '0')}`,
-            date: entry.date || getCurrentDateFormatted(),
-            description: entry.description || 'General Ledger Adjusting Entry',
-            reference: entry.reference || 'MANUAL-ADJ',
-            debitAccount: entry.debitAccount || '1010 - Cash & Bank',
-            creditAccount: entry.creditAccount || '4010 - Sales Revenue',
-            amount: entry.amount ?? 1000,
-            status: 'Posted',
-        };
-        setJournalEntries((prev) => [newEntry, ...prev]);
-        // Manual entries post balanced Dr = Cr lines. Resolve both legs
-        // against the chart of accounts; without resolvable accounts the row
-        // stays local-only instead of 400ing.
-        if (isBackendEnabled()) {
-            const amount = Number(newEntry.amount) || 0;
-            pullAll(['chartOfAccounts']).then(({ chartOfAccounts }) => {
-                const findAccount = (label) => {
-                    const code = String(label || '').split(' ')[0];
-                    return (chartOfAccounts || []).find((a) =>
-                        (code && a.code === code) || (label && a.name === label));
-                };
-                const dr = findAccount(newEntry.debitAccount);
-                const cr = findAccount(newEntry.creditAccount);
-                if (!dr?.id || !cr?.id || !isServerId(dr.id) || !isServerId(cr.id) || !(amount > 0)) {
-                    showToast('Journal entry saved locally — ledger accounts not found on server.');
-                    return;
-                }
-                persistCreate('journalEntries', {
-                    ...newEntry,
-                    lines: [
-                        { accountId: dr.id, debit: amount, description: newEntry.description },
-                        { accountId: cr.id, credit: amount, description: newEntry.description },
-                    ],
-                }, setJournalEntries, {
-                    onServer: () => refreshCollections(['journalEntries']),
-                });
-            }).catch(() => {});
-        }
-        showToast(`Journal entry ${newEntry.entryNumber} posted to GL.`);
-        return newEntry;
-    };
     const addWarrantyCard = (cardData) => {
-        const nextNum = `WC-2026-${String(warranties.length + 100).padStart(5, '0')}`;
+        const nextNum = ''; // allocated by the server (WC series)
         const newCard = {
             id: cardData.id || `wc-${Date.now()}`,
             cardNumber: cardData.cardNumber || nextNum,
@@ -5129,56 +4087,8 @@ export const ERPProvider = ({ children, }) => {
         }
     };
 
-    const importDatabaseSnapshot = (importedData) => {
-        try {
-            const payload = importedData?.data ? importedData.data : importedData;
-            if (!payload || typeof payload !== 'object') {
-                showToast('Invalid JSON backup file format.');
-                return false;
-            }
-
-            if (Array.isArray(payload.parties)) setParties(payload.parties);
-            if (Array.isArray(payload.customers)) setCustomers(payload.customers);
-            if (Array.isArray(payload.vendors)) setVendors(payload.vendors);
-            if (Array.isArray(payload.items)) setItems(payload.items);
-            if (Array.isArray(payload.categories)) setCategories(payload.categories);
-            if (Array.isArray(payload.units)) setUnits(payload.units);
-            if (Array.isArray(payload.categoryParts)) setCategoryParts(payload.categoryParts);
-            if (Array.isArray(payload.itemParts)) setItemParts(payload.itemParts);
-            if (Array.isArray(payload.quotations)) setQuotations(payload.quotations);
-            if (Array.isArray(payload.salesOrders)) setSalesOrders(payload.salesOrders);
-            if (Array.isArray(payload.proformaInvoices)) setProformaInvoices(payload.proformaInvoices);
-            if (Array.isArray(payload.deliveryChallans)) setDeliveryChallans(payload.deliveryChallans);
-            if (Array.isArray(payload.invoices)) setInvoices(payload.invoices);
-            if (Array.isArray(payload.warranties)) setWarranties(payload.warranties);
-            if (Array.isArray(payload.paymentIns)) setPaymentIns(payload.paymentIns);
-            if (Array.isArray(payload.salesReturns)) setSalesReturns(payload.salesReturns);
-            if (Array.isArray(payload.purchaseOrders)) setPurchaseOrders(payload.purchaseOrders);
-            if (Array.isArray(payload.purchaseBills)) setPurchaseBills(payload.purchaseBills);
-            if (Array.isArray(payload.vendorBills)) setVendorBills(payload.vendorBills);
-            if (Array.isArray(payload.purchaseReturns)) setPurchaseReturns(payload.purchaseReturns);
-            if (Array.isArray(payload.paymentOuts)) setPaymentOuts(payload.paymentOuts);
-            if (Array.isArray(payload.expenses)) setExpenses(payload.expenses);
-            if (Array.isArray(payload.locations)) setLocations(payload.locations);
-            if (Array.isArray(payload.transfers)) setTransfers(payload.transfers);
-            if (Array.isArray(payload.serviceUsages)) setServiceUsages(payload.serviceUsages);
-            if (Array.isArray(payload.valuationItems)) setValuationItems(payload.valuationItems);
-            if (Array.isArray(payload.monthEndAudits)) setMonthEndAudits(payload.monthEndAudits);
-            if (Array.isArray(payload.bankAccounts)) setBankAccounts(payload.bankAccounts);
-            if (Array.isArray(payload.journalEntries)) setJournalEntries(payload.journalEntries);
-            if (Array.isArray(payload.inventoryMovements)) setInventoryMovements(payload.inventoryMovements);
-            if (Array.isArray(payload.faultyParts)) setFaultyParts(payload.faultyParts);
-            if (Array.isArray(payload.zoneRequests)) setZoneRequests(payload.zoneRequests);
-
-            showToast('ERP Database restored successfully from backup.');
-            return true;
-        } catch (err) {
-            console.error('Failed to restore database snapshot:', err);
-            showToast('Error restoring database snapshot.');
-            return false;
-        }
-    };
-
+    // A snapshot file is never loaded into the screens: records only exist
+    // once the server has them (no local-only restore).
     /**
      * Re-read every collection from the server, discarding anything this tab
      * was holding. There is no local factory set to fall back to any more.
@@ -5247,7 +4157,6 @@ export const ERPProvider = ({ children, }) => {
             paymentIns,
             salesReturns,
             purchaseOrders,
-            productionInstructions,
             purchaseBills,
             vendorBills,
             paymentOuts,
@@ -5328,10 +4237,6 @@ export const ERPProvider = ({ children, }) => {
             deletePurchaseOrder,
             getPoBilledStatus,
             convertPurchaseOrderToBill,
-            addProductionInstruction,
-            updateProductionInstructionStatus,
-            updateProductionInstruction,
-            deleteProductionInstruction,
             addPurchaseBill,
             cancelPurchaseBill,
             updatePurchaseBillStatus,
@@ -5355,12 +4260,7 @@ export const ERPProvider = ({ children, }) => {
             updateQualityStandard,
             updateQCStatus,
             getItemQCBlock,
-            // [PHASE-2E] COA balances, inter-bank transfer & budgets
-            getAccountBalances,
-            addInterbankTransfer,
-            budgets,
-            addBudget,
-            updateBudget,
+            // [PHASE-2E] COA balances (bank transfers / budgets / journal entries are server-side: features/accounts)
             addPurchaseReturn,
             cancelPurchaseReturn,
             updatePurchaseReturnStatus,
@@ -5369,11 +4269,8 @@ export const ERPProvider = ({ children, }) => {
             addTransfer,
             updateTransferStatus,
             addServiceUsage,
-            addBankAccount,
-            addJournalEntry,
             resetDemoData: resetDatabaseToDefaults,
             exportDatabaseSnapshot,
-            importDatabaseSnapshot,
             resetDatabaseToDefaults,
         }, requestCollection)}>
       {children}

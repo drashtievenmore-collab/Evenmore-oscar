@@ -1,8 +1,8 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Eye, MoreHorizontal, Pencil, Plus, Trash2, X } from 'lucide-react';
-import { loadJWOs, loadJWOsAsync, saveJWOs, numIN, toDDMMYYYY } from './jobWorkOrdersStore';
-import { loadPlans } from './ProcessPlanListPage';
+import { numIN, toDDMMYYYY, purgeLegacyJobWorkCache } from './jobWorkOrdersStore';
+import { fetchJWOs, fetchPlans, createJWORow, deleteJWORow, errorMessage } from '../../services/jobWorkSync';
 import PageHeader from '../../components/ui/PageHeader';
 
 const statusPill = (s) =>
@@ -61,8 +61,12 @@ function flattenInwards(orders, plans) {
 
 export default function JobWorkInwardPage() {
   const navigate = useNavigate();
-  const [orders, setOrders] = useState(loadJWOs);
-  const [plans, setPlans] = useState(loadPlans);
+  const [orders, setOrders] = useState([]);
+  const [plans, setPlans] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState('');
+  const [formError, setFormError] = useState('');
+  const [saving, setSaving] = useState(false);
   const [inwardNo, setInwardNo] = useState('All');
   const [jwoNo, setJwoNo] = useState('All');
   const [vendor, setVendor] = useState('All');
@@ -82,13 +86,23 @@ export default function JobWorkInwardPage() {
     status: 'Received',
   });
 
+  const reload = async () => {
+    const [jwoRows, planRows] = await Promise.all([fetchJWOs(), fetchPlans()]);
+    setOrders(jwoRows);
+    setPlans(planRows);
+  };
+
   useEffect(() => {
     let live = true;
-    loadJWOsAsync()
-      .then((rows) => {
-        if (live && Array.isArray(rows)) setOrders(rows);
+    purgeLegacyJobWorkCache();
+    Promise.all([fetchJWOs(), fetchPlans()])
+      .then(([jwoRows, planRows]) => {
+        if (!live) return;
+        setOrders(jwoRows);
+        setPlans(planRows);
       })
-      .catch(() => {});
+      .catch((err) => { if (live) setLoadError(errorMessage(err, 'Could not load inward receipts.')); })
+      .finally(() => { if (live) setLoading(false); });
     return () => { live = false; };
   }, []);
 
@@ -129,26 +143,22 @@ export default function JobWorkInwardPage() {
       challanNo: (selectedJWO?.outwards || [])[0]?.no || '',
       status: 'Received',
     });
+    setFormError('');
     setShowForm(true);
   };
 
-  const nextInwardNo = () => {
-    const max = rows.reduce((m, r) => Math.max(m, Number(String(r.no || '').replace(/\D/g, '')) || 0), 0);
-    return `IN-2026-${String(max + 1).padStart(3, '0')}`;
-  };
-
-  const handleSave = (e) => {
+  const handleSave = async (e) => {
     e.preventDefault();
-    if (!form.jwoId) { window.alert('Select a Job Work Order first.'); return; }
+    setFormError('');
+    if (!form.jwoId) { setFormError('Select a Job Work Order first.'); return; }
     const qty = Number(form.qty);
-    if (!(qty > 0)) { window.alert('Received quantity must be greater than 0.'); return; }
+    if (!(qty > 0)) { setFormError('Received quantity must be greater than 0.'); return; }
     const parent = orders.find((o) => String(o.id) === String(form.jwoId));
-    if (!parent) { window.alert('Selected JWO no longer exists.'); return; }
+    if (!parent) { setFormError('Selected JWO no longer exists.'); return; }
     const rejected = Math.max(0, Number(form.rejected) || 0);
     const accepted = form.accepted !== '' ? Number(form.accepted) : Math.max(0, qty - rejected);
+    // The server allocates the receipt number and checks qty against what is still at the vendor.
     const entry = {
-      id: `i-${Date.now()}`,
-      no: nextInwardNo(),
       date: form.date,
       qty,
       accepted,
@@ -156,27 +166,27 @@ export default function JobWorkInwardPage() {
       challanNo: form.challanNo,
       status: form.status,
     };
-    const next = orders.map((o) => (String(o.id) === String(parent.id)
-      ? { ...o, inwards: [...(o.inwards || []), entry] }
-      : o));
-    setOrders(next);
-    try { saveJWOs(next); } catch { /* ignore */ }
-    import('../../services/jobWorkSync').then(({ pushUpdateJWO, isJobWorkBackendEnabled }) => {
-      if (!isJobWorkBackendEnabled()) return;
-      const updatedParent = next.find((o) => String(o.id) === String(parent.id));
-      if (updatedParent) pushUpdateJWO(updatedParent.id, updatedParent).catch(() => {});
-    }).catch(() => {});
-    setShowForm(false);
+    setSaving(true);
+    try {
+      await createJWORow(parent.id, 'inwards', entry);
+      await reload();
+      setShowForm(false);
+    } catch (err) {
+      setFormError(errorMessage(err, 'Could not save the inward receipt.'));
+    } finally {
+      setSaving(false);
+    }
   };
 
-  const handleDelete = (r) => {
-    if (!window.confirm(`Delete inward ${r.no}?`)) return;
-    const next = orders.map((o) => (String(o.id) === String(r.jwoId)
-      ? { ...o, inwards: (o.inwards || []).filter((x) => String(x.id) !== String(r.id)) }
-      : o));
-    setOrders(next);
-    try { saveJWOs(next); } catch { /* ignore */ }
+  const handleDelete = async (r) => {
     setMenuId(null);
+    if (!window.confirm(`Delete inward ${r.no}?`)) return;
+    try {
+      await deleteJWORow(r.jwoId, 'inwards', r.id);
+      await reload();
+    } catch (err) {
+      window.alert(errorMessage(err, 'Could not delete the inward receipt.'));
+    }
   };
 
   const selectCls = 'mt-1 w-full rounded-lg border border-slate-200 bg-white px-2.5 py-2 text-[12px] font-medium text-slate-700 outline-none';
@@ -189,6 +199,7 @@ export default function JobWorkInwardPage() {
         subtitle="Track processed material received back from vendors."
         breadcrumb={[
           { label: 'Dashboard', path: '/dashboard' },
+          { label: 'PMS', path: '/pms' },
           { label: 'Job Work / Processing' },
           { label: 'Job Work Inward' },
         ]}
@@ -304,7 +315,13 @@ export default function JobWorkInwardPage() {
                   </td>
                 </tr>
               ))}
-              {filtered.length === 0 && (
+              {loading && (
+                <tr><td colSpan={17} className="px-4 py-10 text-center text-[12px] text-slate-400">Loading…</td></tr>
+              )}
+              {!loading && loadError && (
+                <tr><td colSpan={17} className="px-4 py-10 text-center text-[12px] font-semibold text-rose-600">{loadError}</td></tr>
+              )}
+              {!loading && !loadError && filtered.length === 0 && (
                 <tr>
                   <td colSpan={17} className="px-4 py-10 text-center">
                     <p className="text-[13px] font-extrabold text-[#17294e]">No inward receipts found</p>
@@ -375,9 +392,12 @@ export default function JobWorkInwardPage() {
                   {INWARD_STATUSES.map((s) => <option key={s}>{s}</option>)}
                 </select>
               </div>
+              {formError && (
+                <div className="sm:col-span-2 rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-[12px] font-semibold text-rose-600">{formError}</div>
+              )}
               <div className="sm:col-span-2 flex justify-end gap-2 pt-2 border-t border-slate-100">
                 <button type="button" onClick={() => setShowForm(false)} className="px-4 py-2 border border-slate-300 text-slate-700 rounded-lg hover:bg-slate-100 font-bold text-[12px]">Cancel</button>
-                <button type="submit" className="px-5 py-2 bg-[#2563eb] hover:bg-[#1d4ed8] text-white rounded-lg font-bold text-[12px]">Create Receipt</button>
+                <button type="submit" disabled={saving} className="px-5 py-2 bg-[#2563eb] hover:bg-[#1d4ed8] disabled:opacity-50 text-white rounded-lg font-bold text-[12px]">{saving ? 'Saving…' : 'Create Receipt'}</button>
               </div>
             </form>
           </div>

@@ -28,9 +28,8 @@ import { useCrmStore } from '../../../stores/crmStore';
 import { isBackendEnabled, describeError } from '../../../services/crmSync';
 
 // ── Backend-first mode ──────────────────────────────────────────────
-// Master tasks live in Postgres (/crm/master-tasks/) when logged in.
-// localStorage seed is only the offline fallback so the table still works
-// with no session.
+// Master tasks live in Postgres (/crm/master-tasks/). Nothing is kept in
+// the browser: without a session the list is empty and saves are refused.
 
 
 const ROLES = ['Sales Support Executive', 'BDE', 'Area Sales Manager'];
@@ -77,43 +76,19 @@ const EMPTY_FORM = {
   status: 'Active',
 };
 
-// No seed rows — the table starts empty and shows "No tasks found".
-// Previous `seedTasks()` 10x "follow-up" dummy masked an empty backend.
-const STORAGE_KEY = 'masterTasksFrontendV2';
-
-function seedTasks() {
-  return [];
-}
-
-function loadInitialTasks() {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if (raw) {
-      const parsed = JSON.parse(raw);
-      if (Array.isArray(parsed)) return parsed.filter((t) => !String(t?.id || '').startsWith('mt-seed-'));
-    }
-    // Drop the old V1 dummy cache once so it never reappears.
-    localStorage.removeItem('masterTasksFrontendV1');
-  } catch {
-    // Corrupt cache — fall through to empty.
-  }
-  return [];
-}
+const NOT_SIGNED_IN = 'You are not signed in to the server — nothing was saved.';
 
 export default function MasterTasksPage() {
   const navigate = useNavigate();
-  // Backend source of truth; local seed only when offline / server empty.
+  // Backend is the source of truth.
   const storeTasks = useCrmStore((s) => s.masterTasks);
   const storeStages = useCrmStore((s) => s.stages);
   const hydrate = useCrmStore((s) => s.hydrate);
   const createRecord = useCrmStore((s) => s.createRecord);
   const updateRecord = useCrmStore((s) => s.updateRecord);
   const deleteRecord = useCrmStore((s) => s.deleteRecord);
-  const [localTasks, setLocalTasks] = useState(loadInitialTasks);
   const backendOn = isBackendEnabled();
-  // Logged in: the server owns the list, even when it is still empty — the
-  // seed rows must never mask an empty backend or writes would go local-only.
-  const tasks = backendOn ? (Array.isArray(storeTasks) ? storeTasks : []) : localTasks;
+  const tasks = backendOn && Array.isArray(storeTasks) ? storeTasks : [];
   /** Resolve the form's stage names to server stage ids so the links persist. */
   const withStageIds = (row) => {
     const byName = new Map((storeStages || []).map((s) => [String(s?.name || '').toLowerCase(), s?.id]));
@@ -122,11 +97,7 @@ export default function MasterTasksPage() {
       .filter(Boolean);
     return { ...row, stageIds };
   };
-  const applyLocal = (updater) => setLocalTasks((prev) => {
-    const next = typeof updater === 'function' ? updater(prev) : updater;
-    try { localStorage.setItem(STORAGE_KEY, JSON.stringify(next)); } catch { /* ignore */ }
-    return next;
-  });
+  const reportFailure = (err) => window.alert(describeError(err) || NOT_SIGNED_IN);
   const [search, setSearch] = useState('');
   const [roleFilter, setRoleFilter] = useState('All');
   const [deptFilter, setDeptFilter] = useState('All');
@@ -251,8 +222,7 @@ export default function MasterTasksPage() {
       if (backendOn) {
         updateRecord('masterTasks', editingId, withStageIds(clean)).then(done).catch(failed);
       } else {
-        applyLocal((prev) => prev.map((t) => (t.id === editingId ? { ...t, ...clean } : t)));
-        done();
+        failed(new Error(NOT_SIGNED_IN));
       }
     } else {
       const maxOrder = tasks.reduce((m, t) => Math.max(m, t.order || 0), 0);
@@ -266,8 +236,7 @@ export default function MasterTasksPage() {
           done();
         }).catch(failed);
       } else {
-        applyLocal((prev) => [...prev, row]);
-        done();
+        failed(new Error(NOT_SIGNED_IN));
       }
     }
   }
@@ -289,9 +258,9 @@ export default function MasterTasksPage() {
     delete copy._pending;
     delete copy._local;
     if (backendOn) {
-      createRecord('masterTasks', withStageIds(copy)).catch(() => applyLocal((prev) => [...prev, copy]));
+      createRecord('masterTasks', withStageIds(copy)).catch(reportFailure);
     } else {
-      applyLocal((prev) => [...prev, copy]);
+      reportFailure(new Error(NOT_SIGNED_IN));
     }
   }
 
@@ -299,15 +268,9 @@ export default function MasterTasksPage() {
     const row = tasks.find((t) => t.id === id);
     const next = row?.status === 'Active' ? 'Inactive' : 'Active';
     if (backendOn) {
-      updateRecord('masterTasks', id, { status: next }).catch(() => {
-        applyLocal((prev) =>
-          prev.map((t) => (t.id === id ? { ...t, status: next } : t)),
-        );
-      });
+      updateRecord('masterTasks', id, { status: next }).catch(reportFailure);
     } else {
-      applyLocal((prev) =>
-        prev.map((t) => (t.id === id ? { ...t, status: next } : t)),
-      );
+      reportFailure(new Error(NOT_SIGNED_IN));
     }
     setMenuId(null);
   }
@@ -315,11 +278,9 @@ export default function MasterTasksPage() {
   function confirmDelete() {
     if (!deleteId) return;
     if (backendOn) {
-      deleteRecord('masterTasks', deleteId).catch(() => {
-        applyLocal((prev) => prev.filter((t) => t.id !== deleteId));
-      });
+      deleteRecord('masterTasks', deleteId).catch(reportFailure);
     } else {
-      applyLocal((prev) => prev.filter((t) => t.id !== deleteId));
+      reportFailure(new Error(NOT_SIGNED_IN));
     }
     setDeleteId(null);
     setMenuId(null);

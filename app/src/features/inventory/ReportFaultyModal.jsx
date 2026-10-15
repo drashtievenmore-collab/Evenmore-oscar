@@ -1,8 +1,10 @@
 import React, { useState } from 'react';
 import { X, AlertTriangle, Check } from 'lucide-react';
+import { useERP } from '../../context/ERPContext';
 export const ReportFaultyModal = ({ isOpen, onClose, onSubmit, }) => {
     const [product, setProduct] = useState('');
-    const [vendor, setVendor] = useState('Cisco Direct');
+    const { vendors = [] } = useERP() || {};
+    const [vendor, setVendor] = useState('');
     const [serialNumber, setSerialNumber] = useState('');
     const [qty, setQty] = useState(1);
     const [notes, setNotes] = useState('');
@@ -21,17 +23,15 @@ export const ReportFaultyModal = ({ isOpen, onClose, onSubmit, }) => {
             day: 'numeric',
             year: 'numeric',
         });
-        const randomRMA = `RMA-${today.getFullYear()}-${Math.floor(1000 + Math.random() * 9000)}`;
         onSubmit({
             product,
             vendor,
             serialNumber,
             qty: Number(qty) || 1,
-            notes: notes.trim() || 'Initiated by System Admin via Faulty Parts Loop.',
+            notes: notes.trim(),
             status: 'Reported',
             date: formattedDate,
-            rmaNumber: randomRMA,
-            initiatedBy: 'System Admin',
+            // The server allocates the RMA number and records who reported it.
         });
         onClose();
     };
@@ -63,7 +63,7 @@ export const ReportFaultyModal = ({ isOpen, onClose, onSubmit, }) => {
             <label className="block text-xs font-semibold text-[#1F2E4A] uppercase tracking-wider mb-1">
               Product Description *
             </label>
-            <input type="text" required placeholder="e.g. Cisco Catalyst 9300 Switch, Arista 7050SX" value={product} onChange={(e) => {
+            <input type="text" required placeholder="Product name" value={product} onChange={(e) => {
             setProduct(e.target.value);
             setError('');
         }} className="w-full border border-[#CED4DA] rounded px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-[#1F2E4A]"/>
@@ -92,13 +92,8 @@ export const ReportFaultyModal = ({ isOpen, onClose, onSubmit, }) => {
               Vendor / Distributor
             </label>
             <select value={vendor} onChange={(e) => setVendor(e.target.value)} className="w-full border border-[#CED4DA] rounded px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-[#1F2E4A] bg-white">
-              <option value="Cisco Direct">Cisco Direct</option>
-              <option value="Dell Technologies">Dell Technologies</option>
-              <option value="CDW">CDW</option>
-              <option value="Grainger">Grainger</option>
-              <option value="Ingram Micro">Ingram Micro</option>
-              <option value="Tech Data">Tech Data</option>
-              <option value="Arrow Electronics">Arrow Electronics</option>
+              <option value="">Select vendor</option>
+              {vendors.map((v) => <option key={v.id} value={v.name}>{v.name}</option>)}
             </select>
           </div>
 

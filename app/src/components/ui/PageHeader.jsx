@@ -30,6 +30,12 @@ const SEGMENT_LABELS = {
 
 const segmentLabel = (part) => SEGMENT_LABELS[part] || toTitleCase(part, part);
 
+/** Sections whose URLs sit outside the module they are filed under in the
+ *  sidebar -- Job Work keeps its /job-work URLs but lives inside PMS. */
+const PARENT_SECTION = {
+  'job-work': { label: 'PMS', path: '/pms' },
+};
+
 export function PageHeader({ title, subtitle, breadcrumb, guide, actions, titleExtra }) {
   const location = useLocation();
 
@@ -37,6 +43,7 @@ export function PageHeader({ title, subtitle, breadcrumb, guide, actions, titleE
   const pathParts = pathname.split('/').filter(Boolean);
   const defaultBreadcrumbs = [
     { label: 'Dashboard', path: '/dashboard' },
+    ...(PARENT_SECTION[pathParts[0]] ? [PARENT_SECTION[pathParts[0]]] : []),
     ...pathParts.map((part, index) => ({
       label: segmentLabel(part),
       path: `/${pathParts.slice(0, index + 1).join('/')}`,

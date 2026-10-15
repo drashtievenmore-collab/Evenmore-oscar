@@ -35,10 +35,12 @@ const purchaseReturnGuide = {
     ],
 };
 export const PurchaseReturnsPage = () => {
-    const { purchaseReturns, vendors, purchaseBills, addPurchaseReturn, cancelPurchaseReturn, updatePurchaseReturnStatus, formatCurrency, formatDateDDMMYYYY, getCurrentDateFormatted } = useERP();
+    const { purchaseReturns, vendors, purchaseBills, addPurchaseReturn, cancelPurchaseReturn, updatePurchaseReturnStatus, formatCurrency, formatDateDDMMYYYY, getCurrentISODate } = useERP();
     const [showAddModal, setShowAddModal] = useState(false);
-    const [selectedBillId, setSelectedBillId] = useState(purchaseBills[0]?.id || '');
-    const [reason, setReason] = useState('Damaged casing detected on intake inspection');
+    const [selectedBillId, setSelectedBillId] = useState('');
+    const [reason, setReason] = useState('');
+    const [returnDate, setReturnDate] = useState(() => getCurrentISODate());
+    const [saving, setSaving] = useState(false);
     const [returnItems, setReturnItems] = useState([]);
     const [selectedReturn, setSelectedReturn] = useState(null);
     const [printReturnTarget, setPrintReturnTarget] = useState(null);
@@ -51,14 +53,17 @@ export const PurchaseReturnsPage = () => {
             return;
         }
 
-        const prevReturns = purchaseReturns.filter((pr) => (pr.billId === bill.id || pr.billRef === bill.billNumber) && pr.status !== 'Cancelled');
+        const prevReturns = purchaseReturns.filter((pr) => pr.billId === bill.id && pr.status !== 'Cancelled');
 
         const initialLines = (bill.items || []).map((line, idx) => {
-            const billedQty = Number(line.qty || 1);
-            const prevReturned = prevReturns.reduce((sum, pr) => {
-                const match = (pr.items || []).find((it) => (it.itemId && it.itemId === line.itemId) || (it.sku && it.sku === line.sku) || (it.description === line.description));
-                return sum + Number(match?.qty || 0);
-            }, 0);
+            const billedQty = Number(line.qty || 0);
+            // The server tracks what each bill line has had returned.
+            const prevReturned = line.returnedQty !== undefined
+                ? Number(line.returnedQty) || 0
+                : prevReturns.reduce((sum, pr) => {
+                    const match = (pr.items || []).find((it) => it.purchaseBillLineId === line.id);
+                    return sum + Number(match?.qty || 0);
+                }, 0);
             const returnableQty = Math.max(0, billedQty - prevReturned);
             const isSerial = Boolean(line.selectedSerials?.length || line.serialNumbers?.length || line.serialNumber);
             const availableSerials = line.selectedSerials || line.serialNumbers || (line.serialNumber ? [line.serialNumber] : []);
@@ -67,21 +72,25 @@ export const PurchaseReturnsPage = () => {
             const theoreticalWeight = Number(line.theoreticalWeight) || 0;
             return {
                 id: line.id || `prt-line-${idx}`,
+                purchaseBillLineId: line.id,
                 itemId: line.itemId,
-                sku: line.sku || line.itemSku || 'SKU-HW',
-                description: line.name || line.description || 'Hardware Item',
+                sku: line.sku || line.itemSku || '',
+                description: line.name || line.description || '',
+                uom: line.uom,
+                tax: line.tax,
+                discount: line.discount,
                 isWeightItem,
                 theoreticalWeight,
-                returnedWeight: isWeightItem ? Number((theoreticalWeight * (returnableQty > 0 ? 1 : 0)).toFixed(3)) : undefined,
+                returnedWeight: isWeightItem ? 0 : undefined,
                 billedQty,
                 previouslyReturnedQty: prevReturned,
                 returnableQty,
-                qty: returnableQty > 0 ? 1 : 0,
+                qty: 0,
                 rate: Number(line.rate || line.unitCost || 0),
                 condition: 'Good',
                 isSerial,
                 availableSerials,
-                selectedSerials: availableSerials.slice(0, returnableQty > 0 ? 1 : 0),
+                selectedSerials: [],
             };
         });
 
@@ -107,37 +116,41 @@ export const PurchaseReturnsPage = () => {
         }));
     };
 
-    const handleCreate = (e) => {
+    const handleCreate = async (e) => {
         e.preventDefault();
-        const bill = purchaseBills.find((b) => b.id === selectedBillId) || purchaseBills[0];
-        const vend = vendors.find((v) => v.name === bill?.vendor || v.id === bill?.vendorId);
-        
-        const activeLines = returnItems.filter((it) => it.qty > 0).map((it) => ({
-            ...it,
-            amount: it.qty * it.rate,
-        }));
-
+        const bill = purchaseBills.find((b) => b.id === selectedBillId);
+        if (!bill) {
+            alert('Select the purchase bill being returned against.');
+            return;
+        }
+        const activeLines = returnItems.filter((it) => Number(it.qty) > 0);
         if (activeLines.length === 0) {
             alert('Please specify at least 1 item with return quantity > 0.');
             return;
         }
-
-        const totalAmt = activeLines.reduce((sum, item) => sum + (item.amount || item.qty * item.rate), 0);
-
-        addPurchaseReturn({
-            vendorId: vend?.id || bill?.vendorId,
-            vendor: bill?.vendor || vend?.name || 'Delta Controls & Hydraulics',
-            billId: bill?.id,
-            billRef: bill?.billNumber || 'PB-2026-015',
-            date: getCurrentDateFormatted(),
-            amount: totalAmt > 0 ? totalAmt : 500,
-            reason,
-            status: 'Pending Credit',
-            items: activeLines,
-        });
-        setShowAddModal(false);
-        setReturnItems([]);
+        if (!reason.trim()) {
+            alert('Enter the reason for the return.');
+            return;
+        }
+        setSaving(true);
+        try {
+            await addPurchaseReturn({
+                billId: bill.id,
+                date: returnDate,
+                reason: reason.trim(),
+                items: activeLines,
+            });
+            setShowAddModal(false);
+            setReturnItems([]);
+            setReason('');
+        } catch {
+            // The reason was shown; the form stays open.
+        } finally {
+            setSaving(false);
+        }
     };
+
+    const billNumberOf = (r) => r?.billRef || purchaseBills.find((b) => b.id === r?.billId)?.billNumber || '';
 
     const markSettled = (id) => {
         updatePurchaseReturnStatus(id, 'Settled');
@@ -167,7 +180,7 @@ export const PurchaseReturnsPage = () => {
             key: 'billRef',
             header: 'Matched Bill Ref',
             width: '14%',
-            render: (r) => <span className="font-mono text-primary font-semibold whitespace-nowrap">{r.billRef || 'PB-INTAKE'}</span>,
+            render: (r) => <span className="font-mono text-primary font-semibold whitespace-nowrap">{billNumberOf(r) || '—'}</span>,
         },
         {
             key: 'date',
@@ -255,9 +268,9 @@ export const PurchaseReturnsPage = () => {
 
     return (<div className="space-y-6">
       <PageHeader title="Purchase Returns & Debit Notes" subtitle="Supplier debit memos, selective line-item returns, condition tracking, inventory reductions, and Accounts Payable ledger write-downs." guide={purchaseReturnGuide} actions={<Button icon={Plus} onClick={() => {
-                if (purchaseBills.length > 0) {
-                    handleBillSelect(purchaseBills[0].id);
-                }
+                handleBillSelect('');
+                setReason('');
+                setReturnDate(getCurrentISODate());
                 setShowAddModal(true);
             }}>
             Create Debit Note
@@ -265,7 +278,7 @@ export const PurchaseReturnsPage = () => {
 
       <DataTable title="Vendor Return Debit Notes" columns={columns} data={purchaseReturns} keyExtractor={(r) => r.id} searchPlaceholder="Search debit note # or vendor..." searchFilter={(r, term) => String(r.debitNoteNumber ?? '').toLowerCase().includes(term) ||
             String(r.vendor ?? '').toLowerCase().includes(term) ||
-            (r.billRef && String(r.billRef ?? '').toLowerCase().includes(term)) ||
+            String(billNumberOf(r) ?? '').toLowerCase().includes(term) ||
             String(r.reason ?? '').toLowerCase().includes(term)}/>
 
       {/* Create Debit Note Modal */}
@@ -287,8 +300,9 @@ export const PurchaseReturnsPage = () => {
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
                   <label className="block font-semibold text-slate-700 mb-1">Target Vendor Bill *</label>
-                  <select value={selectedBillId} onChange={(e) => handleBillSelect(e.target.value)} className="w-full border border-slate-300 rounded-lg p-2 bg-white text-slate-800 font-medium">
-                    {purchaseBills.map((b) => (<option key={b.id} value={b.id}>
+                  <select required value={selectedBillId} onChange={(e) => handleBillSelect(e.target.value)} className="w-full border border-slate-300 rounded-lg p-2 bg-white text-slate-800 font-medium">
+                    <option value="">Select bill</option>
+                    {purchaseBills.filter((b) => b.status !== 'Cancelled').map((b) => (<option key={b.id} value={b.id}>
                         {b.billNumber} - {b.vendor} ({formatCurrency(b.total || b.amount)})
                       </option>))}
                   </select>
@@ -296,7 +310,12 @@ export const PurchaseReturnsPage = () => {
 
                 <div>
                   <label className="block font-semibold text-slate-700 mb-1">Reason for Return / Rejection</label>
-                  <input type="text" required value={reason} onChange={(e) => setReason(e.target.value)} placeholder="e.g. Broken packaging, wrong voltage rating..." className="w-full border border-slate-300 rounded-lg p-2 bg-white text-slate-800"/>
+                  <input type="text" required value={reason} onChange={(e) => setReason(e.target.value)} placeholder="e.g. Shade mismatch, short width..." className="w-full border border-slate-300 rounded-lg p-2 bg-white text-slate-800"/>
+                </div>
+
+                <div>
+                  <label className="block font-semibold text-slate-700 mb-1">Return Date *</label>
+                  <input type="date" required value={returnDate} onChange={(e) => setReturnDate(e.target.value)} className="w-full border border-slate-300 rounded-lg p-2 bg-white text-slate-800"/>
                 </div>
               </div>
 
@@ -405,7 +424,7 @@ export const PurchaseReturnsPage = () => {
                   <button type="button" onClick={() => setShowAddModal(false)} className="px-3 py-1.5 border border-slate-300 text-slate-700 rounded-lg hover:bg-slate-100 font-medium cursor-pointer">
                     Cancel
                   </button>
-                  <button type="submit" disabled={activeTotalAmount <= 0} className="px-4 py-1.5 bg-rose-600 hover:bg-rose-700 disabled:opacity-50 text-white rounded-lg font-bold shadow-sm cursor-pointer">
+                  <button type="submit" disabled={saving || activeTotalAmount <= 0} className="px-4 py-1.5 bg-rose-600 hover:bg-rose-700 disabled:opacity-50 text-white rounded-lg font-bold shadow-sm cursor-pointer">
                     Issue Debit Note & Post AP Reduction
                   </button>
                 </div>
@@ -447,7 +466,7 @@ export const PurchaseReturnsPage = () => {
                   <div>
                     <span className="text-slate-400 font-bold uppercase text-[10px] block mb-1">Vendor & Matched Bill</span>
                     <strong className="text-slate-900 text-sm block">{selectedReturn.vendor}</strong>
-                    <p className="text-slate-600 text-xs mt-1">Matched Bill: <strong>{selectedReturn.billRef}</strong></p>
+                    <p className="text-slate-600 text-xs mt-1">Matched Bill: <strong>{billNumberOf(selectedReturn) || '—'}</strong></p>
                     <p className="text-slate-600 text-xs">Return Date: <strong>{formatDateDDMMYYYY(selectedReturn.date)}</strong></p>
                   </div>
                   <div>

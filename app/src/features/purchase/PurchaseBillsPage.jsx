@@ -29,7 +29,7 @@ const purchaseBillGuide = {
     workflow: ['PO Issued', 'Physical Goods Intake', 'Vendor Bill Recorded', '3-Way Match Verified', 'Payment Disbursed'],
 };
 export const PurchaseBillsPage = () => {
-    const { purchaseBills, purchaseOrders, vendors, addPurchaseBill, cancelPurchaseBill, addPaymentOut, getBillOutstanding, getPoBilledStatus, paymentOuts, purchaseReturns, formatCurrency, formatDateDDMMYYYY, getCurrentDateFormatted, getCurrentISODate, addDaysISO } = useERP();
+    const { purchaseBills, purchaseOrders, vendors, bankAccounts, addPurchaseBill, cancelPurchaseBill, addPaymentOut, getBillOutstanding, getPoBilledStatus, paymentOuts, purchaseReturns, formatCurrency, formatDateDDMMYYYY, getCurrentDateFormatted, getCurrentISODate, addDaysISO } = useERP();
     const [showAddModal, setShowAddModal] = useState(false);
     const [selectedBill, setSelectedBill] = useState(null);
     const [showPayModal, setShowPayModal] = useState(null);
@@ -48,13 +48,16 @@ export const PurchaseBillsPage = () => {
     }, [searchParams, purchaseBills]);
     // Form state
     const [selectedPoId, setSelectedPoId] = useState('manual');
-    const [selectedVendorId, setSelectedVendorId] = useState(vendors[0]?.id || '');
+    const [selectedVendorId, setSelectedVendorId] = useState('');
     const [dueDate, setDueDate] = useState(() => addDaysISO(getCurrentISODate(), 30));
     const [lineItems, setLineItems] = useState([]);
     // Payment form state
     const [payAmount, setPayAmount] = useState(0);
-    const [payMode, setPayMode] = useState('Bank Transfer');
+    const [payMode, setPayMode] = useState('');
+    const [payBankId, setPayBankId] = useState('');
     const [payRef, setPayRef] = useState('');
+    const [billDate, setBillDate] = useState(() => getCurrentISODate());
+    const [saving, setSaving] = useState(false);
     const handleSelectPo = (poId) => {
         setSelectedPoId(poId);
         if (poId !== 'manual') {
@@ -74,45 +77,53 @@ export const PurchaseBillsPage = () => {
             }
         }
     };
-    const handleCreate = (e) => {
+    const handleCreate = async (e) => {
         e.preventDefault();
         const po = purchaseOrders.find((p) => p.id === selectedPoId);
-        const vend = vendors.find((v) => v.id === selectedVendorId) || vendors[0];
-        const totalAmt = lineItems.reduce((acc, it) => acc + (it.amount || it.qty * it.rate), 0);
-        addPurchaseBill({
-            purchaseOrderId: po?.id,
-            poRef: po?.poNumber || 'PO-DIRECT',
-            linkedPo: po?.poNumber || 'PO-DIRECT',
-            vendorId: vend?.id,
-            vendor: vend?.name || 'Cisco Systems Direct',
-            billDate: getCurrentDateFormatted(),
-            date: getCurrentDateFormatted(),
-            dueDate: dueDate || addDaysISO(getCurrentISODate(), 30),
-            amount: totalAmt > 0 ? totalAmt : 5000,
-            total: totalAmt > 0 ? totalAmt : 5000,
-            paidAmount: 0,
-            status: 'Unpaid',
-            items: lineItems,
-        });
-        setShowAddModal(false);
-        setLineItems([]);
-        setSelectedPoId('manual');
+        const vend = vendors.find((v) => v.id === selectedVendorId);
+        if (!vend) { alert('Select a vendor.'); return; }
+        if (!billDate) { alert('Enter the bill date.'); return; }
+        setSaving(true);
+        try {
+            await addPurchaseBill({
+                purchaseOrderId: po?.id,
+                vendorId: vend.id,
+                date: billDate,
+                dueDate: dueDate || undefined,
+                items: lineItems,
+            });
+            setShowAddModal(false);
+            setLineItems([]);
+            setSelectedPoId('manual');
+        } catch {
+            // The reason was shown; the form stays open with what was typed.
+        } finally {
+            setSaving(false);
+        }
     };
-    const handleDisbursementSubmit = (e) => {
+    const handleDisbursementSubmit = async (e) => {
         e.preventDefault();
         if (!showPayModal || payAmount <= 0)
             return;
-        addPaymentOut({
-            vendorId: showPayModal.vendorId,
-            vendor: showPayModal.vendor,
-            billId: showPayModal.id,
-            billNumber: showPayModal.billNumber,
-            amount: payAmount,
-            mode: payMode,
-            reference: payRef || `ACH-${Date.now()}`,
-        });
-        setShowPayModal(null);
-        setPayAmount(0);
+        setSaving(true);
+        try {
+            await addPaymentOut({
+                vendorId: showPayModal.vendorId,
+                billId: showPayModal.id,
+                date: getCurrentISODate(),
+                amount: payAmount,
+                mode: payMode,
+                bankAccountId: payMode !== 'Cash' ? payBankId : undefined,
+                reference: payRef || undefined,
+            });
+            setShowPayModal(null);
+            setPayAmount(0);
+            setPayRef('');
+        } catch {
+            // The reason was shown; the modal stays open.
+        } finally {
+            setSaving(false);
+        }
     };
     const getBillTimelineSteps = (b) => {
         const outstanding = getBillOutstanding(b.id);
@@ -397,7 +408,8 @@ export const PurchaseBillsPage = () => {
 
                 <div>
                   <label className="block font-semibold text-slate-700 mb-1">Vendor / Supplier *</label>
-                  <select value={selectedVendorId} onChange={(e) => setSelectedVendorId(e.target.value)} className="w-full border border-slate-300 rounded-lg p-2 bg-white text-slate-800 font-medium">
+                  <select required value={selectedVendorId} onChange={(e) => setSelectedVendorId(e.target.value)} className="w-full border border-slate-300 rounded-lg p-2 bg-white text-slate-800 font-medium">
+                    <option value="">Select vendor</option>
                     {vendors.map((v) => (
                       <option key={v.id} value={v.id}>
                         {v.name} ({v.code})
@@ -405,18 +417,18 @@ export const PurchaseBillsPage = () => {
                     ))}
                   </select>
                   {(() => {
-                    const vend = vendors.find(v => v.id === selectedVendorId) || vendors[0];
+                    const vend = vendors.find(v => v.id === selectedVendorId);
                     if (!vend) return null;
                     return (
                       <div className="mt-2 p-2.5 rounded-xl border border-slate-200 bg-slate-50 text-[11px] space-y-1">
                         <div className="flex items-center justify-between font-bold text-slate-800">
                           <span>{vend.name}</span>
                           <span className="text-emerald-700 font-mono text-[10px] bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-200">
-                            Terms: {vend.paymentTerms || 'Net 30'}
+                            Terms: {vend.paymentTerms || '—'}
                           </span>
                         </div>
                         <div className="flex flex-wrap gap-x-3 gap-y-0.5 text-slate-600 text-[10px]">
-                          <span>POC: <strong>{vend.contactPerson || 'Vendor Rep'}</strong></span>
+                          <span>POC: <strong>{vend.contactPerson || '—'}</strong></span>
                           <span>Email: {vend.email}</span>
                           <span>Phone: {vend.phone}</span>
                         </div>
@@ -426,13 +438,15 @@ export const PurchaseBillsPage = () => {
                 </div>
 
                 <div>
-                  <label className="block font-semibold text-slate-700 mb-1">Payment Due Date</label>
+                  <label className="block font-semibold text-slate-700 mb-1">Bill Date *</label>
+                  <input type="date" required value={billDate} onChange={(e) => setBillDate(e.target.value)} className="w-full border border-slate-300 rounded-lg p-2 bg-white text-slate-800"/>
+                  <label className="block font-semibold text-slate-700 mb-1 mt-2">Payment Due Date</label>
                   <input type="date" value={dueDate} onChange={(e) => setDueDate(e.target.value)} className="w-full border border-slate-300 rounded-lg p-2 bg-white text-slate-800"/>
                 </div>
               </div>
 
               <div>
-                <label className="font-semibold text-slate-700 block mb-2">Billed Line Items (Adds to Stock on Save)</label>
+                <label className="font-semibold text-slate-700 block mb-2">Billed Line Items (stock is received through Goods Receipt)</label>
                 <LineItemEditor items={lineItems} onChange={setLineItems} type="purchase"/>
               </div>
 
@@ -440,8 +454,8 @@ export const PurchaseBillsPage = () => {
                 <button type="button" onClick={() => setShowAddModal(false)} className="px-3 py-1.5 border border-slate-300 text-slate-700 rounded-lg hover:bg-slate-100 font-medium">
                   Cancel
                 </button>
-                <button type="submit" className="px-4 py-1.5 bg-[#1F2E4A] hover:bg-[#152033] text-white rounded-lg font-bold shadow-sm">
-                  Record Bill & Intake Inventory
+                <button type="submit" disabled={saving} className="px-4 py-1.5 bg-[#1F2E4A] hover:bg-[#152033] text-white rounded-lg font-bold shadow-sm disabled:opacity-60">
+                  {saving ? 'Saving…' : 'Record Bill'}
                 </button>
               </div>
             </form>
@@ -480,16 +494,15 @@ export const PurchaseBillsPage = () => {
                     <div className="text-slate-600 mt-1 flex items-start gap-1">
                       <MapPin size={12} className="text-slate-400 shrink-0 mt-0.5" />
                       <span>
-                        {selectedBill.billingAddress?.line1 || 'Corporate Headquarters'}<br />
-                        {selectedBill.billingAddress?.city || 'Mumbai'}, {selectedBill.billingAddress?.state || 'Maharashtra'} - {selectedBill.billingAddress?.pincode || '400001'}
+                        {[selectedBill.billingAddress?.line1, selectedBill.billingAddress?.city, selectedBill.billingAddress?.state, selectedBill.billingAddress?.pincode].filter(Boolean).join(', ') || '—'}
                       </span>
                     </div>
                   </div>
                   <div>
                     <span className="text-slate-400 font-bold uppercase text-[10px] block mb-1">Billing Details</span>
                     <p className="text-slate-700">Bill Date: <strong>{formatDateDDMMYYYY(selectedBill.billDate || selectedBill.date)}</strong></p>
-                    <p className="text-slate-700">Due Date: <strong>{selectedBill.dueDate ? formatDateDDMMYYYY(selectedBill.dueDate) : 'Net 30'}</strong></p>
-                    <p className="text-slate-700">Matched PO: <strong>{selectedBill.poRef || selectedBill.linkedPo || 'Direct Entry'}</strong></p>
+                    <p className="text-slate-700">Due Date: <strong>{selectedBill.dueDate ? formatDateDDMMYYYY(selectedBill.dueDate) : '—'}</strong></p>
+                    <p className="text-slate-700">Matched PO: <strong>{selectedBill.poRef || selectedBill.linkedPo || purchaseOrders.find((p) => p.id === selectedBill.purchaseOrderId)?.poNumber || 'Direct Entry'}</strong></p>
                   </div>
                 </div>
               </div>
@@ -614,13 +627,20 @@ export const PurchaseBillsPage = () => {
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
                   <label className="font-semibold text-slate-700 block mb-1">Payment Mode</label>
-                  <select value={payMode} onChange={(e) => setPayMode(e.target.value)} className="w-full border border-slate-300 rounded-lg p-2 bg-white text-slate-800">
-                    <option value="ACH">ACH Direct</option>
-                    <option value="Bank Wire">Bank Wire</option>
-                    <option value="Corporate Card">Corporate Card</option>
-                    <option value="Cheque">Corporate Cheque</option>
+                  <select required value={payMode} onChange={(e) => setPayMode(e.target.value)} className="w-full border border-slate-300 rounded-lg p-2 bg-white text-slate-800">
+                    <option value="">Select mode</option>
+                    {['Cash', 'Bank Transfer', 'UPI', 'Cheque', 'Bank'].map((m) => <option key={m} value={m}>{m}</option>)}
                   </select>
                 </div>
+                {payMode && payMode !== 'Cash' && (
+                  <div>
+                    <label className="font-semibold text-slate-700 block mb-1">Paid From (Bank) *</label>
+                    <select required value={payBankId} onChange={(e) => setPayBankId(e.target.value)} className="w-full border border-slate-300 rounded-lg p-2 bg-white text-slate-800">
+                      <option value="">Select bank account</option>
+                      {(bankAccounts || []).map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
+                    </select>
+                  </div>
+                )}
                 <div>
                   <label className="font-semibold text-slate-700 block mb-1">Disbursement Voucher / Ref</label>
                   <input type="text" value={payRef} onChange={(e) => setPayRef(e.target.value)} className="w-full border border-slate-300 rounded-lg p-2 bg-white text-slate-800 font-mono"/>
@@ -631,8 +651,8 @@ export const PurchaseBillsPage = () => {
                 <button type="button" onClick={() => setShowPayModal(null)} className="px-3 py-1.5 border border-slate-300 text-slate-700 rounded-lg hover:bg-slate-100 font-medium">
                   Cancel
                 </button>
-                <button type="submit" className="px-4 py-1.5 bg-[#1F2E4A] hover:bg-[#152033] text-white rounded-lg font-bold shadow-sm">
-                  Confirm Disbursement & Post GL
+                <button type="submit" disabled={saving} className="px-4 py-1.5 bg-[#1F2E4A] hover:bg-[#152033] text-white rounded-lg font-bold shadow-sm disabled:opacity-60">
+                  {saving ? 'Saving…' : 'Confirm Disbursement & Post GL'}
                 </button>
               </div>
             </form>
