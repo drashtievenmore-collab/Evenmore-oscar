@@ -1,56 +1,47 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { useERP } from '../../context/ERPContext';
 import { DataTable } from '../../components/ui/DataTable';
 import { StatCard } from '../../components/ui/StatCard';
 import { DollarSign } from 'lucide-react';
 import PageHeader from '../../components/ui/PageHeader';
-// Aging brackets and obsolescence-reserve rates (carrying-value policy).
-const AGE_BRACKETS = [
-    { max: 30, label: '0-30 Days', reserveRate: 0 },
-    { max: 60, label: '31-60 Days', reserveRate: 0.02 },
-    { max: 90, label: '61-90 Days', reserveRate: 0.1 },
-    { max: Infinity, label: '90+ Days (Stale)', reserveRate: 0.2 },
-];
-// Deterministic holding-age proxy: items carry no receipt date, so derive a
-// stable 0-119 day age from the item id. Qty and cost always come from live
-// inventory, so valuations stay reactive to stock and purchase changes.
-const holdingAgeDays = (id) => {
-    let h = 0;
-    for (let i = 0; i < id.length; i += 1) h = (h * 31 + id.charCodeAt(i)) % 120;
-    return h;
-};
+import { api } from '../../services/api';
+
 export const ValuationAgeingPage = () => {
-    const { items, formatCurrency } = useERP();
+    const { formatCurrency } = useERP();
     const [selectedBucket, setSelectedBucket] = useState('All');
-    // Live valuation rows derived from current inventory (was hardcoded demo data).
-    const agingData = useMemo(() => (items || []).map((it) => {
-        const qty = it.availableQty ?? it.stock ?? 0;
-        const unitCost = it.costPrice ?? it.unitCost ?? 0;
-        const totalValuation = Math.round(qty * unitCost * 100) / 100;
-        const ageDays = holdingAgeDays(String(it.id));
-        const bracket = AGE_BRACKETS.find((b) => ageDays <= b.max);
-        const depreciationReserve = Math.round(totalValuation * bracket.reserveRate * 100) / 100;
-        return {
-            id: it.id,
-            sku: it.sku,
-            name: it.name,
-            category: it.category,
-            qty,
-            unitCost,
-            totalValuation,
-            ageDays,
-            agingBucket: bracket.label,
-            depreciationReserve,
-        };
-    }), [items]);
-    const totalValuation = agingData.reduce((acc, i) => acc + i.totalValuation, 0);
-    const totalDepreciation = agingData.reduce((acc, i) => acc + i.depreciationReserve, 0);
-    const currentStockValue = agingData
+    const [loading, setLoading] = useState(true);
+    const [valuationData, setValuationData] = useState([]);
+    const [serverAggs, setServerAggs] = useState(null);
+
+    useEffect(() => {
+        let active = true;
+        setLoading(true);
+        api.get('/inventory/valuation/')
+            .then((res) => {
+                if (!active) return;
+                const rows = res?.items || (Array.isArray(res) ? res : []);
+                setValuationData(rows);
+                if (res?.aggregates) setServerAggs(res.aggregates);
+            })
+            .catch((err) => {
+                console.warn('[ValuationAgeingPage] Failed to fetch valuation from backend:', err);
+                if (active) setValuationData([]);
+            })
+            .finally(() => {
+                if (active) setLoading(false);
+            });
+        return () => { active = false; };
+    }, []);
+
+    const agingData = valuationData;
+    const totalValuation = serverAggs?.totalValuation ?? agingData.reduce((acc, i) => acc + (Number(i.totalValuation) || 0), 0);
+    const totalDepreciation = serverAggs?.totalDepreciation ?? agingData.reduce((acc, i) => acc + (Number(i.depreciationReserve) || 0), 0);
+    const currentStockValue = serverAggs?.currentStockValue ?? agingData
         .filter((i) => i.agingBucket === '0-30 Days')
-        .reduce((acc, i) => acc + i.totalValuation, 0);
-    const staleValuation = agingData
-        .filter((i) => i.agingBucket === '90+ Days (Stale)')
-        .reduce((acc, i) => acc + i.totalValuation, 0);
+        .reduce((acc, i) => acc + (Number(i.totalValuation) || 0), 0);
+    const staleValuation = serverAggs?.staleValuation ?? agingData
+        .filter((i) => i.agingBucket === '90+ Days (Stale)' || i.agingBucket === '180+ Days (Stale)')
+        .reduce((acc, i) => acc + (Number(i.totalValuation) || 0), 0);
     const filteredData = agingData.filter((i) => {
         if (selectedBucket === 'All')
             return true;

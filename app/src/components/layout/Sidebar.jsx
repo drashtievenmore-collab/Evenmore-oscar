@@ -135,24 +135,24 @@ const NAV = [
           { label: 'Production Completion & Verification', icon: CheckCircle2, to: '/pms/production-completion' },
         ],
       },
+      {
+        label: 'Job Work / Processing',
+        icon: Wrench,
+        defaultOpen: false,
+        children: [
+          { label: 'Process Plan', icon: ClipboardList, to: '/job-work/process-plan' },
+          { label: 'Job Work Orders (JWO)', icon: FileText, to: '/job-work/orders' },
+          { label: 'Job Work Outward', icon: Send, to: '/job-work/outward' },
+          { label: 'Job Work Inward', icon: ArrowDownLeft, to: '/job-work/inward' },
+          { label: 'Pending Register', icon: Hourglass, to: '/job-work/pending-register' },
+          { label: 'Vendor Reconciliation', icon: GitCompare, to: '/job-work/vendor-reconciliation' },
+          { label: 'Reprocess', icon: RotateCcw, to: '/job-work/reprocess' },
+        ],
+      },
       { label: 'Dynamic Stages', icon: Sliders, to: '/pms/stages' },
       { label: 'Timeline & Gantt', icon: Calendar, to: '/pms/timeline' },
       { label: 'Delay Center', icon: AlertTriangle, to: '/pms/delays', badgeKey: 'pmsDelayedCount', badgeColor: '#ef4444' },
       { label: 'PMS Reports', icon: PieChart, to: '/pms/reports' },
-    ],
-  },
-
-  {
-    label: 'Job Work / Processing',
-    icon: Wrench,
-    children: [
-      { label: 'Process Plan', icon: ClipboardList, to: '/job-work/process-plan' },
-      { label: 'Job Work Orders (JWO)', icon: FileText, to: '/job-work/orders' },
-      { label: 'Job Work Outward', icon: Send, to: '/job-work/outward' },
-      { label: 'Job Work Inward', icon: ArrowDownLeft, to: '/job-work/inward' },
-      { label: 'Pending Register', icon: Hourglass, to: '/job-work/pending-register' },
-      { label: 'Vendor Reconciliation', icon: GitCompare, to: '/job-work/vendor-reconciliation' },
-      { label: 'Reprocess', icon: RotateCcw, to: '/job-work/reprocess' },
     ],
   },
 

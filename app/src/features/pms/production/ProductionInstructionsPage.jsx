@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useERP } from '../../../context/ERPContext';
 import { StatusBadge } from '../../../components/ui/StatusBadge';
@@ -10,11 +10,13 @@ import {
 import { toISODate } from '../../../utils/dateUtils';
 import PageHeader from '../../../components/ui/PageHeader';
 import KpiCard from '../../../components/ui/KpiCard';
+import { api } from '../../../services/api';
 
 const STATUS_PILL = {
   'In Progress': 'bg-blue-50 text-blue-600 border-blue-200',
   Running: 'bg-emerald-50 text-emerald-600 border-emerald-200',
   Completed: 'bg-emerald-50 text-emerald-600 border-emerald-200',
+  Verified: 'bg-indigo-50 text-indigo-600 border-indigo-200',
   'Partially Completed': 'bg-amber-50 text-amber-600 border-amber-200',
   Pending: 'bg-amber-50 text-amber-600 border-amber-200',
   Draft: 'bg-amber-50 text-amber-600 border-amber-200',
@@ -22,15 +24,42 @@ const STATUS_PILL = {
 };
 
 const PROCESS_TYPES = ['Dyeing', 'Processing', 'Printing'];
-const PI_STATUSES = ['Pending', 'In Progress', 'Running', 'Partially Completed', 'Completed', 'Cancelled'];
+const PI_STATUSES = ['Pending', 'In Progress', 'Running', 'Partially Completed', 'Completed', 'Verified', 'Cancelled'];
+
+function normalizeInstruction(item) {
+  if (!item) return item;
+  return {
+    ...item,
+    id: String(item.id),
+    piNumber: item.instructionNumber || item.instruction_number || item.piNumber || `PI-${item.id}`,
+    date: item.piDate || item.pi_date || item.date || '',
+    vendor: item.agencyName || item.agency_name || item.vendor || '',
+    fabric: item.fabric || '',
+    processType: item.processType || item.process_type || '',
+    assignedQty: Number(item.orderMeter ?? item.order_meter ?? item.assignedQty ?? 0),
+    producedQty: Number(item.totalProduced ?? item.cumulative ?? item.producedQty ?? 0),
+    balance: Number(item.balance ?? Math.max(0, (Number(item.orderMeter ?? item.order_meter ?? item.assignedQty ?? 0) - Number(item.totalProduced ?? item.cumulative ?? 0)))),
+    startDate: item.startDate || item.piDate || item.pi_date || '',
+    expectedCompletionDate: item.expectedCompletionDate || item.expected_completion_date || '',
+    assignedEmployee: item.employeeName || item.employee_name || item.assignedEmployee || '',
+    employeeId: item.employeeId || item.employee_id || item.employee || '',
+    status: item.status || 'Draft',
+    remarks: item.notes || item.remarks || '',
+    agreedJobRate: Number(item.agreedJobRate ?? item.agreed_job_rate ?? 0),
+  };
+}
 
 export default function ProductionInstructionsPage() {
   const {
-    productionInstructions, addProductionInstruction, updateProductionInstructionStatus,
-    updateProductionInstruction, deleteProductionInstruction, purchaseOrders, formatCurrency, formatDateDDMMYYYY,
-    getCurrentDateFormatted, getCurrentISODate, addDaysISO,
+    purchaseOrders, formatCurrency, formatDateDDMMYYYY,
+    getCurrentISODate, addDaysISO,
   } = useERP();
   const navigate = useNavigate();
+
+  const [instructions, setInstructions] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+  const [employees, setEmployees] = useState([]);
 
   const [showAddModal, setShowAddModal] = useState(false);
   const [isFullscreen, setIsFullscreen] = useState(false);
@@ -48,7 +77,7 @@ export default function ProductionInstructionsPage() {
   const [startDate, setStartDate] = useState(() => getCurrentISODate());
   const [piStatus, setPiStatus] = useState('In Progress');
   const [processType, setProcessType] = useState('Dyeing');
-  const [assignedEmployee, setAssignedEmployee] = useState('');
+  const [assignedEmployeeId, setAssignedEmployeeId] = useState('');
   const [remarks, setRemarks] = useState('');
   const [openMenuId, setOpenMenuId] = useState(null);
 
@@ -63,6 +92,31 @@ export default function ProductionInstructionsPage() {
   const [editEmployee, setEditEmployee] = useState('');
   const [editRemarks, setEditRemarks] = useState('');
 
+  const loadData = () => {
+    setLoading(true);
+    Promise.all([
+      api.get('/production/instructions/').catch(() => ({ results: [] })),
+      api.get('/hrms/employees/').catch(() => ({ results: [] })),
+    ])
+      .then(([piRes, empRes]) => {
+        const piList = Array.isArray(piRes) ? piRes : piRes?.results || [];
+        setInstructions(piList.map(normalizeInstruction));
+        const empList = Array.isArray(empRes) ? empRes : empRes?.results || [];
+        setEmployees(empList);
+        setError(null);
+      })
+      .catch((err) => {
+        setError(err.message || 'Failed to load instructions');
+      })
+      .finally(() => {
+        setLoading(false);
+      });
+  };
+
+  useEffect(() => {
+    loadData();
+  }, []);
+
   const openEdit = (pi) => {
     setEditingPi(pi);
     setEditQty(String(pi.assignedQty ?? ''));
@@ -75,21 +129,32 @@ export default function ProductionInstructionsPage() {
     setOpenMenuId(null);
   };
 
-  const handleUpdate = (e) => {
+  const handleUpdate = async (e) => {
     e.preventDefault();
     if (!(Number(editQty) > 0)) { alert('Assigned Qty (Meter) is required.'); return; }
-    if (!editStart) { alert('Start Date is required.'); return; }
-    if (!editExpected) { alert('Expected Completion Date is required.'); return; }
-    updateProductionInstruction(editingPi.id, {
-      assignedQty: editQty,
-      startDate: formatDateDDMMYYYY(editStart),
-      expectedCompletionDate: formatDateDDMMYYYY(editExpected),
-      status: editStatus,
-      processType: editProcessType,
-      assignedEmployee: editEmployee,
-      remarks: editRemarks,
-    });
-    setEditingPi(null);
+    try {
+      const payload = {
+        orderMeter: Number(editQty),
+        processType: editProcessType,
+        notes: editRemarks,
+      };
+      const res = await api.patch(`/production/instructions/${editingPi.id}/`, payload);
+      const updated = normalizeInstruction(res);
+      setInstructions((prev) => prev.map((p) => (p.id === updated.id ? updated : p)));
+      setEditingPi(null);
+    } catch (err) {
+      alert(err.message || 'Failed to update Production Instruction');
+    }
+  };
+
+  const handleDelete = async (id) => {
+    if (!window.confirm('Are you sure you want to delete this Production Instruction?')) return;
+    try {
+      await api.delete(`/production/instructions/${id}/`);
+      setInstructions((prev) => prev.filter((p) => p.id !== id));
+    } catch (err) {
+      alert(err.message || 'Failed to delete Production Instruction');
+    }
   };
 
   const selectedPo = useMemo(() => purchaseOrders.find((p) => p.id === poId) || null, [purchaseOrders, poId]);
@@ -97,31 +162,31 @@ export default function ProductionInstructionsPage() {
   const poQty = (po) => poLines(po).reduce((s, l) => s + (Number(l.qty) || 0), 0);
   const poFabric = (po) => poLines(po)[0]?.name || '—';
 
-  const getProduced = (pi) => (pi.status === 'Completed' ? pi.assignedQty : Number(pi.producedQty) || 0);
+  const getProduced = (pi) => (pi.status === 'Completed' || pi.status === 'Verified' ? pi.assignedQty : Number(pi.producedQty) || 0);
   const getBalance = (pi) => Math.max(0, (Number(pi.assignedQty) || 0) - getProduced(pi));
 
-  const totalInstructions = productionInstructions.length;
-  const inProgressCount = productionInstructions.filter((p) => p.status === 'In Progress').length;
-  const completedCount = productionInstructions.filter((p) => p.status === 'Completed').length;
-  const pendingCount = productionInstructions.filter((p) => p.status === 'Pending' || p.status === 'Draft').length;
+  const totalInstructions = instructions.length;
+  const inProgressCount = instructions.filter((p) => p.status === 'In Progress' || p.status === 'Running').length;
+  const completedCount = instructions.filter((p) => p.status === 'Completed' || p.status === 'Verified').length;
+  const pendingCount = instructions.filter((p) => p.status === 'Pending' || p.status === 'Draft').length;
 
-  const vendors = useMemo(() => [...new Set(productionInstructions.map((p) => p.vendor).filter(Boolean))], [productionInstructions]);
+  const vendors = useMemo(() => [...new Set(instructions.map((p) => p.vendor).filter(Boolean))], [instructions]);
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
-    return productionInstructions.filter((p) => {
-      if (q && !`${p.piNumber} ${p.poNumber} ${p.vendor} ${p.fabric}`.toLowerCase().includes(q)) return false;
+    return instructions.filter((p) => {
+      if (q && !`${p.piNumber} ${p.orderReference || ''} ${p.vendor} ${p.fabric}`.toLowerCase().includes(q)) return false;
       if (statusFilter !== 'All' && p.status !== statusFilter) return false;
       if (vendorFilter !== 'All' && p.vendor !== vendorFilter) return false;
       if (dateFrom || dateTo) {
         const parts = String(p.date || '').split('-');
-        const iso = parts.length === 3 ? `${parts[2]}-${parts[1]}-${parts[0]}` : null;
+        const iso = parts.length === 3 ? `${parts[2]}-${parts[1]}-${parts[0]}` : p.date;
         if (iso && dateFrom && iso < dateFrom) return false;
         if (iso && dateTo && iso > dateTo) return false;
       }
       return true;
     });
-  }, [productionInstructions, query, statusFilter, vendorFilter, dateFrom, dateTo]);
+  }, [instructions, query, statusFilter, vendorFilter, dateFrom, dateTo]);
 
   const handleSelectPo = (id) => {
     setPoId(id);
@@ -129,34 +194,45 @@ export default function ProductionInstructionsPage() {
     if (po) setAssignedQty(String(poQty(po) || ''));
   };
 
-  const handleCreate = (e) => {
+  const handleCreate = async (e) => {
     e.preventDefault();
     if (!poId) { alert('Purchase Order is required.'); return; }
     if (!piDate) { alert('Date is required.'); return; }
     if (!expectedCompletion) { alert('Expected Completion Date is required.'); return; }
     if (!startDate) { alert('Start Date is required.'); return; }
     if (!(Number(assignedQty) > 0)) { alert('Assigned Qty (Meter) is required.'); return; }
-    addProductionInstruction({
-      poId: selectedPo.id,
-      poNumber: selectedPo.poNumber,
-      vendorId: selectedPo.vendorId,
-      vendor: selectedPo.vendor,
+
+    let empId = assignedEmployeeId;
+    if (!empId && employees.length > 0) {
+      const activeEmp = employees.find((em) => ['Active', 'On Leave', 'Probation'].includes(em.status)) || employees[0];
+      empId = activeEmp.id;
+    }
+
+    const payload = {
+      agencyName: selectedPo.vendor,
+      orderReference: selectedPo.poNumber,
+      orderMeter: Number(assignedQty),
+      piDate,
       fabric: poFabric(selectedPo),
-      fabricSku: poLines(selectedPo)[0]?.sku || '',
       processType,
-      assignedEmployee,
-      assignedQty,
-      date: formatDateDDMMYYYY(piDate),
-      startDate: formatDateDDMMYYYY(startDate),
-      expectedCompletionDate: formatDateDDMMYYYY(expectedCompletion),
-      status: piStatus,
-      remarks,
-    });
-    setPoId(''); setPiDate(getCurrentISODate());
-    setExpectedCompletion(addDaysISO(getCurrentISODate(), 14));
-    setAssignedQty(''); setStartDate(getCurrentISODate()); setPiStatus('In Progress');
-    setProcessType('Dyeing'); setAssignedEmployee(''); setRemarks('');
-    setShowAddModal(false); setIsFullscreen(false);
+      agreedJobRate: Number(selectedPo.rate || 0),
+      employeeId: empId,
+      notes: remarks || '',
+    };
+
+    try {
+      const res = await api.post('/production/instructions/', payload);
+      const newInst = normalizeInstruction(res);
+      setInstructions((prev) => [newInst, ...prev]);
+      setShowAddModal(false);
+      setIsFullscreen(false);
+      setPoId('');
+      setAssignedQty('');
+      setRemarks('');
+      setAssignedEmployeeId('');
+    } catch (err) {
+      alert(err.message || 'Failed to create Production Instruction');
+    }
   };
 
 
@@ -251,7 +327,7 @@ export default function ProductionInstructionsPage() {
                               <button onClick={() => { setOpenMenuId(null); setViewingPi(pi); }} className="block w-full px-3 py-2 text-left text-[12px] font-medium text-slate-700 hover:bg-slate-50">View details</button>
                               <button onClick={() => openEdit(pi)} className="block w-full px-3 py-2 text-left text-[12px] font-medium text-slate-700 hover:bg-slate-50">Edit</button>
                               <button onClick={() => { setOpenMenuId(null); navigate(`/pms/production-completion?pi=${encodeURIComponent(pi.id)}`); }} className="block w-full px-3 py-2 text-left text-[12px] font-medium text-slate-700 hover:bg-slate-50">Open completion</button>
-                              <button onClick={() => { setOpenMenuId(null); deleteProductionInstruction(pi.id); }} className="block w-full px-3 py-2 text-left text-[12px] font-semibold text-rose-600 hover:bg-rose-50">Delete</button>
+                              <button onClick={() => { setOpenMenuId(null); handleDelete(pi.id); }} className="block w-full px-3 py-2 text-left text-[12px] font-semibold text-rose-600 hover:bg-rose-50">Delete</button>
                             </div>
                           </>
                         )}
@@ -260,7 +336,14 @@ export default function ProductionInstructionsPage() {
                   </td>
                 </tr>
               ))}
-              {filtered.length === 0 && (
+              {loading && (
+                <tr>
+                  <td colSpan={14} className="px-4 py-12 text-center text-slate-500">
+                    Loading production instructions...
+                  </td>
+                </tr>
+              )}
+              {!loading && filtered.length === 0 && (
                 <tr>
                   <td colSpan={14} className="px-4 py-12 text-center">
                     <div className="mx-auto flex h-11 w-11 items-center justify-center rounded-xl bg-blue-50 text-blue-500"><ClipboardList size={20} /></div>
@@ -352,8 +435,19 @@ export default function ProductionInstructionsPage() {
                     </select>
                   </div>
                   <div>
-                    <label className="block font-semibold text-slate-700 mb-1">Assigned Employee</label>
-                    <input type="text" value={assignedEmployee} onChange={(e) => setAssignedEmployee(e.target.value)} placeholder="e.g. Rahul" maxLength={100} className="w-full border border-slate-300 rounded-lg p-2 bg-white text-slate-800" />
+                    <label className="block font-semibold text-slate-700 mb-1">Assigned Employee *</label>
+                    <select
+                      value={assignedEmployeeId}
+                      onChange={(e) => setAssignedEmployeeId(e.target.value)}
+                      className="w-full border border-slate-300 rounded-lg p-2 bg-white text-slate-800 font-medium"
+                    >
+                      <option value="">Select Employee...</option>
+                      {employees.map((em) => (
+                        <option key={em.id} value={em.id}>
+                          {em.name} ({em.employeeCode || em.employee_code || 'EMP'}) - {em.status}
+                        </option>
+                      ))}
+                    </select>
                   </div>
                   <div>
                     <label className="block font-semibold text-slate-700 mb-1">UOM</label>

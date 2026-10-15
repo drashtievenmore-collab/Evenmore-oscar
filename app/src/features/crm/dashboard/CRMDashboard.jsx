@@ -2,7 +2,7 @@ import CrmKpiCard from '../common/CrmKpiCard';
 import PageHeader from "../../../components/ui/PageHeader";
 import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
-import { Users, UserPlus, Clock, TrendingUp, DollarSign, Search, Mail, CalendarDays, FileText, ClipboardList, Video, Send } from "lucide-react";
+import { Users, UserPlus, Clock, TrendingUp, DollarSign, Search, Mail, Phone, CalendarDays, FileText, ClipboardList, Video, Send } from "lucide-react";
 import { useCrmStore } from "../../../stores/crmStore";
 import { initials, describeError } from "../../../services/crmSync";
 import { useERP } from "../../../context/ERPContext";

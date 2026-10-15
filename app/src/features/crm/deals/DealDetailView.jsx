@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { ArrowLeft, Copy, FileText, Menu, MoreHorizontal, Pencil, Plus, Trophy, Upload, X } from 'lucide-react';
 import Modal from '../../../components/ui/Modal';

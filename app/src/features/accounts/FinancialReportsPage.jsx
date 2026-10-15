@@ -1,78 +1,194 @@
-import { useState, useMemo } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { useERP } from '../../context/ERPContext';
 import PageHeader from '../../components/ui/PageHeader';
 import StatCard from '../../components/ui/StatCard';
 import DataTable from '../../components/ui/DataTable';
-import StatusBadge from '../../components/ui/StatusBadge';
-import { Printer, Download, TrendingUp, TrendingDown, DollarSign, PieChart, FileText } from 'lucide-react';
+import { Printer, Download } from 'lucide-react';
+import { api } from '../../services/api';
 
 export function FinancialReportsPage() {
-  const { invoices = [], purchaseBills = [], expenses = [], paymentIns = [], paymentOuts = [], items = [], bankAccounts = [], journalEntries = [], budgets = [], getAccountBalances, formatCurrency, formatDateDDMMYYYY } = useERP();
-  const [reportType, setReportType] = useState('pl'); // 'pl' | 'cashflow' | 'bs' | 'budget'
+  const { formatCurrency, formatDateDDMMYYYY, budgets = [] } = useERP();
+  const [reportType, setReportType] = useState('pl'); // 'pl' | 'bs' | 'cashflow' | 'budget'
 
-  // Calculate financials
-  const totalRevenue = useMemo(() => {
-    return invoices
-      .filter(i => i.status !== 'Cancelled')
-      .reduce((sum, i) => sum + (Number(i.grandTotal) || Number(i.total) || 0), 0);
-  }, [invoices]);
+  const [pnlData, setPnlData] = useState(null);
+  const [bsData, setBsData] = useState(null);
+  const [cfData, setCfData] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
 
-  const totalCOGS = useMemo(() => {
-    // COGS = cost of SOLD items from finalized invoices (qty × item costPrice), not procurement spend
-    return invoices
-      .filter(i => i.status !== 'Cancelled' && i.finalized !== false && i.status !== 'Draft')
-      .reduce((sum, inv) => {
-        const invLines = inv.items || inv.lineItems || [];
-        const lineCost = invLines.reduce((s, line) => s + (Number(line.qty || 0) * (Number(line.costPrice ?? line.unitCost) || 0)), 0);
-        return sum + lineCost;
-      }, 0) || 0;
-  }, [invoices]);
+  const loadReports = () => {
+    setLoading(true);
+    Promise.all([
+      api.get('/reports/profit-and-loss/').catch(() => null),
+      api.get('/reports/balance-sheet/').catch(() => null),
+      api.get('/reports/cash-flow/').catch(() => null),
+    ])
+      .then(([pnl, bs, cf]) => {
+        setPnlData(pnl);
+        setBsData(bs);
+        setCfData(cf);
+        setError(null);
+      })
+      .catch((err) => {
+        setError(err.message || 'Failed to load financial reports');
+      })
+      .finally(() => {
+        setLoading(false);
+      });
+  };
 
-  const totalExpenses = useMemo(() => {
-    return expenses.reduce((sum, e) => sum + (Number(e.amount) || 0), 0);
-  }, [expenses]);
+  useEffect(() => {
+    loadReports();
+  }, []);
 
-  const grossProfit = totalRevenue - totalCOGS;
-  const netIncome = grossProfit - totalExpenses;
-  const profitMargin = totalRevenue > 0 ? ((netIncome / totalRevenue) * 100).toFixed(1) : '0.0';
+  const totalRevenue = Number(pnlData?.revenue) || 0;
+  const totalCOGS = Number(pnlData?.cogs) || 0;
+  const totalExpenses = Number(pnlData?.operatingExpenses) || 0;
+  const netIncome = Number(pnlData?.netOperatingProfit) || 0;
+  const grossProfit = Number(pnlData?.grossProfit) || 0;
+  const marginPct = Number(pnlData?.grossMarginPct) || 0;
+
+  const totalAssets = Number(bsData?.totalAssets) || 0;
+  const totalLiabilities = Number(bsData?.totalLiabilities) || 0;
+  const totalEquity = Number(bsData?.totalEquity) || 0;
+  const retainedEarnings = Number(bsData?.retainedEarnings) || 0;
+  const bsDifference = Number(bsData?.difference) || 0;
 
   const stats = [
-    { label: 'Total Revenue', value: formatCurrency(totalRevenue), icon: 'dollar', tone: 'blue', trend: '+12.5%' },
+    { label: 'Total Revenue', value: formatCurrency(totalRevenue), icon: 'dollar', tone: 'blue' },
     { label: 'Cost of Goods', value: formatCurrency(totalCOGS), icon: 'cart', tone: 'amber' },
     { label: 'Operating Expenses', value: formatCurrency(totalExpenses), icon: 'file', tone: 'pink' },
-    { label: 'Net Profit', value: formatCurrency(netIncome), icon: 'chart', tone: netIncome >= 0 ? 'green' : 'pink', trend: `${profitMargin}% margin` },
+    { label: 'Net Profit', value: formatCurrency(netIncome), icon: 'chart', tone: netIncome >= 0 ? 'green' : 'pink', trend: `${marginPct.toFixed(1)}% margin` },
   ];
 
-  const plRows = [
-    { category: 'Operating Revenue', item: 'Gross Sales & Services', amount: totalRevenue, type: 'revenue' },
-    { category: 'Cost of Goods Sold', item: 'Procurement & Inventory Costs', amount: -totalCOGS, type: 'cogs' },
-    { category: 'Gross Profit', item: 'Revenue minus COGS', amount: grossProfit, type: 'summary' },
-    { category: 'Operating Expenses', item: 'General, Administrative, Utilities', amount: -totalExpenses, type: 'expense' },
-    { category: 'Net Income', item: 'Operating Profit Before Taxes', amount: netIncome, type: 'net' },
-  ];
+  const plRows = useMemo(() => {
+    if (!pnlData) return [];
+    const rows = [
+      { category: 'Operating Revenue', item: 'Gross Sales & Services', amount: totalRevenue, type: 'revenue' },
+    ];
+    (pnlData.incomeAccounts || []).forEach((acct) => {
+      rows.push({
+        category: 'Operating Revenue',
+        item: `${acct.code ? `${acct.code} - ` : ''}${acct.name}`,
+        amount: Number(acct.amount) || 0,
+        type: 'sub',
+      });
+    });
+    rows.push(
+      { category: 'Cost of Goods Sold', item: 'Procurement & Direct Production Costs', amount: -totalCOGS, type: 'cogs' },
+      { category: 'Gross Profit', item: 'Revenue minus COGS', amount: grossProfit, type: 'summary' },
+      { category: 'Operating Expenses', item: 'General, Administrative & Utilities', amount: -totalExpenses, type: 'expense' },
+    );
+    (pnlData.expenseAccounts || []).forEach((acct) => {
+      rows.push({
+        category: 'Operating Expenses',
+        item: `${acct.code ? `${acct.code} - ` : ''}${acct.name}`,
+        amount: -(Number(acct.amount) || 0),
+        type: 'sub',
+      });
+    });
+    rows.push(
+      { category: 'Net Income', item: 'Operating Profit Before Taxes', amount: netIncome, type: 'net' },
+    );
+    return rows;
+  }, [pnlData, totalRevenue, totalCOGS, grossProfit, totalExpenses, netIncome]);
 
   const plColumns = [
-    { key: 'category', label: 'Category', render: (val, row) => (
-      <strong style={{ color: row.type === 'net' ? '#1f6bff' : row.type === 'summary' ? '#0f172a' : '#334155' }}>
-        {val}
-      </strong>
-    )},
-    { key: 'item', label: 'Description', render: (val) => <span style={{ color: '#64748b' }}>{val}</span> },
-    { key: 'amount', label: 'Amount', render: (val, row) => (
-      <span style={{
-        fontWeight: row.type === 'net' || row.type === 'summary' ? 800 : 600,
-        color: val > 0 ? '#1bb878' : val < 0 ? '#ef4444' : '#64748b',
-        fontSize: row.type === 'net' ? 15 : 13,
-      }}>
-        {val < 0 ? `-${formatCurrency(Math.abs(val))}` : formatCurrency(val)}
-      </span>
-    )},
+    {
+      key: 'category',
+      label: 'Category',
+      render: (val, row) => (
+        <strong style={{ color: row.type === 'net' ? '#1f6bff' : row.type === 'summary' ? '#0f172a' : '#334155' }}>
+          {val}
+        </strong>
+      ),
+    },
+    {
+      key: 'item',
+      label: 'Description / Account',
+      render: (val, row) => (
+        <span style={{ color: row.type === 'sub' ? '#64748b' : '#334155', paddingLeft: row.type === 'sub' ? 16 : 0 }}>
+          {row.type === 'sub' ? `↳ ${val}` : val}
+        </span>
+      ),
+    },
+    {
+      key: 'amount',
+      label: 'Amount',
+      render: (val, row) => (
+        <span style={{
+          fontWeight: row.type === 'net' || row.type === 'summary' ? 800 : row.type === 'sub' ? 500 : 600,
+          color: val > 0 ? '#1bb878' : val < 0 ? '#ef4444' : '#64748b',
+          fontSize: row.type === 'net' ? 15 : 13,
+        }}>
+          {val < 0 ? `-${formatCurrency(Math.abs(val))}` : formatCurrency(val)}
+        </span>
+      ),
+    },
   ];
+
+  const bsAssets = useMemo(() => {
+    const list = (bsData?.assets || []).map((a) => ({
+      section: 'Assets',
+      account: `${a.code ? `${a.code} - ` : ''}${a.name}`,
+      amount: Number(a.amount) || 0,
+      isTotal: false,
+    }));
+    list.push({ section: '', account: 'Total Assets', amount: totalAssets, isTotal: true });
+    return list;
+  }, [bsData, totalAssets]);
+
+  const bsLiabilities = useMemo(() => {
+    const list = (bsData?.liabilities || []).map((l) => ({
+      section: 'Liabilities',
+      account: `${l.code ? `${l.code} - ` : ''}${l.name}`,
+      amount: Number(l.amount) || 0,
+      isTotal: false,
+    }));
+    list.push({ section: '', account: 'Total Liabilities', amount: totalLiabilities, isTotal: true });
+    return list;
+  }, [bsData, totalLiabilities]);
+
+  const bsEquity = useMemo(() => {
+    const list = (bsData?.equity || []).map((e) => ({
+      section: "Owners' Equity",
+      account: `${e.code ? `${e.code} - ` : ''}${e.name}`,
+      amount: Number(e.amount) || 0,
+      isTotal: false,
+    }));
+    list.push({
+      section: "Owners' Equity",
+      account: 'Retained Earnings / Current Period Net P&L',
+      amount: retainedEarnings,
+      isTotal: false,
+    });
+    list.push({ section: '', account: 'Total Equity & Retained Earnings', amount: totalEquity, isTotal: true });
+    return list;
+  }, [bsData, retainedEarnings, totalEquity]);
+
+  // Budget vs Variance
+  const budgetRows = useMemo(() => {
+    return budgets.filter((b) => b.active !== false).map((b) => {
+      const budgetAmt = Number(b.annualAmount) || 0;
+      const actual = Number(b.actualAmount) || 0;
+      const variance = budgetAmt - actual;
+      const utilization = budgetAmt > 0 ? ((actual / budgetAmt) * 100).toFixed(1) : '—';
+      return {
+        id: b.id,
+        name: b.name,
+        budget: budgetAmt,
+        actual,
+        variance,
+        utilization,
+        isOver: variance < 0,
+      };
+    });
+  }, [budgets]);
 
   const exportToCSV = (filename, headers, rows) => {
     const esc = (v) => `"${String(v ?? '').replace(/"/g, '""')}"`;
     const csv = [headers.map(esc).join(','), ...rows.map((r) => r.map(esc).join(','))].join('\n');
-    const blob = new Blob(["\uFEFF" + csv], { type: 'text/csv;charset=utf-8;' });
+    const blob = new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8;' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
@@ -82,6 +198,7 @@ export function FinancialReportsPage() {
     document.body.removeChild(a);
     URL.revokeObjectURL(url);
   };
+
   const handleExport = () => {
     let headers, rows, title;
     if (reportType === 'pl') {
@@ -97,82 +214,18 @@ export function FinancialReportsPage() {
       rows = budgetRows.map((r) => [r.name, r.budget, r.actual, r.variance, r.utilization]);
       title = 'Budget_vs_Variance';
     } else {
-      headers = ['Category', 'Description', 'Amount'];
-      rows = plRows.map((r) => [r.category, r.item, r.amount]);
-      title = 'Invoice_Breakdown';
+      headers = ['Period', 'Inflow', 'Outflow', 'Net Cash Flow'];
+      rows = (cfData?.periods || []).map((p) => [p.period, p.inflow, p.outflow, p.net]);
+      title = 'Cash_Flow';
     }
-    exportToCSV(`Financial_${title}_${new Date().toISOString().slice(0,10)}`, headers, rows);
+    exportToCSV(`Financial_${title}_${new Date().toISOString().slice(0, 10)}`, headers, rows);
   };
-
-  // ── [PHASE-2E] Balance Sheet computation (from journal entries + live bank + invoices) ──
-  const { arBalance, apBalance, invBalance, advGivenBalance } = useMemo(() => {
-    const ar = invoices.filter((i) => i.status !== 'Cancelled').reduce((s, i) => s + (Number(i.balanceDue ?? ((Number(i.grandTotal || i.total || 0)) - (Number(i.paidAmount ?? i.amountPaid) || 0))) || 0), 0);
-    const ap = purchaseBills.filter((b) => b.status !== 'Cancelled').reduce((s, b) => s + (Number(b.balanceDue ?? ((Number(b.total || b.amount || 0)) - (Number(b.paidAmount ?? b.amountPaid) || 0))) || 0), 0);
-    const inv = items.filter((it) => it.itemKind !== 'Service').reduce((s, it) => {
-      const stock = it.availableQty ?? 0;
-      return s + stock * (Number(it.costPrice) || 0);
-    }, 0);
-    const adv = paymentIns.filter((p) => p.status !== 'Cancelled' && String(p.type || '').toLowerCase() === 'advance').reduce((s, p) => s + (Number(p.amount) || 0), 0);
-    return { arBalance: ar, apBalance: ap, invBalance: inv, advGivenBalance: adv };
-  }, [invoices, purchaseBills, items, paymentIns]);
-
-  const bankTotal = bankAccounts.reduce((s, a) => s + (Number(a.balance) || 0), 0);
-  const totalAssets = bankTotal + arBalance + invBalance;
-  const totalLiabilities = apBalance + advGivenBalance;
-  const equityBase = Math.max(0, totalAssets - totalLiabilities - netIncome); // balancing plug
-
-  const bsAssets = [
-    { section: 'Current Assets', account: 'Cash & Bank', amount: bankTotal },
-    { section: 'Current Assets', account: 'Accounts Receivable', amount: arBalance },
-    { section: 'Current Assets', account: 'Inventory (at Cost)', amount: invBalance },
-    { section: 'Current Assets', account: 'Vendor Advances (Receivable)', amount: advGivenBalance },
-    { section: '', account: 'Total Assets', amount: totalAssets, isTotal: true },
-  ];
-  const bsLiabilities = [
-    { section: 'Current Liabilities', account: 'Accounts Payable', amount: apBalance },
-    { section: 'Current Liabilities', account: 'GST Payable (Liability)', amount: 0 },
-    { section: '', account: 'Total Liabilities', amount: totalLiabilities, isTotal: true },
-  ];
-  const bsEquity = [
-    { section: "Owners' Equity", account: 'Retained Earnings (Plug)', amount: equityBase },
-    { section: "Owners' Equity", account: 'Current Year P&L', amount: netIncome },
-    { section: '', account: "Total Equity (A − L)", amount: totalAssets - totalLiabilities, isTotal: true },
-  ];
-
-  // ── [PHASE-2E] Budget vs Variance (annual budgets vs actual expenses + COGS) ──
-  const budgetRows = useMemo(() => {
-    const expenseTotalByAccount = {};
-    expenses.forEach((e) => {
-      const acct = e.category || e.account || 'General';
-      expenseTotalByAccount[acct] = (expenseTotalByAccount[acct] || 0) + (Number(e.amount) || 0);
-    });
-    // Map COGS (from finalized invoice lines) to budget categories
-    const rawMatCost = totalCOGS;
-    if (rawMatCost > 0) expenseTotalByAccount['COGS'] = (expenseTotalByAccount['COGS'] || 0) + rawMatCost;
-    const Freight = expenses.filter((e) => (e.category || '').toLowerCase().includes('freight') || (e.description || '').toLowerCase().includes('freight')).reduce((s, e) => s + (Number(e.amount) || 0), 0);
-    if (Freight > 0) expenseTotalByAccount['Logistics'] = (expenseTotalByAccount['Logistics'] || 0) + Freight;
-    return budgets.filter((b) => b.active !== false).map((b) => {
-      const actual = expenseTotalByAccount[b.category] || expenseTotalByAccount[b.name] || 0;
-      const budgetAmt = Number(b.annualAmount) || 0;
-      const variance = budgetAmt - actual;
-      const utilization = budgetAmt > 0 ? ((actual / budgetAmt) * 100).toFixed(1) : '—';
-      return {
-        id: b.id,
-        name: b.name,
-        budget: budgetAmt,
-        actual,
-        variance,
-        utilization,
-        isOver: variance < 0,
-      };
-    });
-  }, [budgets, expenses, totalCOGS]);
 
   return (
     <div className="feature-page printable-document py-4 sm:py-6 px-0 sm:px-8">
       <PageHeader
         title="Financial Reports"
-        subtitle="Consolidated Profit & Loss, Balance Sheet, and Cash Flow metrics."
+        subtitle="Consolidated Profit & Loss, Balance Sheet, and Cash Flow metrics directly from ledger."
         breadcrumb={[{ label: 'Accounts', to: '/accounts/cash-bank' }, { label: 'Reports' }]}
         actions={
           <div className="flex-wrap lg:flex-nowrap" style={{ display: 'flex', gap: 10 }}>
@@ -180,24 +233,23 @@ export function FinancialReportsPage() {
               <Printer size={15} /> Print Statement
             </button>
             <button type="button" className="btn-primary" onClick={() => handleExport()}>
-              <Download size={15} /> Export {reportType === 'pl' ? 'P&L' : reportType === 'bs' ? 'Balance Sheet' : reportType === 'budget' ? 'Budget' : 'Report'} CSV
+              <Download size={15} /> Export {reportType === 'pl' ? 'P&L' : reportType === 'bs' ? 'Balance Sheet' : reportType === 'budget' ? 'Budget' : 'Cash Flow'} CSV
             </button>
           </div>
         }
       />
 
       <div className="stats-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 16, margin: '20px 0 24px' }}>
-        {stats.map(s => <StatCard key={s.label} stat={s} />)}
-        {/* [PHASE-2E] balance sheet headline KPIs */}
+        {stats.map((s) => <StatCard key={s.label} stat={s} />)}
         <div className="bg-white rounded-xl border border-slate-200 p-4 flex flex-col gap-1 shadow-xs">
           <span className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider">Total Assets</span>
           <span className="text-lg font-mono font-bold text-[#1F2E4A]">{formatCurrency(totalAssets)}</span>
-          <span className="text-[11px] text-slate-400 mt-0.5">{bankAccounts.length} bank accts · {formatCurrency(bankTotal)} cash</span>
+          <span className="text-[11px] text-slate-400 mt-0.5">As of {bsData?.asOf ? formatDateDDMMYYYY(bsData.asOf) : 'today'}</span>
         </div>
         <div className="bg-white rounded-xl border border-slate-200 p-4 flex flex-col gap-1 shadow-xs">
           <span className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider">Net Worth (A − L)</span>
           <span className="text-lg font-mono font-bold text-emerald-700">{formatCurrency(totalAssets - totalLiabilities)}</span>
-          <span className="text-[11px] text-slate-400 mt-0.5">Liabilities: {formatCurrency(totalLiabilities)} · Equity: {formatCurrency(totalAssets - totalLiabilities)}</span>
+          <span className="text-[11px] text-slate-400 mt-0.5">Liabilities: {formatCurrency(totalLiabilities)} · Equity: {formatCurrency(totalEquity)}</span>
         </div>
       </div>
 
@@ -207,9 +259,9 @@ export function FinancialReportsPage() {
             {[
               { id: 'pl', label: 'Profit & Loss' },
               { id: 'bs', label: 'Balance Sheet' },
+              { id: 'cashflow', label: 'Cash Flow' },
               { id: 'budget', label: 'Budget vs Variance' },
-              { id: 'cashflow', label: 'Invoice Breakdown' },
-            ].map(tab => (
+            ].map((tab) => (
               <button
                 key={tab.id}
                 type="button"
@@ -231,26 +283,38 @@ export function FinancialReportsPage() {
               </button>
             ))}
           </div>
-          <span style={{ fontSize: 13, color: '#64748b' }}>Period: Current Fiscal Year (2026)</span>
+          <span style={{ fontSize: 13, color: '#64748b' }}>
+            {loading ? 'Refreshing ledger figures...' : 'Live Ledger Computation'}
+          </span>
         </div>
+
+        {error && (
+          <div className="mb-4 rounded-lg bg-red-50 p-3 text-xs text-red-600">
+            {error}
+          </div>
+        )}
 
         {reportType === 'pl' && (
           <div>
             <div style={{ marginBottom: 16 }}>
               <h3 style={{ margin: 0, fontSize: 16, fontWeight: 700, color: '#0f172a' }}>Income Statement Summary</h3>
-              <p style={{ margin: '4px 0 0', fontSize: 13, color: '#64748b' }}>All amounts calculated in real-time from recorded sales invoices and purchase bills.</p>
+              <p style={{ margin: '4px 0 0', fontSize: 13, color: '#64748b' }}>Live calculation directly from recognized revenues and expenses in the double-entry ledger.</p>
             </div>
-            <DataTable columns={plColumns} data={plRows} rowKey="category" emptyMessage="No financial entries available." />
+            <DataTable columns={plColumns} data={plRows} rowKey="item" emptyMessage="No financial entries available in the ledger." />
           </div>
         )}
 
-        {/* [PHASE-2E] Balance Sheet — computed from live bank + AR + AP + inventory */}
         {reportType === 'bs' && (
           <div>
             <div style={{ marginBottom: 16 }}>
-              <h3 style={{ margin: 0, fontSize: 16, fontWeight: 700, color: '#0f172a' }}>Balance Sheet (as of today)</h3>
-              <p style={{ margin: '4px 0 0', fontSize: 13, color: '#64748b' }}>Derived from bank accounts, outstanding invoices/bills, inventory at cost, and journal entry equity.</p>
+              <h3 style={{ margin: 0, fontSize: 16, fontWeight: 700, color: '#0f172a' }}>Balance Sheet (as of {bsData?.asOf ? formatDateDDMMYYYY(bsData.asOf) : 'today'})</h3>
+              <p style={{ margin: '4px 0 0', fontSize: 13, color: '#64748b' }}>Derived directly from live journal entries, asset accounts, liabilities, and retained earnings.</p>
             </div>
+            {bsDifference !== 0 && (
+              <div className="mb-4 rounded-lg bg-amber-50 p-3 text-xs text-amber-800 border border-amber-200">
+                <strong>Notice:</strong> Unbalanced journal entries detected (Difference: {formatCurrency(bsDifference)}).
+              </div>
+            )}
             <div className="overflow-x-auto">
               <table className="w-full text-left text-xs text-slate-600" style={{ minWidth: 540 }}>
                 <thead className="bg-slate-50 uppercase font-semibold text-slate-500 tracking-wider border-b border-slate-200">
@@ -291,12 +355,61 @@ export function FinancialReportsPage() {
           </div>
         )}
 
-        {/* [PHASE-2E] Budget vs Variance — annual budgeted amounts vs actual expense + COGS */}
+        {reportType === 'cashflow' && (
+          <div>
+            <div style={{ marginBottom: 16 }}>
+              <h3 style={{ margin: 0, fontSize: 16, fontWeight: 700, color: '#0f172a' }}>Cash Flow Statement</h3>
+              <p style={{ margin: '4px 0 0', fontSize: 13, color: '#64748b' }}>Period movement across cash and bank accounts from recognized ledger entries.</p>
+            </div>
+            <div className="overflow-x-auto">
+              <table className="w-full text-left text-xs text-slate-600" style={{ minWidth: 540 }}>
+                <thead className="bg-slate-50 uppercase font-semibold text-slate-500 tracking-wider border-b border-slate-200">
+                  <tr>
+                    <th className="py-2 px-3">Period</th>
+                    <th className="py-2 px-3 text-right">Inflow</th>
+                    <th className="py-2 px-3 text-right">Outflow</th>
+                    <th className="py-2 px-3 text-right">Net Cash Movement</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {(cfData?.periods || []).map((p, idx) => (
+                    <tr key={idx} className="hover:bg-slate-50">
+                      <td className="py-2 px-3 font-semibold text-slate-800">{p.period ? String(p.period).slice(0, 7) : 'Period'}</td>
+                      <td className="py-2 px-3 text-right font-mono text-emerald-600">{formatCurrency(p.inflow)}</td>
+                      <td className="py-2 px-3 text-right font-mono text-rose-600">-{formatCurrency(p.outflow)}</td>
+                      <td className={`py-2 px-3 text-right font-mono font-bold ${Number(p.net) >= 0 ? 'text-emerald-700' : 'text-rose-700'}`}>
+                        {formatCurrency(p.net)}
+                      </td>
+                    </tr>
+                  ))}
+                  {(!cfData?.periods || cfData.periods.length === 0) && (
+                    <tr>
+                      <td colSpan={4} className="py-6 text-center text-slate-400">
+                        No cash flow movement recorded in the ledger.
+                      </td>
+                    </tr>
+                  )}
+                  {cfData?.periods && cfData.periods.length > 0 && (
+                    <tr className="bg-slate-50 font-bold border-t-2 border-slate-200">
+                      <td className="py-2 px-3 text-slate-900">Total Movement</td>
+                      <td className="py-2 px-3 text-right font-mono text-emerald-700">{formatCurrency(cfData.totalInflow)}</td>
+                      <td className="py-2 px-3 text-right font-mono text-rose-700">-{formatCurrency(cfData.totalOutflow)}</td>
+                      <td className={`py-2 px-3 text-right font-mono font-extrabold ${Number(cfData.netCashFlow) >= 0 ? 'text-emerald-800' : 'text-rose-800'}`}>
+                        {formatCurrency(cfData.netCashFlow)}
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
+
         {reportType === 'budget' && (
           <div>
             <div style={{ marginBottom: 16 }}>
-              <h3 style={{ margin: 0, fontSize: 16, fontWeight: 700, color: '#0f172a' }}>Budget vs Actual (FY 2026)</h3>
-              <p style={{ margin: '4px 0 0', fontSize: 13, color: '#64748b' }}>Annual budgets compared against actual expenses and COGS derived from live transactions. Over-budget lines are flagged.</p>
+              <h3 style={{ margin: 0, fontSize: 16, fontWeight: 700, color: '#0f172a' }}>Budget vs Actual</h3>
+              <p style={{ margin: '4px 0 0', fontSize: 13, color: '#64748b' }}>Comparison of active annual budgets against recorded actuals.</p>
             </div>
             <div className="overflow-x-auto">
               <table className="w-full text-left text-xs text-slate-600" style={{ minWidth: 600 }}>
@@ -327,31 +440,16 @@ export function FinancialReportsPage() {
                       </td>
                     </tr>
                   ))}
+                  {budgetRows.length === 0 && (
+                    <tr>
+                      <td colSpan={6} className="py-6 text-center text-slate-400">
+                        No active budgets configured.
+                      </td>
+                    </tr>
+                  )}
                 </tbody>
               </table>
             </div>
-            <p className="mt-3 text-[11px] text-slate-400 italic">Budgets are annual and static; variance is computed against total expenses + COGS recorded so far in FY2026.</p>
-          </div>
-        )}
-
-        {reportType === 'cashflow' && (
-          <div>
-            <div style={{ marginBottom: 16 }}>
-              <h3 style={{ margin: 0, fontSize: 16, fontWeight: 700, color: '#0f172a' }}>Sales Invoices Ledger</h3>
-              <p style={{ margin: '4px 0 0', fontSize: 13, color: '#64748b' }}>Individual invoice contributions to overall operating revenue.</p>
-            </div>
-            <DataTable
-              columns={[
-                { key: 'invoiceNumber', label: 'Invoice #' },
-                { key: 'customerName', label: 'Customer' },
-                { key: 'date', label: 'Date', render: (v) => formatDateDDMMYYYY(v) },
-                { key: 'grandTotal', label: 'Total', render: (v) => formatCurrency(Number(v || 0)) },
-                { key: 'status', label: 'Status', render: (v) => <StatusBadge status={v} /> },
-              ]}
-              data={invoices}
-              rowKey="id"
-              emptyMessage="No invoices found."
-            />
           </div>
         )}
       </div>

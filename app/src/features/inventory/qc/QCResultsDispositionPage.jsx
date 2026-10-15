@@ -170,9 +170,9 @@ export default function QCResultsDispositionPage() {
       {
         srNo: nextIdx,
         takaNo: nextIdx,
-        actualQty: Number(perTaka) || 100,
-        width: 150,
-        weight: 25,
+        actualQty: Number(perTaka) || 0,
+        width: 0,
+        weight: 0,
         remarks: '-',
       },
     ]);
@@ -294,45 +294,16 @@ export default function QCResultsDispositionPage() {
       <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-5 space-y-6">
         {/* Top Section: Left Fabric Gallery + Right Inspection Inputs */}
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-          {/* Left Gallery (3 cols) */}
+          {/* Left Inspection Media (3 cols) */}
           <div className="lg:col-span-3 space-y-3">
-            <div className="bg-slate-100 rounded-xl overflow-hidden border border-slate-200 aspect-4/3 relative flex items-center justify-center">
-              <img
-                src="https://images.unsplash.com/photo-1607604276583-eef5d076aa5f?w=600&auto=format&fit=crop&q=80"
-                alt="Fabric swatch"
-                className="w-full h-full object-cover"
-              />
+            <div className="bg-slate-50 rounded-xl overflow-hidden border border-slate-200 aspect-4/3 relative flex flex-col items-center justify-center p-4 text-center">
+              <Camera className="w-10 h-10 text-slate-300 mb-2" />
+              <p className="text-xs font-semibold text-slate-600">Inspection Attachments</p>
+              <p className="text-[11px] text-slate-400 mt-0.5">Physical swatch or defect images</p>
             </div>
-            <div className="grid grid-cols-3 gap-2">
-              <div className="aspect-square bg-slate-100 rounded-lg overflow-hidden border border-slate-200">
-                <img
-                  src="https://images.unsplash.com/photo-1596755094514-f87e34085b2c?w=300&auto=format&fit=crop&q=80"
-                  alt="Fabric detail 1"
-                  className="w-full h-full object-cover"
-                />
-              </div>
-              <div className="aspect-square bg-slate-100 rounded-lg overflow-hidden border border-slate-200">
-                <img
-                  src="https://images.unsplash.com/photo-1584917865442-de89df76afd3?w=300&auto=format&fit=crop&q=80"
-                  alt="Fabric detail 2"
-                  className="w-full h-full object-cover"
-                />
-              </div>
-              <div className="aspect-square bg-slate-100 rounded-lg overflow-hidden border border-slate-200">
-                <img
-                  src="https://images.unsplash.com/photo-1607604276583-eef5d076aa5f?w=300&auto=format&fit=crop&q=80"
-                  alt="Fabric detail 3"
-                  className="w-full h-full object-cover"
-                />
-              </div>
+            <div className="p-3 bg-slate-50 rounded-lg border border-slate-200 text-xs text-slate-500 text-center">
+              No defect photos attached for {qcNo || 'current lot'}.
             </div>
-            <button
-              onClick={() => setShowImageModal(true)}
-              className="w-full py-1.5 px-3 bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200 rounded-lg text-xs font-semibold flex items-center justify-center space-x-1.5 transition"
-            >
-              <Camera className="w-3.5 h-3.5" />
-              <span>View Image</span>
-            </button>
           </div>
 
           {/* Right Inputs Grid (9 cols) */}
@@ -916,12 +887,10 @@ export default function QCResultsDispositionPage() {
                 &times;
               </button>
             </div>
-            <div className="rounded-lg overflow-hidden border">
-              <img
-                src="https://images.unsplash.com/photo-1607604276583-eef5d076aa5f?w=1000&auto=format&fit=crop&q=80"
-                alt="Fabric detailed view"
-                className="w-full h-80 object-cover"
-              />
+            <div className="rounded-lg overflow-hidden border p-8 bg-slate-50 flex flex-col items-center justify-center text-center">
+              <Camera className="w-12 h-12 text-slate-300 mb-2" />
+              <p className="text-xs font-semibold text-slate-700">No inspection image uploaded for this lot.</p>
+              <p className="text-[11px] text-slate-400 mt-1">Images can be attached via Goods Receipt or QC Inspection.</p>
             </div>
             <div className="flex justify-end">
               <button

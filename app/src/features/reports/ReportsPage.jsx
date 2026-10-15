@@ -1,4 +1,5 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
+import { api } from '../../services/api';
 import { StatCard } from '../../components/ui/StatCard';
 import { Button } from '../../components/ui/Button';
 import { Download, DollarSign, Package, AlertTriangle, Clock, ShieldCheck, Printer } from 'lucide-react';
@@ -98,81 +99,119 @@ export const ReportsPage = () => {
         }))
         .sort((a, b) => b.spend - a.spend);
 
-    // Dynamic AR / AP aging calculations
-    const totalAr = customers.reduce((sum, c) => sum + (c.balance || 0), 0);
-    const totalAp = purchaseBills.reduce((sum, b) => {
-        if (typeof getBillOutstanding === 'function') {
-            return sum + (getBillOutstanding(b.id)?.balanceDue ?? 0);
-        }
+    // Backend-driven AR / AP aging from GET /reports/ar-ap-ageing/
+    const [arAging, setArAging] = useState(null);
+    const [apAging, setApAging] = useState(null);
+    const [pnlReport, setPnlReport] = useState(null);
+
+    useEffect(() => {
+        let live = true;
+        Promise.all([
+            api.get('/reports/ar-ap-ageing/', { query: { type: 'receivable' } }).catch(() => null),
+            api.get('/reports/ar-ap-ageing/', { query: { type: 'payable' } }).catch(() => null),
+            api.get('/reports/profit-and-loss/').catch(() => null),
+        ]).then(([ar, ap, pnl]) => {
+            if (!live) return;
+            setArAging(ar);
+            setApAging(ap);
+            setPnlReport(pnl);
+        });
+        return () => { live = false; };
+    }, []);
+
+    const totalAr = Number(arAging?.total ?? customers.reduce((sum, c) => sum + (c.balance || 0), 0));
+    const totalAp = Number(apAging?.total ?? purchaseBills.reduce((sum, b) => {
         const billTotal = Number(b.total ?? b.amount ?? 0);
         const billPaid = Number(b.paidAmount ?? b.amountPaid ?? 0);
         return sum + Math.max(0, billTotal - billPaid);
-    }, 0);
+    }, 0));
 
-    // ── [PHASE-1-AGING-FIX] Real AR/AP aging buckets by dueDate vs today ──
-    // Previously the aging schedule used hardcoded percentage splits (65%/22%/9%/4% of
-    //   total AR, and 70%/25%/5% per customer) that never matched real invoices. We now
-    //   bucket each invoice/bill by its dueDate using ISO date math (Phase 0).
-    // Bucket keys: 'current' (0-30), '31-60', '61-90', '90+'
-
-    const bucketForDays = (days) => {
-        if (days === null || days === undefined) return 'current';
-        const d = Number(days);
-        if (d <= 30) return 'current';
-        if (d <= 60) return '31-60';
-        if (d <= 90) return '61-90';
-        return '90+';
-    };
-
-    // outstanding amount of one invoice (respects paidAmount / balanceDue)
-    const invoiceOutstanding = (inv) => {
-        if (inv.balanceDue !== undefined && inv.balanceDue !== null) return Number(inv.balanceDue) || 0;
-        const total = Number(inv.grandTotal ?? inv.total ?? inv.amount ?? 0);
-        const paid = Number(inv.paidAmount ?? inv.amountPaid ?? 0);
-        return Math.max(0, total - paid);
-    };
-
-    // AR aging buckets — invoice due date minus today
     const arBuckets = useMemo(() => {
-        const agg = { current: 0, '31-60': 0, '61-90': 0, '90+': 0 };
-        (invoices || []).forEach((inv) => {
-            const bucket = bucketForDays(daysBetween(inv.dueDate, getCurrentISODate()));
-            agg[bucket] = (agg[bucket] || 0) + invoiceOutstanding(inv);
-        });
-        // Legacy: customer.balance as fallback if no invoices exist yet
-        if ((invoices || []).length === 0) agg.current = totalAr;
-        return agg;
-    }, [invoices, totalAr]);
+        if (arAging?.buckets) {
+            return {
+                current: Number(arAging.buckets['Current'] || 0) + Number(arAging.buckets['0-30'] || 0),
+                '31-60': Number(arAging.buckets['31-60'] || 0),
+                '61-90': Number(arAging.buckets['61-90'] || 0),
+                '90+': Number(arAging.buckets['91-120'] || 0) + Number(arAging.buckets['120+'] || 0),
+            };
+        }
+        return { current: totalAr, '31-60': 0, '61-90': 0, '90+': 0 };
+    }, [arAging, totalAr]);
 
-    // AP aging buckets — bill due date minus today
     const apBuckets = useMemo(() => {
-        const agg = { current: 0, '31-60': 0, '61-90': 0, '90+': 0 };
-        (purchaseBills || []).forEach((b) => {
-            const outstanding = (getBillOutstanding?.(b.id)?.balanceDue)
-                ?? Math.max(0, Number(b.total ?? b.amount ?? 0) - Number(b.paidAmount ?? b.amountPaid ?? 0));
-            const bucket = bucketForDays(daysBetween(b.dueDate, getCurrentISODate()));
-            agg[bucket] = (agg[bucket] || 0) + outstanding;
-        });
-        return agg;
-    }, [purchaseBills, getBillOutstanding]);
+        if (apAging?.buckets) {
+            return {
+                current: Number(apAging.buckets['Current'] || 0) + Number(apAging.buckets['0-30'] || 0),
+                '31-60': Number(apAging.buckets['31-60'] || 0),
+                '61-90': Number(apAging.buckets['61-90'] || 0),
+                '90+': Number(apAging.buckets['91-120'] || 0) + Number(apAging.buckets['120+'] || 0),
+            };
+        }
+        return { current: totalAp, '31-60': 0, '61-90': 0, '90+': 0 };
+    }, [apAging, totalAp]);
 
-    // Per-customer AR aging breakdown (for the table)
-    const customerAging = useMemo(() => {
-        return customers.map((c) => {
-            const agg = { current: 0, '31-60': 0, '61-90': 0, '90+': 0 };
-            (invoices || [])
-                .filter((inv) => inv.customer === c.name || inv.customerId === c.id)
-                .forEach((inv) => {
-                    const bucket = bucketForDays(daysBetween(inv.dueDate, getCurrentISODate()));
-                    agg[bucket] = (agg[bucket] || 0) + invoiceOutstanding(inv);
-                });
-            const bucketTotal = AR_BUCKETS.reduce((s, k) => s + (agg[k] || 0), 0);
-            // If the invoice-driven total doesn't match c.balance, fall back to c.balance
-            const displayBalance = bucketTotal > 0 ? bucketTotal : (c.balance || 0);
-            if (bucketTotal === 0 && c.balance > 0) agg.current = c.balance;
-            return { customer: c, balance: displayBalance, buckets: agg };
-        });
-    }, [customers, invoices]);
+    const customerAgingRows = useMemo(() => {
+        if (arAging?.rows && arAging.rows.length > 0) {
+            const groups = {};
+            arAging.rows.forEach((r) => {
+                const key = r.partyName || r.partyId || 'Customer';
+                if (!groups[key]) {
+                    const cust = (customers || []).find((c) => c.name === key || c.id === r.partyId);
+                    groups[key] = {
+                        name: key,
+                        code: cust?.code || 'CUST',
+                        creditLimit: cust?.creditLimit || 50000,
+                        balance: 0,
+                        buckets: { current: 0, '31-60': 0, '61-90': 0, '90+': 0 },
+                    };
+                }
+                const out = Number(r.outstanding || 0);
+                groups[key].balance += out;
+                if (r.bucket === 'Current' || r.bucket === '0-30') groups[key].buckets.current += out;
+                else if (r.bucket === '31-60') groups[key].buckets['31-60'] += out;
+                else if (r.bucket === '61-90') groups[key].buckets['61-90'] += out;
+                else groups[key].buckets['90+'] += out;
+            });
+            return Object.values(groups);
+        }
+        return customers.map((c) => ({
+            name: c.name,
+            code: c.code || 'CUST',
+            creditLimit: c.creditLimit || 50000,
+            balance: c.balance || 0,
+            buckets: { current: c.balance || 0, '31-60': 0, '61-90': 0, '90+': 0 },
+        }));
+    }, [arAging, customers]);
+
+    const vendorAgingRows = useMemo(() => {
+        if (apAging?.rows && apAging.rows.length > 0) {
+            const groups = {};
+            apAging.rows.forEach((r) => {
+                const key = r.partyName || r.partyId || 'Vendor';
+                if (!groups[key]) {
+                    groups[key] = {
+                        name: key,
+                        billNumber: r.documentNumber || 'BILL',
+                        balance: 0,
+                        buckets: { current: 0, '31-60': 0, '61-90': 0, '90+': 0 },
+                    };
+                }
+                const out = Number(r.outstanding || 0);
+                groups[key].balance += out;
+                if (r.bucket === 'Current' || r.bucket === '0-30') groups[key].buckets.current += out;
+                else if (r.bucket === '31-60') groups[key].buckets['31-60'] += out;
+                else if (r.bucket === '61-90') groups[key].buckets['61-90'] += out;
+                else groups[key].buckets['90+'] += out;
+            });
+            return Object.values(groups);
+        }
+        return (purchaseBills || []).map((b) => ({
+            name: b.vendor || 'Unknown Vendor',
+            billNumber: b.billNumber || 'BILL',
+            balance: Math.max(0, Number(b.total ?? b.amount ?? 0) - Number(b.paidAmount ?? b.amountPaid ?? 0)),
+            buckets: { current: Math.max(0, Number(b.total ?? b.amount ?? 0) - Number(b.paidAmount ?? b.amountPaid ?? 0)), '31-60': 0, '61-90': 0, '90+': 0 },
+        }));
+    }, [apAging, purchaseBills]);
 
     // Dynamic P&L calculations
     const totalRevenue = grossSales;
@@ -252,7 +291,7 @@ export const ReportsPage = () => {
             // [PHASE-1-AGING-FIX] Old export bucketed by balance thresholds (c.balance > 20000 etc).
             // Now exports real invoice/bill due-date buckets per customer + vendor.
             const headers = ['Customer', 'Code', 'Total Outstanding', '0-30 Days', '31-60 Days', '61-90 Days', '90+ Days'];
-            const rows = customerAging.map((row) => [
+            const rows = customerAgingRows.map((row) => [
                 row.customer.name,
                 row.customer.code,
                 row.balance.toFixed(2),
@@ -482,13 +521,13 @@ export const ReportsPage = () => {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100 bg-white">
-                  {customerAging.map((row) => (<tr key={row.customer.id} className="hover:bg-slate-50/70">
+                  {customerAgingRows.map((row, idx) => (<tr key={idx} className="hover:bg-slate-50/70">
                       <td className="p-2.5">
-                        <p className="font-semibold text-slate-800">{row.customer.name}</p>
-                        <span className="text-[10px] text-slate-400 font-mono">Code: {row.customer.code}</span>
+                        <p className="font-semibold text-slate-800">{row.name}</p>
+                        <span className="text-[10px] text-slate-400 font-mono">Code: {row.code}</span>
                       </td>
                       <td className="p-2.5 text-right font-mono text-slate-600">
-                        {formatCurrency(row.customer.creditLimit || 50000)}
+                        {formatCurrency(row.creditLimit || 50000)}
                       </td>
                       <td className="p-2.5 text-right font-mono font-bold text-slate-900">
                         {formatCurrency(row.balance)}
@@ -506,6 +545,9 @@ export const ReportsPage = () => {
                         {formatCurrency(row.buckets['90+'] || 0)}
                       </td>
                     </tr>))}
+                  {customerAgingRows.length === 0 && (
+                    <tr><td colSpan={7} className="p-4 text-center text-slate-400">No receivable aging records.</td></tr>
+                  )}
                 </tbody>
               </table>
             </div>
@@ -555,24 +597,22 @@ export const ReportsPage = () => {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100 bg-white">
-                  {purchaseBills.map((b) => {
-                      const outstanding = (getBillOutstanding?.(b.id)?.balanceDue)
-                          ?? Math.max(0, Number(b.total ?? b.amount ?? 0) - Number(b.paidAmount ?? b.amountPaid ?? 0));
-                      const bucket = bucketForDays(daysBetween(b.dueDate, getCurrentISODate()));
-                      const rowBuckets = { current: 0, '31-60': 0, '61-90': 0, '90+': 0 };
-                      rowBuckets[bucket] = outstanding;
-                      return (<tr key={b.id} className="hover:bg-slate-50/70">
-                          <td className="p-2.5">
-                            <p className="font-semibold text-slate-800">{b.vendor || 'Unknown Vendor'}</p>
-                            <span className="text-[10px] text-slate-400 font-mono">{b.billNumber}</span>
-                          </td>
-                          <td className="p-2.5 text-right font-mono font-bold text-slate-900">{formatCurrency(outstanding)}</td>
-                          <td className="p-2.5 text-right font-mono text-emerald-700">{formatCurrency(rowBuckets.current)}</td>
-                          <td className="p-2.5 text-right font-mono text-blue-700">{formatCurrency(rowBuckets['31-60'])}</td>
-                          <td className="p-2.5 text-right font-mono text-amber-700">{formatCurrency(rowBuckets['61-90'])}</td>
-                          <td className="p-2.5 text-right font-mono text-rose-700 font-semibold">{formatCurrency(rowBuckets['90+'])}</td>
-                        </tr>);
-                    })}
+                  {vendorAgingRows.map((row, idx) => (
+                    <tr key={idx} className="hover:bg-slate-50/70">
+                      <td className="p-2.5">
+                        <p className="font-semibold text-slate-800">{row.name}</p>
+                        <span className="text-[10px] text-slate-400 font-mono">{row.billNumber}</span>
+                      </td>
+                      <td className="p-2.5 text-right font-mono font-bold text-slate-900">{formatCurrency(row.balance)}</td>
+                      <td className="p-2.5 text-right font-mono text-emerald-700">{formatCurrency(row.buckets.current)}</td>
+                      <td className="p-2.5 text-right font-mono text-blue-700">{formatCurrency(row.buckets['31-60'])}</td>
+                      <td className="p-2.5 text-right font-mono text-amber-700">{formatCurrency(row.buckets['61-90'])}</td>
+                      <td className="p-2.5 text-right font-mono text-rose-700 font-semibold">{formatCurrency(row.buckets['90+'])}</td>
+                    </tr>
+                  ))}
+                  {vendorAgingRows.length === 0 && (
+                    <tr><td colSpan={6} className="p-4 text-center text-slate-400">No payable aging records.</td></tr>
+                  )}
                 </tbody>
               </table>
             </div>

@@ -165,12 +165,12 @@ export const AddEditItemPage = () => {
   const [imagePreview, setImagePreview] = useState('');
   const [isDraggingFile, setIsDraggingFile] = useState(false);
 
-  const [costPrice, setCostPrice] = useState('45.50');
-  const [sellingPrice, setSellingPrice] = useState('129.99');
-  const [availableQty, setAvailableQty] = useState('50');
-  const [reorderLevel, setReorderLevel] = useState('15');
-  const [location, setLocation] = useState(locations[0]?.name || 'Main Central Hub');
-  const [description, setDescription] = useState('High-performance industrial grade component designed for mission-critical operations with extended durability and certified specifications.');
+  const [costPrice, setCostPrice] = useState('');
+  const [sellingPrice, setSellingPrice] = useState('');
+  const [availableQty, setAvailableQty] = useState('0');
+  const [reorderLevel, setReorderLevel] = useState('');
+  const [location, setLocation] = useState(locations[0]?.name || '');
+  const [description, setDescription] = useState('');
 
   // Dynamic Custom Field Values
   const [customFieldValues, setCustomFieldValues] = useState({});
@@ -268,10 +268,10 @@ export const AddEditItemPage = () => {
       setSacCode(existingItem.sacCode || '');
       setSerialNumbersText((existingItem.serialNumbers || []).join('\n'));
       setImagePreview(existingItem.image || existingItem.imageUrl || '');
-      setCostPrice(String(existingItem.costPrice || existingItem.unitCost || '45.00'));
-      setSellingPrice(String(existingItem.sellingPrice || '120.00'));
+      setCostPrice(String(existingItem.costPrice ?? existingItem.unitCost ?? ''));
+      setSellingPrice(String(existingItem.sellingPrice ?? ''));
       setAvailableQty(String(existingItem.availableQty ?? existingItem.stock ?? '0'));
-      setReorderLevel(String(existingItem.reorderLevel || '10'));
+      setReorderLevel(String(existingItem.reorderLevel ?? ''));
       setLocation(existingItem.location || locations[0]?.name || 'Main Central Hub');
       setDescription(existingItem.description || '');
       setItemLifecycle(existingItem.lifecycleStatus || 'Active');
@@ -1607,15 +1607,16 @@ export const AddEditItemPage = () => {
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-1">
                       <div>
                         <label className="block text-xs font-semibold text-slate-700 mb-1">
-                          Initial Batch Quantity ({salesUnit || 'Unit'})
+                          Available Stock ({salesUnit || 'Unit'})
                         </label>
                         <input
                           type="number"
+                          readOnly
                           value={availableQty}
-                          onChange={(e) => setAvailableQty(e.target.value)}
-                          className="w-full h-10 border border-slate-200 rounded-xl px-3 bg-white text-slate-800 font-mono text-xs focus:outline-none focus:border-blue-600"
-                          placeholder="50"
+                          className="w-full h-10 border border-slate-200 rounded-xl px-3 bg-slate-50 text-slate-600 font-mono text-xs cursor-not-allowed"
+                          placeholder="0"
                         />
+                        <p className="text-[11px] text-slate-400 mt-1">Stock is maintained through documents (GRN, Job Work, Dispatch, etc.).</p>
                       </div>
                       <div>
                         <label className="block text-xs font-semibold text-slate-700 mb-1">
@@ -1635,15 +1636,16 @@ export const AddEditItemPage = () => {
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                     <div>
                       <label className="block text-xs font-semibold text-slate-700 mb-1">
-                        Initial Stock Level ({salesUnit || 'Unit'})
+                        Available Stock ({salesUnit || 'Unit'})
                       </label>
                       <input
                         type="number"
+                        readOnly
                         value={availableQty}
-                        onChange={(e) => setAvailableQty(e.target.value)}
-                        className="w-full h-10 border border-slate-200 rounded-xl px-3 bg-white text-slate-800 font-mono text-xs focus:outline-none focus:border-blue-600"
-                        placeholder="50"
+                        className="w-full h-10 border border-slate-200 rounded-xl px-3 bg-slate-50 text-slate-600 font-mono text-xs cursor-not-allowed"
+                        placeholder="0"
                       />
+                      <p className="text-[11px] text-slate-400 mt-1">Stock is maintained through documents (GRN, Job Work, Dispatch, etc.).</p>
                     </div>
                     <div>
                       <label className="block text-xs font-semibold text-slate-700 mb-1">
@@ -2542,15 +2544,16 @@ export const AddEditItemPage = () => {
               </div>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-xs font-semibold text-amber-800 mb-1">Initial Stock Level (Meter)</label>
+                  <label className="block text-xs font-semibold text-amber-800 mb-1">Available Stock (Meter)</label>
                   <input
                     type="number"
                     min="0"
+                    readOnly
                     value={availableQty}
-                    onChange={(e) => setAvailableQty(e.target.value)}
-                    className="w-full h-10 border border-amber-200 rounded-xl px-3 bg-white text-slate-800 text-xs focus:outline-none focus:border-amber-400"
-                    placeholder="e.g. 0.0"
+                    className="w-full h-10 border border-amber-200 rounded-xl px-3 bg-amber-50/50 text-slate-600 text-xs cursor-not-allowed"
+                    placeholder="0"
                   />
+                  <p className="text-[11px] text-amber-700 mt-1">Stock is maintained through documents (GRN, Job Work, Dispatch, etc.).</p>
                 </div>
                 <div>
                   <label className="block text-xs font-semibold text-amber-800 mb-1">Safety Reorder Level (Meter)</label>

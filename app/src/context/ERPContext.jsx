@@ -107,13 +107,7 @@ export const ERPProvider = ({ children, }) => {
     const [paymentIns, setPaymentIns] = useState([]);
     const [salesReturns, setSalesReturns] = useState([]);
     const [purchaseOrders, setPurchaseOrders] = useState([]);
-    const [productionInstructions, setProductionInstructions] = useState(() => {
-        try {
-            return JSON.parse(localStorage.getItem('oscar_productionInstructions') || '[]');
-        } catch {
-            return [];
-        }
-    });
+    const [productionInstructions, setProductionInstructions] = useState([]);
     const [purchaseBills, setPurchaseBills] = useState([]);
     const [vendorBills, setVendorBills] = useState([]);
     const [paymentOuts, setPaymentOuts] = useState([]);
@@ -2710,8 +2704,8 @@ export const ERPProvider = ({ children, }) => {
             sourceQuotationNumber: challan.sourceQuotationNumber,
             leadId: challan.leadId,
             dealId: challan.dealId,
-            salesOrderNumber: challan.salesOrderNumber || challan.linkedSo || (challan.sourceQuotationId ? '' : 'SO-2026-0102'),
-            linkedSo: challan.salesOrderNumber || challan.linkedSo || (challan.sourceQuotationId ? '' : 'SO-2026-0102'),
+            salesOrderNumber: challan.salesOrderNumber || challan.linkedSo || '',
+            linkedSo: challan.salesOrderNumber || challan.linkedSo || '',
             customerId: challan.customerId,
             customer: challan.customer || 'Acme Corp',
             billingAddress: createAddressSnapshot(challan.billingAddress) || defaultAddresses.billing,
@@ -2732,26 +2726,11 @@ export const ERPProvider = ({ children, }) => {
             return newChallan;
         }
 
-        // Record SALE movement and handle serial numbers
+        // Serial numbers removal for serialized items
         if (newChallan.items && newChallan.items.length > 0) {
             newChallan.items.forEach((line) => {
                 const targetSku = line.sku || line.itemSku;
                 const item = items.find((i) => i.id === line.itemId || (targetSku && i.sku?.toLowerCase() === targetSku.toLowerCase()));
-                const dispatchQty = Number(line.qty || line.dispatchedQty) || 1;
-                recordMovement({
-                    itemId: item?.id || line.itemId || `itm-${Date.now()}`,
-                    itemSku: item?.sku || targetSku || 'GEN-SKU',
-                    itemName: item?.name || line.name || line.description,
-                    type: 'SALE',
-                    quantity: -dispatchQty,
-                    unitCost: item?.costPrice || line.rate || 0,
-                    referenceType: 'DeliveryChallan',
-                    referenceId: newChallan.id,
-                    referenceNumber: newChallan.challanNumber,
-                    notes: `Dispatched to ${newChallan.customer} via ${newChallan.challanNumber}`,
-                });
-
-                // Serial numbers removal
                 const serialsToDispatch = line.selectedSerials || line.serialNumbers || (line.serialNumber ? [line.serialNumber] : []);
                 if (serialsToDispatch.length > 0 && item) {
                     removeSerialNumbers(item.id, serialsToDispatch);
@@ -3357,27 +3336,21 @@ export const ERPProvider = ({ children, }) => {
         showToast(`Draft Purchase Order ${po.poNumber || ''} deleted.`);
     };
     const persistProductionInstructions = (next) => {
-        try { localStorage.setItem('oscar_productionInstructions', JSON.stringify(next)); } catch { }
         return next;
     };
     // Backend-first: vendor process instructions live in Postgres
-    // (GET /jobwork/process-instructions/) when logged in; localStorage is only the offline cache.
-    // Offline creates are retried here and merged — never wiped by a pull.
+    // (GET /jobwork/process-instructions/) when logged in.
     useEffect(() => {
         let live = true;
         const syncVPIs = () => {
-            import('../services/jobWorkSync').then(async ({ pullVPIs, pushCreateVPI, reconcilePendingCreates, mergeServerRows, isJobWorkBackendEnabled }) => {
+            import('../services/jobWorkSync').then(async ({ pullVPIs, isJobWorkBackendEnabled }) => {
                 if (!isJobWorkBackendEnabled()) return;
                 try {
-                    const cached = JSON.parse(localStorage.getItem('oscar_productionInstructions') || '[]');
-                    const reconciled = await reconcilePendingCreates(Array.isArray(cached) ? cached : [], pushCreateVPI);
                     const rows = await pullVPIs();
                     if (live && Array.isArray(rows)) {
-                        const merged = mergeServerRows(reconciled, rows);
-                        setProductionInstructions(merged);
-                        persistProductionInstructions(merged);
+                        setProductionInstructions(rows);
                     }
-                } catch { /* offline — keep cache */ }
+                } catch { /* ignore */ }
             });
         };
         syncVPIs();

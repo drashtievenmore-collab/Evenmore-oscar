@@ -185,6 +185,7 @@ export default function JobWorkOutwardPage() {
         subtitle="Track material sent to vendors for job work processing."
         breadcrumb={[
           { label: 'Dashboard', path: '/dashboard' },
+          { label: 'PMS', path: '/pms' },
           { label: 'Job Work / Processing' },
           { label: 'Job Work Outward' },
         ]}

@@ -1,44 +1,133 @@
-import React, { useEffect, useMemo, useState, useSyncExternalStore } from 'react';
-import { useNavigate } from 'react-router-dom';
+import React, { useEffect, useMemo, useState } from 'react';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { ArrowLeft, Plus, Pencil, Trash2, X } from 'lucide-react';
-import { useERP } from '../../../context/ERPContext';
 import { Button } from '../../../components/ui/Button';
-import { dailyEntriesStore } from './dailyEntriesStore';
 import PageHeader from '../../../components/ui/PageHeader';
+import { api } from '../../../services/api';
 
 const fmt = (n) => Number(n || 0).toLocaleString('en-IN');
 
 const toDDMMYYYY = (iso) => {
   if (!iso) return '-';
-  const [y, m, d] = iso.split('-');
-  return `${d}-${m}-${y}`;
+  const parts = String(iso).slice(0, 10).split('-');
+  if (parts.length === 3) return `${parts[2]}-${parts[1]}-${parts[0]}`;
+  return iso;
 };
+
+function normalizeInstruction(item) {
+  if (!item) return null;
+  return {
+    ...item,
+    id: String(item.id),
+    piNumber: item.instructionNumber || item.instruction_number || item.piNumber || `PI-${item.id}`,
+    date: item.piDate || item.pi_date || item.date || '',
+    vendor: item.agencyName || item.agency_name || item.vendor || '',
+    fabric: item.fabric || '',
+    processType: item.processType || item.process_type || '',
+    assignedQty: Number(item.orderMeter ?? item.order_meter ?? item.assignedQty ?? 0),
+    startDate: item.startDate || item.piDate || item.pi_date || '',
+    expectedDate: item.expectedCompletionDate || item.expected_completion_date || '',
+    employeeId: item.employeeId || item.employee_id || item.employee || '',
+    status: item.status || 'Draft',
+  };
+}
+
+function normalizeEntry(e) {
+  if (!e) return null;
+  return {
+    id: String(e.id),
+    date: e.entryDate || e.entry_date || e.date || '',
+    produced: Number(e.meters ?? e.produced ?? 0),
+    by: e.employeeName || e.employee_name || e.by || '—',
+    remarks: e.remarks || '',
+    employeeId: e.enteredByEmployeeId || e.entered_by_employee_id || e.employeeId || '',
+  };
+}
 
 export default function DailyProductionPage() {
   const navigate = useNavigate();
-  const { productionInstructions } = useERP();
+  const [searchParams, setSearchParams] = useSearchParams();
 
-  // Use the first instruction as context. No mock/fallback data is used.
-  const pi = productionInstructions[0] || null;
+  const [instructions, setInstructions] = useState([]);
+  const [selectedPiId, setSelectedPiId] = useState(() => searchParams.get('pi') || '');
+  const [entries, setEntries] = useState([]);
+  const [employees, setEmployees] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [entriesLoading, setEntriesLoading] = useState(false);
+  const [error, setError] = useState(null);
+
+  const [showModal, setShowModal] = useState(false);
+  const [editing, setEditing] = useState(null);
+  const [formDate, setFormDate] = useState('');
+  const [formQty, setFormQty] = useState('');
+  const [formRemarks, setFormRemarks] = useState('');
+  const [formEmployeeId, setFormEmployeeId] = useState('');
+
+  // Load instructions and employees
+  useEffect(() => {
+    let live = true;
+    setLoading(true);
+    Promise.all([
+      api.get('/production/instructions/').catch(() => ({ results: [] })),
+      api.get('/hrms/employees/').catch(() => ({ results: [] })),
+    ])
+      .then(([piRes, empRes]) => {
+        if (!live) return;
+        const piList = (Array.isArray(piRes) ? piRes : piRes?.results || []).map(normalizeInstruction).filter(Boolean);
+        setInstructions(piList);
+        const empList = Array.isArray(empRes) ? empRes : empRes?.results || [];
+        setEmployees(empList);
+
+        if (!selectedPiId && piList.length > 0) {
+          setSelectedPiId(piList[0].id);
+        }
+      })
+      .catch((err) => {
+        if (live) setError(err.message || 'Failed to load instructions');
+      })
+      .finally(() => {
+        if (live) setLoading(false);
+      });
+
+    return () => { live = false; };
+  }, []);
+
+  const pi = useMemo(
+    () => instructions.find((p) => String(p.id) === String(selectedPiId)) || instructions[0] || null,
+    [instructions, selectedPiId],
+  );
+
   const piNumber = pi?.piNumber || '—';
   const vendor = pi?.vendor || '—';
   const fabric = pi?.fabric || '—';
   const assignedQty = Number(pi?.assignedQty) || 0;
   const startDate = pi?.startDate || '';
-  const expectedDate = pi?.expectedCompletionDate || '';
+  const expectedDate = pi?.expectedDate || '';
   const status = pi?.status || '';
 
-  const entries = useSyncExternalStore(dailyEntriesStore.subscribe, dailyEntriesStore.get);
-  const [showModal, setShowModal] = useState(false);
-  const [editing, setEditing] = useState(null);
-  // Backend-first: load this PI's entries from GET /jobwork/pi-entries/.
+  // Load daily entries when selected PI changes
   useEffect(() => {
-    dailyEntriesStore.load(pi?.id).catch(() => {});
+    if (!pi?.id) {
+      setEntries([]);
+      return;
+    }
+    let live = true;
+    setEntriesLoading(true);
+    api.get('/production/daily-entries/', { query: { instructionId: pi.id } })
+      .then((res) => {
+        if (!live) return;
+        const list = (Array.isArray(res) ? res : res?.results || []).map(normalizeEntry).filter(Boolean);
+        setEntries(list);
+      })
+      .catch(() => {
+        if (live) setEntries([]);
+      })
+      .finally(() => {
+        if (live) setEntriesLoading(false);
+      });
+
+    return () => { live = false; };
   }, [pi?.id]);
-  const [formDate, setFormDate] = useState('');
-  const [formQty, setFormQty] = useState('');
-  const [formRemarks, setFormRemarks] = useState('');
-  const [formPhoto, setFormPhoto] = useState(null);
 
   const rows = useMemo(() => {
     const sorted = [...entries].sort((a, b) => (a.date < b.date ? -1 : 1));
@@ -54,19 +143,19 @@ export default function DailyProductionPage() {
 
   const openAdd = () => {
     setEditing(null);
-    setFormDate('');
+    setFormDate(new Date().toISOString().slice(0, 10));
     setFormQty('');
     setFormRemarks('');
-    setFormPhoto(null);
+    setFormEmployeeId(pi?.employeeId || (employees[0]?.id ? String(employees[0].id) : ''));
     setShowModal(true);
   };
 
   const openEdit = (row) => {
     setEditing(row);
-    setFormDate(row.date);
+    setFormDate(row.date ? String(row.date).slice(0, 10) : '');
     setFormQty(String(row.produced));
     setFormRemarks(row.remarks || '');
-    setFormPhoto(null);
+    setFormEmployeeId(row.employeeId || pi?.employeeId || '');
     setShowModal(true);
   };
 
@@ -74,33 +163,46 @@ export default function DailyProductionPage() {
     e.preventDefault();
     if (!formDate) { alert('Date is required.'); return; }
     if (!(Number(formQty) > 0)) { alert('Produced quantity must be greater than 0.'); return; }
-    let by = editing?.by || '';
-    if (!by) {
-      try {
-        const u = JSON.parse(localStorage.getItem('evenmore_saved_user') || 'null');
-        by = u?.name || u?.full_name || u?.username || '';
-      } catch { by = ''; }
+    if (!pi?.id) { alert('Select a Production Instruction first.'); return; }
+
+    const empId = formEmployeeId || pi.employeeId || employees[0]?.id;
+
+    try {
+      if (editing) {
+        const payload = {
+          entryDate: formDate,
+          meters: Number(formQty),
+          remarks: formRemarks,
+        };
+        const updated = await api.patch(`/production/daily-entries/${editing.id}/`, payload);
+        const norm = normalizeEntry(updated);
+        setEntries((prev) => prev.map((item) => (item.id === norm.id ? norm : item)));
+      } else {
+        const payload = {
+          instructionId: pi.id,
+          entryDate: formDate,
+          meters: Number(formQty),
+          enteredByEmployeeId: empId,
+          remarks: formRemarks,
+        };
+        const created = await api.post('/production/daily-entries/', payload);
+        const norm = normalizeEntry(created);
+        setEntries((prev) => [...prev, norm]);
+      }
+      setShowModal(false);
+    } catch (err) {
+      alert(err.message || 'Failed to save daily entry');
     }
-    // The File itself travels along (`photoFile`) so the store can upload it
-    // to /files/ first and persist the server file id on the entry.
-    if (editing) {
-      await dailyEntriesStore.update(editing.id, {
-        date: formDate, produced: Number(formQty), by, remarks: formRemarks,
-        photoFile: formPhoto || undefined,
-        photo: formPhoto ? formPhoto.name : editing.photo,
-      });
-    } else {
-      await dailyEntriesStore.add({
-        id: `e-${Date.now()}`, instructionId: pi?.id, piId: pi?.id,
-        date: formDate, produced: Number(formQty), by, remarks: formRemarks,
-        photoFile: formPhoto || undefined, photo: formPhoto ? formPhoto.name : '',
-      });
-    }
-    setShowModal(false);
   };
 
-  const handleDelete = (id) => {
-    if (window.confirm('Delete this entry?')) dailyEntriesStore.remove(id);
+  const handleDelete = async (id) => {
+    if (!window.confirm('Delete this entry?')) return;
+    try {
+      await api.delete(`/production/daily-entries/${id}/`);
+      setEntries((prev) => prev.filter((item) => item.id !== id));
+    } catch (err) {
+      alert(err.message || 'Failed to delete entry');
+    }
   };
 
   const infoCards = [
@@ -126,12 +228,30 @@ export default function DailyProductionPage() {
           { label: piNumber },
         ]}
         actions={
-          <button
-            onClick={() => navigate('/pms/production-instructions')}
-            className="inline-flex items-center gap-1.5 rounded-lg border border-[#e2eaf5] bg-white px-3 py-2 text-[12px] font-bold text-[#2563eb] hover:bg-slate-50"
-          >
-            <ArrowLeft size={14} /> Back to Instructions
-          </button>
+          <div className="flex items-center gap-2">
+            {instructions.length > 1 && (
+              <select
+                value={selectedPiId}
+                onChange={(e) => {
+                  setSelectedPiId(e.target.value);
+                  setSearchParams({ pi: e.target.value });
+                }}
+                className="rounded-lg border border-[#e2eaf5] bg-white px-3 py-2 text-[12px] font-semibold text-slate-700 outline-none"
+              >
+                {instructions.map((p) => (
+                  <option key={p.id} value={p.id}>
+                    {p.piNumber} - {p.vendor}
+                  </option>
+                ))}
+              </select>
+            )}
+            <button
+              onClick={() => navigate('/pms/production-instructions')}
+              className="inline-flex items-center gap-1.5 rounded-lg border border-[#e2eaf5] bg-white px-3 py-2 text-[12px] font-bold text-[#2563eb] hover:bg-slate-50"
+            >
+              <ArrowLeft size={14} /> Back to Instructions
+            </button>
+          </div>
         }
       />
 
@@ -181,7 +301,7 @@ export default function DailyProductionPage() {
                   <td className="px-4 py-3">{fmt(row.cumulative)}</td>
                   <td className="px-4 py-3">{fmt(row.balance)}</td>
                   <td className="px-4 py-3">{row.by}</td>
-                  <td className="px-4 py-3">{row.remarks || '-'}{row.photo && <span className="ml-2 inline-flex items-center rounded-full bg-blue-50 px-2 py-0.5 text-[10px] font-bold text-blue-600">📷 {row.photo}</span>}</td>
+                  <td className="px-4 py-3">{row.remarks || '-'}</td>
                   <td className="px-4 py-3">
                     <div className="flex items-center gap-3">
                       <button onClick={() => openEdit(row)} className="text-slate-400 hover:text-[#2563eb]" title="Edit"><Pencil size={14} /></button>
@@ -190,7 +310,14 @@ export default function DailyProductionPage() {
                   </td>
                 </tr>
               ))}
-              {rows.length === 0 && (
+              {entriesLoading && (
+                <tr>
+                  <td colSpan={8} className="px-4 py-8 text-center text-slate-500">
+                    Loading daily entries...
+                  </td>
+                </tr>
+              )}
+              {!entriesLoading && rows.length === 0 && (
                 <tr><td colSpan={8} className="px-4 py-8 text-center text-slate-400">No entries yet. Click "Add Daily Entry" to record production.</td></tr>
               )}
             </tbody>
@@ -229,30 +356,30 @@ export default function DailyProductionPage() {
 
             <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2">
               <label className="block">
+                <span className="text-[12px] font-bold text-slate-600">Entered By Employee</span>
+                <select
+                  value={formEmployeeId}
+                  onChange={(e) => setFormEmployeeId(e.target.value)}
+                  className="mt-1.5 w-full rounded-lg border border-[#e2eaf5] px-3 py-2.5 text-[13px] outline-none focus:border-[#2563eb]"
+                >
+                  <option value="">Select employee...</option>
+                  {employees.map((em) => (
+                    <option key={em.id} value={em.id}>
+                      {em.name} ({em.employeeCode || em.employee_code || 'EMP'})
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="block">
                 <span className="text-[12px] font-bold text-slate-600">Remarks (Optional)</span>
                 <textarea
-                  rows={4}
+                  rows={3}
                   value={formRemarks}
                   onChange={(e) => setFormRemarks(e.target.value)}
                   placeholder="Enter remarks..."
                   className="mt-1.5 w-full rounded-lg border border-[#e2eaf5] px-3 py-2.5 text-[13px] outline-none focus:border-[#2563eb]"
                 />
               </label>
-              <div>
-                <span className="text-[12px] font-bold text-slate-600">Photo / Proof (Optional)</span>
-                <label className="mt-1.5 flex h-[104px] cursor-pointer flex-col items-center justify-center rounded-lg border border-dashed border-slate-300 bg-slate-50 text-center hover:border-[#2563eb]">
-                  <svg className="h-7 w-7 text-[#2563eb]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M4 16v2a2 2 0 002 2h12a2 2 0 002-2v-2M12 4v10m0-10l-3.5 3.5M12 4l3.5 3.5" />
-                  </svg>
-                  <span className="mt-1 text-[13px] font-bold text-[#2563eb]">{formPhoto ? formPhoto.name : 'Upload Photo'}</span>
-                  <span className="text-[11px] text-slate-400">JPG, PNG (Max 5 MB)</span>
-                  <input type="file" accept="image/jpeg,image/png" className="hidden" onChange={(e) => {
-                    const f = e.target.files?.[0] || null;
-                    if (f && f.size > 5 * 1024 * 1024) { alert('File must be Max 5 MB.'); e.target.value = ''; setFormPhoto(null); return; }
-                    setFormPhoto(f);
-                  }} />
-                </label>
-              </div>
             </div>
 
             <div className="mt-6 flex justify-end gap-3">

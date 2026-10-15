@@ -49,7 +49,15 @@ import {
   Ban,
   Shield,
   Layers,
+  TrendingUp,
+  ArrowRight,
 } from 'lucide-react';
+
+const STATUS_TONES = {
+  Active: 'bg-emerald-50 text-emerald-700 border-emerald-200',
+  Inactive: 'bg-slate-100 text-slate-600 border-slate-200',
+  Lead: 'bg-blue-50 text-blue-700 border-blue-200',
+};
 
 const CLIENTS_PER_PAGE = 12;
 
@@ -132,7 +140,7 @@ function sourceTone(client) {
 }
 
 export function ClientsPage() {
-  const { refreshFromBackend } = useERP();
+  const { refreshFromBackend, companyProfile: company } = useERP();
   const [clients, setClients] = useState([]);
   const [loadError, setLoadError] = useState('');
   const [loading, setLoading] = useState(true);
@@ -237,58 +245,6 @@ export function ClientsPage() {
     const start = (currentPage - 1) * CLIENTS_PER_PAGE;
     return filteredClients.slice(start, start + CLIENTS_PER_PAGE);
   }, [filteredClients, currentPage]);
-
-  const handleSaveClient = async (clientData) => {
-    try {
-      if (editingClient) {
-        const saved = await adminSync.update('customerClients', editingClient.id, clientData);
-        if (!saved) throw new Error('The client could not be saved. Please sign in again.');
-        if (saved) setClients((prev) => prev.map((c) => (c.id === saved.id ? saved : c)));
-        showNotification(`Client "${clientData.name}" updated successfully!`);
-      } else {
-        const created = await adminSync.create('customerClients', clientData);
-        if (!created) throw new Error('The client could not be saved. Please sign in again.');
-        if (created) {
-          setClients((prev) => [created, ...prev]);
-          showNotification(`New client "${created.name}" created successfully!`);
-        }
-      }
-    } catch (err) {
-      showNotification(`Client not saved — ${describeError(err)}`);
-      return false;
-    }
-    refreshFromBackend();
-    setIsCreateModalOpen(false);
-    setEditingClient(null);
-    return true;
-  };
-
-  const handleDeleteClient = async () => {
-    if (!clientToDelete) return;
-    try {
-      const deleted = await adminSync.remove('customerClients', clientToDelete.id);
-      if (!deleted) throw new Error('The client could not be deleted. Please sign in again.');
-      setClients((prev) => prev.filter((c) => c.id !== clientToDelete.id));
-      refreshFromBackend();
-      showNotification(`Client "${clientToDelete.name}" deleted.`);
-      setClientToDelete(null);
-    } catch (error) {
-      showNotification(`Client not deleted: ${describeError(error)}`);
-    }
-  };
-
-  const handleAddNoteToClient = (noteText) => {
-    if (!clientForNote || !noteText.trim()) return;
-    setClients((prev) =>
-      prev.map((c) =>
-        c.id === clientForNote.id
-          ? { ...c, notes: [noteText.trim(), ...(c.notes || [])] }
-          : c
-      )
-    );
-    showNotification(`Note added to ${clientForNote.name}'s file.`);
-    setClientForNote(null);
-  };
 
   const handleExportData = (format = 'csv') => {
     setIsExportOpen(false);

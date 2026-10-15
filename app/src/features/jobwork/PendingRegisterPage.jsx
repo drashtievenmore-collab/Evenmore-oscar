@@ -2,87 +2,8 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Eye, FileText } from 'lucide-react';
 import PageHeader from '../../components/ui/PageHeader';
-import { loadJWOs, loadJWOsAsync, numIN, toDDMMYYYY } from './jobWorkOrdersStore';
-
-/**
- * Pending Register — AUTOMATIC / DERIVED register.
- *
- * There is intentionally NO add/create form and NO separate storage here.
- * Every row is derived live from the Job Work Order + its Outward Challans
- * and Inward Receipts (the same records the JWO detail tabs read/write):
- *
- *   totalOutward = Σ outwards.qty
- *   totalInward  = Σ inwards.qty
- *   pendingQty   = totalOutward − totalInward
- *
- * Status:
- *   pendingQty = 0                          → Completed
- *   pendingQty > 0 and expected date passed → Overdue
- *   pendingQty > 0 otherwise                → Pending
- *
- * Any create/edit of an Outward Challan or Inward Receipt updates the
- * underlying JWO, so this register refreshes automatically (backend-first
- * pull + local cache, same as the Outward / Inward pages).
- */
-
-const EPS = 0.0001;
-
-const todayISO = () => {
-  const d = new Date();
-  const m = String(d.getMonth() + 1).padStart(2, '0');
-  const day = String(d.getDate()).padStart(2, '0');
-  return `${d.getFullYear()}-${m}-${day}`;
-};
-
-const daysBetween = (fromISO, toISO) => {
-  const a = new Date(`${String(fromISO || '').slice(0, 10)}T00:00:00`);
-  const b = new Date(`${String(toISO || '').slice(0, 10)}T00:00:00`);
-  if (Number.isNaN(a.getTime()) || Number.isNaN(b.getTime())) return 0;
-  return Math.max(0, Math.floor((b - a) / 86400000));
-};
-
-/** Derive one register row per JWO that has material sent out. */
-export function derivePendingRows(orders, today = todayISO()) {
-  return (orders || [])
-    .map((o) => {
-      const mat = (o.materials || [])[0] || {};
-      const totalOutward = (o.outwards || []).reduce((s, w) => s + (Number(w.qty) || 0), 0);
-      const totalInward = (o.inwards || []).reduce((s, r) => s + (Number(r.qty) || 0), 0);
-      const pendingQty = Math.max(0, totalOutward - totalInward);
-      const expectedReturnDate = o.expectedCompletion || '';
-      let status;
-      if (pendingQty <= EPS) {
-        status = 'Completed';
-      } else if (expectedReturnDate && today > String(expectedReturnDate).slice(0, 10)) {
-        status = 'Overdue';
-      } else {
-        status = 'Pending';
-      }
-      // Days pending with the vendor: since the earliest outward challan
-      // (falling back to the order date), 0 once completed.
-      const outwardDates = (o.outwards || []).map((w) => String(w.date || '').slice(0, 10)).filter(Boolean).sort();
-      const pendingSince = outwardDates[0] || String(o.orderDate || '').slice(0, 10);
-      const daysPending = status === 'Completed' || !pendingSince ? 0 : daysBetween(pendingSince, today);
-      return {
-        jwoId: o.id,
-        jwoNo: o.jwoNo || '',
-        vendor: o.vendor || '',
-        process: o.process || '',
-        fabricItem: mat.fabricItem || '',
-        fabricQuality: mat.fabricQuality || '',
-        shade: mat.shade || '',
-        totalOutward,
-        totalInward,
-        pendingQty,
-        expectedReturnDate,
-        daysPending,
-        status,
-      };
-    })
-    // Only JWOs with material actually sent out belong in the register.
-    .filter((r) => r.totalOutward > EPS)
-    .sort((a, b) => String(a.jwoNo || '').localeCompare(String(b.jwoNo || '')));
-}
+import { api } from '../../services/api';
+import { numIN, toDDMMYYYY } from './jobWorkOrdersStore';
 
 const statusPill = (s) =>
   s === 'Completed'
@@ -93,7 +14,9 @@ const statusPill = (s) =>
 
 export default function PendingRegisterPage() {
   const navigate = useNavigate();
-  const [orders, setOrders] = useState(loadJWOs);
+  const [rows, setRows] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
   const [fJwo, setFJwo] = useState('All');
   const [fVendor, setFVendor] = useState('All');
   const [fProcess, setFProcess] = useState('All');
@@ -102,19 +25,25 @@ export default function PendingRegisterPage() {
   const [fFrom, setFFrom] = useState('');
   const [fTo, setFTo] = useState('');
 
-  // Backend-first: same source the Outward / Inward pages read, so any
-  // challan / receipt create or edit is reflected here automatically.
   useEffect(() => {
     let live = true;
-    loadJWOsAsync()
-      .then((rows) => {
-        if (live && Array.isArray(rows)) setOrders(rows);
+    setLoading(true);
+    api.get('/jobwork/orders/pending-register/')
+      .then((res) => {
+        if (!live) return;
+        const list = Array.isArray(res) ? res : res?.results || [];
+        setRows(list);
+        setError(null);
       })
-      .catch(() => {});
+      .catch((err) => {
+        if (!live) return;
+        setError(err.message || 'Failed to load pending register');
+      })
+      .finally(() => {
+        if (live) setLoading(false);
+      });
     return () => { live = false; };
   }, []);
-
-  const rows = useMemo(() => derivePendingRows(orders), [orders]);
 
   const jwoNos = useMemo(() => ['All', ...new Set(rows.map((r) => r.jwoNo).filter(Boolean))], [rows]);
   const vendors = useMemo(() => ['All', ...new Set(rows.map((r) => r.vendor).filter(Boolean))], [rows]);
@@ -232,7 +161,21 @@ export default function PendingRegisterPage() {
                   </td>
                 </tr>
               ))}
-              {filtered.length === 0 && (
+              {loading && (
+                <tr>
+                  <td colSpan={14} className="px-4 py-10 text-center text-slate-500">
+                    Loading pending register...
+                  </td>
+                </tr>
+              )}
+              {!loading && error && (
+                <tr>
+                  <td colSpan={14} className="px-4 py-10 text-center text-red-600">
+                    {error}
+                  </td>
+                </tr>
+              )}
+              {!loading && !error && filtered.length === 0 && (
                 <tr>
                   <td colSpan={14} className="px-4 py-10 text-center">
                     <p className="text-[13px] font-extrabold text-[#17294e]">No pending records found</p>

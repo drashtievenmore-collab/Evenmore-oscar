@@ -156,9 +156,11 @@ export default function QCReinspectionPage() {
     setEntryLotNo(row.lotNo || 'LT-001');
     setEntryVendor(row.vendor || '');
     setEntryMeasurements(
-      row.measurements || [
-        { srNo: 1, takaNo: 1, actualQty: row.sentQty || 100, width: 150, remarks: '-' },
-      ]
+      row.measurements && row.measurements.length > 0
+        ? row.measurements
+        : (row.sentQty || row.receivedQty)
+          ? [{ srNo: 1, takaNo: 1, actualQty: Number(row.sentQty || row.receivedQty || 0), width: row.width ?? null, remarks: '-' }]
+          : []
     );
 
     const totalQ = row.sentQty || row.receivedQty || 0;
@@ -175,7 +177,7 @@ export default function QCReinspectionPage() {
       setRejectedQty('0');
     }
 
-    setRemarks(row.remarks || 'Fabric quality improved after reprocess. Minor shade variation observed.');
+    setRemarks(row.remarks || '');
   };
 
   const clearEntryForm = () => {
@@ -810,7 +812,7 @@ export default function QCReinspectionPage() {
                         <td className="p-2 text-slate-500">{m.srNo || idx + 1}</td>
                         <td className="p-2 font-medium">{m.takaNo || idx + 1}</td>
                         <td className="p-2 text-right font-medium">{m.actualQty}</td>
-                        <td className="p-2 text-right">{m.width || 150}</td>
+                        <td className="p-2 text-right">{m.width ? m.width : '—'}</td>
                         <td className="p-2 text-slate-500">{m.remarks || '-'}</td>
                       </tr>
                     ))

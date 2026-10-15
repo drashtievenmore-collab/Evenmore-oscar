@@ -1547,6 +1547,7 @@ export default function JobWorkOrderDetailPage() {
         title={`${jwo.process} Job Work Order - ${jwo.jwoNo}`}
         breadcrumb={[
           { label: 'Dashboard', path: '/dashboard' },
+          { label: 'PMS', path: '/pms' },
           { label: 'Job Work / Processing' },
           { label: 'Job Work Orders', path: '/job-work/orders' },
           { label: jwo.jwoNo },

@@ -70,6 +70,9 @@ export default function ProcessPlanDetailPage() {
   const [editingChargeId, setEditingChargeId] = useState(null);
   const [viewingCharge, setViewingCharge] = useState(null);
   const [chargeForm, setChargeForm] = useState({ type: '', description: '', rate: '', qty: '' });
+  const [viewingStage, setViewingStage] = useState(null);
+  const [editingStageIdx, setEditingStageIdx] = useState(null);
+  const [stageForm, setStageForm] = useState({ planned: '', actual: '', status: 'Pending', remarks: '' });
 
   // Backend-first refresh when logged in.
   useEffect(() => {
@@ -252,9 +255,6 @@ export default function ProcessPlanDetailPage() {
       : s === 'In Progress'
         ? 'bg-blue-100 text-blue-600 border-blue-200'
         : 'bg-orange-100 text-orange-500 border-orange-200';
-  const [viewingStage, setViewingStage] = useState(null);
-  const [editingStageIdx, setEditingStageIdx] = useState(null);
-  const [stageForm, setStageForm] = useState({ planned: '', actual: '', status: 'Pending', remarks: '' });
 
   const openEditStage = (idx) => {
     const s = timelineStages[idx];
@@ -596,6 +596,7 @@ export default function ProcessPlanDetailPage() {
         }
         breadcrumb={[
           { label: 'Dashboard', path: '/dashboard' },
+          { label: 'PMS', path: '/pms' },
           { label: 'Job Work / Processing' },
           { label: 'Process Plan', path: '/job-work/process-plan' },
           { label: po.planNo },

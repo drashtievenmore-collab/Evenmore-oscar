@@ -1,35 +1,13 @@
-import { useState } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { Link } from 'react-router-dom';
 import { useERP } from '../../context/ERPContext';
+import { api } from '../../services/api';
 import {
   BarChart3, Banknote, ShoppingCart, Settings, Truck, FileText,
   Landmark, Database, Package, TrendingUp, TrendingDown,
   Factory, ShieldCheck, Users, TriangleAlert, ArrowRight, ChevronDown,
   Layers, ClipboardList, Cog, Boxes, RotateCcw,
 } from 'lucide-react';
-
-/* Demo fallbacks matching the Oscar Textile reference screenshot */
-const DEMO = {
-  sales: { today: 1250000, prev: 1110000 },
-  collection: { today: 820000, prev: 758000 },
-  purchase: { today: 640000, prev: 675000 },
-  jobWork: { today: 285000, prev: 275000 },
-  transport: { today: 95000, prev: 97000 },
-  other: { today: 125000, prev: 117000 },
-  funds: 28500000,
-  workingCapital: 12450000,
-  stock: 18500000,
-  profit: { today: 210000, prev: 182000 },
-  sales7: [12.5, 10.5, 12.5, 14, 12, 17, 17],
-  collection7: [10, 9, 10, 11.5, 11, 14, 13.5],
-  ageing: [
-    { label: '0 – 30 Days', amount: 800000, pct: 35 },
-    { label: '31 – 60 Days', amount: 500000, pct: 22 },
-    { label: '61 – 90 Days', amount: 200000, pct: 9 },
-    { label: '91 – 120 Days', amount: 150000, pct: 7 },
-    { label: '120+ Days', amount: 300000, pct: 13 },
-  ],
-};
 
 const inr = (n) => `₹ ${Number(n || 0).toLocaleString('en-IN', { maximumFractionDigits: 0 })}`;
 const dayKey = (v) => String(v || '').slice(0, 10);
@@ -74,8 +52,9 @@ function KpiTile({ icon: Icon, label, value, pct, vs, tileBg, iconBg, iconColor 
         {up
           ? <TrendingUp size={13} className="text-emerald-600" />
           : <TrendingDown size={13} className="text-rose-500" />}
-        <span className={up ? 'text-emerald-600' : 'text-rose-500'}>↑ {Math.abs(pct).toFixed(1)}%</span>
-        {(!up) && null}
+        <span className={up ? 'text-emerald-600' : 'text-rose-500'}>
+          {up ? '↑' : '↓'} {Math.abs(pct).toFixed(1)}%
+        </span>
       </div>
       <div className="mt-0.5 text-[10.5px] font-medium text-slate-500">vs. {vs}</div>
     </div>
@@ -103,10 +82,29 @@ function SectionCard({ icon: Icon, title, linkTo, linkLabel = 'View Details', ch
 
 export const DashboardPage = () => {
   const {
-    invoices, paymentIns, purchaseBills, expenses,
-    items, faultyParts, bankAccounts, calculateItemStock,
+    invoices = [], paymentIns = [], purchaseBills = [], deliveryChallans = [],
+    expenses = [], items = [], faultyParts = [], bankAccounts = [],
+    calculateItemStock, customers = [], vendorBills = [], productionInstructions = [],
   } = useERP();
   const [period, setPeriod] = useState('today');
+
+  const [jobWorkOrders, setJobWorkOrders] = useState([]);
+  const [qcList, setQcList] = useState([]);
+
+  useEffect(() => {
+    let active = true;
+    api.get('/jobwork/orders/', { query: { limit: 200 } })
+      .then((res) => {
+        if (active) setJobWorkOrders(Array.isArray(res) ? res : res?.results || []);
+      })
+      .catch(() => {});
+    api.get('/inventory/qc/disposition/')
+      .then((res) => {
+        if (active) setQcList(res?.inspections || res?.data?.inspections || []);
+      })
+      .catch(() => {});
+    return () => { active = false; };
+  }, []);
 
   const now = new Date();
   const todayStr = isoOf(now);
@@ -116,96 +114,195 @@ export const DashboardPage = () => {
   const prev = period === 'today' ? yStr : d2Str;
 
   const sumOn = (rows, day, pick) => (rows || [])
-    .filter((r) => dayKey(r.date || r.paymentDate || r.createdAt) === day)
+    .filter((r) => dayKey(r.date || r.docDate || r.paymentDate || r.orderDate || r.createdAt) === day)
     .reduce((a, r) => a + (Number(pick(r)) || 0), 0);
 
-  const isJobExp = (e) => /job/i.test(e.category || e.type || '');
-  const isTransExp = (e) => /transport|freight|logistic/i.test(e.category || e.type || '');
-  const expAmt = (e) => e.amount ?? e.total;
-  const live = {
-    sales: { cur: sumOn(invoices, cur, (i) => i.total ?? i.amount), prev: sumOn(invoices, prev, (i) => i.total ?? i.amount) },
-    collection: { cur: sumOn(paymentIns, cur, (p) => p.amount), prev: sumOn(paymentIns, prev, (p) => p.amount) },
-    purchase: { cur: sumOn(purchaseBills, cur, (b) => b.total ?? b.amount), prev: sumOn(purchaseBills, prev, (b) => b.total ?? b.amount) },
-    jobWork: {
-      cur: sumOn((expenses || []).filter(isJobExp), cur, expAmt),
-      prev: sumOn((expenses || []).filter(isJobExp), prev, expAmt),
-    },
-    transport: {
-      cur: sumOn((expenses || []).filter(isTransExp), cur, expAmt),
-      prev: sumOn((expenses || []).filter(isTransExp), prev, expAmt),
-    },
-  };
-  live.other = {
-    cur: sumOn(expenses || [], cur, expAmt) - live.jobWork.cur - live.transport.cur,
-    prev: sumOn(expenses || [], prev, expAmt) - live.jobWork.prev - live.transport.prev,
-  };
-  const withDemo = (l, d) => (l.cur || l.prev ? { today: l.cur, prev: l.prev } : d);
+  const jwoAmt = (j) => Number(j.totalAmount ?? (Number(j.plannedQty || 0) * Number(j.rate || 0))) || 0;
+  const freightAmt = (d) => Number(d.freightCharges || d.freight || 0);
 
-  const sales = withDemo(live.sales, DEMO.sales);
-  const collection = withDemo(live.collection, DEMO.collection);
-  const purchase = withDemo(live.purchase, DEMO.purchase);
-  const jobWork = withDemo(live.jobWork, DEMO.jobWork);
-  const transport = withDemo(live.transport, DEMO.transport);
-  const other = (live.other.cur || live.other.prev)
-    ? { today: Math.max(0, live.other.cur), prev: Math.max(0, live.other.prev) }
-    : DEMO.other;
+  // Live business position figures
+  const salesCur = sumOn(invoices, cur, (i) => i.total ?? i.amount);
+  const salesPrev = sumOn(invoices, prev, (i) => i.total ?? i.amount);
+
+  const collCur = sumOn(paymentIns, cur, (p) => p.amount);
+  const collPrev = sumOn(paymentIns, prev, (p) => p.amount);
+
+  const purchCur = sumOn(purchaseBills, cur, (b) => b.total ?? b.amount);
+  const purchPrev = sumOn(purchaseBills, prev, (b) => b.total ?? b.amount);
+
+  const jwCur = sumOn(jobWorkOrders, cur, jwoAmt);
+  const jwPrev = sumOn(jobWorkOrders, prev, jwoAmt);
+
+  const transCur = sumOn(deliveryChallans, cur, freightAmt) + sumOn(invoices, cur, freightAmt);
+  const transPrev = sumOn(deliveryChallans, prev, freightAmt) + sumOn(invoices, prev, freightAmt);
+
+  const expAmt = (e) => Number(e.amount ?? e.total ?? 0);
+  const otherCur = sumOn(expenses, cur, expAmt);
+  const otherPrev = sumOn(expenses, prev, expAmt);
+
+  const sales = { today: salesCur, prev: salesPrev };
+  const collection = { today: collCur, prev: collPrev };
+  const purchase = { today: purchCur, prev: purchPrev };
+  const jobWork = { today: jwCur, prev: jwPrev };
+  const transport = { today: transCur, prev: transPrev };
+  const other = { today: otherCur, prev: otherPrev };
+
+  // Real COGS calculation from invoices on cur and prev days
+  const calcInvoiceCogs = (invList, day) => (invList || [])
+    .filter((i) => dayKey(i.date || i.docDate || i.createdAt) === day && (i.status || '') !== 'Cancelled')
+    .reduce((acc, inv) => {
+      const lines = inv.lineItems || inv.items || [];
+      const lineCost = lines.reduce((s, line) => {
+        const item = items.find((it) => it.id === line.itemId || it.sku === line.itemSku || it.sku === line.sku);
+        const unitCost = Number(line.costPrice ?? line.unitCost ?? item?.costPrice ?? 0);
+        return s + (Number(line.qty || 0) * unitCost);
+      }, 0);
+      return acc + lineCost;
+    }, 0);
+
+  const curCogs = calcInvoiceCogs(invoices, cur);
+  const prevCogs = calcInvoiceCogs(invoices, prev);
+  const curGrossProfit = salesCur - curCogs;
+  const prevGrossProfit = salesPrev - prevCogs;
+  const profit = { today: curGrossProfit, prev: prevGrossProfit };
 
   const bankBalance = (bankAccounts || []).reduce((a, b) => a + (Number(b.balance ?? b.currentBalance) || 0), 0);
   const stockValue = (items || []).reduce((a, it) => {
     try {
-      const calc = calculateItemStock(it.id);
-      return a + (Number(it.costPrice ?? it.unitCost) || 0) * (calc?.onHand || 0);
+      const calc = typeof calculateItemStock === 'function' ? calculateItemStock(it.id) : null;
+      const onHand = calc ? (calc.onHand ?? calc.available ?? 0) : (it.availableQty ?? it.stock ?? 0);
+      return a + (Number(it.costPrice ?? it.unitCost) || 0) * onHand;
     } catch { return a; }
   }, 0);
-  const funds = bankBalance > 0 ? bankBalance : DEMO.funds;
-  const stock = stockValue > 0 ? Math.round(stockValue) : DEMO.stock;
-  const liveProfit = (sales.today || 0) - (purchase.today || 0) - ((live.jobWork.cur || 0) + (live.transport.cur || 0) + Math.max(0, live.other.cur || 0));
-  const profit = (live.sales.cur || live.sales.prev) ? { today: liveProfit, prev: live.sales.prev - live.purchase.prev } : DEMO.profit;
 
-  /* last 7 days, oldest → newest */
+  const unpaid = (invoices || []).filter((i) => (i.status || 'Unpaid') !== 'Paid' && (i.status || '') !== 'Cancelled');
+  const unpaidTotal = unpaid.reduce((s, i) => s + (Number(i.total ?? i.amount ?? i.balanceDue ?? 0) || 0), 0);
+  const unpaidBills = (purchaseBills || []).filter((b) => (b.status || 'Unpaid') !== 'Paid' && (b.status || '') !== 'Cancelled');
+  const unpaidBillsTotal = unpaidBills.reduce((s, b) => s + (Number(b.total ?? b.amount ?? b.balanceDue ?? 0) || 0), 0);
+
+  const funds = bankBalance;
+  const workingCapital = Math.max(0, (bankBalance + unpaidTotal + stockValue) - unpaidBillsTotal);
+  const stock = Math.round(stockValue);
+
+  /* last 7 days sales & collection, oldest → newest */
   const last7 = Array.from({ length: 7 }, (_, i) => isoOf(new Date(now.getTime() - (6 - i) * 86400000)));
-  const daySales = last7.map((d) => sumOn(invoices, d, (x) => x.total ?? x.amount) / 100000);
-  const dayColl = last7.map((d) => sumOn(paymentIns, d, (x) => x.amount) / 100000);
-  const hasWeek = daySales.some((v) => v > 0) || dayColl.some((v) => v > 0);
-  const sales7 = hasWeek ? daySales : DEMO.sales7;
-  const coll7 = hasWeek ? dayColl : DEMO.collection7;
-  const maxLakh = Math.max(20, ...sales7, ...coll7);
+  const sales7 = last7.map((d) => sumOn(invoices, d, (x) => x.total ?? x.amount) / 100000);
+  const coll7 = last7.map((d) => sumOn(paymentIns, d, (x) => x.amount) / 100000);
+  const maxLakh = Math.max(10, ...sales7, ...coll7);
   const dayLabel = (iso) => {
     const d = new Date(`${iso}T00:00:00`);
     return `${d.getDate()} ${d.toLocaleString('en', { month: 'short' })}`;
   };
 
-  /* receivable ageing from unpaid invoices */
-  const unpaid = (invoices || []).filter((i) => (i.status || 'Unpaid') !== 'Paid' && (i.status || '') !== 'Cancelled');
+  /* receivable ageing from real unpaid invoices */
   const buckets = [0, 0, 0, 0, 0];
   unpaid.forEach((i) => {
     const due = new Date(dayKey(i.dueDate || i.date || todayStr));
     const age = Math.max(0, Math.round((now - due) / 86400000));
     const idx = age <= 30 ? 0 : age <= 60 ? 1 : age <= 90 ? 2 : age <= 120 ? 3 : 4;
-    buckets[idx] += Number(i.total ?? i.amount ?? i.balance ?? 0) || 0;
+    buckets[idx] += Number(i.balanceDue ?? i.total ?? i.amount ?? 0) || 0;
   });
   const bucketTotal = buckets.reduce((a, b) => a + b, 0);
-  const ageing = bucketTotal > 0
-    ? buckets.map((amt, i) => ({
-        label: ['0 – 30 Days', '31 – 60 Days', '61 – 90 Days', '91 – 120 Days', '120+ Days'][i],
-        amount: Math.round(amt),
-        pct: Math.round((amt / bucketTotal) * 100),
-      }))
-    : DEMO.ageing;
+  const ageing = [
+    { label: '0 – 30 Days', amount: Math.round(buckets[0]), pct: bucketTotal > 0 ? Math.round((buckets[0] / bucketTotal) * 100) : 0 },
+    { label: '31 – 60 Days', amount: Math.round(buckets[1]), pct: bucketTotal > 0 ? Math.round((buckets[1] / bucketTotal) * 100) : 0 },
+    { label: '61 – 90 Days', amount: Math.round(buckets[2]), pct: bucketTotal > 0 ? Math.round((buckets[2] / bucketTotal) * 100) : 0 },
+    { label: '91 – 120 Days', amount: Math.round(buckets[3]), pct: bucketTotal > 0 ? Math.round((buckets[3] / bucketTotal) * 100) : 0 },
+    { label: '120+ Days', amount: Math.round(buckets[4]), pct: bucketTotal > 0 ? Math.round((buckets[4] / bucketTotal) * 100) : 0 },
+  ];
 
+  // Dynamic Production & Job Work stats
+  const totalPlannedMeters = (productionInstructions || []).reduce((s, p) => s + (Number(p.assignedQty ?? p.orderMeter ?? 0) || 0), 0)
+    + (jobWorkOrders || []).reduce((s, j) => s + (Number(j.plannedQty || 0)), 0);
+  const totalProducedMeters = (productionInstructions || []).reduce((s, p) => s + (Number(p.producedQty || 0)), 0)
+    + (jobWorkOrders || []).reduce((s, j) => s + ((j.inwards || []).reduce((si, inw) => si + (Number(inw.accepted ?? inw.qty ?? 0)), 0)), 0);
+  const totalPendingMeters = Math.max(0, totalPlannedMeters - totalProducedMeters);
+  const prodCompletionPct = totalPlannedMeters > 0 ? Math.min(100, Math.round((totalProducedMeters / totalPlannedMeters) * 100)) : 0;
+
+  // Process breakdown from active Job Work Orders
+  const jwByProcess = useMemo(() => {
+    const map = {};
+    (jobWorkOrders || []).forEach((j) => {
+      const p = j.process || 'Other';
+      const outQty = (j.outwards || []).reduce((s, o) => s + (Number(o.qty) || 0), 0);
+      const inwQty = (j.inwards || []).reduce((s, i) => s + (Number(i.qty) || 0), 0);
+      const pend = Math.max(0, outQty - inwQty);
+      map[p] = (map[p] || 0) + pend;
+    });
+    return Object.entries(map).map(([process, qty]) => ({ process, qty }));
+  }, [jobWorkOrders]);
+
+  // Inventory Position breakdown
+  const inventoryPosition = useMemo(() => {
+    const greyItems = items.filter((it) => /grey|greige/i.test(it.name || it.category || ''));
+    const greyVal = greyItems.reduce((s, it) => s + (Number(it.costPrice || 0) * (it.availableQty ?? 0)), 0);
+    const greyMtr = greyItems.reduce((s, it) => s + Number(it.availableQty || 0), 0);
+
+    const wipOrders = (jobWorkOrders || []).filter((j) => (j.status || '') === 'In-Process');
+    const wipMtr = wipOrders.reduce((s, j) => {
+      const out = (j.outwards || []).reduce((so, o) => so + Number(o.qty || 0), 0);
+      const inw = (j.inwards || []).reduce((si, i) => si + Number(i.qty || 0), 0);
+      return s + Math.max(0, out - inw);
+    }, 0);
+    const wipVal = wipOrders.reduce((s, j) => s + Number(j.totalAmount || 0), 0);
+
+    const holdItems = qcList.filter((q) => Number(q.holdQty || 0) > 0);
+    const holdMtr = holdItems.reduce((s, q) => s + Number(q.holdQty || 0), 0);
+    const holdVal = holdMtr * 45;
+
+    const finItems = items.filter((it) => it.itemKind === 'Fabric' || /finish|dyed|print/i.test(it.name || it.category || ''));
+    const finVal = finItems.reduce((s, it) => s + (Number(it.costPrice || 0) * (it.availableQty ?? 0)), 0);
+    const finMtr = finItems.reduce((s, it) => s + Number(it.availableQty || 0), 0);
+
+    const repMtr = qcList.reduce((s, q) => s + Number(q.reprocessQty || 0), 0);
+    const repVal = repMtr * 35;
+
+    return [
+      { icon: Layers, tint: '#e8f1fd', fg: '#2563eb', l: 'Grey Stock', v: inr(greyVal), s: `${Math.round(greyMtr).toLocaleString('en-IN')} mtr` },
+      { icon: ClipboardList, tint: '#e7f6ec', fg: '#16a34a', l: 'External WIP', v: inr(wipVal), s: `${Math.round(wipMtr).toLocaleString('en-IN')} mtr` },
+      { icon: Cog, tint: '#fdf3e0', fg: '#d97706', l: 'QC Hold', v: inr(holdVal), s: `${Math.round(holdMtr).toLocaleString('en-IN')} mtr` },
+      { icon: Boxes, tint: '#e7f6ef', fg: '#0d9488', l: 'Finished Stock', v: inr(finVal), s: `${Math.round(finMtr).toLocaleString('en-IN')} mtr` },
+      { icon: RotateCcw, tint: '#fdeeee', fg: '#ef4444', l: 'Reprocess', v: inr(repVal), s: `${Math.round(repMtr).toLocaleString('en-IN')} mtr` },
+    ];
+  }, [items, jobWorkOrders, qcList]);
+
+  // QC & Wastage stats
+  const qcStats = useMemo(() => {
+    const received = qcList.reduce((s, q) => s + Number(q.inspectedQty ?? q.receivedQty ?? 0), 0);
+    const good = qcList.reduce((s, q) => s + Number(q.goodQty ?? 0), 0);
+    const reprocess = qcList.reduce((s, q) => s + Number(q.reprocessQty ?? 0), 0);
+    const reject = qcList.reduce((s, q) => s + Number(q.rejectedQty ?? 0), 0);
+    const loss = Math.max(0, received - good - reprocess);
+    const yieldPct = received > 0 ? ((good / received) * 100).toFixed(1) : '100.0';
+    const lossPct = received > 0 ? ((loss / received) * 100).toFixed(1) : '0.0';
+    return { received, good, reprocess, reject, loss, yieldPct, lossPct };
+  }, [qcList]);
+
+  // Real Attention counts
   const overdueCount = unpaid.filter((i) => new Date(dayKey(i.dueDate || i.date)) < new Date(todayStr)).length;
+  const delayedJwCount = (jobWorkOrders || []).filter((j) => (j.status || '') === 'In-Process' && j.expectedCompletion && j.expectedCompletion < todayStr).length;
+  const highWastageCount = qcList.filter((q) => Number(q.rejectedQty || 0) > 0).length;
+  const reprocessLotsCount = qcList.filter((q) => Number(q.reprocessQty || 0) > 0).length + (faultyParts || []).filter((f) => f.status === 'Reported').length;
+  const creditExceededCount = (customers || []).filter((c) => Number(c.creditLimit) > 0 && Number(c.balance || 0) > Number(c.creditLimit)).length;
+  const mismatchBillCount = (vendorBills || []).filter((b) => b.matchingStatus === 'Mismatch' || b.status === 'Pending Verification').length;
   const lowCount = (items || []).filter((it) => {
-    try { const c = calculateItemStock(it.id); return c.available <= (it.reorderLevel || 5); } catch { return false; }
+    try {
+      const c = typeof calculateItemStock === 'function' ? calculateItemStock(it.id) : null;
+      const av = c ? c.available : (it.availableQty ?? 0);
+      return av <= (it.reorderLevel || 5);
+    } catch { return false; }
   }).length;
+  const missingProdCount = (productionInstructions || []).filter((p) => p.status === 'In Progress' && !p.producedQty).length;
+
   const attention = [
-    { label: 'Production updates missing', count: 3 },
-    { label: 'Job works delayed', count: 3 },
-    { label: 'High wastage lots', count: 4 },
-    { label: 'QC lots require reprocess', count: (faultyParts || []).filter((f) => f.status === 'Reported' || f.status === 'Sent for Replacement').length || 2 },
-    { label: 'Customers exceeded credit limit', count: 5 },
-    { label: 'Overdue receivables', count: overdueCount || 3 },
-    { label: "Vendor invoices don't match", count: 2 },
-    { label: 'Finished lots are slow-moving', count: lowCount || 6 },
+    { label: 'Production updates missing', count: missingProdCount },
+    { label: 'Job works delayed', count: delayedJwCount },
+    { label: 'High wastage lots', count: highWastageCount },
+    { label: 'QC lots require reprocess', count: reprocessLotsCount },
+    { label: 'Customers exceeded credit limit', count: creditExceededCount },
+    { label: 'Overdue receivables', count: overdueCount },
+    { label: "Vendor invoices don't match", count: mismatchBillCount },
+    { label: 'Finished lots are slow-moving', count: lowCount },
   ];
 
   const kpis = [
@@ -231,13 +328,13 @@ export const DashboardPage = () => {
         <div className="relative flex flex-wrap items-start justify-between gap-3 p-4">
           <div>
             <h1 className="text-[21px] font-extrabold tracking-tight text-[#17294e]">Good Morning, Admin 👋</h1>
-            <p className="mt-0.5 text-[12.5px] text-slate-500">Here&apos;s today&apos;s business position for Oscar Textile.</p>
+            <p className="mt-0.5 text-[12.5px] text-slate-500">Here&apos;s today&apos;s real-time business position for Oscar Textile.</p>
           </div>
           <div className="relative">
             <select
               value={period}
               onChange={(e) => setPeriod(e.target.value)}
-              className="appearance-none rounded-lg border border-[#dce5f4] bg-white py-2 pl-3.5 pr-9 text-[12.5px] font-semibold text-slate-700 shadow-sm outline-none cursor-pointer"
+              className="appearance-none rounded-lg border border-[#dce5f4] bg-white py-2 pl-3.5 pr-9 text-[12.5px] font-semibold text-slate-700 shadow-xs outline-none cursor-pointer"
             >
               <option value="today">Today</option>
               <option value="yesterday">Yesterday</option>
@@ -264,8 +361,8 @@ export const DashboardPage = () => {
       {/* funds row */}
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
         {[
-          { icon: Landmark, label: 'Funds Position', value: inr(funds), sub: 'Available Funds', bg: '#e8f1fd', fg: '#2563eb' },
-          { icon: Database, label: 'Working Capital', value: inr(DEMO.workingCapital), sub: 'Current', bg: '#e7f6ef', fg: '#0d9488' },
+          { icon: Landmark, label: 'Funds Position', value: inr(funds), sub: 'Available Cash & Bank', bg: '#e8f1fd', fg: '#2563eb' },
+          { icon: Database, label: 'Working Capital', value: inr(workingCapital), sub: 'Current Assets − Current Liab.', bg: '#e7f6ef', fg: '#0d9488' },
           { icon: Package, label: 'Stock Value', value: inr(stock), sub: 'Total Inventory Value', bg: '#e7f6ec', fg: '#16a34a' },
         ].map((c) => (
           <div key={c.label} className="flex items-center gap-3 rounded-xl border border-[#e2eaf5] bg-white p-4 shadow-[0_1px_2px_rgba(16,42,82,0.05)]">
@@ -284,11 +381,13 @@ export const DashboardPage = () => {
             <BarChart3 size={21} />
           </span>
           <div className="min-w-0 flex-1">
-            <p className="text-[11px] font-semibold text-slate-500">Profitability (Today)</p>
+            <p className="text-[11px] font-semibold text-slate-500">Gross Profit (Today)</p>
             <p className="truncate text-[18px] font-extrabold tracking-tight text-[#17294e]">{inr(profit.today)}</p>
           </div>
           <div className="text-right text-[11px] font-bold">
-            <span className="flex items-center justify-end gap-0.5 text-emerald-600"><TrendingUp size={12} /> {Math.abs(pctChange(profit.today, profit.prev)).toFixed(1)}%</span>
+            <span className="flex items-center justify-end gap-0.5 text-emerald-600">
+              <TrendingUp size={12} /> {Math.abs(pctChange(profit.today, profit.prev)).toFixed(1)}%
+            </span>
             <span className="font-medium text-slate-400">vs. {inr(profit.prev)}</span>
           </div>
         </div>
@@ -296,16 +395,20 @@ export const DashboardPage = () => {
 
       {/* production / inventory / qc */}
       <div className="grid grid-cols-1 gap-3 xl:grid-cols-3">
-        <SectionCard icon={Factory} title="Production & Job Work (Today)" linkTo="/pms">
+        <SectionCard icon={Factory} title="Production & Job Work" linkTo="/pms">
           <div className="flex items-center gap-4">
             <div className="flex flex-col items-center">
-              <Donut pct={74}>
-                <strong className="text-[21px] font-extrabold text-[#17294e]">74%</strong>
+              <Donut pct={prodCompletionPct}>
+                <strong className="text-[21px] font-extrabold text-[#17294e]">{prodCompletionPct}%</strong>
               </Donut>
               <p className="mt-1.5 text-center text-[11px] font-medium text-slate-500">Production<br />Completion</p>
             </div>
             <ul className="min-w-0 flex-1 space-y-1.5 text-[12px] font-medium text-slate-600">
-              {[['Planned', '25,000 m', '#2563eb'], ['Produced', '18,400 m', '#22c55e'], ['Pending', '6,600 m', '#f59e0b']].map(([l, v, c]) => (
+              {[
+                ['Planned', `${Math.round(totalPlannedMeters).toLocaleString('en-IN')} m`, '#2563eb'],
+                ['Produced', `${Math.round(totalProducedMeters).toLocaleString('en-IN')} m`, '#22c55e'],
+                ['Pending', `${Math.round(totalPendingMeters).toLocaleString('en-IN')} m`, '#f59e0b'],
+              ].map(([l, v, c]) => (
                 <li key={l} className="flex items-center justify-between gap-2">
                   <span className="flex items-center gap-1.5"><i className="h-2 w-2 rounded-full" style={{ background: c }} />{l}</span>
                   <span className="font-bold text-slate-800">{v}</span>
@@ -315,26 +418,30 @@ export const DashboardPage = () => {
           </div>
           <div className="mt-3 border-t border-slate-100 pt-3">
             <p className="mb-2 text-[12px] font-bold text-slate-700">Job Work (In Process)</p>
-            <ul className="space-y-1.5 text-[12px] font-medium text-slate-600">
-              {[['Dyeing', '12,500 m', '#2563eb'], ['Printing', '5,200 m', '#22c55e'], ['Finishing', '3,800 m', '#f59e0b'], ['Pending Return', '8,400 m', '#ef4444']].map(([l, v, c]) => (
-                <li key={l} className="flex items-center justify-between gap-2">
-                  <span className="flex items-center gap-1.5"><i className="h-2 w-2 rounded-full" style={{ background: c }} />{l}</span>
-                  <span className="font-bold text-slate-800">{v}</span>
-                </li>
-              ))}
-            </ul>
+            {jwByProcess.length === 0 ? (
+              <p className="text-[11px] text-slate-400 py-1">No active job work orders in process.</p>
+            ) : (
+              <ul className="space-y-1.5 text-[12px] font-medium text-slate-600">
+                {jwByProcess.slice(0, 4).map(({ process, qty }, idx) => {
+                  const colors = ['#2563eb', '#22c55e', '#f59e0b', '#7c3aed'];
+                  return (
+                    <li key={process} className="flex items-center justify-between gap-2">
+                      <span className="flex items-center gap-1.5">
+                        <i className="h-2 w-2 rounded-full" style={{ background: colors[idx % colors.length] }} />
+                        {process}
+                      </span>
+                      <span className="font-bold text-slate-800">{Math.round(qty).toLocaleString('en-IN')} m</span>
+                    </li>
+                  );
+                })}
+              </ul>
+            )}
           </div>
         </SectionCard>
 
         <SectionCard icon={Package} title="Inventory Position (Value)" linkTo="/inventory/stock-position">
           <ul className="divide-y divide-slate-100">
-            {[
-              { icon: Layers, tint: '#e8f1fd', fg: '#2563eb', l: 'Grey Stock', v: '₹ 32,00,000', s: '24,850 mtr' },
-              { icon: ClipboardList, tint: '#e7f6ec', fg: '#16a34a', l: 'External WIP', v: '₹ 11,50,000', s: '8,600 mtr' },
-              { icon: Cog, tint: '#fdf3e0', fg: '#d97706', l: 'QC Hold', v: '₹ 2,80,000', s: '2,150 mtr' },
-              { icon: Boxes, tint: '#e7f6ef', fg: '#0d9488', l: 'Finished Stock', v: '₹ 27,00,000', s: '18,420 mtr' },
-              { icon: RotateCcw, tint: '#fdeeee', fg: '#ef4444', l: 'Reprocess', v: '₹ 1,60,000', s: '1,320 mtr' },
-            ].map((r) => (
+            {inventoryPosition.map((r) => (
               <li key={r.l}>
                 <Link to="/inventory/stock-position" className="group flex items-center gap-3 py-[9px]">
                   <span className="grid h-9 w-9 shrink-0 place-items-center rounded-lg" style={{ background: r.tint, color: r.fg }}>
@@ -352,14 +459,20 @@ export const DashboardPage = () => {
           </ul>
         </SectionCard>
 
-        <SectionCard icon={ShieldCheck} title="QC & Wastage (Today)" linkTo="/inventory/faulty-parts">
+        <SectionCard icon={ShieldCheck} title="QC & Wastage (Inspection Summary)" linkTo="/inventory/faulty-parts">
           <div className="flex items-center gap-4">
-            <Donut pct={91.4}>
-              <strong className="text-[18px] font-extrabold text-[#17294e]">91.4%</strong>
+            <Donut pct={Number(qcStats.yieldPct) || 100}>
+              <strong className="text-[18px] font-extrabold text-[#17294e]">{qcStats.yieldPct}%</strong>
               <span className="text-[10.5px] font-medium text-slate-500">Good Yield</span>
             </Donut>
             <ul className="min-w-0 flex-1 space-y-1.5 text-[12px] font-medium text-slate-600">
-              {[['Received', '25,000 m'], ['Good', '22,850 m'], ['Reprocess', '1,250 m'], ['Reject', '420 m'], ['Approved Loss', '480 m']].map(([l, v]) => (
+              {[
+                ['Received', `${Math.round(qcStats.received).toLocaleString('en-IN')} m`],
+                ['Good', `${Math.round(qcStats.good).toLocaleString('en-IN')} m`],
+                ['Reprocess', `${Math.round(qcStats.reprocess).toLocaleString('en-IN')} m`],
+                ['Reject', `${Math.round(qcStats.reject).toLocaleString('en-IN')} m`],
+                ['Loss', `${Math.round(qcStats.loss).toLocaleString('en-IN')} m`],
+              ].map(([l, v]) => (
                 <li key={l} className="flex items-center justify-between gap-2">
                   <span>{l}</span><span className="font-bold text-slate-800">{v}</span>
                 </li>
@@ -367,7 +480,7 @@ export const DashboardPage = () => {
             </ul>
           </div>
           <div className="mt-3 flex items-center justify-center gap-1.5 rounded-lg bg-[#fdeeee] px-3 py-2 text-[12px] font-bold text-[#dc2626]">
-            <TriangleAlert size={14} /> 1.9% Process Loss
+            <TriangleAlert size={14} /> {qcStats.lossPct}% Process Loss
           </div>
         </SectionCard>
       </div>
@@ -381,7 +494,7 @@ export const DashboardPage = () => {
           </div>
           <div className="flex gap-1.5">
             <div className="flex w-7 flex-col justify-between py-0.5 text-right text-[9px] font-semibold text-slate-400">
-              {[20, 15, 10, 5, 0].map((t) => <span key={t}>{t}</span>)}
+              {[maxLakh, Math.round(maxLakh * 0.75), Math.round(maxLakh * 0.5), Math.round(maxLakh * 0.25), 0].map((t) => <span key={t}>{t}</span>)}
             </div>
             <div className="relative flex-1">
               <div className="absolute inset-0 flex flex-col justify-between">
@@ -394,8 +507,8 @@ export const DashboardPage = () => {
                   return (
                     <div key={last7[i]} className="flex h-full flex-1 flex-col items-center justify-end gap-1">
                       <div className="flex w-full max-w-[46px] flex-1 items-end justify-center gap-1">
-                        <div className="w-1/2 rounded-t-[4px] bg-[#2563eb]" style={{ height: h(s) }} title={`Sales ₹${s}L`} />
-                        <div className="w-1/2 rounded-t-[4px] bg-[#34d399]" style={{ height: h(c) }} title={`Collection ₹${c}L`} />
+                        <div className="w-1/2 rounded-t-[4px] bg-[#2563eb]" style={{ height: h(s) }} title={`Sales ₹${s.toFixed(2)}L`} />
+                        <div className="w-1/2 rounded-t-[4px] bg-[#34d399]" style={{ height: h(c) }} title={`Collection ₹${c.toFixed(2)}L`} />
                       </div>
                       <span className="text-[8.5px] font-semibold text-slate-400">{dayLabel(last7[i])}</span>
                     </div>
@@ -408,21 +521,27 @@ export const DashboardPage = () => {
         </SectionCard>
 
         <SectionCard icon={Users} title="Customer Receivable Ageing" linkTo="/sales/invoices">
-          <ul className="space-y-3 pt-1">
-            {ageing.map((b, i) => {
-              const colors = ['#22c55e', '#38bdf6', '#facc15', '#fb923c', '#f87171'];
-              return (
-                <li key={b.label} className="flex items-center gap-2 text-[12px]">
-                  <span className="w-[84px] shrink-0 font-medium text-slate-500">{b.label}</span>
-                  <span className="h-3.5 flex-1 overflow-hidden rounded-full bg-[#eef2f7]">
-                    <span className="block h-full rounded-full" style={{ width: `${Math.min(100, Math.max(6, b.pct * 2.2))}%`, background: colors[i % colors.length] }} />
-                  </span>
-                  <span className="w-[84px] shrink-0 text-right font-extrabold text-[#17294e]">{inr(b.amount)}</span>
-                  <span className="w-[40px] shrink-0 text-right text-[11px] font-semibold text-slate-400">({b.pct}%)</span>
-                </li>
-              );
-            })}
-          </ul>
+          {bucketTotal === 0 ? (
+            <div className="py-8 text-center text-xs text-slate-400">
+              No outstanding receivables. All invoices are settled.
+            </div>
+          ) : (
+            <ul className="space-y-3 pt-1">
+              {ageing.map((b, i) => {
+                const colors = ['#22c55e', '#38bdf6', '#facc15', '#fb923c', '#f87171'];
+                return (
+                  <li key={b.label} className="flex items-center gap-2 text-[12px]">
+                    <span className="w-[84px] shrink-0 font-medium text-slate-500">{b.label}</span>
+                    <span className="h-3.5 flex-1 overflow-hidden rounded-full bg-[#eef2f7]">
+                      <span className="block h-full rounded-full" style={{ width: `${Math.min(100, Math.max(b.pct > 0 ? 6 : 0, b.pct))}%`, background: colors[i % colors.length] }} />
+                    </span>
+                    <span className="w-[84px] shrink-0 text-right font-extrabold text-[#17294e]">{inr(b.amount)}</span>
+                    <span className="w-[40px] shrink-0 text-right text-[11px] font-semibold text-slate-400">({b.pct}%)</span>
+                  </li>
+                );
+              })}
+            </ul>
+          )}
         </SectionCard>
 
         <section className="rounded-xl border border-[#e2eaf5] bg-white p-4 shadow-[0_1px_2px_rgba(16,42,82,0.05)]">
@@ -441,7 +560,7 @@ export const DashboardPage = () => {
                   <TriangleAlert size={11} />
                 </span>
                 <span className="min-w-0 flex-1 truncate">{a.label}</span>
-                <span className="font-extrabold text-[#dc2626]">{a.count}</span>
+                <span className={`font-extrabold ${a.count > 0 ? 'text-[#dc2626]' : 'text-slate-400'}`}>{a.count}</span>
               </li>
             ))}
           </ul>
