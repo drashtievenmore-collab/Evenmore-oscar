@@ -54,6 +54,7 @@ export default function MyProjectsPage() {
       <ProjectFilterBar
         filters={filters}
         options={options}
+        allProjects={mine}
         onChange={setFilters}
         onReset={() => setFilters(emptyProjectFilters())}
         isFiltered={isFiltered}

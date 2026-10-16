@@ -2,10 +2,8 @@ import React, { useState, useRef, useEffect, useMemo } from 'react';
 import { useNavigate, Link, useLocation } from 'react-router-dom';
 import {
   Search,
-  Plus,
   Bell,
   CalendarDays,
-  Settings,
   ChevronDown,
   Command,
   Sun,
@@ -13,12 +11,6 @@ import {
   Sparkles,
   TreePine,
   Check,
-  Building,
-  FilePlus,
-  ShoppingCart,
-  Receipt,
-  UserPlus,
-  Layers,
   Inbox,
   Menu,
   ClipboardCheck,
@@ -37,14 +29,7 @@ const THEMES = [
   { id: 'emerald', name: 'Emerald Executive', icon: TreePine, desc: 'Fintech forest & gold prestige', color: '#10b981' },
 ];
 
-const QUICK_ACTIONS = [
-  { label: 'Create New Lead', path: '/crm/leads', icon: UserPlus, color: 'text-blue-500 bg-blue-50' },
-  { label: 'Create Sales Order', path: '/sales/orders', icon: ShoppingCart, color: 'text-indigo-500 bg-indigo-50' },
-  { label: 'Create Tax Invoice', path: '/sales/invoices', icon: Receipt, color: 'text-emerald-500 bg-emerald-50' },
-  { label: 'New Purchase Bill', path: '/purchase/bills', icon: FilePlus, color: 'text-amber-500 bg-amber-50' },
-  { label: 'Register Trade Party', path: '/parties', icon: Building, color: 'text-purple-500 bg-purple-50' },
-  { label: 'Add Inventory Item', path: '/inventory/items/new', icon: Layers, color: 'text-rose-500 bg-rose-50' },
-];
+
 
 export default function Topbar() {
   const navigate = useNavigate();
@@ -58,11 +43,9 @@ export default function Topbar() {
   const setTheme = useAppStore((s) => s.setTheme);
 
   const [isThemeOpen, setIsThemeOpen] = useState(false);
-  const [isQuickAddOpen, setIsQuickAddOpen] = useState(false);
   const [isNotifOpen, setIsNotifOpen] = useState(false);
 
   const themeRef = useRef(null);
-  const quickAddRef = useRef(null);
   const notifRef = useRef(null);
 
   // Live ERP data for notifications.
@@ -222,7 +205,6 @@ export default function Topbar() {
   useEffect(() => {
     function handleClickOutside(event) {
       if (themeRef.current && !themeRef.current.contains(event.target)) setIsThemeOpen(false);
-      if (quickAddRef.current && !quickAddRef.current.contains(event.target)) setIsQuickAddOpen(false);
       if (notifRef.current && !notifRef.current.contains(event.target)) {
         setIsNotifOpen(false);
         setIsSectionMenuOpen(false);
@@ -288,7 +270,6 @@ export default function Topbar() {
             type="button"
             onClick={() => {
               setIsThemeOpen(!isThemeOpen);
-              setIsQuickAddOpen(false);
               setIsNotifOpen(false);
             }}
             className="h-9 px-3 rounded-xl border border-border bg-card hover:bg-soft text-text flex items-center gap-2 text-xs font-semibold shadow-2xs transition cursor-pointer"
@@ -344,52 +325,6 @@ export default function Topbar() {
           )}
         </div>
 
-        {/* Quick Add Menu */}
-        <div className="relative" ref={quickAddRef}>
-          <button
-            type="button"
-            onClick={() => {
-              setIsQuickAddOpen(!isQuickAddOpen);
-              setIsThemeOpen(false);
-              setIsNotifOpen(false);
-            }}
-            className="h-9 px-3 rounded-xl bg-primary hover:bg-primary-hover text-white flex items-center gap-1.5 text-xs font-bold shadow-xs transition cursor-pointer"
-            aria-label="Quick Create Record"
-            title="Create New Record"
-          >
-            <Plus size={15} strokeWidth={2.5} />
-            <span className="hidden sm:inline">New</span>
-          </button>
-
-          {isQuickAddOpen && (
-            <div className="top-dropdown-menu w-56 p-2 animate-in fade-in zoom-in-95 duration-150 shadow-xl">
-              <div className="px-2 py-1.5 text-[10px] font-bold uppercase tracking-wider text-muted">
-                Quick Actions
-              </div>
-              <div className="space-y-0.5">
-                {QUICK_ACTIONS.map((action, idx) => {
-                  const Icon = action.icon;
-                  return (
-                    <button
-                      key={idx}
-                      type="button"
-                      onClick={() => {
-                        navigate(action.path);
-                        setIsQuickAddOpen(false);
-                      }}
-                      className="w-full flex items-center gap-2.5 px-2.5 py-2 rounded-xl text-xs font-medium transition cursor-pointer text-text hover:bg-soft"
-                    >
-                      <div className={`w-6 h-6 rounded-lg flex items-center justify-center ${action.color}`}>
-                        <Icon size={13} />
-                      </div>
-                      <span>{action.label}</span>
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
-          )}
-        </div>
 
         {/* Harmonized Icon Buttons Cluster */}
         <div className="flex items-center gap-1.5 pl-1">
@@ -415,7 +350,6 @@ export default function Topbar() {
               onClick={() => {
                 setIsNotifOpen(!isNotifOpen);
                 setIsThemeOpen(false);
-                setIsQuickAddOpen(false);
               }}
               className="w-9 h-9 rounded-xl border border-border bg-card hover:bg-soft text-text flex items-center justify-center transition cursor-pointer relative shadow-2xs"
               aria-label="Notifications & Reminders"
@@ -796,15 +730,6 @@ export default function Topbar() {
             <Inbox size={16} />
           </Link>
 
-          {/* Settings Shortcut */}
-          <Link
-            to="/administration/settings"
-            className="w-9 h-9 rounded-xl border border-border bg-card hover:bg-soft text-text hidden sm:flex items-center justify-center transition shadow-2xs"
-            aria-label="System Settings"
-            title="System Settings"
-          >
-            <Settings size={16} />
-          </Link>
         </div>
       </div>
     </header>

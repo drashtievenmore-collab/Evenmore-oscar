@@ -346,6 +346,37 @@ export default function TasksPage() {
       label: 'Status',
       render: (val) => <StatusBadge status={val} />,
     },
+    {
+      key: 'actions',
+      label: 'Action',
+      render: (_val, row) => {
+        const isDone = row.status === 'Completed';
+        return (
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              toggleComplete(row);
+            }}
+            disabled={isDone}
+            title={isDone ? 'Task is completed' : 'Click to complete task'}
+            style={{
+              border: isDone ? '1px solid #16a34a' : '1px solid #dc2626',
+              color: isDone ? '#15803d' : '#dc2626',
+              background: isDone ? '#f0fdf4' : '#fef2f2',
+              borderRadius: 8,
+              padding: '4px 12px',
+              fontSize: 12,
+              fontWeight: 800,
+              cursor: isDone ? 'default' : 'pointer',
+              transition: 'all 0.15s ease',
+            }}
+          >
+            {isDone ? 'Done' : 'Complete'}
+          </button>
+        );
+      },
+    },
   ];
 
   return (

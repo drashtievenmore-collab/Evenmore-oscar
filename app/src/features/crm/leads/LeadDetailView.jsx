@@ -63,7 +63,10 @@ import {
   X,
   Users,
   XCircle,
+  Loader2,
+  AlertCircle,
 } from 'lucide-react';
+import { api } from '../../../services/api';
 import LeadFormBuilder from './LeadFormBuilder';
 import { createFieldFromType } from '../../../data/crm/leadFormSchema';
 import { exportToCSV } from '../../../services/exportUtils';
@@ -73,7 +76,7 @@ import { useLeadDetailStore, EMPTY_DETAIL } from '../../../stores/leadDetailStor
 import { isServerId, isBackendEnabled } from '../../../services/resourceSync';
 import { crmService } from '../../../services/domainServices';
 import { formatDateDDMMYYYY } from '../../../utils/dateUtils';
-import { WRITABLE_LEAD_SECTIONS } from '../../../services/leadDetailMap';
+import { WRITABLE_LEAD_SECTIONS, normalizeSection } from '../../../services/leadDetailMap';
 import { loadForms, saveForms, TASK_FORM } from '../../../services/crmForms';
 import { LineItemEditor } from '../../../components/common/LineItemEditor';
 import useUnits from '../../../hooks/useUnits';
@@ -532,8 +535,10 @@ function SourcesAndEmailsTab({ lead, onCountsChange, onActivity }) {
     if (Array.isArray(storeEmails)) setEmails(storeEmails);
   }, [storeEmails]);
 
+  const { showToast } = useERP() || {};
   const [showAddSource, setShowAddSource] = useState(false);
   const [showSendEmail, setShowSendEmail] = useState(false);
+  const [sendingEmail, setSendingEmail] = useState(false);
   const [newSource, setNewSource] = useState({ source: 'Website', details: '' });
   const [editingSourceId, setEditingSourceId] = useState(null);
   const [editSource, setEditSource] = useState({ source: 'Website', details: '' });
@@ -542,6 +547,9 @@ function SourcesAndEmailsTab({ lead, onCountsChange, onActivity }) {
   const [recipients, setRecipients] = useState([lead.email].filter(Boolean));
   const [mailTo, setMailTo] = useState(lead.email || '');
   const [mailError, setMailError] = useState('');
+  const [subjectError, setSubjectError] = useState('');
+  const [bodyError, setBodyError] = useState('');
+  const [emailError, setEmailError] = useState('');
   const [viewEmail, setViewEmail] = useState(null);
   const editorRef = React.useRef(null);
   const [editorEmpty, setEditorEmpty] = useState(true);
@@ -568,6 +576,7 @@ function SourcesAndEmailsTab({ lead, onCountsChange, onActivity }) {
     const text = el.innerText || '';
     setNewEmail((prev) => ({ ...prev, message: text }));
     setEditorEmpty(text.trim() === '');
+    if (text.trim()) setBodyError('');
   }
 
   function formatDoc(command, value = null) {
@@ -588,6 +597,9 @@ function SourcesAndEmailsTab({ lead, onCountsChange, onActivity }) {
   function openEmailModal() {
     setMailTo(lead.email || '');
     setMailError('');
+    setSubjectError('');
+    setBodyError('');
+    setEmailError('');
     setNewEmail({ subject: '', message: '' });
     setEditorEmpty(true);
     if (editorRef.current) editorRef.current.innerHTML = '';
@@ -595,7 +607,12 @@ function SourcesAndEmailsTab({ lead, onCountsChange, onActivity }) {
   }
 
   function closeEmailModal() {
+    if (sendingEmail) return;
     setShowSendEmail(false);
+    setMailError('');
+    setSubjectError('');
+    setBodyError('');
+    setEmailError('');
   }
 
   const handleAddSource = (e) => {
@@ -629,49 +646,96 @@ function SourcesAndEmailsTab({ lead, onCountsChange, onActivity }) {
     });
   };
 
-  const handleSendEmail = (e) => {
+  const handleSendEmail = async (e) => {
     e.preventDefault();
-    const toOk = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(mailTo.trim());
-    if (!toOk) {
-      setMailError('Enter a valid email address');
-      return;
+    if (sendingEmail) return;
+
+    let hasError = false;
+    setMailError('');
+    setSubjectError('');
+    setBodyError('');
+    setEmailError('');
+
+    const targetMail = (mailTo || '').trim();
+    const toOk = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(targetMail);
+    if (!targetMail) {
+      setMailError('Recipient email address is required.');
+      hasError = true;
+    } else if (!toOk) {
+      setMailError('Enter a valid email address (e.g. name@example.com).');
+      hasError = true;
     }
-    if (!newEmail.subject.trim()) return;
-    const bodyText = (editorRef.current?.innerText || newEmail.message || '').trim();
-    const now = new Date().toLocaleDateString('en-GB') + ' ' + new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-    const optimisticEmail = {
-      id: `local-${Date.now()}`,
-      subject: newEmail.subject,
-      body: bodyText,
-      message: bodyText,
-      to_addresses: [mailTo.trim()],
-      mailTo: mailTo.trim(),
-      date: now,
-      person: actorName,
-      status: 'Sent',
-      statusColor: 'green',
-    };
-    const addedTimeline = {
-      id: Date.now(),
-      type: 'sent',
-      title: newEmail.subject,
-      preview: bodyText || 'Direct email communication with client representative.',
-      date: now,
-      author: actorName,
-      dotColor: '#10b981',
-    };
-    setEmails((current) => [optimisticEmail, ...current]);
-    setTimeline((current) => [addedTimeline, ...current]);
-    setNewEmail({ subject: '', message: '' });
-    setEditorEmpty(true);
-    if (editorRef.current) editorRef.current.innerHTML = '';
-    setShowSendEmail(false);
-    onActivity?.(`Email "${optimisticEmail.subject}" sent`, '#3b82f6');
-    useLeadDetailStore.getState().add(lead?.id, 'emails', optimisticEmail).then((saved) => {
-      if (saved?.id) setEmails((current) => current.map((item) => (item.id === optimisticEmail.id ? { ...saved, person: saved.person || actorName } : item)));
-    }).catch((err) => {
-      console.warn('[CRM] email not saved:', err?.message || err);
-    });
+
+    const targetSubject = (newEmail.subject || '').trim();
+    if (!targetSubject) {
+      setSubjectError('Subject is required.');
+      hasError = true;
+    }
+
+    const editorHtml = editorRef.current ? editorRef.current.innerHTML : '';
+    const editorText = (editorRef.current?.innerText || newEmail.message || '').trim();
+    if (!editorText) {
+      setBodyError('Description / email body is required.');
+      hasError = true;
+    }
+
+    if (hasError) return;
+
+    setSendingEmail(true);
+
+    try {
+      const payload = {
+        to_addresses: [targetMail],
+        toAddresses: [targetMail],
+        subject: targetSubject,
+        body: editorHtml || editorText,
+        message: editorHtml || editorText,
+      };
+
+      // Call existing Django API: POST /api/crm/leads/{lead.id}/emails/
+      const saved = await api.post(`/crm/leads/${lead?.id}/emails/`, payload);
+      const normalized = normalizeSection('emails', [saved])[0] || saved;
+
+      const now = new Date().toLocaleDateString('en-GB') + ' ' + new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+      const addedTimeline = {
+        id: normalized.id || Date.now(),
+        type: 'sent',
+        title: targetSubject,
+        preview: editorText || 'Direct email communication with client representative.',
+        date: normalized.date || now,
+        author: actorName,
+        dotColor: '#10b981',
+      };
+
+      setEmails((current) => [normalized, ...current.filter((item) => item.id !== normalized.id)]);
+      setTimeline((current) => [addedTimeline, ...current]);
+
+      // Refresh store sections in background
+      useLeadDetailStore.getState().refreshSection(lead?.id, 'emails').catch(() => {});
+      useLeadDetailStore.getState().refreshSection(lead?.id, 'timeline').catch(() => {});
+
+      showToast?.(`Email "${targetSubject}" sent successfully.`);
+      onActivity?.(`Email "${targetSubject}" sent to ${targetMail}`, '#10b981');
+
+      // Clear form and close modal
+      setNewEmail({ subject: '', message: '' });
+      setEditorEmpty(true);
+      if (editorRef.current) editorRef.current.innerHTML = '';
+      setShowSendEmail(false);
+    } catch (err) {
+      console.error('[CRM Email Send Error]:', err);
+      const serverDetail = err?.response?.data?.detail
+        || err?.response?.data?.message
+        || err?.response?.data?.to_addresses?.[0]
+        || err?.response?.data?.subject?.[0]
+        || err?.response?.data?.body?.[0]
+        || err?.message
+        || 'Failed to deliver email through SMTP provider. Please check network and provider settings.';
+      setEmailError(serverDetail);
+      // Keep modal open, preserve entered data!
+    } finally {
+      setSendingEmail(false);
+    }
   };
 
   const deleteSource = (id) => {
@@ -924,21 +988,29 @@ function SourcesAndEmailsTab({ lead, onCountsChange, onActivity }) {
               <div className="bg-white rounded-2xl shadow-2xl w-full max-w-[560px] max-h-[95vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
                 <div className="flex items-center justify-between px-5 py-4 border-b border-slate-200">
                   <h2 className="text-[15px] font-bold text-slate-800">Create Email</h2>
-                  <button type="button" onClick={closeEmailModal} className="text-slate-400 hover:text-slate-600 p-1" aria-label="Close">
+                  <button type="button" disabled={sendingEmail} onClick={closeEmailModal} className="text-slate-400 hover:text-slate-600 disabled:opacity-50 p-1" aria-label="Close">
                     <X size={18} />
                   </button>
                 </div>
                 <form onSubmit={handleSendEmail}>
                   <div className="px-5 py-4 space-y-4">
+                    {emailError && (
+                      <div className="p-3.5 rounded-xl bg-rose-50 border border-rose-200 text-rose-700 text-xs flex items-start gap-2.5">
+                        <AlertCircle size={16} className="shrink-0 mt-0.5 text-rose-500" />
+                        <span className="leading-relaxed font-medium">{emailError}</span>
+                      </div>
+                    )}
+
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                       <div>
                         <label className="text-[13px] font-semibold text-slate-600">Mail To<span className="text-rose-500">*</span></label>
                         <input
                           type="text"
+                          disabled={sendingEmail}
                           value={mailTo}
-                          onChange={(e) => { setMailTo(e.target.value); setMailError(''); }}
+                          onChange={(e) => { setMailTo(e.target.value); setMailError(''); setEmailError(''); }}
                           placeholder="Enter email"
-                          className="mt-1.5 h-11 w-full border border-slate-300 rounded-lg px-3.5 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100 placeholder:text-slate-400"
+                          className="mt-1.5 h-11 w-full border border-slate-300 rounded-lg px-3.5 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100 placeholder:text-slate-400 disabled:bg-slate-50 disabled:text-slate-500"
                         />
                         {mailError && <p className="text-[11px] text-rose-500 mt-1 font-medium">{mailError}</p>}
                       </div>
@@ -946,38 +1018,50 @@ function SourcesAndEmailsTab({ lead, onCountsChange, onActivity }) {
                         <label className="text-[13px] font-semibold text-slate-600">Subject<span className="text-rose-500">*</span></label>
                         <input
                           type="text"
+                          disabled={sendingEmail}
                           value={newEmail.subject}
-                          onChange={(e) => setNewEmail({ ...newEmail, subject: e.target.value })}
+                          onChange={(e) => { setNewEmail({ ...newEmail, subject: e.target.value }); setSubjectError(''); setEmailError(''); }}
                           placeholder="Enter subject"
-                          className="mt-1.5 h-11 w-full border border-slate-300 rounded-lg px-3.5 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100 placeholder:text-slate-400"
+                          className="mt-1.5 h-11 w-full border border-slate-300 rounded-lg px-3.5 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100 placeholder:text-slate-400 disabled:bg-slate-50 disabled:text-slate-500"
                         />
+                        {subjectError && <p className="text-[11px] text-rose-500 mt-1 font-medium">{subjectError}</p>}
                       </div>
                     </div>
                     <div>
                       <label className="text-[13px] font-semibold text-slate-600">Description<span className="text-rose-500">*</span></label>
                       <div className="mt-1.5 border border-slate-300 rounded-xl overflow-hidden focus-within:border-blue-500 focus-within:ring-2 focus-within:ring-blue-100">
                         <div className="flex items-center gap-0.5 px-2 py-1.5 border-b border-slate-200 bg-white flex-wrap">
-                          <button type="button" title="Bold" onMouseDown={(e) => e.preventDefault()} onClick={() => formatDoc('bold')} className="w-8 h-8 rounded-md hover:bg-slate-100 flex items-center justify-center text-slate-700"><Bold size={15} /></button>
-                          <button type="button" title="Italic" onMouseDown={(e) => e.preventDefault()} onClick={() => formatDoc('italic')} className="w-8 h-8 rounded-md hover:bg-slate-100 flex items-center justify-center text-slate-700"><Italic size={15} /></button>
-                          <button type="button" title="Underline" onMouseDown={(e) => e.preventDefault()} onClick={() => formatDoc('underline')} className="w-8 h-8 rounded-md hover:bg-slate-100 flex items-center justify-center text-slate-700"><Underline size={15} /></button>
-                          <button type="button" title="Strikethrough" onMouseDown={(e) => e.preventDefault()} onClick={() => formatDoc('strikeThrough')} className="w-8 h-8 rounded-md hover:bg-slate-100 flex items-center justify-center text-slate-700"><Strikethrough size={15} /></button>
-                          <button type="button" title="Bullet list" onMouseDown={(e) => e.preventDefault()} onClick={() => formatDoc('insertUnorderedList')} className="w-8 h-8 rounded-md hover:bg-slate-100 flex items-center justify-center text-slate-700"><List size={15} /></button>
-                          <button type="button" title="Numbered list" onMouseDown={(e) => e.preventDefault()} onClick={() => formatDoc('insertOrderedList')} className="w-8 h-8 rounded-md hover:bg-slate-100 flex items-center justify-center text-slate-700"><ListOrdered size={15} /></button>
-                          <button type="button" title="Align left" onMouseDown={(e) => e.preventDefault()} onClick={() => formatDoc('justifyLeft')} className="w-8 h-8 rounded-md hover:bg-slate-100 flex items-center justify-center text-slate-700"><AlignLeft size={15} /></button>
-                          <button type="button" title="Align center" onMouseDown={(e) => e.preventDefault()} onClick={() => formatDoc('justifyCenter')} className="w-8 h-8 rounded-md hover:bg-slate-100 flex items-center justify-center text-slate-700"><AlignCenter size={15} /></button>
-                          <button type="button" title="Align right" onMouseDown={(e) => e.preventDefault()} onClick={() => formatDoc('justifyRight')} className="w-8 h-8 rounded-md hover:bg-slate-100 flex items-center justify-center text-slate-700"><AlignRight size={15} /></button>
-                          <button type="button" title="Insert link" onMouseDown={(e) => e.preventDefault()} onClick={runLink} className="w-8 h-8 rounded-md hover:bg-slate-100 flex items-center justify-center text-slate-700"><Link2 size={15} /></button>
+                          <button type="button" disabled={sendingEmail} title="Bold" onMouseDown={(e) => e.preventDefault()} onClick={() => formatDoc('bold')} className="w-8 h-8 rounded-md hover:bg-slate-100 flex items-center justify-center text-slate-700 disabled:opacity-50"><Bold size={15} /></button>
+                          <button type="button" disabled={sendingEmail} title="Italic" onMouseDown={(e) => e.preventDefault()} onClick={() => formatDoc('italic')} className="w-8 h-8 rounded-md hover:bg-slate-100 flex items-center justify-center text-slate-700 disabled:opacity-50"><Italic size={15} /></button>
+                          <button type="button" disabled={sendingEmail} title="Underline" onMouseDown={(e) => e.preventDefault()} onClick={() => formatDoc('underline')} className="w-8 h-8 rounded-md hover:bg-slate-100 flex items-center justify-center text-slate-700 disabled:opacity-50"><Underline size={15} /></button>
+                          <button type="button" disabled={sendingEmail} title="Strikethrough" onMouseDown={(e) => e.preventDefault()} onClick={() => formatDoc('strikeThrough')} className="w-8 h-8 rounded-md hover:bg-slate-100 flex items-center justify-center text-slate-700 disabled:opacity-50"><Strikethrough size={15} /></button>
+                          <button type="button" disabled={sendingEmail} title="Bullet list" onMouseDown={(e) => e.preventDefault()} onClick={() => formatDoc('insertUnorderedList')} className="w-8 h-8 rounded-md hover:bg-slate-100 flex items-center justify-center text-slate-700 disabled:opacity-50"><List size={15} /></button>
+                          <button type="button" disabled={sendingEmail} title="Numbered list" onMouseDown={(e) => e.preventDefault()} onClick={() => formatDoc('insertOrderedList')} className="w-8 h-8 rounded-md hover:bg-slate-100 flex items-center justify-center text-slate-700 disabled:opacity-50"><ListOrdered size={15} /></button>
+                          <button type="button" disabled={sendingEmail} title="Align left" onMouseDown={(e) => e.preventDefault()} onClick={() => formatDoc('justifyLeft')} className="w-8 h-8 rounded-md hover:bg-slate-100 flex items-center justify-center text-slate-700 disabled:opacity-50"><AlignLeft size={15} /></button>
+                          <button type="button" disabled={sendingEmail} title="Align center" onMouseDown={(e) => e.preventDefault()} onClick={() => formatDoc('justifyCenter')} className="w-8 h-8 rounded-md hover:bg-slate-100 flex items-center justify-center text-slate-700 disabled:opacity-50"><AlignCenter size={15} /></button>
+                          <button type="button" disabled={sendingEmail} title="Align right" onMouseDown={(e) => e.preventDefault()} onClick={() => formatDoc('justifyRight')} className="w-8 h-8 rounded-md hover:bg-slate-100 flex items-center justify-center text-slate-700 disabled:opacity-50"><AlignRight size={15} /></button>
+                          <button type="button" disabled={sendingEmail} title="Insert link" onMouseDown={(e) => e.preventDefault()} onClick={runLink} className="w-8 h-8 rounded-md hover:bg-slate-100 flex items-center justify-center text-slate-700 disabled:opacity-50"><Link2 size={15} /></button>
                         </div>
                         <div className="relative">
                           {editorEmpty && <span className="absolute left-3.5 top-3 text-sm text-slate-400 pointer-events-none">Write Here...</span>}
-                          <div ref={editorRef} contentEditable suppressContentEditableWarning onInput={syncEditor} className="min-h-[170px] max-h-[260px] overflow-y-auto px-3.5 py-3 text-sm text-slate-800 outline-none" />
+                          <div ref={editorRef} contentEditable={!sendingEmail} suppressContentEditableWarning onInput={syncEditor} className="min-h-[170px] max-h-[260px] overflow-y-auto px-3.5 py-3 text-sm text-slate-800 outline-none" />
                         </div>
                       </div>
+                      {bodyError && <p className="text-[11px] text-rose-500 mt-1 font-medium">{bodyError}</p>}
                     </div>
                   </div>
                   <div className="flex justify-end gap-2 px-5 py-4 border-t border-slate-100">
-                    <button type="button" onClick={closeEmailModal} className="h-10 px-6 rounded-lg bg-slate-500 hover:bg-slate-600 text-white text-sm font-semibold">Cancel</button>
-                    <button type="submit" className="h-10 px-6 rounded-lg bg-[#1f6bff] hover:bg-blue-700 text-white text-sm font-semibold">Create</button>
+                    <button type="button" disabled={sendingEmail} onClick={closeEmailModal} className="h-10 px-6 rounded-lg bg-slate-500 hover:bg-slate-600 disabled:opacity-50 text-white text-sm font-semibold transition cursor-pointer">Cancel</button>
+                    <button type="submit" disabled={sendingEmail} className="h-10 px-6 rounded-lg bg-[#1f6bff] hover:bg-blue-700 disabled:opacity-60 text-white text-sm font-semibold flex items-center gap-2 transition cursor-pointer">
+                      {sendingEmail ? (
+                        <>
+                          <Loader2 size={14} className="animate-spin" />
+                          <span>Sending...</span>
+                        </>
+                      ) : (
+                        <span>Create</span>
+                      )}
+                    </button>
                   </div>
                 </form>
               </div>
@@ -2204,13 +2288,15 @@ function LeadTasksTab({ lead, onCountsChange, onActivity }) {
                   title={isCompleted ? 'Already Completed' : 'Complete Task'}
                   className={`w-9 h-9 rounded-xl flex items-center justify-center transition shadow-2xs ${
                     isCompleted
-                      ? 'bg-emerald-500 text-white opacity-80 cursor-default'
-                      : 'bg-emerald-500 hover:bg-emerald-600 text-white cursor-pointer'
+                      ? 'bg-emerald-500 text-white opacity-90 cursor-default'
+                      : 'bg-rose-500 hover:bg-rose-600 text-white cursor-pointer'
                   }`}
                 >
                   <ClipboardCheck size={16} />
                 </button>
-                <span className="text-[10px] text-emerald-600 font-semibold mt-1">Complete</span>
+                <span className={`text-[10px] font-semibold mt-1 ${isCompleted ? 'text-emerald-600' : 'text-rose-600'}`}>
+                  {isCompleted ? 'Done' : 'Complete'}
+                </span>
               </div>
 
               {/* Edit button */}
@@ -2622,6 +2708,8 @@ function QuotationsTab({ lead, onActivity }) {
   const isApprovedStatus = (status) => ['Accepted', 'Approved', 'Converted', 'Confirmed', 'Invoiced'].includes(status);
   const canApprove = (q) => !isApprovedStatus(q.status) && !['Rejected', 'Cancelled', 'Expired'].includes(q.status);
 
+  const [rejectingId, setRejectingId] = useState(null);
+
   async function approveQuotationRow(q) {
     if (!q || approvingId) return;
     setApprovingId(q.id);
@@ -2637,6 +2725,24 @@ function QuotationsTab({ lead, onActivity }) {
       // approveQuotation already toasted the reason; keep the row untouched.
     } finally {
       setApprovingId(null);
+    }
+  }
+
+  async function rejectQuotationRow(q) {
+    if (!q || rejectingId) return;
+    setRejectingId(q.id);
+    try {
+      if (isBackendEnabled() && isServerId(q.id)) {
+        try {
+          await api.post(`/sales/quotations/${q.id}/reject/`);
+        } catch (err) {
+          console.warn('[LeadDetailView] reject quotation failed:', err);
+        }
+      }
+      updateQuotationStatus?.(q.id, 'Rejected');
+      onActivity?.(`Quotation ${q.quoteNumber || ''} rejected — moved to Open for negotiation`, '#f59e0b');
+    } finally {
+      setRejectingId(null);
     }
   }
 
@@ -2785,15 +2891,26 @@ function QuotationsTab({ lead, onActivity }) {
                       </button>
                     )}
                     {canApprove(q) && (
-                      <button
-                        type="button"
-                        onClick={() => approveQuotationRow(q)}
-                        disabled={approvingId === q.id}
-                        className="inline-flex items-center gap-1 px-2 py-1 rounded-md bg-blue-600 text-white text-[11px] font-bold hover:bg-blue-700 transition cursor-pointer disabled:opacity-60"
-                        title="Approve quotation — converts this lead to a customer automatically"
-                      >
-                        <Check size={11} /> {approvingId === q.id ? 'Approving…' : 'Approve'}
-                      </button>
+                      <>
+                        <button
+                          type="button"
+                          onClick={() => approveQuotationRow(q)}
+                          disabled={approvingId === q.id || rejectingId === q.id}
+                          className="inline-flex items-center gap-1 px-2 py-1 rounded-md bg-blue-600 text-white text-[11px] font-bold hover:bg-blue-700 transition cursor-pointer disabled:opacity-60"
+                          title="Approve quotation — converts this lead to a customer automatically and marks deal Won"
+                        >
+                          <Check size={11} /> {approvingId === q.id ? 'Approving…' : 'Approve'}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => rejectQuotationRow(q)}
+                          disabled={approvingId === q.id || rejectingId === q.id}
+                          className="inline-flex items-center gap-1 px-2 py-1 rounded-md bg-rose-50 text-rose-700 border border-rose-200 text-[11px] font-bold hover:bg-rose-100 transition cursor-pointer disabled:opacity-60"
+                          title="Reject quotation — moves quotation to Rejected and deal to Open"
+                        >
+                          <X size={11} /> {rejectingId === q.id ? 'Rejecting…' : 'Reject'}
+                        </button>
+                      </>
                     )}
                     {isApprovedStatus(q.status) && (lead?.party || lead?.partyId || lead?.company) && (
                       <button

@@ -100,7 +100,7 @@ export const salesService = {
   getPartyDiscounts: (query) => api.get('/sales/party-discounts/', { query }),
   getPartyDiscountAnnualReport: (query) => api.get('/sales/party-discounts/annual-report/', { query }),
   getOrderPickingList: (id) => api.get(`/sales/orders/${id}/picking-list/`),
-  // E-Invoice & E-Way Bill (PDF §20)
+  // E-Invoice & E-Way Bill
   generateInvoiceIRN: (id) => api.post(`/sales/invoices/${id}/generate-irn/`),
   cancelInvoiceIRN: (id, data) => api.post(`/sales/invoices/${id}/cancel-irn/`, data),
   generateInvoiceEwayBill: (id, data) => api.post(`/sales/invoices/${id}/generate-eway-bill/`, data),
@@ -218,6 +218,9 @@ export const inventoryService = {
   // Existing — preserved
   getItems: (query) => api.get('/inventory/items/', { query }),
   getStockPositions: (query) => api.get('/inventory/stock/', { query }),
+  getCombinedGreyStock: (query) => api.get('/inventory/combined-grey-stock/', { query }),
+  getCombinedGreyStockSetting: () => api.get('/inventory/combined-grey-stock/setting/'),
+  updateCombinedGreyStockSetting: (data) => api.post('/inventory/combined-grey-stock/setting/', data),
   issueSample: (data) => api.post('/inventory/stock/', { ...data, action: 'issue_sample' }),
   returnSample: (data) => api.post('/inventory/stock/', { ...data, action: 'return_sample' }),
   getTransfers: (query) => api.get('/inventory/transfers/', { query }),
@@ -231,6 +234,7 @@ export const inventoryService = {
   // Master, movements, valuation & audit
   createItem: (data) => api.post('/inventory/items/', data),
   updateItem: (id, data) => api.patch(`/inventory/items/${id}/`, data),
+  deleteItem: (id) => api.delete(`/inventory/items/${id}/`),
   adjustStock: (data) => api.post('/inventory/adjustments/', data),
   getMovements: (query) => api.get('/inventory/movements/', { query }),
   createTransfer: (data) => api.post('/inventory/transfers/', data),

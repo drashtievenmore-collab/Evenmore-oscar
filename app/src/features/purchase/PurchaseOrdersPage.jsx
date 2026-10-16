@@ -7,7 +7,7 @@ import {
   Clock, CheckCircle2, Package, Maximize2, Minimize2, Trash2, Ban, MapPin,
   ShoppingCart, FileText, Search, Filter, MoreVertical, ChevronDown,
 } from 'lucide-react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation, useSearchParams } from 'react-router-dom';
 import { toISODate } from '../../utils/dateUtils';
 import { DocumentTimeline } from '../../components/common/DocumentTimeline';
 import { RelatedDocumentsCard } from '../../components/common/RelatedDocumentsCard';
@@ -123,6 +123,48 @@ export const PurchaseOrdersPage = () => {
     const [fabricFilter, setFabricFilter] = useState('All');
     const [dateFrom, setDateFrom] = useState('');
     const [dateTo, setDateTo] = useState('');
+
+    const location = useLocation();
+    const [searchParams] = useSearchParams();
+
+    React.useEffect(() => {
+        if (location.state?.createPo || searchParams.get('action') === 'create') {
+            const prefill = location.state?.prefill || {};
+            setSelectedVendorId(prefill.vendorId || vendors[0]?.id || '');
+            setPoDate(getCurrentISODate());
+            setExpectedDate(prefill.expectedDate || addDaysISO(getCurrentISODate(), 10));
+            if (prefill.items && prefill.items.length > 0) {
+                setLineItems(prefill.items.map((it, idx) => ({
+                    id: `li-${Date.now()}-${idx}`,
+                    itemId: it.itemId || it.id || '',
+                    sku: it.sku || it.itemSku || '',
+                    itemSku: it.sku || it.itemSku || '',
+                    name: it.name || it.description || '',
+                    qty: Number(it.qty || it.suggestedQty) || 100,
+                    rate: Number(it.rate || it.costPrice) || 0,
+                    amount: (Number(it.qty || it.suggestedQty) || 100) * (Number(it.rate || it.costPrice) || 0),
+                    uom: it.uom || 'Mtr',
+                    stockUom: it.stockUom || 'Mtr',
+                })));
+            } else if (prefill.itemId) {
+                const sel = (inventoryItems || []).find((f) => f.id === prefill.itemId);
+                setLineItems([{
+                    id: `li-${Date.now()}`,
+                    itemId: prefill.itemId,
+                    sku: sel?.sku || prefill.sku || '',
+                    itemSku: sel?.sku || prefill.sku || '',
+                    name: sel?.name || prefill.name || '',
+                    qty: Number(prefill.qty || prefill.suggestedQty) || 100,
+                    rate: Number(prefill.rate || sel?.costPrice) || 0,
+                    amount: (Number(prefill.qty || 100)) * (Number(prefill.rate || sel?.costPrice) || 0),
+                    uom: sel?.purchaseUnit || sel?.uom || 'Mtr',
+                    stockUom: sel?.uom || 'Mtr',
+                }]);
+            }
+            setRemarks(prefill.notes || 'Replenishment order for grey fabric inventory.');
+            setShowAddModal(true);
+        }
+    }, [location.state, searchParams]);
 
     const handleOpenCreateModal = () => {
         setSelectedVendorId(vendors[0]?.id || '');

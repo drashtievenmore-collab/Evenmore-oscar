@@ -1,5 +1,6 @@
-import React, { useState, Suspense, lazy } from 'react';
+import React, { useState, useEffect, Suspense, lazy } from 'react';
 import { useERP } from '../../context/ERPContext';
+import { inventoryService } from '../../services/domainServices';
 import { Button } from '../../components/ui/Button';
 import PageHeader from '../../components/ui/PageHeader';
 import { Building, Bell, Database, Save, Check, RotateCcw, AlertTriangle, Cog, LayoutGrid, Briefcase, UserCheck } from 'lucide-react';
@@ -36,8 +37,28 @@ function GeneralSettings() {
     const [fiscalYear, setFiscalYear] = useState('Apr - Mar');
     const [autoReorder, setAutoReorder] = useState(true);
     const [emailAlerts, setEmailAlerts] = useState(true);
+    const [greyThreshold, setGreyThreshold] = useState('');
+    const [greyAlertEnabled, setGreyAlertEnabled] = useState(true);
     const [showConfirmReset, setShowConfirmReset] = useState(false);
-    const handleSave = (e) => {
+
+    useEffect(() => {
+        let active = true;
+        inventoryService.getCombinedGreyStockSetting().then((res) => {
+            if (active && res) {
+                if (res.threshold !== undefined && res.threshold !== null) {
+                    setGreyThreshold(res.threshold > 0 ? String(res.threshold) : '');
+                }
+                if (res.isEnabled !== undefined) {
+                    setGreyAlertEnabled(Boolean(res.isEnabled));
+                }
+            }
+        }).catch((err) => {
+            console.error('Failed to load combined grey stock setting:', err);
+        });
+        return () => { active = false; };
+    }, []);
+
+    const handleSave = async (e) => {
         e.preventDefault();
         setGlobalCurrency(currency);
         if (typeof setCompanyProfile === 'function') {
@@ -48,6 +69,17 @@ function GeneralSettings() {
                 address,
                 phone,
             });
+        }
+        try {
+            const numericThreshold = parseFloat(greyThreshold) || 0;
+            await inventoryService.updateCombinedGreyStockSetting({
+                threshold: numericThreshold,
+                isEnabled: greyAlertEnabled,
+                uom: 'Mtr',
+            });
+        } catch (err) {
+            console.error('Failed to update combined grey stock setting:', err);
+            if (showToast) showToast('Failed to save combined grey stock setting', 'error');
         }
         setSaved(true);
         setTimeout(() => setSaved(false), 3000);
@@ -123,6 +155,39 @@ function GeneralSettings() {
                 </p>
               </div>
               <input type="checkbox" checked={emailAlerts} onChange={(e) => setEmailAlerts(e.target.checked)} className="w-4 h-4 shrink-0 lg:shrink accent-[#1F2E4A]"/>
+            </div>
+            <div className="pt-3 border-t border-slate-200">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                <div className="max-w-md">
+                  <p className="font-semibold text-slate-800">Combined Grey Fabric Stock Minimum Alert</p>
+                  <p className="text-slate-500 text-[11px]">
+                    Triggers a company-wide low-stock alert when combined available grey fabric across all qualities falls below this threshold. Excludes finished fabric, external Job Work WIP, QC Hold, and sales reservations.
+                  </p>
+                </div>
+                <div className="flex items-center gap-3">
+                  <div className="flex items-center gap-1.5">
+                    <input
+                      type="number"
+                      min="0"
+                      step="1"
+                      placeholder="e.g. 5000"
+                      value={greyThreshold}
+                      onChange={(e) => setGreyThreshold(e.target.value)}
+                      className="w-28 p-1.5 border border-[#CED4DA] rounded bg-[#F8F9FA] text-right font-mono font-semibold text-slate-900"
+                    />
+                    <span className="font-bold text-slate-500">Mtr</span>
+                  </div>
+                  <label className="flex items-center gap-1.5 cursor-pointer ml-2">
+                    <input
+                      type="checkbox"
+                      checked={greyAlertEnabled}
+                      onChange={(e) => setGreyAlertEnabled(e.target.checked)}
+                      className="w-4 h-4 accent-[#1F2E4A]"
+                    />
+                    <span className="text-[11px] font-semibold text-slate-700">Enabled</span>
+                  </label>
+                </div>
+              </div>
             </div>
           </div>
         </div>

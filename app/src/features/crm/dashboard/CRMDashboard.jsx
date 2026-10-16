@@ -372,9 +372,30 @@ export default function DashboardView() {
                       </span>
                     </td>
                     <td style={{ padding: "10px 8px", textAlign: "right" }}>
-                      <button type="button" onClick={() => completeTask(t)} style={{ border: "1px solid #2f6fed", color: "#2f6fed", background: "#fff", borderRadius: 8, padding: "6px 12px", fontSize: 12, fontWeight: 800 }}>
-                        {t.status === "Completed" ? "Done" : "Complete"}
-                      </button>
+                      {(() => {
+                        const isDone = t.status === "Completed";
+                        return (
+                          <button
+                            type="button"
+                            onClick={() => completeTask(t)}
+                            disabled={isDone}
+                            title={isDone ? "Task is completed" : "Click to complete task"}
+                            style={{
+                              border: isDone ? "1px solid #16a34a" : "1px solid #dc2626",
+                              color: isDone ? "#15803d" : "#dc2626",
+                              background: isDone ? "#f0fdf4" : "#fef2f2",
+                              borderRadius: 8,
+                              padding: "6px 14px",
+                              fontSize: 12,
+                              fontWeight: 800,
+                              cursor: isDone ? "default" : "pointer",
+                              transition: "all 0.15s ease",
+                            }}
+                          >
+                            {isDone ? "Done" : "Complete"}
+                          </button>
+                        );
+                      })()}
                     </td>
                   </tr>
                 );

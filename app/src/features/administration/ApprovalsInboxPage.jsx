@@ -171,7 +171,7 @@ export default function ApprovalsInboxPage() {
     <div className="p-6 space-y-6 max-w-7xl mx-auto">
       <PageHeader
         title="Approval Engine & Inbox"
-        subtitle="Operational authorization points, variance thresholds, and exception controls (PDF §16)"
+        subtitle="Operational authorization points, variance thresholds, and exception controls."
       >
         <div className="flex gap-2">
           {activeTab === 'rules' && (

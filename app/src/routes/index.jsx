@@ -47,7 +47,6 @@ const PMSProjectsPage = lazy(() => import('../features/pms/projects/ProjectsPage
 const PMSProjectDetailPage = lazy(() => import('../features/pms/projects/ProjectDetailPage'));
 const PMSMyProjectsPage = lazy(() => import('../features/pms/projects/MyProjectsPage'));
 const PMSMyTasksPage = lazy(() => import('../features/pms/tasks/MyTasksPage'));
-const PMSStageConfigPage = lazy(() => import('../features/pms/stages/StageConfigPage'));
 const PMSTimelinePage = lazy(() => import('../features/pms/timeline/TimelinePage'));
 const PMSDelayDashboardPage = lazy(() => import('../features/pms/delays/DelayDashboardPage'));
 const PMSReportsPage = lazy(() => import('../features/pms/reports/PMSReportsPage'));
@@ -347,7 +346,6 @@ const router = createBrowserRouter([
       { path: 'pms/projects/:id', element: <Page component={PMSProjectDetailPage} /> },
       { path: 'pms/my-projects', element: <Page component={PMSMyProjectsPage} /> },
       { path: 'pms/my-tasks', element: <Page component={PMSMyTasksPage} /> },
-      { path: 'pms/stages', element: <Page component={PMSStageConfigPage} /> },
       { path: 'pms/timeline', element: <Page component={PMSTimelinePage} /> },
       { path: 'pms/delays', element: <Page component={PMSDelayDashboardPage} /> },
       { path: 'pms/reports', element: <Page component={PMSReportsPage} /> },
@@ -430,14 +428,14 @@ const router = createBrowserRouter([
       { path: 'inventory/items', element: <Page component={ItemsMasterPage} /> },
       { path: 'inventory/items/fabric', element: <Page component={ItemsMasterPage} /> },
       { path: 'inventory/items/machines', element: <Page component={ItemsMasterPage} /> },
-      { path: 'inventory/items/stock', element: <Page component={ItemsMasterPage} /> },
+      { path: 'inventory/items/stock', element: <Navigate to="/inventory/items" replace /> },
       { path: 'inventory/machines', element: <Navigate to="/inventory/items/machines" replace /> },
       { path: 'inventory/items/new', element: <Page component={AddEditItemPage} /> },
       { path: 'inventory/items/edit/:id', element: <Page component={AddEditItemPage} /> },
       { path: 'inventory/categories', element: <Page component={CategoriesPage} /> },
       { path: 'inventory/categories/machines', element: <Page component={CategoriesPage} /> },
       { path: 'inventory/categories/machine', element: <Navigate to="/inventory/categories/machines" replace /> },
-      { path: 'inventory/categories/stock', element: <Page component={CategoriesPage} /> },
+      { path: 'inventory/categories/stock', element: <Navigate to="/inventory/categories" replace /> },
       { path: 'inventory/stock-position', element: <Page component={StockPositionPage} /> },
       { path: 'inventory/stock', element: <Navigate to="/inventory/stock-position" replace /> },
       { path: 'inventory/transfers', element: <Page component={TransfersPage} /> },

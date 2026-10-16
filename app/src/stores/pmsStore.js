@@ -234,9 +234,12 @@ export function recalcProject(project, now = Date.now(), atRiskThresholdPct = 70
   const next = {
     ...project,
     stages,
-    overallCompletionPct: computeProjectCompletionPct(stages),
+    overallCompletionPct:
+      stages.length > 0
+        ? computeProjectCompletionPct(stages)
+        : (project.overallCompletionPct ?? 0),
     expectedCompletionDate:
-      computeProjectExpectedCompletion(project.startDate, stages) ??
+      (stages.length > 0 ? computeProjectExpectedCompletion(project.startDate, stages) : null) ??
       project.expectedCompletionDate ??
       null,
   };
@@ -1364,9 +1367,13 @@ export function filterProjects(projects = [], filters = {}, now = Date.now()) {
     if (f.projectManagerId !== "all" && p.projectManager?.id !== f.projectManagerId) {
       return false;
     }
-    if (f.statuses?.length > 0 && !f.statuses.includes(p.status)) return false;
-
     const meta = getProjectRowMeta(p, now);
+    if (f.statuses?.length > 0) {
+      const isStatusMatch =
+        f.statuses.includes(p.status) ||
+        (f.statuses.includes('Delayed') && (p.isOverdue || meta.isOverdue));
+      if (!isStatusMatch) return false;
+    }
     if (f.department !== "all" && meta.department !== f.department) return false;
     if (f.stageName !== "all" && meta.currentStage?.name !== f.stageName) return false;
 
@@ -2022,6 +2029,31 @@ const usePmsStoreBase = create((set, get) => ({
       return saved;
     }
     return null;
+  },
+
+  removeProjectStage: async (projectId, stageId) => {
+    // 1. Optimistic local removal
+    set((st) => ({
+      projects: st.projects.map((p) => {
+        if (p.id !== projectId) return p;
+        const filtered = (p.stages || []).filter((s) => s.id !== stageId && s.sequence !== stageId);
+        return recalcProject({ ...p, stages: filtered }, Date.now(), st.settings.atRiskThresholdPct);
+      }),
+    }));
+    // 2. Server removal & resync
+    try {
+      await pmsApi.deleteStage(projectId, stageId);
+    } catch (err) {
+      console.warn('[PMS] remove stage error:', pmsApi.describeError(err));
+    }
+    const full = await pmsApi.pullProject(projectId);
+    if (full) applyServerProject(full);
+  },
+
+  syncPipelineStages: async (projectId) => {
+    const full = await pmsApi.pullProject(projectId);
+    if (full) applyServerProject(full);
+    return full;
   },
 
   updateProject: (projectId, patch) => {

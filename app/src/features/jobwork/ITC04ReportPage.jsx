@@ -87,7 +87,7 @@ export default function ITC04ReportPage() {
     <div className="p-6 space-y-6 max-w-7xl mx-auto">
       <PageHeader
         title="Form GST ITC-04 Statutory Reporting"
-        subtitle="Quarterly declaration for textile inputs sent to and received back from job workers (PDF §20)"
+        subtitle="Quarterly declaration for textile inputs sent to and received back from job workers."
       >
         <div className="flex flex-wrap items-center gap-3">
           <select

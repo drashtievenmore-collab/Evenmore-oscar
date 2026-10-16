@@ -1553,9 +1553,9 @@ export const ERPProvider = ({ children, }) => {
             // Blank SKU -> the server allocates one (ITM series).
             sku: item.sku || '',
             name: item.name || 'New Hardware Item',
-            category: item.category || 'General',
+            category: item.category || 'Fabric',
             categoryId: item.categoryId || undefined,
-            itemKind: item.itemKind || 'Standalone',
+            itemKind: item.itemKind || 'Fabric',
             vendor: item.vendor || '',
             description: item.description || '',
             lifecycleStatus: item.lifecycleStatus || 'Active',
@@ -1653,6 +1653,11 @@ export const ERPProvider = ({ children, }) => {
         }));
         persistUpdate('items', id, updates, setItems);
         showToast(`Item updated successfully.`);
+    };
+    const deleteInventoryItem = (id) => {
+        setItems((prev) => prev.filter((item) => String(item.id) !== String(id)));
+        persistDelete('items', id);
+        showToast(`Item deleted successfully.`);
     };
     const addSerialNumbers = (itemId, serials) => {
         if (!Array.isArray(serials) || serials.length === 0) return;
@@ -2142,11 +2147,24 @@ export const ERPProvider = ({ children, }) => {
                     const match = dealService.findDealForLead?.(quote.leadId);
                     if (match) deal = rows.find((d) => String(d.id) === String(match.id)) || match;
                 }
+                if (!deal && quote?.leadId) {
+                    const lead = (state.leads || []).find((l) => String(l.id) === String(quote.leadId));
+                    const newDeal = {
+                        title: lead?.name || quote.customer || 'New Deal',
+                        client: lead?.company || quote.customer || '',
+                        phone: lead?.phone || '',
+                        leadId: quote.leadId,
+                        stage,
+                        value: Number(quote.amount || quote.total || 0),
+                    };
+                    await state.createRecord('deals', newDeal);
+                    return;
+                }
                 if (!deal) return;
                 const from = deal.stage || 'Draft';
                 const allowed = {
-                    Sent: ['Draft'],
-                    Open: ['Draft', 'Sent'],
+                    Sent: ['Draft', 'Open'],
+                    Open: ['Draft', 'Sent', 'Revised', 'Declined', 'Lost'],
                     Won: ['Draft', 'Sent', 'Open', 'Revised', 'Declined'],
                     Lost: ['Draft', 'Sent', 'Open', 'Revised', 'Declined'],
                 };
@@ -2266,7 +2284,7 @@ export const ERPProvider = ({ children, }) => {
             persistUpdate('quotations', id, { status }, setQuotations);
         }
         if (status === 'Rejected') {
-            moveLinkedDealToStage(target, 'Lost');
+            moveLinkedDealToStage(target, 'Open');
         }
         if (target && target.status !== 'Sent' && status === 'Sent') {
             moveLinkedDealToStage(target, 'Sent');
@@ -4205,6 +4223,7 @@ export const ERPProvider = ({ children, }) => {
             updateZoneRequestStatus,
             addInventoryItem,
             updateInventoryItem,
+            deleteInventoryItem,
             adjustItemStock,
             addCustomer,
             updateCustomer,

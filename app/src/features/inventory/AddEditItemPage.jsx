@@ -73,9 +73,7 @@ export const AddEditItemPage = () => {
   const [sku, setSku] = useState('');
   const [status, setStatus] = useState('Optimal');
   const [itemLifecycle, setItemLifecycle] = useState('Active');
-  const [itemKind, setItemKind] = useState(
-    ['Machine', 'Part', 'Fabric', 'Service', 'Consumable'].includes(queryKind) ? queryKind : 'Standalone'
-  );
+  const [itemKind, setItemKind] = useState('Fabric');
   const [name, setName] = useState('');
   const [category, setCategory] = useState(categories[0]?.name || 'Networking Hardware');
   const [vendor, setVendor] = useState('');
@@ -246,8 +244,8 @@ export const AddEditItemPage = () => {
     if (isEditMode && existingItem) {
       setSku(existingItem.sku || existingItem.code || '');
       setName(existingItem.name);
-      setItemKind(existingItem.itemKind || 'Standalone');
-      setCategory(existingItem.category || categories[0]?.name || 'Networking Hardware');
+      setItemKind('Fabric');
+      setCategory(existingItem.category || categories[0]?.name || 'Fabric');
       setVendor(existingItem.vendor || '');
       setUom(existingItem.salesUnit || existingItem.uom || '');
       setPurchaseUnit(existingItem.purchaseUnit || existingItem.uom || '');
@@ -710,7 +708,7 @@ export const AddEditItemPage = () => {
 
     setSavedAlert(true);
     setTimeout(() => {
-      navigate(itemKind === 'Fabric' ? '/inventory/items/fabric' : itemKind === 'Machine' ? '/items/machines' : '/items/stock');
+      navigate(itemKind === 'Fabric' ? '/inventory/items/fabric' : itemKind === 'Machine' ? '/inventory/items/machines' : '/inventory/items');
     }, 500);
   };
 
@@ -734,10 +732,10 @@ export const AddEditItemPage = () => {
             <span>Items Master</span>
             <ChevronRight size={14} className="text-slate-300" />
             <Link
-              to={itemKind === 'Fabric' ? '/inventory/items/fabric' : itemKind === 'Machine' ? '/items/machines' : '/items/stock'}
+              to={itemKind === 'Fabric' ? '/inventory/items/fabric' : itemKind === 'Machine' ? '/inventory/items/machines' : '/inventory/items'}
               className="text-blue-600 hover:underline font-semibold"
             >
-              {itemKind === 'Fabric' ? 'Fabric Items' : itemKind === 'Machine' ? 'Machine Master' : 'Stock Inventory'}
+              {itemKind === 'Fabric' ? 'Fabric Items' : itemKind === 'Machine' ? 'Machine Master' : 'Items Master'}
             </Link>
             <ChevronRight size={14} className="text-slate-300" />
             <span className="font-semibold text-slate-700">
@@ -762,9 +760,9 @@ export const AddEditItemPage = () => {
         </div>
 
         <div className="flex flex-wrap lg:flex-nowrap items-center gap-2">
-          <Link to={itemKind === 'Fabric' ? '/inventory/items/fabric' : itemKind === 'Machine' ? '/items/machines' : '/items/stock'}>
+          <Link to={itemKind === 'Fabric' ? '/inventory/items/fabric' : itemKind === 'Machine' ? '/inventory/items/machines' : '/inventory/items'}>
             <Button variant="outline" icon={ArrowLeft}>
-              Back to {itemKind === 'Fabric' ? 'Fabrics' : itemKind === 'Machine' ? 'Machines' : 'Stock'}
+              Back to {itemKind === 'Fabric' ? 'Fabrics' : itemKind === 'Machine' ? 'Machines' : 'Items'}
             </Button>
           </Link>
         </div>
@@ -786,127 +784,22 @@ export const AddEditItemPage = () => {
             <div>
               <span className="text-xs font-bold text-slate-800 block">Item Classification</span>
               <span className="text-[11px] text-slate-500">
-                Select whether this item is an assembled Machine, Component Part, Finished Good, Consumable, Raw Material, or Service.
+                Textile inventory item category.
               </span>
             </div>
             <div className="flex flex-wrap items-center gap-1.5 sm:gap-2">
               <label
-                className={`px-3 py-1.5 rounded-xl text-xs font-bold border cursor-pointer transition-all shadow-2xs ${itemKind === 'Machine'
-                    ? 'bg-blue-600 text-white border-blue-600 shadow-sm shadow-blue-500/20'
-                    : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-100'
-                  }`}
-              >
-                <input
-                  type="radio"
-                  name="itemKind"
-                  value="Machine"
-                  checked={itemKind === 'Machine'}
-                  onChange={() => handleItemKindChange('Machine')}
-                  className="sr-only"
-                />
-                ⚙️ Machine
-              </label>
-
-              <label
-                className={`px-3 py-1.5 rounded-xl text-xs font-bold border cursor-pointer transition-all shadow-2xs ${itemKind === 'Part' || itemKind === 'Component'
-                    ? 'bg-blue-600 text-white border-blue-600 shadow-sm shadow-blue-500/20'
-                    : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-100'
-                  }`}
-              >
-                <input
-                  type="radio"
-                  name="itemKind"
-                  value="Part"
-                  checked={itemKind === 'Part' || itemKind === 'Component'}
-                  onChange={() => handleItemKindChange('Part')}
-                  className="sr-only"
-                />
-                🧩 Component Part
-              </label>
-
-              <label
-                className={`px-3 py-1.5 rounded-xl text-xs font-bold border cursor-pointer transition-all shadow-2xs ${itemKind === 'Standalone' || itemKind === 'Finished Product'
-                    ? 'bg-blue-600 text-white border-blue-600 shadow-sm shadow-blue-500/20'
-                    : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-100'
-                  }`}
-              >
-                <input
-                  type="radio"
-                  name="itemKind"
-                  value="Standalone"
-                  checked={itemKind === 'Standalone' || itemKind === 'Finished Product'}
-                  onChange={() => handleItemKindChange('Standalone')}
-                  className="sr-only"
-                />
-                📦 Finished Product
-              </label>
-
-              <label
-                className={`px-3 py-1.5 rounded-xl text-xs font-bold border cursor-pointer transition-all shadow-2xs ${itemKind === 'Consumable'
-                    ? 'bg-blue-600 text-white border-blue-600 shadow-sm shadow-blue-500/20'
-                    : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-100'
-                  }`}
-              >
-                <input
-                  type="radio"
-                  name="itemKind"
-                  value="Consumable"
-                  checked={itemKind === 'Consumable'}
-                  onChange={() => handleItemKindChange('Consumable')}
-                  className="sr-only"
-                />
-                🧪 Consumable
-              </label>
-
-              <label
-                className={`px-3 py-1.5 rounded-xl text-xs font-bold border cursor-pointer transition-all shadow-2xs ${itemKind === 'Raw Material'
-                    ? 'bg-blue-600 text-white border-blue-600 shadow-sm shadow-blue-500/20'
-                    : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-100'
-                  }`}
-              >
-                <input
-                  type="radio"
-                  name="itemKind"
-                  value="Raw Material"
-                  checked={itemKind === 'Raw Material'}
-                  onChange={() => handleItemKindChange('Raw Material')}
-                  className="sr-only"
-                />
-                🧱 Raw Material
-              </label>
-
-              <label
-                className={`px-3 py-1.5 rounded-xl text-xs font-bold border cursor-pointer transition-all shadow-2xs ${itemKind === 'Fabric'
-                    ? 'bg-cyan-600 text-white border-cyan-600 shadow-sm shadow-cyan-500/20'
-                    : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-100'
-                  }`}
+                className="px-3.5 py-1.5 rounded-xl text-xs font-bold border transition-all shadow-2xs bg-blue-600 text-white border-blue-600 shadow-sm shadow-blue-500/20 flex items-center gap-1.5"
               >
                 <input
                   type="radio"
                   name="itemKind"
                   value="Fabric"
-                  checked={itemKind === 'Fabric'}
-                  onChange={() => handleItemKindChange('Fabric')}
+                  checked={true}
+                  readOnly
                   className="sr-only"
                 />
                 👕 Fabric
-              </label>
-
-              <label
-                className={`px-3 py-1.5 rounded-xl text-xs font-bold border cursor-pointer transition-all shadow-2xs ${itemKind === 'Service'
-                    ? 'bg-amber-600 text-white border-amber-600 shadow-sm shadow-amber-500/20'
-                    : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-100'
-                  }`}
-              >
-                <input
-                  type="radio"
-                  name="itemKind"
-                  value="Service"
-                  checked={itemKind === 'Service'}
-                  onChange={() => handleItemKindChange('Service')}
-                  className="sr-only"
-                />
-                ⚡ Service
               </label>
             </div>
           </div>
@@ -1970,7 +1863,7 @@ export const AddEditItemPage = () => {
                     }}
                     className="bg-blue-600 hover:bg-blue-700 text-white shadow-sm shrink-0"
                   >
-                    Add Stock Part
+                    Add Component
                   </Button>
                 </div>
               </div>
@@ -1980,7 +1873,7 @@ export const AddEditItemPage = () => {
                   <Boxes className="w-10 h-10 mx-auto text-blue-300 mb-2" />
                   <p className="text-xs font-bold text-slate-800">No BOM parts assigned to this machine yet.</p>
                   <p className="text-[11px] text-slate-500 mt-1 max-w-md mx-auto">
-                    Click <strong className="text-blue-600">&quot;+ Add Stock Part&quot;</strong> above to select existing components from your warehouse stock before registering this Machine.
+                    Click <strong className="text-blue-600">&quot;+ Add Component&quot;</strong> above to select existing components from your warehouse stock before registering this Machine.
                   </p>
                 </div>
               ) : (
@@ -2211,7 +2104,7 @@ export const AddEditItemPage = () => {
             <Button
               type="button"
               variant="outline"
-              onClick={() => navigate(itemKind === 'Fabric' ? '/inventory/items/fabric' : itemKind === 'Machine' ? '/items/machines' : '/items/stock')}
+              onClick={() => navigate(itemKind === 'Fabric' ? '/inventory/items/fabric' : itemKind === 'Machine' ? '/inventory/items/machines' : '/inventory/items')}
             >
               Cancel
             </Button>
@@ -2239,30 +2132,20 @@ export const AddEditItemPage = () => {
             </div>
             <div className="flex flex-wrap items-center gap-2">
               {[
-                { value: 'Machine', label: 'Machine', icon: Cpu },
-                { value: 'Part', label: 'Component Part', icon: Boxes },
-                { value: 'Standalone', label: 'Finished Product', icon: CheckCircle2 },
-                { value: 'Consumable', label: 'Consumable', icon: Layers },
-                { value: 'Raw Material', label: 'Raw Material', icon: AlertTriangle },
                 { value: 'Fabric', label: 'Fabric', icon: Shirt },
-                { value: 'Service', label: 'Service', icon: Wrench },
               ].map((t) => {
                 const Icon = t.icon;
-                const active = itemKind === t.value || (t.value === 'Standalone' && itemKind === 'Finished Product');
                 return (
                   <label
                     key={t.value}
-                    className={`px-3 py-1.5 rounded-xl text-xs font-bold border cursor-pointer transition-all shadow-2xs flex items-center gap-1.5 ${active
-                      ? 'bg-blue-600 text-white border-blue-600 shadow-sm shadow-blue-500/20'
-                      : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-100'
-                      }`}
+                    className="px-3.5 py-1.5 rounded-xl text-xs font-bold border transition-all shadow-2xs flex items-center gap-1.5 bg-blue-600 text-white border-blue-600 shadow-sm shadow-blue-500/20"
                   >
                     <input
                       type="radio"
                       name="itemKind"
                       value={t.value}
-                      checked={active}
-                      onChange={() => handleItemKindChange(t.value)}
+                      checked={true}
+                      readOnly
                       className="sr-only"
                     />
                     <Icon size={14} /> {t.label}
@@ -2685,14 +2568,14 @@ export const AddEditItemPage = () => {
         </form>
       )}
 
-      {/* Stock Part Picker Modal for Machine BOM */}
+      {/* Component Picker Modal for Machine BOM */}
       {isAddPartModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-xs p-2 sm:p-4 animate-in fade-in duration-150">
           <div className="bg-white rounded-2xl border border-slate-200 shadow-2xl max-w-2xl w-full p-4 sm:p-6 space-y-4 max-h-[95vh] sm:max-h-[90vh] flex flex-col overflow-y-auto">
             <div className="flex items-center justify-between gap-2 lg:gap-0 border-b border-slate-100 pb-3">
               <div className="min-w-0 lg:min-w-auto">
                 <h3 className="font-bold text-base text-slate-800 flex items-center gap-2">
-                  <Boxes className="text-blue-600" size={18} /> Select Stock Part for Machine BOM
+                  <Boxes className="text-blue-600" size={18} /> Select Component for Machine BOM
                 </h3>
                 <p className="text-xs text-slate-500">
                   Pick an existing component or standalone stock item from warehouse inventory.
@@ -2712,7 +2595,7 @@ export const AddEditItemPage = () => {
                 <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
                 <input
                   type="text"
-                  placeholder="Search stock part name or SKU..."
+                  placeholder="Search component name or SKU..."
                   value={partPickerSearch}
                   onChange={(e) => setPartPickerSearch(e.target.value)}
                   className="w-full pl-9 pr-3 py-2 border border-slate-200 rounded-xl bg-slate-50 text-xs focus:bg-white focus:outline-none focus:border-blue-600 focus:ring-2 focus:ring-blue-500/20"
@@ -2737,8 +2620,8 @@ export const AddEditItemPage = () => {
               {availableStockItemsForPicker.length === 0 ? (
                 <div className="p-8 text-center text-slate-400">
                   <Package className="w-8 h-8 mx-auto text-slate-300 mb-1.5" />
-                  <p className="font-semibold text-slate-600">No matching stock components found.</p>
-                  <p className="text-[11px] text-slate-400 mt-0.5">Only non-machine stock inventory can be selected.</p>
+                  <p className="font-semibold text-slate-600">No matching components found.</p>
+                  <p className="text-[11px] text-slate-400 mt-0.5">Only non-machine inventory can be selected.</p>
                 </div>
               ) : (
                 availableStockItemsForPicker.map((it) => {
@@ -2796,7 +2679,7 @@ export const AddEditItemPage = () => {
               <div className="p-2.5 bg-blue-50 border border-blue-200 rounded-xl text-xs text-blue-700 flex items-center gap-2">
                 <Info size={14} className="shrink-0 text-blue-600" />
                 <span>
-                  This stock part is already in the BOM. Modifying quantity below will update the existing BOM row.
+                  This item is already in the BOM. Modifying quantity below will update the existing BOM row.
                 </span>
               </div>
             )}

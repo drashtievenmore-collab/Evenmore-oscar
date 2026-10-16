@@ -41,6 +41,7 @@ const ALERT_TYPE_LABELS = {
   large_discount_override: 'High Discount / Brokerage Override',
   overdue_sampling: 'Sampling Return Overdue',
   slow_moving_stock: 'Slow Moving Finished Fabric',
+  combined_grey_stock_low: 'Combined Grey Stock Threshold',
 };
 
 export default function AlertCenterPage() {
@@ -149,7 +150,7 @@ export default function AlertCenterPage() {
     <div className="p-6 space-y-6 max-w-7xl mx-auto">
       <PageHeader
         title="Alert Center & Operational Exceptions"
-        subtitle="Automated background monitoring for production delays, loss variances, and commercial exceptions (PDF §19)"
+        subtitle="Automated background monitoring for production delays, loss variances, and commercial exceptions."
       >
         <button
           onClick={loadData}

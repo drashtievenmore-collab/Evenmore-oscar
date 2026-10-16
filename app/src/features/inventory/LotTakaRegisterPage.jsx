@@ -1363,7 +1363,7 @@ export default function LotTakaRegisterPage() {
                         <span className="font-bold text-slate-800 uppercase text-[10.5px]">End-to-End Lineage</span>
                       </div>
                       <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-purple-100 text-purple-800 font-semibold">
-                        PDF §07, §08
+                        Lineage Trace
                       </span>
                     </div>
 
@@ -2261,7 +2261,7 @@ export default function LotTakaRegisterPage() {
         </div>
       )}
 
-      {/* ── FULL TRACEABILITY MODAL (Phase 2.3 & PDF §07, §08) ──────────── */}
+      {/* ── FULL TRACEABILITY MODAL ──────────── */}
       {isTraceabilityModalOpen && (
         <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4 overflow-y-auto">
           <div className="bg-white rounded-2xl shadow-2xl border border-slate-200 w-full max-w-5xl my-auto overflow-hidden animate-in fade-in zoom-in-95 duration-150 max-h-[92vh] flex flex-col">
@@ -2275,7 +2275,7 @@ export default function LotTakaRegisterPage() {
                   <div className="flex items-center gap-2">
                     <h3 className="text-base font-bold text-slate-900">End-to-End Lot & Taka Traceability</h3>
                     <span className="text-[10px] font-mono bg-purple-100 text-purple-800 px-2 py-0.5 rounded-full font-bold">
-                      PDF §07, §08
+                      Full Traceability
                     </span>
                   </div>
                   <p className="text-xs text-slate-500">
@@ -2412,12 +2412,12 @@ export default function LotTakaRegisterPage() {
                     )}
                   </div>
 
-                  {/* 2. Processing & Job Work History (PDF §07) */}
+                  {/* 2. Processing & Job Work History */}
                   <div className="space-y-2">
                     <div className="flex items-center justify-between">
                       <h4 className="text-xs font-bold text-slate-900 uppercase tracking-wide flex items-center gap-1.5">
                         <Layers size={14} className="text-amber-600" />
-                        2. Outsourced Processing & Job Work History (PDF §07)
+                        2. Outsourced Processing & Job Work History
                       </h4>
                       <span className="text-[11px] text-slate-500 font-mono">
                         {(traceabilityData.jobWorkHistory || []).length} Transaction(s)
@@ -2466,12 +2466,12 @@ export default function LotTakaRegisterPage() {
                     )}
                   </div>
 
-                  {/* 3. QC Inspections & ASTM 4-Point Auto-Grading (PDF §08) */}
+                  {/* 3. QC Inspections & ASTM 4-Point Auto-Grading */}
                   <div className="space-y-2">
                     <div className="flex items-center justify-between">
                       <h4 className="text-xs font-bold text-slate-900 uppercase tracking-wide flex items-center gap-1.5">
                         <FileCheck size={14} className="text-emerald-600" />
-                        3. Quality Control Inspections & ASTM D5430 4-Point Grading (PDF §08)
+                        3. Quality Control Inspections & ASTM D5430 4-Point Grading
                       </h4>
                       <span className="text-[11px] text-slate-500 font-mono">
                         {(traceabilityData.qcHistory || []).length} Inspection(s)

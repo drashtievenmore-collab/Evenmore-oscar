@@ -156,7 +156,6 @@ const NAV = [
           { label: 'ITC-04 Job Work', icon: FileSpreadsheet, to: '/job-work/itc-04' },
         ],
       },
-      { label: 'Dynamic Stages', icon: Sliders, to: '/pms/stages' },
       { label: 'Timeline & Gantt', icon: Calendar, to: '/pms/timeline' },
       { label: 'Delay Center', icon: AlertTriangle, to: '/pms/delays', badgeKey: 'pmsDelayedCount', badgeColor: '#ef4444' },
       { label: 'PMS Reports', icon: PieChart, to: '/pms/reports' },
@@ -209,6 +208,7 @@ const NAV = [
     icon: Package,
     children: [
       { label: 'Dashboard', icon: Home, to: '/inventory/dashboard' },
+      { label: 'Total Inventory', icon: Package, to: '/inventory/items' },
       {
         label: 'Fabric Masters',
         icon: Spool,
@@ -247,7 +247,6 @@ const NAV = [
           { label: 'Customer Return Stock', to: '/inventory/stock-position?type=customer-return' },
         ],
       },
-      { label: 'Total Inventory', icon: Package, to: '/inventory/items' },
       {
         label: 'QC (Quality Check)', icon: CircleCheck, to: '/inventory/qc',
         navigateOnOpen: true,

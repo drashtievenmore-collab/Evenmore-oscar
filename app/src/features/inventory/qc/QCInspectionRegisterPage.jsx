@@ -1027,7 +1027,7 @@ export default function QCInspectionRegisterPage() {
               <div className="flex items-center space-x-2">
                 <h3 className="text-base font-bold text-slate-900">Create QC Inspection</h3>
                 <span className="text-[10px] bg-purple-100 text-purple-800 px-2 py-0.5 rounded font-semibold">
-                  PDF §08 Quality Flow
+                  Standard Quality Flow
                 </span>
               </div>
               <button
@@ -1049,7 +1049,7 @@ export default function QCInspectionRegisterPage() {
                     : 'text-slate-600 hover:text-slate-900'
                 }`}
               >
-                4-Point ASTM Piece Inspection (PDF §08)
+                4-Point ASTM Piece Inspection
               </button>
               <button
                 type="button"

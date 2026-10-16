@@ -105,7 +105,7 @@ export default function OwnerMISDashboardPage() {
     <div className="p-6 space-y-6 max-w-7xl mx-auto">
       <PageHeader
         title="Owner Executive MIS & Commercial Analysis"
-        subtitle="Annual commercial leakage, customer profitability, fabric design analysis, and stock ageing (PDF §15)"
+        subtitle="Annual commercial leakage, customer profitability, fabric design analysis, and stock ageing."
       >
         <div className="flex flex-wrap items-center gap-2">
           <input
@@ -227,7 +227,7 @@ export default function OwnerMISDashboardPage() {
               Annual Leakage Components (₹ and % of Sales)
             </h3>
             <p className="text-xs text-slate-500">
-              Breakdown of non-production deductions eroding sales margin across the financial year (PDF §15).
+              Breakdown of non-production deductions eroding sales margin across the financial year.
             </p>
 
             <div className="space-y-4 pt-2">
