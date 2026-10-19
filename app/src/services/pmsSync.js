@@ -190,6 +190,21 @@ export async function updateStagePercentages(projectId, payload = {}) {
   return api.post(`${projectPath(projectId)}stage-percentages/`, payload);
 }
 
+export async function getGreyStockAllocation(projectId) {
+  if (!isBackendEnabled() || !projectId) return null;
+  try {
+    return await api.get(`${projectPath(projectId)}grey-stock-allocation/`);
+  } catch (err) {
+    console.warn('[pmsSync] get grey stock allocation failed:', err?.message || err);
+    return null;
+  }
+}
+
+export async function saveGreyStockAllocation(projectId, payload = {}) {
+  if (!isBackendEnabled() || !projectId) return null;
+  return api.post(`${projectPath(projectId)}grey-stock-allocation/`, payload);
+}
+
 // ── stage verbs ─────────────────────────────────────────────────────────────
 
 export async function addStage(projectId, payload) {

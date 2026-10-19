@@ -1,19 +1,13 @@
 import React from 'react';
-import { Link } from 'react-router-dom';
 import {
   Check, Boxes, Droplets, Cog, ShieldCheck, Layers, Play,
   Send, ArrowRightLeft, ClipboardList, Truck, Receipt, Trophy, CircleDot,
   ArrowRight, ShoppingCart, Factory, FileSpreadsheet, ExternalLink, AlertCircle,
   Sparkles, CheckCircle2, ChevronRight, Trash2, Calendar, Clock, Hourglass, XCircle,
-  ArrowDownToLine, IndianRupee, FileText, Pencil, Eye, Plus
+  ArrowDownToLine, IndianRupee, FileText, Plus
 } from 'lucide-react';
 import { computeStageCompletionPct } from '../../../../stores/pmsStore';
 import { StageStatusBadge } from '../../components/StageStatusBadge';
-
-/**
- * StageOverview — Enhanced Project Stage Pipeline & Stage Details Table
- * matching Oscar ERP specification with Conditional Grey Stock Workflow.
- */
 
 function dateOnly(value) {
   if (!value) return '—';
@@ -51,40 +45,84 @@ function statusTone(status) {
   return { ring: '#cbd5e1', chipBg: '#f8fafc', chipFg: '#64748b', label: 'Pending' };
 }
 
+function DepartmentBadge({ department }) {
+  const d = (department || '').trim();
+  let styleClass = 'bg-slate-100 text-slate-700 border-slate-200';
+  let label = d || 'General';
+
+  if (d.toLowerCase().includes('purchase')) {
+    styleClass = 'bg-blue-50 text-blue-700 border-blue-200';
+    label = 'Purchase';
+  } else if (d.toLowerCase().includes('inventory')) {
+    styleClass = 'bg-slate-100 text-slate-700 border-slate-200';
+    label = 'Inventory';
+  } else if (d.toLowerCase().includes('quality') || d.toLowerCase() === 'qc') {
+    styleClass = 'bg-teal-50 text-teal-700 border-teal-200';
+    label = 'QC';
+  } else if (d.toLowerCase().includes('production')) {
+    styleClass = 'bg-amber-50 text-amber-700 border-amber-200';
+    label = 'Production';
+  } else if (d.toLowerCase().includes('accounts')) {
+    styleClass = 'bg-purple-50 text-purple-700 border-purple-200';
+    label = 'Accounts';
+  } else if (d.toLowerCase().includes('job work') || d.toLowerCase().includes('jobwork')) {
+    styleClass = 'bg-indigo-50 text-indigo-700 border-indigo-200';
+    label = 'Job Work';
+  } else if (d.toLowerCase().includes('dispatch')) {
+    styleClass = 'bg-orange-50 text-orange-700 border-orange-200';
+    label = 'Dispatch';
+  } else if (d.toLowerCase().includes('management')) {
+    styleClass = 'bg-slate-50 text-slate-700 border-slate-200';
+    label = 'Management';
+  }
+
+  return (
+    <span className={`w-full max-w-[84px] py-0.5 px-1.5 rounded-full text-[10px] font-semibold text-center border truncate inline-block ${styleClass}`}>
+      {label}
+    </span>
+  );
+}
+
 function StageIcon({ name, department, sequence }) {
   const text = `${name ?? ''} ${department ?? ''}`.toLowerCase();
-  if (sequence === 1 || text.includes('requirement') || text.includes('approval') || text.includes('order')) {
-    return <ShoppingCart size={18} strokeWidth={1.8} />;
+  if (text.includes('purchase po') || text.includes('po') || text.includes('work instruction')) {
+    return <FileText size={18} strokeWidth={1.8} />;
   }
-  if (sequence === 2 || text.includes('check') || text.includes('allocat')) {
-    return <Boxes size={18} strokeWidth={1.8} />;
-  }
-  if (sequence === 3 || text.includes('procurement') || text.includes('purchase')) {
-    return <ShoppingCart size={18} strokeWidth={1.8} />;
-  }
-  if (sequence === 4 || text.includes('plan') || text.includes('assignment')) {
-    return <ClipboardList size={18} strokeWidth={1.8} />;
-  }
-  if (sequence === 5 || text.includes('outward') || text.includes('send')) {
+  if (text.includes('supplier delivery') || text.includes('outward')) {
     return <Truck size={18} strokeWidth={1.8} />;
   }
-  if (sequence === 6 || text.includes('dye') || text.includes('processing')) {
-    return <Cog size={18} strokeWidth={1.8} />;
-  }
-  if (sequence === 7 || text.includes('inward') || text.includes('receive')) {
-    return <ArrowDownToLine size={18} strokeWidth={1.8} />;
-  }
-  if (sequence === 8 || text.includes('quality') || text.includes('qc') || text.includes('stock')) {
-    return <ShieldCheck size={18} strokeWidth={1.8} />;
-  }
-  if (sequence === 9 || text.includes('dispatch') || text.includes('customer')) {
+  if (text.includes('grn') || text.includes('stock check') || text.includes('dispatch')) {
     return <Boxes size={18} strokeWidth={1.8} />;
   }
-  if (sequence === 10 || text.includes('invoice') || text.includes('payment')) {
+  if (text.includes('lot') || text.includes('taka')) {
+    return <Layers size={18} strokeWidth={1.8} />;
+  }
+  if (text.includes('qc') || text.includes('quality') || text.includes('verification')) {
+    return <ShieldCheck size={18} strokeWidth={1.8} />;
+  }
+  if (text.includes('stock updated')) {
+    return <Boxes size={18} strokeWidth={1.8} />;
+  }
+  if (text.includes('assign') || text.includes('employee')) {
+    return <ClipboardList size={18} strokeWidth={1.8} />;
+  }
+  if (text.includes('daily production') || text.includes('bill match')) {
+    return <FileSpreadsheet size={18} strokeWidth={1.8} />;
+  }
+  if (text.includes('completion') || text.includes('closure')) {
+    return <CheckCircle2 size={18} strokeWidth={1.8} />;
+  }
+  if (text.includes('payment') || text.includes('approval') || text.includes('invoice')) {
     return <IndianRupee size={18} strokeWidth={1.8} />;
   }
-  if (sequence === 11 || text.includes('close') || text.includes('closure')) {
-    return <Trophy size={18} strokeWidth={1.8} />;
+  if (text.includes('plan')) {
+    return <ClipboardList size={18} strokeWidth={1.8} />;
+  }
+  if (text.includes('dye') || text.includes('processing')) {
+    return <Cog size={18} strokeWidth={1.8} />;
+  }
+  if (text.includes('inward')) {
+    return <ArrowDownToLine size={18} strokeWidth={1.8} />;
   }
   return <CircleDot size={18} strokeWidth={1.8} />;
 }
@@ -112,7 +150,7 @@ function StageStatusPill({ status }) {
     );
   }
   return (
-    <span className="w-full max-w-[84px] py-0.5 px-2 rounded-full text-[10px] font-bold text-center bg-slate-50 text-slate-400 border border-slate-200 truncate inline-block">
+    <span className="w-full max-w-[84px] py-0.5 px-2 rounded-full text-[10px] font-bold text-center bg-slate-50 text-slate-500 border border-slate-200 truncate inline-block">
       Pending
     </span>
   );
@@ -132,13 +170,6 @@ function getStageSummary(stage, pipelineSummary) {
   }
 
   if (seq === 1) {
-    const req = q.requirement || q.accepted || pipelineSummary?.required_meters || stage.requirementMeters || 0;
-    return {
-      line1: req > 0 ? `Required: ${Number(req).toLocaleString('en-IN')} m` : 'Requirement: —',
-      line2: doc?.number ? `Order ${doc.number}` : (doc?.label || 'Sales Order'),
-    };
-  }
-  if (seq === 2) {
     const alloc = q.reserved || pipelineSummary?.allocated_meters || 0;
     const cust = pipelineSummary?.customer_meters;
     const own = pipelineSummary?.own_meters;
@@ -153,7 +184,22 @@ function getStageSummary(stage, pipelineSummary) {
       line2,
     };
   }
-  if (seq === 3) {
+  if (seq === 1) {
+    const alloc = q.reserved || pipelineSummary?.allocated_meters || 0;
+    const cust = pipelineSummary?.customer_meters;
+    const own = pipelineSummary?.own_meters;
+    const line2 =
+      cust !== undefined && own !== undefined && (cust > 0 || own > 0)
+        ? `(${Number(cust).toLocaleString('en-IN')} cust + ${Number(own).toLocaleString('en-IN')} own)`
+        : alloc > 0
+        ? 'Stock Allocated'
+        : 'Stock Check Pending';
+    return {
+      line1: alloc > 0 ? `Allocated: ${Number(alloc).toLocaleString('en-IN')} m` : 'Allocated: —',
+      line2,
+    };
+  }
+  if (seq === 2) {
     const shortage = q.input || pipelineSummary?.shortage_meters || 0;
     const good = q.good || 0;
     return {
@@ -161,21 +207,21 @@ function getStageSummary(stage, pipelineSummary) {
       line2: doc?.number ? `PO ${doc.number}` : (good > 0 ? `Received: ${Number(good).toLocaleString('en-IN')} m` : 'Procurement Pending'),
     };
   }
-  if (seq === 4) {
+  if (seq === 3) {
     const planned = q.produced || q.input || pipelineSummary?.required_meters || 0;
     return {
       line1: planned > 0 ? `Planned: ${Number(planned).toLocaleString('en-IN')} m` : 'Plan: —',
       line2: doc?.number ? `Plan: ${doc.number}` : (doc?.label || 'Vendor Assignment'),
     };
   }
-  if (seq === 5) {
+  if (seq === 4) {
     const sent = q.produced || q.input || pipelineSummary?.dyeing_sent_meters || 0;
     return {
       line1: sent > 0 ? `Sent: ${Number(sent).toLocaleString('en-IN')} m` : 'Outward: —',
       line2: doc?.number ? `Challan ${doc.number}` : 'Job Work Outward',
     };
   }
-  if (seq === 6) {
+  if (seq === 5) {
     const atVendor = q.input || pipelineSummary?.dyeing_sent_meters || 0;
     const processed = q.produced || pipelineSummary?.customer_project_received_meters || 0;
     return {
@@ -183,7 +229,7 @@ function getStageSummary(stage, pipelineSummary) {
       line2: processed > 0 ? `Processed: ${Number(processed).toLocaleString('en-IN')} m` : 'Processing Pending',
     };
   }
-  if (seq === 7) {
+  if (seq === 6) {
     const rec = q.good || pipelineSummary?.customer_project_received_meters || 0;
     const req = pipelineSummary?.required_meters || q.input || 0;
     const pending = Math.max(0, req - rec);
@@ -192,7 +238,7 @@ function getStageSummary(stage, pipelineSummary) {
       line2: req > 0 ? `Pending: ${Number(pending).toLocaleString('en-IN')} m` : 'Inward Pending',
     };
   }
-  if (seq === 8) {
+  if (seq === 7) {
     const qcPass = q.accepted || 0;
     const totalRec = pipelineSummary?.customer_project_received_meters || q.good || 0;
     const pendingQC = Math.max(0, totalRec - qcPass);
@@ -201,7 +247,7 @@ function getStageSummary(stage, pipelineSummary) {
       line2: totalRec > 0 ? `Pending QC: ${Number(pendingQC).toLocaleString('en-IN')} m` : 'Inspection Pending',
     };
   }
-  if (seq === 9) {
+  if (seq === 8) {
     const disp = q.dispatched || 0;
     const cust = pipelineSummary?.customer_meters || pipelineSummary?.required_meters || 0;
     return {
@@ -209,7 +255,7 @@ function getStageSummary(stage, pipelineSummary) {
       line2: cust > 0 ? `Customer: ${Number(cust).toLocaleString('en-IN')} m` : 'Dispatch Pending',
     };
   }
-  if (seq === 10) {
+  if (seq === 9) {
     const invAmt = q.invoicedAmount || 0;
     const paidAmt = q.paidAmount || 0;
     return {
@@ -217,7 +263,7 @@ function getStageSummary(stage, pipelineSummary) {
       line2: paidAmt > 0 ? `Paid: ₹${Number(paidAmt).toLocaleString('en-IN')}` : 'Payment Pending',
     };
   }
-  if (seq === 11) {
+  if (seq === 10) {
     const isDone = stage.status === 'Completed';
     return {
       line1: isDone ? 'Project Closed' : 'Closure: Pending',
@@ -231,48 +277,102 @@ function getStageSummary(stage, pipelineSummary) {
   };
 }
 
-export const STATIC_PIPELINE_STAGES = [
-  { sequence: 1, name: 'Customer Requirement & Approval', department: 'Sales', branch: 'common', weight: 10, icon: 'ShoppingCart' },
-  { sequence: 2, name: 'Grey Stock Check & Allocation', department: 'Inventory', branch: 'common', weight: 10, icon: 'Boxes' },
-  { sequence: 3, name: 'Procurement (If Required)', department: 'Purchase', branch: 'branch_b', weight: 10, icon: 'ShoppingCart' },
-  { sequence: 4, name: 'Processing Plan & Vendor Assignment', department: 'Job Work', branch: 'common', weight: 10, icon: 'ClipboardList' },
-  { sequence: 5, name: 'Job Work Outward (Send to Vendor)', department: 'Job Work', branch: 'common', weight: 10, icon: 'Truck' },
-  { sequence: 6, name: 'Processing (Dyeing)', department: 'Job Work', branch: 'common', weight: 15, icon: 'Cog' },
-  { sequence: 7, name: 'Job Work Inward (Receive)', department: 'Job Work', branch: 'common', weight: 10, icon: 'ArrowDownToLine' },
-  { sequence: 8, name: 'Quality Check & Stock Allocation', department: 'Quality Control', branch: 'common', weight: 10, icon: 'ShieldCheck' },
-  { sequence: 9, name: 'Customer Dispatch', department: 'Dispatch', branch: 'common', weight: 10, icon: 'Boxes' },
-  { sequence: 10, name: 'Invoice & Payment Collection', department: 'Accounts', branch: 'common', weight: 10, icon: 'IndianRupee' },
-  { sequence: 11, name: 'Project Closure', department: 'Management', branch: 'common', weight: 5, icon: 'CheckCircle2' },
+export const PURCHASE_PO_STAGES = [
+  { name: 'Create Grey Purchase PO', department: 'Purchase', branch: 'branch_purchase', weight: 5, icon: 'FileText' },
+  { name: 'Supplier Delivery', department: 'Purchase', branch: 'branch_purchase', weight: 5, icon: 'Truck' },
+  { name: 'GRN / Inward', department: 'Inventory', branch: 'branch_purchase', weight: 5, icon: 'Boxes' },
+  { name: 'Lot & Taka Creation', department: 'Inventory', branch: 'branch_purchase', weight: 5, icon: 'Layers' },
+  { name: 'Grey QC', department: 'QC', branch: 'branch_purchase', weight: 5, icon: 'ShieldCheck' },
+  { name: 'Grey Stock Updated', department: 'Inventory', branch: 'branch_purchase', weight: 5, icon: 'Boxes' },
 ];
+
+export const VENDOR_PRODUCTION_STAGES = [
+  { name: 'Production Work Instruction', department: 'Production', branch: 'branch_production', weight: 3.33, icon: 'FileText' },
+  { name: 'Assign Vendor A + Employee', department: 'Production', branch: 'branch_production', weight: 3.33, icon: 'ClipboardList' },
+  { name: 'Daily Production Entry', department: 'Production', branch: 'branch_production', weight: 3.33, icon: 'FileSpreadsheet' },
+  { name: 'Production Completion', department: 'Production', branch: 'branch_production', weight: 3.33, icon: 'CheckCircle2' },
+  { name: 'Final Quantity Verification', department: 'QC', branch: 'branch_production', weight: 3.33, icon: 'ShieldCheck' },
+  { name: 'Generate Final Job Work PO', department: 'Production', branch: 'branch_production', weight: 3.33, icon: 'FileText' },
+  { name: 'Production / Job Work PO', department: 'Accounts', branch: 'branch_production', weight: 3.33, icon: 'FileText' },
+  { name: 'Agency Bill Match (PO + verified qty + invoice)', department: 'Accounts', branch: 'branch_production', weight: 3.33, icon: 'FileSpreadsheet' },
+  { name: 'Approval / Hold / Payment', department: 'Accounts', branch: 'branch_production', weight: 3.36, icon: 'IndianRupee' },
+];
+
+export const DOWNSTREAM_STAGES = [
+  { name: 'Processing Plan & Vendor Assignment', department: 'Job Work', branch: 'common', weight: 10, icon: 'ClipboardList' },
+  { name: 'Job Work Outward (Send to Vendor)', department: 'Job Work', branch: 'common', weight: 10, icon: 'Truck' },
+  { name: 'Processing (Dyeing)', department: 'Job Work', branch: 'common', weight: 10, icon: 'Cog' },
+  { name: 'Job Work Inward (Receive)', department: 'Job Work', branch: 'common', weight: 10, icon: 'ArrowDownToLine' },
+  { name: 'Quality Check & Stock Allocation', department: 'QC', branch: 'common', weight: 10, icon: 'ShieldCheck' },
+  { name: 'Customer Dispatch', department: 'Dispatch', branch: 'common', weight: 10, icon: 'Boxes' },
+  { name: 'Invoice & Payment Collection', department: 'Accounts', branch: 'common', weight: 10, icon: 'IndianRupee' },
+  { name: 'Project Closure', department: 'Management', branch: 'common', weight: 10, icon: 'CheckCircle2' },
+];
+
+export const STAGE_1_DEF = {
+  name: 'Grey Stock Check & Allocation',
+  department: 'Inventory',
+  branch: 'common',
+  weight: 10,
+  icon: 'Boxes',
+};
+
+export const STATIC_PIPELINE_STAGES = [
+  STAGE_1_DEF,
+  { name: 'Procurement (If Required)', department: 'Purchase', branch: 'branch_b', weight: 10, icon: 'ShoppingCart' },
+  ...DOWNSTREAM_STAGES,
+].map((s, idx) => ({ ...s, sequence: idx + 1 }));
 
 export function buildStaticPipelineStages(project) {
   if (!project) return [];
   const existingStages = project.stages || [];
-  const summary = project.pipelineSummary || {};
-  const isBranchA = summary.route_branch === 'BRANCH_A' || !summary.shortage_meters || Number(summary.shortage_meters) === 0;
+  const cfv = project.customFieldValues || project.custom_field_values || {};
+  const shortageAction =
+    project.shortageAction ||
+    cfv.shortage_action ||
+    cfv.shortageAction ||
+    project.pipelineSummary?.shortage_action ||
+    project.pipelineSummary?.shortageAction;
 
-  const baseStages = STATIC_PIPELINE_STAGES.map((def) => {
+  const shortageMeters = Number(
+    project.shortageMeters ??
+    project.pipelineSummary?.shortage_meters ??
+    (project.requirementMeters && project.allocatedMeters ? project.requirementMeters - project.allocatedMeters : 0)
+  );
+
+  let rawList;
+  if (shortageMeters <= 0 && !shortageAction) {
+    rawList = [STAGE_1_DEF, ...DOWNSTREAM_STAGES];
+  } else if (shortageAction === 'PURCHASE_PO') {
+    rawList = [STAGE_1_DEF, ...PURCHASE_PO_STAGES, ...DOWNSTREAM_STAGES];
+  } else if (shortageAction === 'PRODUCTION_ORDER') {
+    rawList = [STAGE_1_DEF, ...VENDOR_PRODUCTION_STAGES, ...DOWNSTREAM_STAGES];
+  } else {
+    rawList = [STAGE_1_DEF, ...PURCHASE_PO_STAGES, ...DOWNSTREAM_STAGES];
+  }
+
+  const defsWithSeq = rawList.map((item, idx) => ({
+    ...item,
+    sequence: idx + 1,
+  }));
+
+  const baseStages = defsWithSeq.map((def) => {
     const existing = existingStages.find((s) => {
       if (!s) return false;
       const nm = (s.name || '').trim().toLowerCase();
-      if (nm === 'dyeing' || nm === 'vbvb') return false;
-      return s.sequence === def.sequence || nm === def.name.trim().toLowerCase();
+      if (nm === 'dyeing' || nm === 'vbvb' || nm.includes('customer requirement')) return false;
+      return nm === def.name.trim().toLowerCase();
     });
-
-    const isStage3Skipped = def.sequence === 3 && isBranchA;
 
     let status = 'Pending';
     let completionPct = 0;
 
-    if (isStage3Skipped) {
-      status = 'Not Required';
-      completionPct = 0;
-    } else if (existing && existing.status) {
+    if (existing && existing.status) {
       status = existing.status;
       completionPct = Number(existing.completionPct ?? (existing.status === 'Completed' ? 100 : 0));
     }
 
-    const weight = isStage3Skipped ? 0 : (existing ? (existing.percentage ?? existing.weightPct ?? def.weight) : def.weight);
+    const weight = existing ? (existing.percentage ?? existing.weightPct ?? def.weight) : def.weight;
 
     return {
       id: existing?.id || `static-stage-${def.sequence}`,
@@ -298,22 +398,9 @@ export function buildStaticPipelineStages(project) {
     };
   });
 
-  const customStages = existingStages.filter((s) => {
-    if (!s) return false;
-    const nm = (s.name || '').trim().toLowerCase();
-    if (nm === 'dyeing' || nm === 'vbvb') return false;
-    return !STATIC_PIPELINE_STAGES.some(
-      (def) => def.sequence === s.sequence || (s.name && s.name.trim().toLowerCase() === def.name.trim().toLowerCase())
-    );
-  });
-
-  return [...baseStages, ...customStages].sort((a, b) => a.sequence - b.sequence);
+  return baseStages;
 }
 
-/**
- * ConditionalStockBanner — diagnostic bar showing live grey stock eligibility,
- * shortage, and the active route branch (Branch A vs Branch B vs Partial).
- */
 export function ConditionalStockBanner({ pipelineSummary }) {
   if (!pipelineSummary) return null;
 
@@ -338,10 +425,10 @@ export function ConditionalStockBanner({ pipelineSummary }) {
           </span>
           <span className="text-xs text-slate-500 font-medium">
             {isBranchA
-              ? 'Required grey fabric available. Vendor A stages (3–5) bypassed; routed directly to Vendor B.'
+              ? 'Required grey fabric available. Procurement stage bypassed; routed directly to Processing.'
               : isPartial
-              ? 'Partial stock available. Allocated in-stock fabric; shortage routed through Vendor A.'
-              : 'Grey fabric in shortage. Vendor A Weaving & Procurement stages (3–5) active.'}
+              ? 'Partial stock available. Allocated in-stock fabric; shortage routed through Procurement.'
+              : 'Grey fabric in shortage. Procurement & Weaving stages active.'}
           </span>
         </div>
       </div>
@@ -380,12 +467,7 @@ export function ConditionalStockBanner({ pipelineSummary }) {
   );
 }
 
-/**
- * StageStepper — horizontal Project Stage Pipeline with numbered stages,
- * connecting arrows, planned/actual dates, quantity summaries, status badges, and stage icons.
- * Matches OSCAR reference design.
- */
-export function StageStepper({ stages, currentStageId }) {
+export function StageStepper({ stages, currentStageId, selectedStageSequence = 1, onSelectStage }) {
   if (!stages || !stages.length) return null;
 
   return (
@@ -398,67 +480,64 @@ export function StageStepper({ stages, currentStageId }) {
             const isInProg = stage.status === 'In Progress';
             const isDelayed = stage.status === 'Delayed';
             const isCurrent = currentStageId && stage.id === currentStageId;
-            const pct = Math.round(stage.completionPct ?? computeStageCompletionPct(stage));
+            const isSelected = selectedStageSequence === stage.sequence;
 
             const circleColor = isDone
               ? 'border-emerald-500 text-emerald-600 bg-white'
               : isNotReq
               ? 'border-sky-400 text-sky-600 bg-white'
               : isInProg
-              ? stage.sequence === 5
-                ? 'border-amber-500 text-amber-600 bg-white'
-                : 'border-blue-500 text-blue-600 bg-white'
+              ? 'border-blue-500 text-blue-600 bg-white'
               : isDelayed
               ? 'border-rose-500 text-rose-600 bg-white'
               : 'border-slate-300 text-slate-400 bg-white';
 
             return (
               <li key={stage.id || stage.sequence} className="flex items-start">
-                <div className="flex flex-col items-center w-28 shrink-0 px-1 text-center">
-                  {/* Sequence Number Circle */}
+                <button
+                  type="button"
+                  onClick={() => onSelectStage && onSelectStage(stage.sequence)}
+                  className={`flex flex-col items-center w-28 shrink-0 p-1.5 text-center rounded-xl transition-all cursor-pointer text-left border ${
+                    isSelected
+                      ? 'bg-blue-50/50 border-blue-300 shadow-xs'
+                      : 'border-transparent hover:bg-slate-50/80 hover:border-slate-200'
+                  }`}
+                  title={`Click to view Stage ${stage.sequence}: ${stage.name}`}
+                >
                   <div className="flex items-center justify-center w-full relative">
                     <span
                       className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold border-2 transition-all ${circleColor} ${
-                        isCurrent ? 'ring-2 ring-blue-300' : ''
+                        isSelected ? 'ring-3 ring-blue-400 ring-offset-1 font-black shadow-xs' : isCurrent ? 'ring-2 ring-blue-300' : ''
                       }`}
                     >
                       {stage.sequence}
                     </span>
                   </div>
 
-                  {/* Icon */}
-                  <div className="mt-2 text-slate-600 flex items-center justify-center h-6">
+                  <div className={`mt-2 flex items-center justify-center h-6 ${isSelected ? 'text-blue-600' : 'text-slate-600'}`}>
                     <StageIcon name={stage.name} department={stage.department} sequence={stage.sequence} />
                   </div>
 
-                  {/* Stage Title */}
                   <p
-                    className="mt-1.5 text-[11px] font-bold leading-tight text-slate-800 line-clamp-2 min-h-[28px]"
+                    className={`mt-1.5 text-[11px] leading-tight line-clamp-2 min-h-[28px] ${
+                      isSelected ? 'font-black text-blue-900' : 'font-bold text-slate-800'
+                    }`}
                     title={stage.name}
                   >
                     {stage.name}
                   </p>
 
-                  {/* Percentage */}
-                  <span className="mt-1 text-xs font-black text-slate-800">
-                    {isNotReq ? '0%' : `${pct}%`}
-                  </span>
-
-                  {/* Planned Dates (2 lines) */}
-                  <div className="mt-1 text-[10px] text-slate-500 leading-tight">
-                    <div>{dateOnly(stage.startDateTime)}</div>
-                    <div>{dateOnly(stage.expectedCompletionDateTime)}</div>
+                  <div className="mt-1.5 w-full flex justify-center">
+                    <DepartmentBadge department={stage.department} />
                   </div>
 
-                  {/* Status Pill */}
-                  <div className="mt-2 w-full flex justify-center">
+                  <div className="mt-1 w-full flex justify-center">
                     <StageStatusPill status={stage.status} />
                   </div>
-                </div>
+                </button>
 
-                {/* Connecting arrow */}
                 {idx < stages.length - 1 && (
-                  <div className="flex items-center justify-center text-slate-300 font-light text-sm pt-1 px-1 shrink-0 select-none">
+                  <div className="flex items-center justify-center text-slate-300 font-light text-sm pt-3 px-1 shrink-0 select-none">
                     →
                   </div>
                 )}
@@ -471,185 +550,5 @@ export function StageStepper({ stages, currentStageId }) {
   );
 }
 
-const QTY_COLS = [
-  ['input', 'Input'],
-  ['produced', 'Produced'],
-  ['good', 'Good'],
-  ['accepted', 'Accepted'],
-  ['reserved', 'Reserved'],
-  ['dispatched', 'Dispatched'],
-];
+export default StageStepper;
 
-/**
- * StageDetailsTable — exact table matching reference screenshot:
- * Headers: #, STAGE, WEIGHT, PLANNED DATE (START – END), ACTUAL DATE (START – END),
- * QUANTITY (M) [Input, Produced, Good, Accepted, Reserved, Dispatched],
- * STATUS, PROGRESS, REMARKS, ACTION.
- */
-export function StageDetailsTable({ stages, currentStageId, actions }) {
-  if (!stages || !stages.length) return null;
-
-  const totalWeight = stages.reduce((acc, s) => acc + weightOf(s), 0);
-
-  return (
-    <div className="rounded-xl border border-[#dce5f4] bg-white shadow-2xs overflow-hidden">
-      <div className="px-4 pt-3.5 pb-2.5 border-b border-slate-100 flex items-center justify-between flex-wrap gap-2">
-        <h4 className="text-xs font-bold text-slate-800">
-          Stage Details <span className="font-medium text-slate-400">({stages.length} stages – {Math.round(totalWeight * 100) / 100}% total weight)</span>
-        </h4>
-      </div>
-
-      <div className="overflow-x-auto">
-        <table className="w-full min-w-[1200px] text-left text-xs">
-          <thead>
-            <tr className="text-[10px] uppercase font-bold text-slate-500 border-b border-slate-100 bg-slate-50/70">
-              <th className="py-2.5 px-3 w-8">#</th>
-              <th className="py-2.5 px-3 min-w-[190px]">Stage</th>
-              <th className="py-2.5 px-3 text-center w-16">Weight</th>
-              <th className="py-2.5 px-3 min-w-[150px]">Planned Date (Start – End)</th>
-              <th className="py-2.5 px-3 min-w-[150px]">Actual Date (Start – End)</th>
-              <th className="py-2.5 px-3 text-center" colSpan={QTY_COLS.length}>Quantity (M)</th>
-              <th className="py-2.5 px-3 w-28">Status</th>
-              <th className="py-2.5 px-3 w-28">Progress</th>
-              <th className="py-2.5 px-3 min-w-[200px]">Remarks</th>
-              <th className="py-2.5 px-3 text-center w-20">Action</th>
-            </tr>
-            <tr className="text-[10px] font-bold text-slate-400 border-b border-slate-100 bg-white">
-              <th colSpan={5} />
-              {QTY_COLS.map(([key, label]) => (
-                <th key={key} className="py-1 px-3 text-right font-medium text-slate-500">{label}</th>
-              ))}
-              <th colSpan={4} />
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-slate-100">
-            {stages.map((stage) => {
-              const pct = Math.round(stage.completionPct ?? computeStageCompletionPct(stage));
-              const isDone = stage.status === 'Completed';
-              const isNotReq = stage.status === 'Not Required';
-              const isInProg = stage.status === 'In Progress';
-              const doc = stage.document;
-
-              const plannedDateStr =
-                stage.startDateTime && stage.expectedCompletionDateTime
-                  ? `${dateOnly(stage.startDateTime)} – ${dateOnly(stage.expectedCompletionDateTime)}`
-                  : stage.startDateTime
-                  ? `${dateOnly(stage.startDateTime)} – —`
-                  : '—';
-
-              const actualDateStr =
-                stage.actualStartDateTime && stage.actualCompletionDateTime
-                  ? `${dateOnly(stage.actualStartDateTime)} – ${dateOnly(stage.actualCompletionDateTime)}`
-                  : stage.actualStartDateTime
-                  ? `${dateOnly(stage.actualStartDateTime)} – —`
-                  : isDone && stage.startDateTime
-                  ? `${dateOnly(stage.startDateTime)} – ${dateOnly(stage.expectedCompletionDateTime)}`
-                  : '—';
-
-              return (
-                <tr
-                  key={stage.id || stage.sequence}
-                  className={`hover:bg-slate-50/60 ${isNotReq ? 'bg-slate-50/30 text-slate-400' : ''}`}
-                >
-                  <td className="py-2.5 px-3 font-semibold text-slate-600">
-                    {stage.sequence}
-                  </td>
-                  <td className="py-2.5 px-3 font-semibold text-slate-800 whitespace-nowrap">
-                    <span className={isNotReq ? 'text-slate-400' : ''}>
-                      {stage.name}
-                    </span>
-                  </td>
-                  <td className="py-2.5 px-3 text-center text-slate-600">
-                    {weightOf(stage)}%
-                  </td>
-                  <td className="py-2.5 px-3 text-slate-600 whitespace-nowrap text-[11px]">
-                    {plannedDateStr}
-                  </td>
-                  <td className="py-2.5 px-3 text-slate-600 whitespace-nowrap text-[11px]">
-                    {actualDateStr}
-                  </td>
-                  {QTY_COLS.map(([key]) => (
-                    <td key={key} className="py-2.5 px-3 text-right font-mono text-slate-700">
-                      {qty(stage, key)}
-                    </td>
-                  ))}
-                  <td className="py-2.5 px-3 whitespace-nowrap">
-                    {isDone ? (
-                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200">
-                        <CheckCircle2 size={11} /> Completed
-                      </span>
-                    ) : isNotReq ? (
-                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-bold bg-slate-50 text-slate-500 border border-slate-200">
-                        — Not Required
-                      </span>
-                    ) : isInProg ? (
-                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-bold bg-blue-50 text-blue-700 border border-blue-200">
-                        ● In Progress
-                      </span>
-                    ) : (
-                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-bold bg-slate-50 text-slate-400 border border-slate-200">
-                        Pending
-                      </span>
-                    )}
-                  </td>
-                  <td className="py-2.5 px-3">
-                    <div className="flex items-center gap-2 min-w-[90px]">
-                      <div className="flex-1 h-1.5 rounded-full bg-slate-100 overflow-hidden">
-                        <div
-                          className="h-full rounded-full transition-all"
-                          style={{
-                            width: `${pct}%`,
-                            background: isNotReq ? '#cbd5e1' : pct >= 100 ? '#10b981' : pct > 0 ? '#0284c7' : '#cbd5e1',
-                          }}
-                        />
-                      </div>
-                      <span className="text-[11px] font-bold text-slate-700 w-8 text-right">{pct}%</span>
-                    </div>
-                  </td>
-                  <td className="py-2.5 px-3 text-[11px] text-slate-600 max-w-[240px] truncate" title={stage.remarks || '—'}>
-                    {stage.remarks || '—'}
-                  </td>
-                  <td className="py-2.5 px-3 text-center whitespace-nowrap">
-                    <span className="inline-flex items-center gap-1.5 text-slate-400">
-                      {doc?.url ? (
-                        <Link
-                          to={doc.url}
-                          className="p-1 hover:text-blue-600 hover:bg-blue-50 rounded transition-colors"
-                          title={doc.label || 'View Document'}
-                        >
-                          <FileText size={14} />
-                        </Link>
-                      ) : (
-                        <span className="p-1 text-slate-300" title="No Document">
-                          <FileText size={14} />
-                        </span>
-                      )}
-                      <button
-                        type="button"
-                        onClick={() => actions?.onStart?.(stage) || actions?.onManageTasks?.(stage)}
-                        className="p-1 hover:text-amber-600 hover:bg-amber-50 rounded transition-colors cursor-pointer"
-                        title={`Edit ${stage.name}`}
-                      >
-                        <Pencil size={14} />
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => actions?.onHandoff?.(stage)}
-                        className="p-1 hover:text-violet-600 hover:bg-violet-50 rounded transition-colors cursor-pointer"
-                        title={`View Details of ${stage.name}`}
-                      >
-                        <Eye size={14} />
-                      </button>
-                    </span>
-                  </td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
-      </div>
-    </div>
-  );
-}
-
-export default StageDetailsTable;
