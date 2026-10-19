@@ -84,9 +84,9 @@ export function Stage1GreyStockWorkspace({
           stageSubtitle: payload.stageSubtitle || res.stageSubtitle || 'Check available grey fabric stock in OSCAR and allocate for this project.',
           stageWeight: payload.stageWeight ?? res.stageWeight ?? 10,
           plannedDurationDays: payload.plannedDurationDays ?? res.plannedDurationDays ?? 5,
-          startDate: payload.startDate || res.startDate || '01/10/2026',
-          endDate: payload.expectedCompletionDate || res.expectedCompletionDate || '05/10/2026',
-          requiredMeters: Number(payload.requiredMeters || res.requiredMeters || project?.requirementMeters || project?.quantity || 3000),
+          startDate: payload.startDate || res.startDate || '—',
+          endDate: payload.expectedCompletionDate || res.expectedCompletionDate || '—',
+          requiredMeters: Number(payload.requiredMeters || res.requiredMeters || project?.requirementMeters || project?.quantity || 0),
           shortageAction: payload.shortageAction || res.shortageAction || null,
         });
       }
@@ -172,7 +172,10 @@ export function Stage1GreyStockWorkspace({
       });
       if (onSyncPipeline) onSyncPipeline();
     } catch (err) {
-      console.error('sync allocation error:', err);
+      // The server refused (QC not passed, more than unallocated stock, no
+      // permission): say why and show its numbers, not the refused ones.
+      toast.error(err?.message || 'Allocation was not saved.');
+      loadData();
     }
   };
 
@@ -190,11 +193,13 @@ export function Stage1GreyStockWorkspace({
         shortageAction: actionType,
       });
       if (actionType === 'PURCHASE_PO') {
-        toast.success(`Purchase Order route selected for ${shortageQty.toLocaleString('en-IN')} m shortage`);
+        toast.success(`Purchase Order route selected. Transitioning to Stage 2: Create Grey Purchase PO...`);
+        if (onSyncPipeline) await onSyncPipeline();
+        if (onHandoff) onHandoff(2);
       } else {
         toast.success(`Vendor A Production route selected for ${shortageQty.toLocaleString('en-IN')} m shortage`);
+        if (onSyncPipeline) onSyncPipeline();
       }
-      if (onSyncPipeline) onSyncPipeline();
     } catch (err) {
       toast.error('Failed to select shortage route: ' + (err?.message || 'Server error'));
     }
@@ -648,10 +653,10 @@ export function Stage1GreyStockWorkspace({
                       </button>
                       <button
                         type="button"
-                        onClick={() => setPoModalOpen(true)}
+                        onClick={() => onHandoff?.(2)}
                         className="px-3 py-1.5 rounded-lg border border-slate-200 text-slate-700 hover:bg-slate-50 font-semibold text-xs transition-colors cursor-pointer"
                       >
-                        View Options
+                        View Stage 2 →
                       </button>
                     </div>
                   </div>

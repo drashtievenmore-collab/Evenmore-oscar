@@ -132,13 +132,14 @@ const BrokerCommissionPage = lazy(() => import('../features/sales/commercial/Bro
 
 // ── ERP — Purchase (Lazy Loaded) ──────────────────────────────
 const PurchaseOrdersPage = lazy(() => import('../features/purchase/PurchaseOrdersPage').then(m => ({ default: m.PurchaseOrdersPage })));
+const SupplierDeliveryPage = lazy(() => import('../features/purchase/SupplierDeliveryPage'));
+const FinalJobWorkPOsPage = lazy(() => import('../features/purchase/FinalJobWorkPOsPage'));
 const PurchaseBillsPage = lazy(() => import('../features/purchase/PurchaseBillsPage').then(m => ({ default: m.PurchaseBillsPage })));
 const VendorBillsPage = lazy(() => import('../features/purchase/VendorBillsPage').then(m => ({ default: m.VendorBillsPage })));
 const BillMatchingPage = lazy(() => import('../features/purchase/BillMatchingPage').then(m => ({ default: m.BillMatchingPage })));
 const PurchaseReturnsPage = lazy(() => import('../features/purchase/PurchaseReturnsPage').then(m => ({ default: m.PurchaseReturnsPage })));
 const PaymentOutPage = lazy(() => import('../features/purchase/PaymentOutPage').then(m => ({ default: m.PaymentOutPage })));
 const ExpensesPage = lazy(() => import('../features/purchase/ExpensesPage').then(m => ({ default: m.ExpensesPage })));
-// ── [PHASE-2B] Standalone Goods Receipt (GRN) page — route: /purchase/receipts ──
 const GoodsReceiptPage = lazy(() => import('../features/purchase/GoodsReceiptPage').then(m => ({ default: m.GoodsReceiptPage })));
 const SupplierReconciliationPage = lazy(() => import('../features/purchase/SupplierReconciliationPage'));
 const SupplierLedgerPage = lazy(() => import('../features/purchase/SupplierLedgerPage'));
@@ -381,9 +382,9 @@ const router = createBrowserRouter([
       { path: 'sales/payments', element: <Page component={PaymentInPage} /> },
       { path: 'sales/delivery', element: <Page component={DeliveryChallansPage} /> },
       { path: 'sales/broker-commissions', element: <Page component={BrokerCommissionPage} title="Broker Commissions" /> },
-      // [DISABLED] Warranty Cards concept commented out
-      // { path: 'sales/warranty', element: <Page component={WarrantyListPage} /> },
-      // { path: 'warranty', element: <Navigate to="/sales/warranty" replace /> },
+      // [REMOVED] Customer Warranty concept removed product-wide
+      { path: 'sales/warranty', element: <Navigate to="/sales/delivery" replace /> },
+      { path: 'warranty', element: <Navigate to="/sales/delivery" replace /> },
 
       // ── Purchase ──────────────────────────────────────────
       { path: 'purchase', element: <Navigate to="/purchase/orders" replace /> },
@@ -391,6 +392,9 @@ const router = createBrowserRouter([
       //   Restore if a dedicated vendor workspace is ever needed:
       // { path: 'purchase/vendors', element: <Navigate to="/parties" replace /> },
       { path: 'purchase/orders', element: <Page component={PurchaseOrdersPage} /> },
+      { path: 'purchase/deliveries', element: <Page component={SupplierDeliveryPage} /> },
+      { path: 'purchase/supplier-delivery', element: <Page component={SupplierDeliveryPage} /> },
+      { path: 'purchase/final-job-work-pos', element: <Page component={FinalJobWorkPOsPage} /> },
       { path: 'purchase/receipts', element: <Page component={GoodsReceiptPage} /> },
       { path: 'purchase/reconciliation', element: <Page component={SupplierReconciliationPage} /> },
       { path: 'purchase/supplier-ledger', element: <Page component={SupplierLedgerPage} /> },
@@ -422,6 +426,7 @@ const router = createBrowserRouter([
       { path: 'inventory/qc/reinspection', element: <Page component={QCReinspectionPage} title="QC Reinspection / Reprocess" /> },
       { path: 'inventory/qc/reports', element: <Page component={QCReportsPage} title="QC Reports" /> },
       { path: 'inventory/lot-register', element: <Page component={LotTakaRegisterPage} title="Lot / Taka Register" /> },
+      { path: 'inventory/lots-takas', element: <Navigate to="/inventory/lot-register" replace /> },
       { path: 'inventory/taka-tags', element: <Page component={TakaTagPrintPage} title="Taka Tag Print" /> },
       { path: 'inventory/samples', element: <Page component={SampleListPage} title="Sample Management" /> },
       { path: 'inventory/trips', element: <Page component={TripListPage} title="Logistics & Tempo Trips" /> },

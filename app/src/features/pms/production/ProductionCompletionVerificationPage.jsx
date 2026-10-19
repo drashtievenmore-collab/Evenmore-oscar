@@ -11,6 +11,7 @@ import { api } from '../../../services/api';
 import {
   statusPill, canMarkComplete, canVerify, canGeneratePo, errorText, fmtNum, listOf,
 } from './productionStatus';
+import GenerateFinalJobWorkPOModal from '../../purchase/GenerateFinalJobWorkPOModal';
 
 const fmtM = (n) => (n === null || n === undefined || n === '' ? '—' : `${fmtNum(n)} M`);
 const fmtDate = (d) => {
@@ -40,6 +41,7 @@ export default function ProductionCompletionVerificationPage() {
   const [verifying, setVerifying] = useState(false);
   const [showPI, setShowPI] = useState(false);
   const [showVerifyModal, setShowVerifyModal] = useState(false);
+  const [showGeneratePoModal, setShowGeneratePoModal] = useState(false);
   const [rejectedQtyInput, setRejectedQtyInput] = useState('0');
   const [verifyReasonInput, setVerifyReasonInput] = useState('');
   const [menuOpen, setMenuOpen] = useState(false);
@@ -298,11 +300,11 @@ export default function ProductionCompletionVerificationPage() {
             )}
             {hasData && canGeneratePo(status) && (
               <button
-                onClick={handleGeneratePo}
+                onClick={() => setShowGeneratePoModal(true)}
                 disabled={busy !== null}
                 className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-600 px-3.5 py-1.5 text-[12px] font-bold text-white hover:bg-emerald-700 disabled:opacity-50"
               >
-                <FileText size={14} /> {busy === 'po' ? 'Generating…' : 'Generate Final PO'}
+                <FileText size={14} /> Generate Final PO
               </button>
             )}
             <button
@@ -514,6 +516,21 @@ export default function ProductionCompletionVerificationPage() {
           </div>
         </div>
       )}
+
+      {/* Generate Final Job Work PO Modal / Slide */}
+      <GenerateFinalJobWorkPOModal
+        isOpen={showGeneratePoModal}
+        onClose={() => setShowGeneratePoModal(false)}
+        initialInstructionId={activePiId}
+        onSuccess={(res) => {
+          setActionNotice(
+            res?.finalPoNumber
+              ? `Final Job Work PO ${res.finalPoNumber} created successfully.`
+              : 'Final Job Work PO created successfully.'
+          );
+          if (activePiId) loadCompletionData(activePiId);
+        }}
+      />
     </div>
   );
 }

@@ -184,7 +184,8 @@ const NAV = [
     icon: ShoppingCart,
     children: [
       { label: 'Purchase Orders', icon: ClipboardList, to: '/purchase/orders' },
-      // ── [PHASE-2B] New standalone Goods Receipt (GRN) nav entry ──
+      { label: 'Supplier Delivery', icon: Truck, to: '/purchase/deliveries' },
+      { label: 'Final Job Work POs', icon: FileSpreadsheet, to: '/purchase/final-job-work-pos', pill: 'New' },
       { label: 'Goods Receipt', icon: PackageCheck, to: '/purchase/receipts' },
       { label: 'Supplier Reconciliation', icon: GitCompare, to: '/purchase/reconciliation' },
       { label: 'Supplier Ledger', icon: BookOpen, to: '/purchase/supplier-ledger' },
@@ -506,7 +507,7 @@ function NavBadge({ count, color }) {
 function NavPill({ pill }) {
   if (!pill) return null;
   return (
-    <span className="ml-1.5 px-1 py-px text-[9px] font-bold rounded bg-rose-500/20 text-rose-300 border border-rose-400/40 leading-none">
+    <span className="ml-auto px-1.5 py-0.5 text-[9.5px] font-bold rounded-full bg-blue-500/25 text-blue-300 border border-blue-400/30 leading-none">
       {pill}
     </span>
   );

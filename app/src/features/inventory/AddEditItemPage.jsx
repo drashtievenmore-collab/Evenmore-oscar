@@ -1556,7 +1556,7 @@ export const AddEditItemPage = () => {
                     <ShieldCheck className="w-5 h-5 text-emerald-600" />
                     <div>
                       <h4 className="text-xs font-bold text-slate-800">Default Warranty Configuration</h4>
-                      <p className="text-[11px] text-slate-500">Default warranty policy applied to physical serials and auto-populated on customer cards</p>
+                      <p className="text-[11px] text-slate-500">Standard warranty terms applied to physical serials and tracked internally</p>
                     </div>
                   </div>
                   <label className="relative inline-flex items-center cursor-pointer">
@@ -1649,7 +1649,7 @@ export const AddEditItemPage = () => {
                     </div>
 
                     <p className="text-[11px] text-emerald-800 bg-emerald-100/50 p-2 rounded-lg border border-emerald-200">
-                      💡 <strong>Default Warranty Rule:</strong> When physical machines or components are dispatched via Delivery Challan, this rule automatically populates the Customer Warranty Card without requiring repetitive entry.
+                      💡 <strong>Standard Warranty Policy:</strong> Default warranty duration and terms are automatically referenced across delivery dispatches without repetitive data entry.
                     </p>
                   </div>
                 ) : (

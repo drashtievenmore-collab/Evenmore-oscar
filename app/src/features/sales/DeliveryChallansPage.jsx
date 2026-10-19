@@ -8,8 +8,6 @@ import { Plus, Truck, CheckCircle2, X, AlertTriangle, Printer, Package, MapPin, 
 import { RelatedDocumentsCard } from '../../components/common/RelatedDocumentsCard';
 import { PageHeader } from '../../components/common/PageHeader';
 import { formatDateDDMMYYYY } from '../../utils/dateUtils';
-import { CreateWarrantyCardModal } from '../../components/common/CreateWarrantyCardModal';
-import { WarrantyCardModal } from '../../components/common/WarrantyCardModal';
 import { SendChallanModal } from '../../components/common/SendChallanModal';
 import { PrintDeliveryChallanModal } from '../../components/common/PrintDeliveryChallanModal';
 const challanGuide = {
@@ -29,7 +27,7 @@ const challanGuide = {
     workflow: ['Sales Order Confirmed', 'Delivery Challan Generated', 'Carrier In-Transit', 'Consignee Receives Goods', 'POD Verified & Invoice Issued'],
 };
 export const DeliveryChallansPage = () => {
-    const { deliveryChallans, addDeliveryChallan, updateDeliveryChallanStatus, cancelDeliveryChallan, salesOrders, invoices, paymentIns, items: masterItems, calculateItemStock, warranties = [], getWarrantyByChallanId } = useERP();
+    const { deliveryChallans, addDeliveryChallan, updateDeliveryChallanStatus, cancelDeliveryChallan, salesOrders, invoices, paymentIns, items: masterItems, calculateItemStock } = useERP();
     const location = useLocation();
     React.useEffect(() => {
         if (location.state?.challanId) setSelectedChallan(deliveryChallans.find(dc => dc.id === location.state.challanId) || null);
@@ -39,8 +37,6 @@ export const DeliveryChallansPage = () => {
     const [selectedChallan, setSelectedChallan] = useState(null);
     const [printChallanTarget, setPrintChallanTarget] = useState(null);
     const [cancelModalTarget, setCancelModalTarget] = useState(null);
-    const [createWarrantyChallan, setCreateWarrantyChallan] = useState(null);
-    const [selectedWarrantyCard, setSelectedWarrantyCard] = useState(null);
     const [sendModalChallan, setSendModalChallan] = useState(null);
     const [selectedSoId, setSelectedSoId] = useState(salesOrders[0]?.id || '');
     const [transporter, setTransporter] = useState('');
@@ -305,80 +301,8 @@ export const DeliveryChallansPage = () => {
             key: 'status',
             header: 'Dispatch Status',
             align: 'center',
-            width: '10%',
+            width: '12%',
             render: (c) => <StatusBadge status={c.status}/>,
-        },
-        {
-            key: 'warranty',
-            header: 'Customer Warranty',
-            align: 'center',
-            width: '15%',
-            render: (c) => {
-                const wc = (getWarrantyByChallanId && getWarrantyByChallanId(c.id)) || warranties.find((w) => w.deliveryChallanId === c.id || w.challanNumber === c.challanNumber);
-                if (!wc) {
-                    if (c.status === 'Cancelled') {
-                        return <span className="text-[11px] text-slate-400 italic">No Warranty (Cancelled)</span>;
-                    }
-                    return (
-                        <button
-                            onClick={() => setCreateWarrantyChallan(c)}
-                            className="inline-flex items-center gap-1 text-[11px] font-semibold text-emerald-700 bg-emerald-50 hover:bg-emerald-100 px-2.5 py-0.5 rounded-full border border-emerald-200 transition-colors cursor-pointer shadow-2xs"
-                        >
-                            <Plus size={11} /> Attach Warranty
-                        </button>
-                    );
-                }
-
-                if (wc.documentStatus === 'Cancelled') {
-                    return (
-                        <div className="inline-flex items-center gap-1">
-                            <button
-                                onClick={() => setSelectedWarrantyCard(wc)}
-                                className="font-mono text-[10px] font-bold px-2 py-0.5 rounded bg-slate-100 text-slate-500 hover:text-slate-800 border border-slate-200 cursor-pointer"
-                                title="View Cancelled Certificate"
-                            >
-                                Void ({wc.cardNumber})
-                            </button>
-                            {c.status !== 'Cancelled' && (
-                                <button
-                                    onClick={() => setCreateWarrantyChallan(c)}
-                                    className="text-[10px] font-semibold text-emerald-700 hover:underline cursor-pointer"
-                                    title="Create Corrected Warranty"
-                                >
-                                    + Correct
-                                </button>
-                            )}
-                        </div>
-                    );
-                }
-
-                const isDraft = wc.documentStatus === 'Draft';
-                return (
-                    <div className="inline-flex items-center gap-1.5">
-                        <button
-                            onClick={() => setSelectedWarrantyCard(wc)}
-                            className={`font-mono text-[11px] font-bold px-2.5 py-0.5 rounded-lg border flex items-center gap-1.5 cursor-pointer hover:shadow-2xs transition-all ${
-                                isDraft
-                                    ? 'bg-amber-50 text-amber-800 border-amber-200 hover:bg-amber-100/70'
-                                    : 'bg-emerald-50 text-emerald-800 border-emerald-200 hover:bg-emerald-100/70'
-                            }`}
-                            title={isDraft ? 'Draft Certificate — Click to Preview' : 'Issued Warranty — Click to View Preview'}
-                        >
-                            <Award size={12} className={isDraft ? 'text-amber-600' : 'text-emerald-600'} />
-                            <span>{wc.cardNumber}</span>
-                        </button>
-                        {isDraft && (
-                            <button
-                                onClick={() => setCreateWarrantyChallan(c)}
-                                className="text-[10px] font-bold text-amber-700 hover:text-amber-900 bg-amber-100/70 px-1.5 py-0.5 rounded cursor-pointer"
-                                title="Edit Draft"
-                            >
-                                Edit
-                            </button>
-                        )}
-                    </div>
-                );
-            },
         },
         {
             key: 'actions',
@@ -858,90 +782,6 @@ export const DeliveryChallansPage = () => {
               {/* Related Transaction Chain */}
               <RelatedDocumentsCard documents={getChallanRelatedDocs(selectedChallan)}/>
 
-              {/* Customer Warranty & Asset Guarantee Section */}
-              {(() => {
-                const wc = (getWarrantyByChallanId && getWarrantyByChallanId(selectedChallan.id)) || warranties.find((w) => w.deliveryChallanId === selectedChallan.id || w.challanNumber === selectedChallan.challanNumber);
-                return (
-                  <div className="bg-gradient-to-r from-emerald-50/70 to-teal-50/70 border border-emerald-200 rounded-xl p-4 space-y-3">
-                    <div className="flex flex-wrap lg:flex-nowrap items-center justify-between gap-2 lg:gap-0">
-                      <div className="flex items-center gap-2">
-                        <Award className="w-5 h-5 text-emerald-600" />
-                        <div>
-                          <h4 className="font-bold text-slate-900 text-xs uppercase tracking-wider">
-                            Customer Warranty Certificate
-                          </h4>
-                          <p className="text-[11px] text-slate-500">
-                            Linked customer equipment warranty record for this delivery consignment
-                          </p>
-                        </div>
-                      </div>
-
-                      {wc ? (
-                        <div className="flex flex-wrap lg:flex-nowrap items-center gap-2">
-                          <button
-                            onClick={() => setSelectedWarrantyCard(wc)}
-                            className="px-3 py-1 bg-white hover:bg-slate-50 text-emerald-700 border border-emerald-200 rounded-lg text-xs font-semibold flex items-center gap-1 cursor-pointer shadow-2xs"
-                          >
-                            <Eye size={12} /> {wc.documentStatus === 'Draft' ? 'Preview Draft' : 'View Warranty Card'} ({wc.cardNumber})
-                          </button>
-                          {wc.documentStatus === 'Draft' && (
-                            <button
-                              onClick={() => setCreateWarrantyChallan(selectedChallan)}
-                              className="px-2.5 py-1 bg-amber-600 hover:bg-amber-700 text-white rounded-lg text-xs font-semibold cursor-pointer"
-                            >
-                              Edit Draft
-                            </button>
-                          )}
-                          {wc.documentStatus === 'Cancelled' && selectedChallan.status !== 'Cancelled' && (
-                            <button
-                              onClick={() => setCreateWarrantyChallan(selectedChallan)}
-                              className="px-2.5 py-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-semibold cursor-pointer"
-                            >
-                              Create Corrected Warranty
-                            </button>
-                          )}
-                        </div>
-                      ) : selectedChallan.status !== 'Cancelled' ? (
-                        <button
-                          onClick={() => setCreateWarrantyChallan(selectedChallan)}
-                          className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-xs font-bold flex items-center gap-1.5 cursor-pointer shadow-2xs"
-                        >
-                          <Plus size={13} /> Attach Warranty Card
-                        </button>
-                      ) : (
-                        <span className="text-xs text-slate-400 font-mono italic">Challan Cancelled</span>
-                      )}
-                    </div>
-
-                    {wc ? (
-                      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 bg-white p-3 rounded-lg border border-emerald-100 text-xs">
-                        <div>
-                          <span className="text-[10px] text-slate-400 uppercase font-semibold">Certificate #</span>
-                          <p className="font-mono font-bold text-slate-800">{wc.cardNumber}</p>
-                        </div>
-                        <div>
-                          <span className="text-[10px] text-slate-400 uppercase font-semibold">Duration</span>
-                          <p className="font-bold text-emerald-700">{wc.warrantyPeriod} {wc.warrantyUnit}</p>
-                        </div>
-                        <div>
-                          <span className="text-[10px] text-slate-400 uppercase font-semibold">Expiry Date</span>
-                          <p className="font-mono font-bold text-slate-800">{formatDateDDMMYYYY(wc.expiryDate)}</p>
-                        </div>
-                        <div>
-                          <span className="text-[10px] text-slate-400 uppercase font-semibold">Status (Doc / Coverage)</span>
-                          <span className="inline-block font-semibold text-[11px] text-slate-700 capitalize">
-                            {wc.documentStatus} • {wc.coverageStatus}
-                          </span>
-                        </div>
-                      </div>
-                    ) : (
-                      <p className="text-[11px] text-slate-600">
-                        No warranty certificate has been generated for this delivery yet. Click <strong>&quot;Attach Warranty Card&quot;</strong> to auto-populate from delivery records and generate the customer certificate.
-                      </p>
-                    )}
-                  </div>
-                );
-              })()}
 
               {/* Clean Manifest Table (No Commercial Prices/Taxes) */}
               <div className="space-y-2">
@@ -1087,44 +927,12 @@ export const DeliveryChallansPage = () => {
         </div>
       )}
 
-      {/* Create / Edit Warranty Card Modal */}
-      {createWarrantyChallan && (
-        <CreateWarrantyCardModal
-          isOpen={Boolean(createWarrantyChallan)}
-          onClose={() => setCreateWarrantyChallan(null)}
-          challan={createWarrantyChallan}
-          existingCard={(getWarrantyByChallanId && getWarrantyByChallanId(createWarrantyChallan.id)) || warranties.find((w) => w.deliveryChallanId === createWarrantyChallan.id || w.challanNumber === createWarrantyChallan.challanNumber)}
-          onSuccess={(newCard) => {
-            if (selectedChallan?.id === createWarrantyChallan.id) {
-              setSelectedWarrantyCard(newCard);
-            }
-          }}
-        />
-      )}
-
-      {/* Customer-facing Warranty Card Document Modal */}
-      {selectedWarrantyCard && (
-        <WarrantyCardModal
-          isOpen={Boolean(selectedWarrantyCard)}
-          onClose={() => setSelectedWarrantyCard(null)}
-          warrantyCard={selectedWarrantyCard}
-          onSend={(wc) => {
-            const linkedC = deliveryChallans.find((c) => c.id === wc.deliveryChallanId || c.challanNumber === wc.challanNumber);
-            if (linkedC) {
-              setSelectedWarrantyCard(null);
-              setSendModalChallan(linkedC);
-            }
-          }}
-        />
-      )}
-
       {/* Send Delivery Challan Modal */}
       {sendModalChallan && (
         <SendChallanModal
           isOpen={Boolean(sendModalChallan)}
           onClose={() => setSendModalChallan(null)}
           challan={sendModalChallan}
-          warrantyCard={(getWarrantyByChallanId && getWarrantyByChallanId(sendModalChallan.id)) || warranties.find((w) => w.deliveryChallanId === sendModalChallan.id || w.challanNumber === sendModalChallan.challanNumber)}
           onPreviewChallan={() => {
             setSelectedChallan(sendModalChallan);
           }}

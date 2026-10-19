@@ -130,6 +130,9 @@ function documentToApi(doc, { partyField = 'partyId', partyKeys = [] } = {}, { p
     salesOrder: link(doc.salesOrderId || doc.sourceSalesOrderId),
     // Purchase bill → its purchase order (ignored by documents without one).
     purchaseOrder: link(doc.purchaseOrderId),
+    // Purchase order workflow + optional project (ignored elsewhere).
+    purchaseType: doc.purchaseType || undefined,
+    projectId: link(doc.projectId),
     vendorBillNumber: doc.vendorBillNumber || undefined,
     crmDeal: link(doc.dealId),
     crmLead: link(doc.leadId),

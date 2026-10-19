@@ -64,6 +64,7 @@ export default function DailyProductionPage() {
   const [actionError, setActionError] = useState(null);
   const [formError, setFormError] = useState(null);
   const [saving, setSaving] = useState(false);
+  const [activating, setActivating] = useState(false);
   const [reloadKey, setReloadKey] = useState(0);
 
   const [showModal, setShowModal] = useState(false);
@@ -250,6 +251,23 @@ export default function DailyProductionPage() {
     }
   };
 
+  const handleQuickActivate = async () => {
+    if (!pi?.id) return;
+    setActivating(true);
+    setActionError(null);
+    try {
+      if (pi.status === 'Draft') {
+        await api.post(`/production/instructions/${pi.id}/approve/`);
+      }
+      await api.post(`/production/instructions/${pi.id}/start/`);
+      await refreshInstruction(pi.id);
+    } catch (err) {
+      setActionError(`Could not activate instruction: ${errorText(err)}`);
+    } finally {
+      setActivating(false);
+    }
+  };
+
   const withUnit = (n) => (n === null || n === undefined ? '—' : `${fmt(n)} m`);
 
   const infoCards = [
@@ -276,7 +294,7 @@ export default function DailyProductionPage() {
         ]}
         actions={
           <div className="flex items-center gap-2">
-            {instructions.length > 1 && (
+            {instructions.length > 0 && (
               <select
                 value={pi?.id || ''}
                 onChange={(e) => {
@@ -327,9 +345,19 @@ export default function DailyProductionPage() {
         </div>
       )}
       {pi && isDraft && (
-        <div className="flex items-start gap-2 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-[12px] font-semibold text-amber-800">
-          <AlertTriangle size={15} className="mt-0.5 shrink-0" />
-          <span>Approve this instruction before recording production. Approve it from the Production Instructions list.</span>
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-[12px] font-semibold text-amber-800">
+          <div className="flex items-center gap-2">
+            <AlertTriangle size={15} className="mt-0.5 shrink-0 text-amber-600" />
+            <span>This instruction is in Draft. Approve and start it to enable manual daily production entries.</span>
+          </div>
+          <button
+            type="button"
+            disabled={activating}
+            onClick={handleQuickActivate}
+            className="shrink-0 inline-flex items-center gap-1.5 rounded-lg bg-amber-600 hover:bg-amber-700 text-white px-3 py-1.5 text-xs font-bold transition-colors cursor-pointer shadow-2xs disabled:opacity-50"
+          >
+            {activating ? 'Activating…' : 'Approve & Start Now'}
+          </button>
         </div>
       )}
       {pi && isLocked && (

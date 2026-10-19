@@ -6,12 +6,10 @@ export const SendChallanModal = ({
     isOpen,
     onClose,
     challan,
-    warrantyCard = null,
-    onPreviewWarranty = null,
     onPreviewChallan = null,
     onSuccess,
 }) => {
-    const { customers, parties, updateDeliveryChallanStatus, updateWarrantyCard, showToast } = useERP();
+    const { customers, parties, updateDeliveryChallanStatus, showToast } = useERP();
 
     const customerEmail = () => {
         if (!challan) return '';
@@ -26,7 +24,6 @@ export const SendChallanModal = ({
     const [emailSubject, setEmailSubject] = useState('');
     const [emailBody, setEmailBody] = useState('');
     const [attachChallan, setAttachChallan] = useState(true);
-    const [attachWarranty, setAttachWarranty] = useState(Boolean(warrantyCard));
     const [isSending, setIsSending] = useState(false);
 
     useEffect(() => {
@@ -46,15 +43,10 @@ export const SendChallanModal = ({
             setRecipientEmail(email);
             setEmailSubject(`Logistics Waybill & Consignment Manifest ${challan.challanNumber} — ${challan.customer}`);
             setEmailBody(
-                `Dear ${challan.customer} Team,\n\nPlease find attached the official logistics Delivery Challan & Shipping Waybill (${challan.challanNumber}) for your recent consignment dispatch.${
-                    warrantyCard
-                        ? `\n\nAlso attached is your official Customer Warranty Certificate (${warrantyCard.cardNumber}) covering the serialized equipment included in this delivery.`
-                        : ''
-                }\n\nPlease inspect the packages and verify piece counts upon arrival.\n\nBest regards,\nHorizon Enterprise Logistics Dispatch Team`
+                `Dear ${challan.customer} Team,\n\nPlease find attached the official logistics Delivery Challan & Shipping Waybill (${challan.challanNumber}) for your recent consignment dispatch.\n\nPlease inspect the packages and verify piece counts upon arrival.\n\nBest regards,\nLogistics Dispatch Team`
             );
-            setAttachWarranty(Boolean(warrantyCard && warrantyCard.documentStatus !== 'Cancelled'));
         }
-    }, [challan, warrantyCard, customers, parties]);
+    }, [challan, customers, parties]);
 
     if (!isOpen || !challan) return null;
 
@@ -65,17 +57,8 @@ export const SendChallanModal = ({
         setTimeout(() => {
             setIsSending(false);
 
-            // Update warranty card document status to 'Sent' if attached
-            if (warrantyCard && attachWarranty) {
-                updateWarrantyCard(warrantyCard.id, {
-                    documentStatus: 'Sent',
-                    sentAt: new Date().toISOString().split('T')[0],
-                });
-            }
-
             const attachedNames = [];
             if (attachChallan) attachedNames.push('Delivery Challan.pdf');
-            if (warrantyCard && attachWarranty) attachedNames.push(`Warranty Card (${warrantyCard.cardNumber}).pdf`);
 
             showToast(
                 `Consignment documents [${attachedNames.join(' + ')}] successfully sent to ${recipientEmail}`
@@ -210,55 +193,6 @@ export const SendChallanModal = ({
                                 )}
                             </label>
 
-                            {/* Customer Warranty Card Document Card */}
-                            {warrantyCard ? (
-                                <label className={`p-3 rounded-xl border flex items-center justify-between cursor-pointer transition-colors ${
-                                    attachWarranty ? 'bg-emerald-50/60 border-emerald-300' : 'bg-slate-50 border-slate-200'
-                                }`}>
-                                    <div className="flex items-center gap-2.5">
-                                        <input
-                                            type="checkbox"
-                                            checked={attachWarranty}
-                                            onChange={(e) => setAttachWarranty(e.target.checked)}
-                                            className="rounded text-emerald-600 focus:ring-emerald-500 cursor-pointer"
-                                        />
-                                        <div>
-                                            <div className="flex items-center gap-1">
-                                                <Award size={13} className="text-emerald-600" />
-                                                <strong className="text-slate-800 text-xs">Warranty Card.pdf</strong>
-                                            </div>
-                                            <span className="font-mono text-[10px] text-slate-500 block">
-                                                {warrantyCard.cardNumber} • {warrantyCard.warrantyPeriod} {warrantyCard.warrantyUnit} Coverage
-                                            </span>
-                                        </div>
-                                    </div>
-                                    {onPreviewWarranty && (
-                                        <button
-                                            type="button"
-                                            onClick={(e) => {
-                                                e.preventDefault();
-                                                e.stopPropagation();
-                                                onPreviewWarranty();
-                                            }}
-                                            className="p-1 text-slate-500 hover:text-emerald-600 rounded"
-                                            title="Preview Warranty Card"
-                                        >
-                                            <Eye size={13} />
-                                        </button>
-                                    )}
-                                </label>
-                            ) : (
-                                <div className="p-3 rounded-xl border border-dashed border-slate-300 bg-slate-50/50 flex items-center justify-between text-slate-400">
-                                    <div className="flex items-center gap-2">
-                                        <Award size={15} />
-                                        <div>
-                                            <span className="text-xs font-medium block">Warranty Card.pdf</span>
-                                            <span className="text-[10px] text-slate-400">Not created yet for this delivery</span>
-                                        </div>
-                                    </div>
-                                    <span className="text-[10px] text-slate-400 italic">Optional</span>
-                                </div>
-                            )}
                         </div>
                     </div>
 

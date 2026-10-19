@@ -2927,11 +2927,15 @@ export const ERPProvider = ({ children, }) => {
         if (!po.date) throw rejectCreate('Enter the purchase order date.');
         if (poLines.length === 0) throw rejectCreate('Add at least one line to the purchase order.');
         if (poLines.some((l) => !(Number(l.qty) > 0))) throw rejectCreate('Every purchase order line needs a quantity greater than zero.');
+        // Reorder / replenishment callers buy ready stock; the Create PO form
+        // always sends an explicit choice.
         const saved = await createOnServer('purchaseOrders', {
             vendorId: po.vendorId,
             date: po.date,
             expectedDate: po.expectedDate || undefined,
             status: po.status || 'Draft',
+            purchaseType: po.purchaseType || 'Grey Stock Purchase',
+            projectId: po.projectId || undefined,
             items: poLines,
             notes: po.notes || '',
         }, setPurchaseOrders, { label: 'Purchase Order' });
@@ -2944,6 +2948,18 @@ export const ERPProvider = ({ children, }) => {
         if (po.status === 'Cancelled' && status !== 'Cancelled') {
             showToast('Cannot modify a cancelled Purchase Order.');
             return;
+        }
+        // Submit and approve are server transitions: a PO the server still
+        // holds as Pending Approval cannot be received or start production.
+        const transition = { 'Pending Approval': 'submit-for-approval', Approved: 'approve' }[status];
+        if (transition) {
+            const previous = po.status;
+            setPurchaseOrders((prev) => prev.map((p) => (p.id === id ? { ...p, status } : p)));
+            return runDocAction('purchaseOrders', id, transition, {}, setPurchaseOrders)
+                .then(() => showToast(`PO ${po.poNumber} is now ${status}.`))
+                .catch(() => {
+                    setPurchaseOrders((prev) => prev.map((p) => (p.id === id ? { ...p, status: previous } : p)));
+                });
         }
         setPurchaseOrders((prev) => prev.map((p) => (p.id === id ? { ...p, status } : p)));
         // Only drafts accept PATCH (api.md §1.9).
@@ -4128,6 +4144,7 @@ export const ERPProvider = ({ children, }) => {
             // plus a manual re-pull for the "Sync now" affordance.
             backendStatus,
             refreshFromBackend,
+            refreshCollections,
             showToast,
             warranties,
             addWarrantyCard,

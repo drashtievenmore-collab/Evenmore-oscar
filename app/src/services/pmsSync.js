@@ -205,6 +205,21 @@ export async function saveGreyStockAllocation(projectId, payload = {}) {
   return api.post(`${projectPath(projectId)}grey-stock-allocation/`, payload);
 }
 
+export async function getProjectPurchaseOrders(projectId) {
+  if (!isBackendEnabled() || !projectId) return null;
+  try {
+    return await api.get(`${projectPath(projectId)}purchase-orders/`);
+  } catch (err) {
+    console.warn('[pmsSync] get purchase orders failed:', err?.message || err);
+    return null;
+  }
+}
+
+export async function createProjectPurchaseOrder(projectId, payload = {}) {
+  if (!isBackendEnabled() || !projectId) return null;
+  return api.post(`${projectPath(projectId)}purchase-orders/`, payload);
+}
+
 // ── stage verbs ─────────────────────────────────────────────────────────────
 
 export async function addStage(projectId, payload) {

@@ -278,12 +278,14 @@ function getStageSummary(stage, pipelineSummary) {
 }
 
 export const PURCHASE_PO_STAGES = [
-  { name: 'Create Grey Purchase PO', department: 'Purchase', branch: 'branch_purchase', weight: 5, icon: 'FileText' },
-  { name: 'Supplier Delivery', department: 'Purchase', branch: 'branch_purchase', weight: 5, icon: 'Truck' },
-  { name: 'GRN / Inward', department: 'Inventory', branch: 'branch_purchase', weight: 5, icon: 'Boxes' },
-  { name: 'Lot & Taka Creation', department: 'Inventory', branch: 'branch_purchase', weight: 5, icon: 'Layers' },
-  { name: 'Grey QC', department: 'QC', branch: 'branch_purchase', weight: 5, icon: 'ShieldCheck' },
-  { name: 'Grey Stock Updated', department: 'Inventory', branch: 'branch_purchase', weight: 5, icon: 'Boxes' },
+  { name: 'Create Grey Purchase PO', department: 'Purchase', branch: 'branch_purchase', weight: 3.75, icon: 'FileText' },
+  { name: 'Supplier Delivery', department: 'Purchase', branch: 'branch_purchase', weight: 3.75, icon: 'Truck' },
+  { name: 'GRN / Inward', department: 'Inventory', branch: 'branch_purchase', weight: 3.75, icon: 'Boxes' },
+  { name: 'Lot & Taka Creation', department: 'Inventory', branch: 'branch_purchase', weight: 3.75, icon: 'Layers' },
+  { name: 'Grey QC', department: 'QC', branch: 'branch_purchase', weight: 3.75, icon: 'ShieldCheck' },
+  { name: 'Grey Stock Updated', department: 'Inventory', branch: 'branch_purchase', weight: 3.75, icon: 'Boxes' },
+  { name: 'Supplier Bill Matching', department: 'Accounts', branch: 'branch_purchase', weight: 3.75, icon: 'FileSpreadsheet' },
+  { name: 'Payment', department: 'Accounts', branch: 'branch_purchase', weight: 3.75, icon: 'IndianRupee' },
 ];
 
 export const VENDOR_PRODUCTION_STAGES = [
@@ -370,6 +372,21 @@ export function buildStaticPipelineStages(project) {
     if (existing && existing.status) {
       status = existing.status;
       completionPct = Number(existing.completionPct ?? (existing.status === 'Completed' ? 100 : 0));
+    }
+
+    if (def.name === 'Create Grey Purchase PO' || def.sequence === 2) {
+      const cfvData = project.customFieldValues || project.custom_field_values || {};
+      const hasPo =
+        Boolean(cfvData?.grey_stock_po?.orderNumber) ||
+        (Array.isArray(cfvData?.linked_purchase_order_ids) && cfvData.linked_purchase_order_ids.length > 0) ||
+        Boolean(existing?.document?.number) ||
+        Boolean(existing?.quantities?.good && Number(existing.quantities.good) > 0) ||
+        existing?.status === 'Completed' ||
+        existing?.status === 'In Progress';
+      if (hasPo) {
+        status = 'Completed';
+        completionPct = 100;
+      }
     }
 
     const weight = existing ? (existing.percentage ?? existing.weightPct ?? def.weight) : def.weight;
@@ -467,12 +484,135 @@ export function ConditionalStockBanner({ pipelineSummary }) {
   );
 }
 
+function LifecycleConnectorArrow({ isDone, isNextDone, isLeadToActive }) {
+  if (isLeadToActive) {
+    return (
+      <div className="flex items-center justify-center self-start mt-2 px-1 select-none shrink-0">
+        <div className="relative flex items-center justify-center w-16 sm:w-20 h-8">
+          <svg className="w-16 sm:w-20 h-8 overflow-visible" viewBox="0 0 76 32">
+            <line x1="4" y1="16" x2="62" y2="16" stroke="#bfdbfe" strokeWidth="5" strokeLinecap="round" opacity="0.6" />
+            <line x1="4" y1="16" x2="62" y2="16" stroke="#2563eb" strokeWidth="3" strokeLinecap="round" />
+            <line
+              x1="4"
+              y1="16"
+              x2="62"
+              y2="16"
+              stroke="#60a5fa"
+              strokeWidth="3.5"
+              strokeLinecap="round"
+              strokeDasharray="8 8"
+              className="animate-flow-dash"
+            />
+            <circle r="4" fill="#1d4ed8">
+              <animate attributeName="cx" values="6;62;6" dur="2s" repeatCount="indefinite" />
+              <animate attributeName="opacity" values="0.3;1;0.3" dur="2s" repeatCount="indefinite" />
+            </circle>
+            <path
+              d="M 52 9 L 64 16 L 52 23"
+              fill="none"
+              stroke="#2563eb"
+              strokeWidth="3.5"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            />
+          </svg>
+        </div>
+      </div>
+    );
+  }
+
+  if (isDone) {
+    return (
+      <div className="flex items-center justify-center self-start mt-2 px-1 select-none shrink-0">
+        <div className="relative flex items-center justify-center w-16 sm:w-20 h-8">
+          <svg className="w-16 sm:w-20 h-8 overflow-visible" viewBox="0 0 76 32">
+            <line x1="4" y1="16" x2="62" y2="16" stroke="#10b981" strokeWidth="3.5" strokeLinecap="round" />
+            <path
+              d="M 52 9 L 64 16 L 52 23"
+              fill="none"
+              stroke="#10b981"
+              strokeWidth="3.5"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            />
+          </svg>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex items-center justify-center self-start mt-2 px-1 select-none shrink-0">
+      <div className="relative flex items-center justify-center w-16 sm:w-20 h-8">
+        <svg className="w-16 sm:w-20 h-8 overflow-visible" viewBox="0 0 76 32">
+          <line x1="4" y1="16" x2="62" y2="16" stroke="#cbd5e1" strokeWidth="2.5" strokeLinecap="round" strokeDasharray="5 5" />
+          <path
+            d="M 52 9 L 64 16 L 52 23"
+            fill="none"
+            stroke="#cbd5e1"
+            strokeWidth="2.5"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          />
+        </svg>
+      </div>
+    </div>
+  );
+}
+
 export function StageStepper({ stages, currentStageId, selectedStageSequence = 1, onSelectStage }) {
   if (!stages || !stages.length) return null;
 
+  const completedCount = stages.filter((s) => s.status === 'Completed').length;
+  const progressPercent = Math.round((completedCount / stages.length) * 100);
+  const activeStage = stages.find((s) => s.sequence === selectedStageSequence) || stages[0];
+
   return (
-    <div className="rounded-xl border border-[#dce5f4] bg-white p-5 shadow-2xs overflow-x-auto">
-      <div className="min-w-max pb-1">
+    <div className="rounded-3xl border border-[#dce5f4] bg-gradient-to-b from-slate-50/60 via-white to-white p-5 sm:p-6 shadow-sm overflow-x-auto">
+      <style>{`
+        @keyframes flowDash {
+          to { stroke-dashoffset: -32; }
+        }
+        .animate-flow-dash {
+          animation: flowDash 1.2s linear infinite;
+        }
+      `}</style>
+
+      <div className="flex flex-wrap items-center justify-between gap-3 mb-5 pb-4 border-b border-slate-100 min-w-max">
+        <div className="flex items-center gap-3">
+          <div className="relative flex h-3 w-3">
+            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-blue-400 opacity-75" />
+            <span className="relative inline-flex rounded-full h-3 w-3 bg-blue-600" />
+          </div>
+          <div>
+            <div className="flex items-center gap-2">
+              <span className="text-xs font-black text-slate-800 uppercase tracking-wider">Project Lifecycle Pipeline</span>
+              <span className="text-[11px] font-semibold text-slate-500 bg-slate-100 px-2 py-0.5 rounded-md">{stages.length} Stages</span>
+            </div>
+            {activeStage && (
+              <p className="text-[11px] font-medium text-slate-500 mt-0.5">
+                Current View: <span className="font-bold text-blue-700">Stage {activeStage.sequence} — {activeStage.name}</span>
+              </p>
+            )}
+          </div>
+        </div>
+
+        <div className="flex items-center gap-3">
+          <div className="flex items-center gap-1.5 text-xs font-bold text-emerald-700 bg-emerald-50 px-3 py-1 rounded-full border border-emerald-200 shadow-2xs">
+            <CheckCircle2 size={13} className="text-emerald-600" />
+            <span>{completedCount} of {stages.length} Completed</span>
+          </div>
+          <div className="w-32 bg-slate-100 rounded-full h-2.5 overflow-hidden shadow-inner p-0.5">
+            <div
+              className="bg-gradient-to-r from-emerald-500 via-teal-500 to-blue-500 h-full rounded-full transition-all duration-700 ease-out shadow-xs"
+              style={{ width: `${progressPercent}%` }}
+            />
+          </div>
+          <span className="text-xs font-black text-slate-700 min-w-[34px]">{progressPercent}%</span>
+        </div>
+      </div>
+
+      <div className="min-w-max pb-2">
         <ol className="flex items-start justify-between" style={{ listStyle: 'none', margin: 0, padding: 0 }}>
           {stages.map((stage, idx) => {
             const isDone = stage.status === 'Completed';
@@ -482,64 +622,104 @@ export function StageStepper({ stages, currentStageId, selectedStageSequence = 1
             const isCurrent = currentStageId && stage.id === currentStageId;
             const isSelected = selectedStageSequence === stage.sequence;
 
-            const circleColor = isDone
-              ? 'border-emerald-500 text-emerald-600 bg-white'
-              : isNotReq
-              ? 'border-sky-400 text-sky-600 bg-white'
-              : isInProg
-              ? 'border-blue-500 text-blue-600 bg-white'
-              : isDelayed
-              ? 'border-rose-500 text-rose-600 bg-white'
-              : 'border-slate-300 text-slate-400 bg-white';
+            const nextStage = stages[idx + 1];
+            const isNextDone = nextStage?.status === 'Completed';
+            const isNextActive = nextStage && (nextStage.sequence === selectedStageSequence || nextStage.id === currentStageId || nextStage.status === 'In Progress');
+            const isLeadToActive = isDone && isNextActive;
 
             return (
               <li key={stage.id || stage.sequence} className="flex items-start">
                 <button
                   type="button"
                   onClick={() => onSelectStage && onSelectStage(stage.sequence)}
-                  className={`flex flex-col items-center w-28 shrink-0 p-1.5 text-center rounded-xl transition-all cursor-pointer text-left border ${
+                  className={`group relative flex flex-col items-center w-32 sm:w-36 shrink-0 p-2.5 text-center rounded-2xl transition-all duration-300 cursor-pointer text-left border ${
                     isSelected
-                      ? 'bg-blue-50/50 border-blue-300 shadow-xs'
-                      : 'border-transparent hover:bg-slate-50/80 hover:border-slate-200'
+                      ? 'bg-gradient-to-b from-blue-50/95 via-sky-50/35 to-white border-blue-500 shadow-[0_12px_26px_-6px_rgba(37,99,235,0.22)] ring-2 ring-blue-300/70 -translate-y-1'
+                      : isDone
+                      ? 'border-slate-200/90 bg-white hover:border-emerald-300 hover:bg-emerald-50/20 hover:-translate-y-1 hover:shadow-md'
+                      : 'border-slate-200/80 bg-white hover:bg-slate-50/80 hover:border-slate-300 hover:-translate-y-1 hover:shadow-sm'
                   }`}
                   title={`Click to view Stage ${stage.sequence}: ${stage.name}`}
                 >
                   <div className="flex items-center justify-center w-full relative">
-                    <span
-                      className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold border-2 transition-all ${circleColor} ${
-                        isSelected ? 'ring-3 ring-blue-400 ring-offset-1 font-black shadow-xs' : isCurrent ? 'ring-2 ring-blue-300' : ''
-                      }`}
-                    >
-                      {stage.sequence}
-                    </span>
+                    {isSelected && (
+                      <>
+                        <span className="absolute -inset-1.5 rounded-full bg-blue-500/25 animate-ping pointer-events-none" />
+                        <span className="absolute -inset-1 rounded-full bg-blue-400/20 animate-pulse pointer-events-none" />
+                      </>
+                    )}
+                    {isInProg && !isSelected && (
+                      <span className="absolute -inset-1 rounded-full bg-blue-400/25 animate-pulse pointer-events-none" />
+                    )}
+
+                    {isDone ? (
+                      <div className="w-8 h-8 rounded-full bg-gradient-to-tr from-emerald-500 to-teal-500 border-2 border-emerald-600 text-white flex items-center justify-center font-bold text-xs shadow-xs shadow-emerald-200 transition-all group-hover:scale-105">
+                        <Check size={16} strokeWidth={3} />
+                      </div>
+                    ) : isSelected ? (
+                      <div className="w-8 h-8 rounded-full bg-gradient-to-tr from-blue-600 to-indigo-600 border-2 border-blue-600 text-white flex items-center justify-center font-black text-xs ring-4 ring-blue-200/80 shadow-md shadow-blue-400/30 scale-105 transition-all">
+                        {stage.sequence}
+                      </div>
+                    ) : isInProg ? (
+                      <div className="w-8 h-8 rounded-full bg-blue-50 border-2 border-blue-500 text-blue-600 flex items-center justify-center font-bold text-xs animate-pulse transition-all">
+                        {stage.sequence}
+                      </div>
+                    ) : isDelayed ? (
+                      <div className="w-8 h-8 rounded-full bg-rose-50 border-2 border-rose-500 text-rose-600 flex items-center justify-center font-bold text-xs transition-all">
+                        {stage.sequence}
+                      </div>
+                    ) : isNotReq ? (
+                      <div className="w-8 h-8 rounded-full bg-sky-50 border-2 border-sky-400 text-sky-600 flex items-center justify-center font-bold text-xs transition-all">
+                        {stage.sequence}
+                      </div>
+                    ) : (
+                      <div className="w-8 h-8 rounded-full bg-white border-2 border-slate-300 text-slate-500 flex items-center justify-center font-bold text-xs transition-all group-hover:border-slate-400">
+                        {stage.sequence}
+                      </div>
+                    )}
                   </div>
 
-                  <div className={`mt-2 flex items-center justify-center h-6 ${isSelected ? 'text-blue-600' : 'text-slate-600'}`}>
+                  <div
+                    className={`mt-2.5 flex items-center justify-center w-9 h-9 rounded-xl transition-all duration-300 group-hover:scale-110 ${
+                      isSelected
+                        ? 'bg-gradient-to-tr from-blue-600 to-indigo-600 text-white shadow-md shadow-blue-300/50 scale-105'
+                        : isDone
+                        ? 'bg-emerald-50 text-emerald-600 border border-emerald-200/60'
+                        : isInProg
+                        ? 'bg-blue-50 text-blue-600 border border-blue-200/60'
+                        : 'bg-slate-50 text-slate-500 border border-slate-200/60 group-hover:bg-slate-100'
+                    }`}
+                  >
                     <StageIcon name={stage.name} department={stage.department} sequence={stage.sequence} />
                   </div>
 
                   <p
-                    className={`mt-1.5 text-[11px] leading-tight line-clamp-2 min-h-[28px] ${
-                      isSelected ? 'font-black text-blue-900' : 'font-bold text-slate-800'
+                    className={`mt-2 text-[11px] leading-tight line-clamp-2 min-h-[30px] transition-colors duration-200 ${
+                      isSelected
+                        ? 'font-black text-blue-950'
+                        : 'font-bold text-slate-700 group-hover:text-slate-900'
                     }`}
                     title={stage.name}
                   >
                     {stage.name}
                   </p>
 
-                  <div className="mt-1.5 w-full flex justify-center">
+                  <div className="mt-2 w-full flex justify-center">
                     <DepartmentBadge department={stage.department} />
                   </div>
 
-                  <div className="mt-1 w-full flex justify-center">
+                  <div className="mt-1.5 w-full flex justify-center">
                     <StageStatusPill status={stage.status} />
                   </div>
                 </button>
 
                 {idx < stages.length - 1 && (
-                  <div className="flex items-center justify-center text-slate-300 font-light text-sm pt-3 px-1 shrink-0 select-none">
-                    →
-                  </div>
+                  <LifecycleConnectorArrow
+                    isDone={isDone}
+                    isNextDone={isNextDone}
+                    isLeadToActive={isLeadToActive}
+                    idPrefix={`conn-${idx}`}
+                  />
                 )}
               </li>
             );

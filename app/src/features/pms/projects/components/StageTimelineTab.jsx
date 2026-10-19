@@ -11,6 +11,14 @@ import { useAppStore } from '../../../../stores/appStore';
 import { ConfigureStagePercentagesModal } from './ConfigureStagePercentagesModal';
 import { AddDynamicStageModal } from './AddDynamicStageModal';
 import { Stage1GreyStockWorkspace } from './Stage1GreyStockWorkspace';
+import { Stage2PurchasePOWorkspace } from './Stage2PurchasePOWorkspace';
+import { Stage2SupplierDeliveryWorkspace } from './Stage2SupplierDeliveryWorkspace';
+import { Stage3GRNInwardWorkspace } from './Stage3GRNInwardWorkspace';
+import { Stage4LotTakaWorkspace } from './Stage4LotTakaWorkspace';
+import { Stage5GreyQCWorkspace } from './Stage5GreyQCWorkspace';
+import { Stage6GreyStockUpdatedWorkspace } from './Stage6GreyStockUpdatedWorkspace';
+import { Stage7SupplierBillMatchingWorkspace } from './Stage7SupplierBillMatchingWorkspace';
+import { Stage8SupplierPaymentWorkspace } from './Stage8SupplierPaymentWorkspace';
 
 export function StageTimelineTab({
   project,
@@ -36,6 +44,9 @@ export function StageTimelineTab({
     (acc, s) => acc + (Number(s.percentage ?? s.weightPct ?? s.weight) || 0),
     0
   );
+
+  const currentStage = ordered.find((s) => s.sequence === selectedStageSeq) || ordered[0];
+  const stageName = (currentStage?.name || '').toLowerCase();
 
   const readOnly = project.status === 'Completed';
 
@@ -121,12 +132,84 @@ export function StageTimelineTab({
         </div>
       )}
 
-      {selectedStageSeq === 1 && (
+      {((selectedStageSeq === 1 && (stageName.includes('stock check') || stageName.includes('grey stock check'))) || (!stageName.includes('po') && !stageName.includes('delivery') && selectedStageSeq === 1)) && (
         <Stage1GreyStockWorkspace
           project={project}
           stage={ordered.find((s) => s.sequence === 1)}
           onSyncPipeline={onSyncPipeline}
-          onHandoff={onHandoff}
+          onHandoff={(targetSeq) => setSelectedStageSeq(targetSeq || 2)}
+        />
+      )}
+
+      {(stageName.includes('purchase po') || stageName.includes('purchase order') || (selectedStageSeq === 2 && !stageName.includes('delivery'))) && (
+        <Stage2PurchasePOWorkspace
+          project={project}
+          stage={ordered.find((s) => s.name?.toLowerCase().includes('po') || s.sequence === 2)}
+          onSyncPipeline={onSyncPipeline}
+          onSelectStage={(seq) => setSelectedStageSeq(seq)}
+        />
+      )}
+
+      {(stageName.includes('supplier delivery') || stageName.includes('delivery')) && (
+        <Stage2SupplierDeliveryWorkspace
+          project={project}
+          stage={currentStage}
+          onSyncPipeline={onSyncPipeline}
+          onSelectStage={(seq) => setSelectedStageSeq(seq)}
+        />
+      )}
+
+      {(stageName.includes('grn') || stageName.includes('inward')) && (
+        <Stage3GRNInwardWorkspace
+          project={project}
+          stage={currentStage}
+          onSyncPipeline={onSyncPipeline}
+          onSelectStage={(seq) => setSelectedStageSeq(seq)}
+        />
+      )}
+
+      {(stageName.includes('lot') || stageName.includes('taka')) && (
+        <Stage4LotTakaWorkspace
+          project={project}
+          stage={currentStage}
+          onSyncPipeline={onSyncPipeline}
+          onSelectStage={(seq) => setSelectedStageSeq(seq)}
+        />
+      )}
+
+      {(stageName.includes('qc') || stageName.includes('quality check') || stageName.includes('grey qc')) && (
+        <Stage5GreyQCWorkspace
+          project={project}
+          stage={currentStage}
+          onSyncPipeline={onSyncPipeline}
+          onSelectStage={(seq) => setSelectedStageSeq(seq)}
+        />
+      )}
+
+      {(stageName.includes('stock updated') || stageName.includes('grey stock updated')) && (
+        <Stage6GreyStockUpdatedWorkspace
+          project={project}
+          stage={currentStage}
+          onSyncPipeline={onSyncPipeline}
+          onSelectStage={(seq) => setSelectedStageSeq(seq)}
+        />
+      )}
+
+      {(stageName.includes('supplier bill matching') || stageName.includes('bill match')) && (
+        <Stage7SupplierBillMatchingWorkspace
+          project={project}
+          stage={currentStage}
+          onSyncPipeline={onSyncPipeline}
+          onSelectStage={(seq) => setSelectedStageSeq(seq)}
+        />
+      )}
+
+      {(stageName.includes('payment') || stageName.includes('disbursement')) && (
+        <Stage8SupplierPaymentWorkspace
+          project={project}
+          stage={currentStage}
+          onSyncPipeline={onSyncPipeline}
+          onSelectStage={(seq) => setSelectedStageSeq(seq)}
         />
       )}
 
