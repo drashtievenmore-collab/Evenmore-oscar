@@ -30,6 +30,7 @@ export function SupplierPaymentInlineSlide({ po, onClose, onPaymentSaved, onPrev
     getBillOutstanding,
     paymentOuts = [],
     purchaseBills = [],
+    bankAccounts = [],
     addPaymentOut,
     showToast,
     refreshCollections,
@@ -38,6 +39,7 @@ export function SupplierPaymentInlineSlide({ po, onClose, onPaymentSaved, onPrev
   const [submitting, setSubmitting] = useState(false);
   const [payDate, setPayDate] = useState(() => new Date().toISOString().split('T')[0]);
   const [payMode, setPayMode] = useState('Bank Transfer');
+  const [bankAccountId, setBankAccountId] = useState('');
   const [reference, setReference] = useState('');
   const [remarks, setRemarks] = useState('');
   const [errorMsg, setErrorMsg] = useState('');
@@ -46,13 +48,18 @@ export function SupplierPaymentInlineSlide({ po, onClose, onPaymentSaved, onPrev
   const poId = po?.id;
   const poNumber = po?.poNumber || poId;
 
-  // Find linked purchase bill
   const poInfo = getPoBilledStatus ? getPoBilledStatus(poId) : { activeBills: [] };
   const linkedBill = poInfo.activeBills?.[0] || purchaseBills.find((b) => b.purchaseOrderId === poId || b.poNumber === poNumber);
 
   const billTotal = Number(linkedBill?.total || linkedBill?.amount || po?.amount || 0);
 
-  // Find payments against this bill or PO
+  useEffect(() => {
+    if (bankAccounts.length > 0 && !bankAccountId) {
+      const primaryBank = bankAccounts.find((b) => b.isPrimary || b.isDefault) || bankAccounts[0];
+      if (primaryBank) setBankAccountId(String(primaryBank.id));
+    }
+  }, [bankAccounts, bankAccountId]);
+
   const relatedPayments = useMemo(() => {
     return paymentOuts.filter(
       (p) =>
@@ -81,6 +88,12 @@ export function SupplierPaymentInlineSlide({ po, onClose, onPaymentSaved, onPrev
       return;
     }
 
+    const resolvedBankId = payMode !== 'Cash' ? (bankAccountId || bankAccounts[0]?.id) : undefined;
+    if (payMode !== 'Cash' && !resolvedBankId) {
+      setErrorMsg('Choose the bank account this payment was made from.');
+      return;
+    }
+
     try {
       setSubmitting(true);
       setErrorMsg('');
@@ -92,6 +105,7 @@ export function SupplierPaymentInlineSlide({ po, onClose, onPaymentSaved, onPrev
         amount: Number(payAmount),
         date: payDate,
         mode: payMode,
+        bankAccountId: resolvedBankId,
         reference: reference || `UTR-${Date.now().toString().slice(-6)}`,
         notes: `Payment disbursement against PO ${poNumber}${remarks ? ` - ${remarks}` : ''}`,
       };
@@ -222,7 +236,7 @@ export function SupplierPaymentInlineSlide({ po, onClose, onPaymentSaved, onPrev
             </span>
           </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-4 gap-2.5 text-xs">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-2.5 text-xs">
             <div>
               <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">Disbursement Amount (₹) *</label>
               <input
@@ -248,6 +262,27 @@ export function SupplierPaymentInlineSlide({ po, onClose, onPaymentSaved, onPrev
                 <option value="Cash">Cash</option>
               </select>
             </div>
+            {payMode !== 'Cash' && (
+              <div>
+                <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">Bank Account *</label>
+                <select
+                  required
+                  value={bankAccountId}
+                  onChange={(e) => setBankAccountId(e.target.value)}
+                  className="w-full px-2.5 py-1.5 bg-white border border-slate-300 rounded-lg text-slate-800 text-xs font-semibold"
+                >
+                  {bankAccounts.length === 0 ? (
+                    <option value="">Default Company Bank</option>
+                  ) : (
+                    bankAccounts.map((b) => (
+                      <option key={b.id} value={b.id}>
+                        {b.bankName || b.name || 'Bank'} {b.accountNumber ? `(${String(b.accountNumber).slice(-4)})` : ''}
+                      </option>
+                    ))
+                  )}
+                </select>
+              </div>
+            )}
             <div>
               <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">Payment Date *</label>
               <input

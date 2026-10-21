@@ -148,7 +148,9 @@ export const PurchaseOrdersPage = () => {
     const [showAddModal, setShowAddModal] = useState(false);
     const [isFullscreen, setIsFullscreen] = useState(false);
     const [selectedPo, setSelectedPo] = useState(null);
+    const [isDetailFullscreen, setIsDetailFullscreen] = useState(false);
     const [activeTimelineSlide, setActiveTimelineSlide] = useState(null);
+    const [selectedDeliveryForGrn, setSelectedDeliveryForGrn] = useState(null);
     const [poLifecycleData, setPoLifecycleData] = useState({
         deliveries: [],
         grns: [],
@@ -215,6 +217,12 @@ export const PurchaseOrdersPage = () => {
             setPoLifecycleData({ deliveries: [], grns: [], takas: [], bills: [], loading: false });
         }
     }, [selectedPo?.id, selectedPo?.poNumber]);
+
+    // Collapse the detail popup back to its default size whenever it is closed
+    // or a different purchase order is opened.
+    React.useEffect(() => {
+        if (!selectedPo?.id) setIsDetailFullscreen(false);
+    }, [selectedPo?.id]);
 
     const [printPoTarget, setPrintPoTarget] = useState(null);
     const [selectedVendorId, setSelectedVendorId] = useState(vendors[0]?.id || '');
@@ -485,13 +493,15 @@ export const PurchaseOrdersPage = () => {
             ];
         }
 
-        // Live lifecycle data from active PO
+        const totalOrderedQty = (po.lineItems || po.items || []).reduce((s, it) => s + (Number(it.qty) || 0), 0);
         const deliveries = (poLifecycleData?.deliveries || []);
         const totalDispatchedQty = deliveries.reduce((s, d) => s + (Number(d.dispatchedQty) || 0), 0);
         const hasDispatched = deliveries.length > 0 && (
             totalDispatchedQty > 0 ||
             deliveries.some((d) => ['Dispatched', 'In Transit', 'Delivered', 'Partially Delivered'].includes(d.status))
         );
+        const isDeliveryComplete = totalOrderedQty > 0 ? (totalDispatchedQty >= totalOrderedQty) : hasDispatched;
+        const isDeliveryPartial = !isDeliveryComplete && (totalDispatchedQty > 0 || deliveries.some((d) => d.status === 'Partially Delivered'));
 
         const grns = (poLifecycleData?.grns || []);
         const totalGrnQty = grns.reduce((sum, g) => {
@@ -502,12 +512,20 @@ export const PurchaseOrdersPage = () => {
             }
             return sum;
         }, 0);
-        const hasGrn = grns.length > 0 || totalGrnQty > 0 || receivedQty > 0 || ['Received', 'Partially Received', 'Fully Received', 'Billed'].includes(po.status);
+        const effectiveGrnQty = totalGrnQty > 0 ? totalGrnQty : receivedQty;
+        const isGrnComplete = po.status === 'Fully Received' || (totalOrderedQty > 0 && effectiveGrnQty >= totalOrderedQty);
+        const isGrnPartial = !isGrnComplete && (effectiveGrnQty > 0 || po.status === 'Partially Received');
 
         const takas = (poLifecycleData?.takas || []);
-        const hasTakas = takas.length > 0;
+        const totalTakaQty = takas.reduce((s, t) => s + (Number(t.receivedQty ?? t.receivedQuantity ?? t.qty ?? t.quantity ?? t.actual_meter ?? 0)), 0);
+        const isTakaComplete = takas.length > 0 && (totalOrderedQty > 0 ? totalTakaQty >= totalOrderedQty : isGrnComplete);
+        const isTakaPartial = !isTakaComplete && takas.length > 0;
+
         const hasQcPassed = (takas.length > 0 && takas.some((t) => t.qcStatus === 'Passed')) || grns.some((g) => g.qc_status === 'Approved' || g.qc_status === 'Passed' || g.qcStatus === 'Passed');
+        const isQcComplete = isGrnComplete && takas.length > 0 && takas.every((t) => t.qcStatus === 'Passed');
+        const isQcPartial = hasQcPassed && !isQcComplete;
         const hasStockUpdated = hasQcPassed;
+        const isStockComplete = isQcComplete;
 
         return [
             {
@@ -521,50 +539,75 @@ export const PurchaseOrdersPage = () => {
             {
                 key: 'supplier_delivery',
                 label: 'Supplier Delivery',
-                docNumber: totalDispatchedQty > 0 ? `${totalDispatchedQty.toLocaleString('en-IN')} M` : undefined,
-                status: (hasDispatched || hasGrn || isBilled || isPaid)
+                docNumber: totalDispatchedQty > 0
+                    ? (isDeliveryPartial
+                        ? `${totalDispatchedQty.toLocaleString('en-IN')} / ${totalOrderedQty.toLocaleString('en-IN')} M`
+                        : `${totalDispatchedQty.toLocaleString('en-IN')} M`)
+                    : undefined,
+                status: isDeliveryComplete
                     ? 'completed'
+                    : isDeliveryPartial
+                    ? 'partial'
                     : isApproved
                     ? 'current'
                     : 'pending',
+                statusLabel: isDeliveryPartial ? 'Partially Delivered' : undefined,
             },
             {
                 key: 'grn_inward',
                 label: 'GRN / Inward',
-                docNumber: totalGrnQty > 0 ? `${totalGrnQty.toLocaleString('en-IN')} M` : (receivedQty > 0 ? `${receivedQty.toLocaleString('en-IN')} M` : undefined),
-                status: (hasGrn || isBilled || isPaid)
+                docNumber: effectiveGrnQty > 0
+                    ? (isGrnPartial
+                        ? `${effectiveGrnQty.toLocaleString('en-IN')} / ${totalOrderedQty.toLocaleString('en-IN')} M`
+                        : `${effectiveGrnQty.toLocaleString('en-IN')} M`)
+                    : undefined,
+                status: isGrnComplete
                     ? 'completed'
+                    : isGrnPartial
+                    ? 'partial'
                     : (hasDispatched || activeTimelineSlide === 'grn_inward')
                     ? 'current'
                     : 'pending',
+                statusLabel: isGrnPartial ? 'Partially Received' : undefined,
             },
             {
                 key: 'lot_taka_creation',
                 label: 'Lot / Taka Creation',
-                docNumber: takas.length > 0 ? `${takas.length} Rolls` : undefined,
-                status: (hasTakas || isBilled || isPaid || po.status === 'Fully Received')
+                docNumber: takas.length > 0
+                    ? (isTakaPartial
+                        ? `${takas.length} Rolls (${totalTakaQty.toLocaleString('en-IN')} / ${totalOrderedQty.toLocaleString('en-IN')} M)`
+                        : `${takas.length} Rolls (${totalTakaQty.toLocaleString('en-IN')} M)`)
+                    : undefined,
+                status: isTakaComplete
                     ? 'completed'
-                    : (hasGrn || activeTimelineSlide === 'lot_taka_creation')
+                    : isTakaPartial
+                    ? 'partial'
+                    : (effectiveGrnQty > 0 || activeTimelineSlide === 'lot_taka_creation')
                     ? 'current'
                     : 'pending',
+                statusLabel: isTakaPartial ? 'Partially Created' : undefined,
             },
             {
                 key: 'grey_fabric_qc',
                 label: 'Grey Fabric QC',
-                status: (hasQcPassed || isBilled || isPaid || po.status === 'Fully Received')
+                status: isQcComplete
                     ? 'completed'
-                    : (hasTakas || activeTimelineSlide === 'grey_fabric_qc')
+                    : isQcPartial
+                    ? 'partial'
+                    : (takas.length > 0 || activeTimelineSlide === 'grey_fabric_qc')
                     ? 'current'
                     : 'pending',
+                statusLabel: isQcPartial ? 'QC In Progress' : undefined,
             },
             {
                 key: 'grey_stock_updated',
                 label: 'Grey Stock Updated',
-                status: (hasStockUpdated || isBilled || isPaid || po.status === 'Fully Received')
+                status: isStockComplete
                     ? 'completed'
-                    : (hasQcPassed || activeTimelineSlide === 'grey_stock_updated')
+                    : (hasStockUpdated || activeTimelineSlide === 'grey_stock_updated')
                     ? 'current'
                     : 'pending',
+                statusLabel: isQcPartial ? 'Partial Stock' : undefined,
             },
             {
                 key: 'vendor_bill',
@@ -1250,8 +1293,12 @@ export const PurchaseOrdersPage = () => {
         </div>)}
 
       {/* PO Detail & Lifecycle Modal */}
-      {selectedPo && (<div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-sm flex items-center justify-center p-2 sm:p-4">
-          <div className="bg-white rounded-2xl border border-slate-200 max-w-4xl w-full p-4 sm:p-6 shadow-2xl text-xs max-h-[95vh] sm:max-h-[90vh] flex flex-col overflow-hidden">
+      {selectedPo && (<div className={`fixed inset-0 z-50 bg-black/50 backdrop-blur-sm flex items-center justify-center transition-all duration-200 ${isDetailFullscreen ? 'p-0' : 'p-2 sm:p-4'}`}>
+          <div className={`bg-white border border-slate-200 shadow-2xl text-xs flex flex-col overflow-hidden transition-all duration-200 ${
+            isDetailFullscreen
+              ? 'w-full h-full rounded-none p-4 sm:p-8'
+              : 'rounded-2xl max-w-4xl w-full p-4 sm:p-6 max-h-[95vh] sm:max-h-[90vh]'
+          }`}>
             <div className="flex flex-wrap lg:flex-nowrap items-center justify-between gap-2 lg:gap-0 pb-3 border-b border-slate-200">
               <div className="flex flex-wrap lg:flex-nowrap items-center gap-2 sm:gap-3 min-w-0 lg:min-w-auto">
                 <h3 className="font-bold text-lg text-[#1F2E4A]">{selectedPo.poNumber}</h3>
@@ -1261,6 +1308,15 @@ export const PurchaseOrdersPage = () => {
               <div className="flex items-center gap-2">
                 <button type="button" onClick={() => setPrintPoTarget(selectedPo)} className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg font-semibold flex items-center gap-1.5 shadow-xs">
                   <Printer size={13}/> Print Official PO
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setIsDetailFullscreen((prev) => !prev)}
+                  className="p-1.5 text-slate-400 hover:text-slate-700 rounded-lg hover:bg-slate-100 transition"
+                  title={isDetailFullscreen ? 'Exit Fullscreen' : 'Expand Fullscreen'}
+                  aria-label={isDetailFullscreen ? 'Exit Fullscreen' : 'Expand Fullscreen'}
+                >
+                  {isDetailFullscreen ? <Minimize2 size={16} /> : <Maximize2 size={16} />}
                 </button>
                 <button onClick={() => setSelectedPo(null)} className="text-slate-400 hover:text-slate-600 p-1"><X size={18}/></button>
               </div>
@@ -1317,8 +1373,14 @@ export const PurchaseOrdersPage = () => {
                 <div className="mt-2 mb-3">
                   <SupplierDeliveryInlineSlide
                     po={selectedPo}
-                    onClose={() => setActiveTimelineSlide(null)}
-                    onNextStep={(key) => setActiveTimelineSlide(key)}
+                    onClose={() => {
+                      setSelectedDeliveryForGrn(null);
+                      setActiveTimelineSlide(null);
+                    }}
+                    onNextStep={(key, delivery) => {
+                      setSelectedDeliveryForGrn(delivery || null);
+                      setActiveTimelineSlide(key);
+                    }}
                     onDeliverySaved={() => {
                       loadPoLifecycle(selectedPo?.id, selectedPo?.poNumber);
                       if (refreshCollections) refreshCollections(['purchaseOrders']);
@@ -1330,9 +1392,19 @@ export const PurchaseOrdersPage = () => {
                 <div className="mt-2 mb-3">
                   <GoodsReceiptInlineSlide
                     po={selectedPo}
-                    onClose={() => setActiveTimelineSlide(null)}
-                    onNextStep={(key) => setActiveTimelineSlide(key)}
-                    onPrevStep={(key) => setActiveTimelineSlide(key)}
+                    delivery={selectedDeliveryForGrn}
+                    onClose={() => {
+                      setSelectedDeliveryForGrn(null);
+                      setActiveTimelineSlide(null);
+                    }}
+                    onNextStep={(key) => {
+                      setSelectedDeliveryForGrn(null);
+                      setActiveTimelineSlide(key);
+                    }}
+                    onPrevStep={(key) => {
+                      setSelectedDeliveryForGrn(null);
+                      setActiveTimelineSlide(key);
+                    }}
                     onReceiptSaved={() => {
                       loadPoLifecycle(selectedPo?.id, selectedPo?.poNumber);
                       if (refreshCollections) refreshCollections(['purchaseOrders', 'inventory']);
@@ -1450,7 +1522,9 @@ export const PurchaseOrdersPage = () => {
                 </div>
               </div>
             </div>
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 lg:gap-0 pt-4 border-t border-slate-200 bg-slate-50 -mx-4 -mb-4 px-4 sm:-mx-6 sm:-mb-6 sm:px-6 py-3">
+            <div className={`flex flex-col sm:flex-row sm:items-center justify-between gap-3 lg:gap-0 pt-4 border-t border-slate-200 bg-slate-50 px-4 py-3 ${
+              isDetailFullscreen ? '-mx-4 -mb-4 sm:-mx-8 sm:-mb-8 sm:px-8' : '-mx-4 -mb-4 sm:-mx-6 sm:-mb-6 sm:px-6'
+            }`}>
               {(() => {
                 const poInfo = getPoBilledStatus(selectedPo.id);
                 return (

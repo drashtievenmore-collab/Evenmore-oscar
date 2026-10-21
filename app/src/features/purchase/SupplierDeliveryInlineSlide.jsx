@@ -104,8 +104,14 @@ export function SupplierDeliveryInlineSlide({ po, onClose, onDeliverySaved, onNe
   }, [deliveries]);
 
   const totalReceivedQty = useMemo(() => {
-    return deliveries.reduce((s, d) => s + (Number(d.receivedQty) || 0), 0);
-  }, [deliveries]);
+    const fromPo = Number(po?.receivedQty ?? po?.received_qty);
+    if (!isNaN(fromPo) && fromPo > 0) return fromPo;
+    if (poLineItems.length) {
+      const lineRec = poLineItems.reduce((s, l) => s + (Number(l.receivedQty ?? l.received_qty) || 0), 0);
+      if (lineRec > 0) return lineRec;
+    }
+    return Number(deliveries[0]?.receivedQty || 0);
+  }, [po, poLineItems, deliveries]);
 
   const pendingDispatch = Math.max(0, totalOrderedQty - totalDispatchedQty);
 
@@ -205,7 +211,7 @@ export function SupplierDeliveryInlineSlide({ po, onClose, onDeliverySaved, onNe
 
   const handleReceiveGrn = (delivery) => {
     if (onNextStep) {
-      onNextStep('grn_inward');
+      onNextStep('grn_inward', delivery);
       return;
     }
     navigate('/purchase/receipts', {

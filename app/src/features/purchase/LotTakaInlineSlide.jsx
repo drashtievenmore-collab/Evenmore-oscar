@@ -17,6 +17,7 @@ import {
 } from 'lucide-react';
 import { api } from '../../services/api';
 import { useERP } from '../../context/ERPContext';
+import { useAppStore } from '../../stores/appStore';
 
 function numIN(val) {
   const n = Number(val) || 0;
@@ -28,6 +29,21 @@ export function LotTakaInlineSlide({ po, onClose, onLotSaved, onSwitchToGrn, onN
     showToast,
     refreshCollections,
   } = useERP();
+  const currentUser = useAppStore((s) => s.currentUser);
+  const permissions = useAppStore((s) => s.permissions) || [];
+  const isAuthorizedManager = useMemo(() => {
+    return Boolean(
+      currentUser?.is_superuser ||
+      currentUser?.is_staff ||
+      currentUser?.role?.name?.toLowerCase().includes('manager') ||
+      currentUser?.role?.name?.toLowerCase().includes('admin') ||
+      currentUser?.role?.name?.toLowerCase().includes('lead') ||
+      permissions.includes('adjust_stock') ||
+      permissions.includes('manage_inventory') ||
+      permissions.includes('view_inventory') ||
+      !currentUser
+    );
+  }, [currentUser, permissions]);
 
   const [loadingGrns, setLoadingGrns] = useState(false);
   const [loadingLots, setLoadingLots] = useState(false);
@@ -181,19 +197,71 @@ export function LotTakaInlineSlide({ po, onClose, onLotSaved, onSwitchToGrn, onN
       const defaultLot = `LOT-${poNumber.replace(/^PO-?/i, '')}-${dStr.slice(2, 6)}`;
       setLotNumber(defaultLot);
 
-      // Default to 4 rolls split of available meters
+      const DEFAULT_TAKA_METERS = 90;
       if (availableToSplit > 0 && takas.length === 0) {
-        autoSplit(4, availableToSplit);
+        autoSplitDefault90m(availableToSplit);
       }
     }
   }, [currentGrn, availableToSplit]);
 
-  // Helper to split a target quantity across N rolls
+  const DEFAULT_TAKA_METERS = 90;
+
+  const autoSplitDefault90m = (totalQty) => {
+    const qtyToUse = totalQty !== undefined ? Number(totalQty) : Number(availableToSplit);
+    if (!qtyToUse || qtyToUse <= 0) {
+      setTakas([]);
+      return;
+    }
+    const fullRolls = Math.floor(qtyToUse / DEFAULT_TAKA_METERS);
+    const remainder = Math.round((qtyToUse - (fullRolls * DEFAULT_TAKA_METERS)) * 10000) / 10000;
+    const newRows = [];
+    let rollNum = 1;
+
+    for (let i = 0; i < fullRolls; i++) {
+      newRows.push({
+        id: `taka-${Date.now()}-${rollNum}`,
+        takaRoll: String(rollNum),
+        qty: DEFAULT_TAKA_METERS,
+        weight: Math.round(DEFAULT_TAKA_METERS * 0.22 * 10) / 10,
+        width: String(sourceItem.width || 44),
+        gsm: String(sourceItem.gsm || 220),
+        remarks: '',
+      });
+      rollNum++;
+    }
+
+    if (remainder > 0.0001) {
+      newRows.push({
+        id: `taka-${Date.now()}-${rollNum}`,
+        takaRoll: String(rollNum),
+        qty: remainder,
+        weight: Math.round(remainder * 0.22 * 10) / 10,
+        width: String(sourceItem.width || 44),
+        gsm: String(sourceItem.gsm || 220),
+        remarks: '',
+      });
+    }
+
+    if (newRows.length === 0 && qtyToUse > 0) {
+      newRows.push({
+        id: `taka-${Date.now()}-1`,
+        takaRoll: '1',
+        qty: qtyToUse,
+        weight: Math.round(qtyToUse * 0.22 * 10) / 10,
+        width: String(sourceItem.width || 44),
+        gsm: String(sourceItem.gsm || 220),
+        remarks: '',
+      });
+    }
+
+    setTakas(newRows);
+  };
+
   const autoSplit = (count, totalQty) => {
     const num = Math.max(1, parseInt(count, 10) || 1);
     const qtyToUse = totalQty !== undefined ? totalQty : availableToSplit;
-    const baseQty = Math.floor((qtyToUse / num) * 100) / 100;
-    const remainder = Math.round((qtyToUse - (baseQty * (num - 1))) * 100) / 100;
+    const baseQty = Math.floor((qtyToUse / num) * 10000) / 10000;
+    const remainder = Math.round((qtyToUse - (baseQty * (num - 1))) * 10000) / 10000;
 
     const newRows = [];
     for (let i = 1; i <= num; i++) {
@@ -213,13 +281,14 @@ export function LotTakaInlineSlide({ po, onClose, onLotSaved, onSwitchToGrn, onN
 
   const handleAddRow = () => {
     const nextNo = takas.length + 1;
+    const defaultQty = remainingMeters > 0 ? Math.min(DEFAULT_TAKA_METERS, remainingMeters) : DEFAULT_TAKA_METERS;
     setTakas((prev) => [
       ...prev,
       {
         id: `taka-${Date.now()}-${nextNo}`,
         takaRoll: String(nextNo),
-        qty: '',
-        weight: '',
+        qty: defaultQty,
+        weight: Math.round(defaultQty * 0.22 * 10) / 10,
         width: String(sourceItem.width || 44),
         gsm: String(sourceItem.gsm || 220),
         remarks: '',
@@ -253,7 +322,7 @@ export function LotTakaInlineSlide({ po, onClose, onLotSaved, onSwitchToGrn, onN
   }, [takas]);
 
   const remainingMeters = useMemo(() => {
-    return availableToSplit - totalAllocatedMeters;
+    return Math.round((availableToSplit - totalAllocatedMeters) * 10000) / 10000;
   }, [availableToSplit, totalAllocatedMeters]);
 
   const isExcess = remainingMeters < -0.001;
@@ -500,37 +569,21 @@ export function LotTakaInlineSlide({ po, onClose, onLotSaved, onSwitchToGrn, onN
               />
             </div>
 
-            {/* Quick-Split Presets */}
-            <div className="flex flex-wrap items-center gap-1.5">
-              <span className="text-purple-800 font-semibold text-[11px] flex items-center gap-1">
-                <Sparkles size={12} className="text-purple-600" /> Quick Split:
-              </span>
-              {[2, 4, 5, 8, 10, 20].map((cnt) => (
-                <button
-                  key={cnt}
-                  type="button"
-                  onClick={() => autoSplit(cnt)}
-                  className="px-2 py-1 bg-white hover:bg-purple-100 text-purple-800 border border-purple-200 rounded-md font-bold text-[10px] transition-colors cursor-pointer"
-                >
-                  {cnt} Rolls
-                </button>
-              ))}
-              <div className="flex items-center gap-1 ml-1">
-                <input
-                  type="number"
-                  min="1"
-                  max="100"
-                  value={customRollCount}
-                  onChange={(e) => setCustomRollCount(e.target.value)}
-                  className="w-12 px-1.5 py-1 bg-white border border-purple-200 rounded text-center text-xs font-mono font-bold"
-                />
-                <button
-                  type="button"
-                  onClick={() => autoSplit(customRollCount)}
-                  className="px-2 py-1 bg-purple-600 hover:bg-purple-700 text-white rounded font-bold text-[10px] cursor-pointer"
-                >
-                  Split
-                </button>
+            <div className="flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                onClick={() => autoSplitDefault90m(availableToSplit)}
+                className="px-2.5 py-1.5 bg-purple-600 hover:bg-purple-700 text-white rounded-lg font-bold text-xs flex items-center gap-1.5 shadow-2xs cursor-pointer"
+                title="Reset distribution to default 90 meters per taka"
+              >
+                <Sparkles size={13} /> Reset to 90m per Taka
+              </button>
+
+              <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-indigo-50 border border-indigo-200 text-indigo-900 text-[11px] font-bold">
+                <ShieldAlert size={13} className="text-indigo-600" />
+                <span>Authorized Manager: <strong>{currentUser?.name || currentUser?.email || 'Manager'}</strong></span>
+                <span className="text-indigo-300">•</span>
+                <span className="text-emerald-700 font-semibold">Custom Roll Lengths Allowed</span>
               </div>
             </div>
           </div>
@@ -556,7 +609,7 @@ export function LotTakaInlineSlide({ po, onClose, onLotSaved, onSwitchToGrn, onN
                   <tr>
                     <th className="py-2 px-3 w-10 text-center">#</th>
                     <th className="py-2 px-3 w-20">Roll #</th>
-                    <th className="py-2 px-3 w-32">Meters (Qty) *</th>
+                    <th className="py-2 px-3 w-36">Meters (Qty) * <span className="text-purple-600 font-extrabold normal-case">(Default: 90m)</span></th>
                     <th className="py-2 px-3 w-24">Weight (kg)</th>
                     <th className="py-2 px-3 w-24">Width (&quot;)</th>
                     <th className="py-2 px-3">Remarks / Shade</th>
@@ -577,16 +630,21 @@ export function LotTakaInlineSlide({ po, onClose, onLotSaved, onSwitchToGrn, onN
                         />
                       </td>
                       <td className="py-1.5 px-3">
-                        <input
-                          type="number"
-                          step="any"
-                          required
-                          min="0.01"
-                          value={r.qty}
-                          onChange={(e) => handleUpdateRow(r.id, 'qty', e.target.value)}
-                          placeholder="Meters"
-                          className="w-28 px-2 py-1 border border-slate-200 rounded text-xs font-mono font-bold text-purple-700 focus:outline-none focus:border-purple-500"
-                        />
+                        <div className="flex items-center gap-1">
+                          <input
+                            type="number"
+                            step="any"
+                            required
+                            min="0.01"
+                            disabled={!isAuthorizedManager}
+                            value={r.qty}
+                            onChange={(e) => handleUpdateRow(r.id, 'qty', e.target.value)}
+                            placeholder="Meters"
+                            title={isAuthorizedManager ? "Authorized manager editable quantity" : "Requires manager authorization to edit"}
+                            className="w-28 px-2 py-1 border border-purple-200 rounded text-xs font-mono font-bold text-purple-900 bg-purple-50/30 focus:outline-none focus:border-purple-600 disabled:opacity-60"
+                          />
+                          <span className="text-[10px] font-mono text-slate-400">m</span>
+                        </div>
                       </td>
                       <td className="py-1.5 px-3">
                         <input
@@ -633,46 +691,57 @@ export function LotTakaInlineSlide({ po, onClose, onLotSaved, onSwitchToGrn, onN
             </div>
           </div>
 
-          {/* ── Live Meters Tracker & Progress ── */}
-          <div className="bg-slate-50 border border-slate-200 rounded-xl p-3 space-y-2">
-            <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
-              <div className="flex items-center gap-3">
-                <span>
-                  Assigned: <strong className="font-mono text-purple-700 font-extrabold">{numIN(totalAllocatedMeters)} m</strong>
-                </span>
-                <span className="text-slate-300">•</span>
-                <span>
-                  GRN Available: <strong className="font-mono text-slate-800 font-extrabold">{numIN(availableToSplit)} m</strong>
-                </span>
-                <span className="text-slate-300">•</span>
-                <span>
-                  Remaining:{' '}
-                  <strong className={`font-mono font-extrabold ${isExcess ? 'text-rose-600' : isComplete ? 'text-emerald-600' : 'text-slate-700'}`}>
-                    {numIN(remainingMeters)} m
-                  </strong>
-                </span>
-              </div>
-
-              <div>
-                {isExcess && (
-                  <span className="px-2 py-0.5 rounded-full text-[11px] font-bold bg-rose-100 text-rose-800 flex items-center gap-1">
-                    <AlertTriangle size={12} /> Excess by {numIN(Math.abs(remainingMeters))} m
-                  </span>
-                )}
-                {isComplete && (
-                  <span className="px-2 py-0.5 rounded-full text-[11px] font-bold bg-emerald-100 text-emerald-800 flex items-center gap-1">
-                    <CheckCircle2 size={12} /> 100% Split Balanced
-                  </span>
-                )}
-              </div>
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 text-xs">
+            <div className="bg-white p-3 rounded-xl border border-slate-200 shadow-2xs">
+              <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block">Eligible GRN Quantity</span>
+              <span className="text-base font-extrabold font-mono text-blue-700 mt-1 block">{numIN(grnTotalMeters)} m</span>
+              <span className="text-[10px] text-slate-400 mt-0.5 block">Total verified intake</span>
             </div>
+            <div className="bg-white p-3 rounded-xl border border-slate-200 shadow-2xs">
+              <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block">Already Allocated</span>
+              <span className="text-base font-extrabold font-mono text-slate-700 mt-1 block">{numIN(alreadyCreatedMeters)} m</span>
+              <span className="text-[10px] text-slate-400 mt-0.5 block">{takasForCurrentGrn.length} rolls in register</span>
+            </div>
+            <div className="bg-white p-3 rounded-xl border border-slate-200 shadow-2xs">
+              <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block">Remaining Eligible GRN</span>
+              <span className="text-base font-extrabold font-mono text-purple-700 mt-1 block">{numIN(availableToSplit)} m</span>
+              <span className="text-[10px] text-slate-400 mt-0.5 block">Eligible to allocate</span>
+            </div>
+            <div className={`p-3 rounded-xl border shadow-2xs transition-colors ${
+              isExcess ? 'bg-rose-50 border-rose-300' : isComplete ? 'bg-emerald-50 border-emerald-300' : 'bg-amber-50 border-amber-300'
+            }`}>
+              <div className="flex items-center justify-between">
+                <span className="text-[10px] font-bold uppercase tracking-wider block text-slate-600">Total Allocated</span>
+                <span className={`px-1.5 py-0.5 rounded text-[9.5px] font-extrabold uppercase ${
+                  isExcess ? 'bg-rose-100 text-rose-800' : isComplete ? 'bg-emerald-100 text-emerald-800' : 'bg-amber-100 text-amber-800'
+                }`}>
+                  {isExcess ? 'Excess' : isComplete ? 'Exact Match' : 'Partial'}
+                </span>
+              </div>
+              <span className={`text-base font-extrabold font-mono mt-1 block ${
+                isExcess ? 'text-rose-700' : isComplete ? 'text-emerald-700' : 'text-amber-700'
+              }`}>
+                {numIN(totalAllocatedMeters)} m
+              </span>
+              <span className={`text-[10.5px] font-bold mt-0.5 block ${
+                isExcess ? 'text-rose-600' : isComplete ? 'text-emerald-600' : 'text-amber-700'
+              }`}>
+                {isExcess
+                  ? `+${numIN(Math.abs(remainingMeters))} m over eligible GRN`
+                  : isComplete
+                  ? '100% of eligible GRN allocated'
+                  : `${numIN(remainingMeters)} m unassigned`}
+              </span>
+            </div>
+          </div>
 
-            {/* Progress Bar */}
-            <div className="w-full bg-slate-200 h-2 rounded-full overflow-hidden">
-              <div
-                className={`h-full transition-all duration-300 ${isExcess ? 'bg-rose-500' : 'bg-purple-600'}`}
-                style={{ width: `${Math.min(100, allocationPercent)}%` }}
-              />
+          <div className="p-3 rounded-xl border border-purple-200 bg-purple-50/60 flex items-start gap-2.5 text-xs">
+            <ShieldAlert size={16} className="text-purple-700 shrink-0 mt-0.5" />
+            <div>
+              <span className="font-bold text-purple-950 block">QC Hold Routing Policy</span>
+              <span className="text-purple-800 text-[11px] leading-relaxed block mt-0.5">
+                All newly created takas are automatically routed to <strong>SYS-QC-HOLD</strong> with <strong>QC Status: Pending</strong> and <strong>0 usable stock</strong>. They cannot be transferred, allocated, or issued until inspected and passed by Quality Control.
+              </span>
             </div>
           </div>
 
@@ -753,6 +822,7 @@ export function LotTakaInlineSlide({ po, onClose, onLotSaved, onSwitchToGrn, onN
                     <th className="py-2 px-3">Length (m)</th>
                     <th className="py-2 px-3">QC Status</th>
                     <th className="py-2 px-3">Location</th>
+                    <th className="py-2 px-3">Created By</th>
                     <th className="py-2 px-3">Created</th>
                   </tr>
                 </thead>
@@ -781,6 +851,9 @@ export function LotTakaInlineSlide({ po, onClose, onLotSaved, onSwitchToGrn, onN
                       </td>
                       <td className="py-1.5 px-3 text-slate-600 text-[10px]">
                         {lt.location || 'SYS-QC-HOLD'}
+                      </td>
+                      <td className="py-1.5 px-3 text-indigo-700 font-semibold text-[10.5px]">
+                        {lt.createdBy || lt.updatedBy || 'Authorized Manager'}
                       </td>
                       <td className="py-1.5 px-3 text-slate-400 text-[10px]">
                         {lt.receivedDate || lt.rawDate || '-'}

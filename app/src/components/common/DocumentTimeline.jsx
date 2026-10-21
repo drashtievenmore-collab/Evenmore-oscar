@@ -1,8 +1,8 @@
 import React from 'react';
 import { CheckCircle2, Circle, Clock } from 'lucide-react';
 
-function TimelineConnector({ isCompleted, isCurrent, isNextCurrent }) {
-  if (isCompleted && isNextCurrent) {
+function TimelineConnector({ isCompleted, isCurrent, isNextCurrent, isPartial }) {
+  if ((isCompleted || isPartial) && isNextCurrent) {
     return (
       <div className="hidden sm:flex items-center justify-center -mt-6 px-1 select-none shrink-0 w-10 sm:w-14">
         <svg className="w-10 sm:w-14 h-7 overflow-visible" viewBox="0 0 54 28">
@@ -36,7 +36,7 @@ function TimelineConnector({ isCompleted, isCurrent, isNextCurrent }) {
     );
   }
 
-  if (isCurrent) {
+  if (isCurrent || isPartial) {
     return (
       <div className="hidden sm:flex items-center justify-center -mt-6 px-1 select-none shrink-0 w-10 sm:w-14">
         <svg className="w-10 sm:w-14 h-7 overflow-visible" viewBox="0 0 54 28">
@@ -112,10 +112,11 @@ export const DocumentTimeline = ({ steps, onStepClick, className = '' }) => {
       <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 min-w-max">
         {steps.map((step, idx) => {
           const isCompleted = step.status === 'completed';
+          const isPartial = step.status === 'partial' || step.isPartial;
           const isCurrent = step.status === 'current';
           const isLast = idx === steps.length - 1;
           const nextStep = steps[idx + 1];
-          const isNextCurrent = nextStep?.status === 'current';
+          const isNextCurrent = nextStep?.status === 'current' || nextStep?.status === 'partial';
 
           return (
             <React.Fragment key={idx}>
@@ -133,6 +134,10 @@ export const DocumentTimeline = ({ steps, onStepClick, className = '' }) => {
                     <div className="w-8 h-8 rounded-full bg-gradient-to-tr from-emerald-500 to-teal-500 border-2 border-emerald-600 text-white flex items-center justify-center shadow-xs group-hover:scale-105 transition-transform">
                       <CheckCircle2 className="w-4 h-4" />
                     </div>
+                  ) : isPartial ? (
+                    <div className="w-8 h-8 rounded-full bg-gradient-to-tr from-amber-500 to-amber-600 border-2 border-amber-600 text-white flex items-center justify-center shadow-xs ring-4 ring-amber-200/80 group-hover:scale-105 transition-transform">
+                      <Clock className="w-4 h-4" />
+                    </div>
                   ) : isCurrent ? (
                     <div className="w-8 h-8 rounded-full bg-amber-50 border-2 border-amber-500 text-amber-600 flex items-center justify-center animate-pulse ring-4 ring-amber-200/80 group-hover:scale-105 transition-transform">
                       <Clock className="w-4 h-4" />
@@ -147,11 +152,16 @@ export const DocumentTimeline = ({ steps, onStepClick, className = '' }) => {
                 <div className="text-left sm:text-center min-w-0 w-full">
                   <p
                     className={`text-[11px] font-bold leading-tight line-clamp-2 transition-colors ${
-                      isCompleted ? 'text-emerald-800' : isCurrent ? 'text-amber-800 font-black' : 'text-slate-500'
+                      isCompleted ? 'text-emerald-800' : isPartial ? 'text-amber-800 font-bold' : isCurrent ? 'text-amber-800 font-black' : 'text-slate-500'
                     } ${onStepClick ? 'group-hover:text-amber-700' : ''}`}
                   >
                     {step.label}
                   </p>
+                  {step.statusLabel && (
+                    <span className="inline-block mt-0.5 px-1.5 py-0.5 rounded-full text-[9px] font-extrabold uppercase bg-amber-50 text-amber-700 border border-amber-200 truncate max-w-full">
+                      {step.statusLabel}
+                    </span>
+                  )}
                   {step.docNumber && (
                     <p className="text-[10.5px] font-mono text-slate-700 font-semibold truncate mt-0.5">
                       {step.docNumber}
@@ -169,6 +179,7 @@ export const DocumentTimeline = ({ steps, onStepClick, className = '' }) => {
               {!isLast && (
                 <TimelineConnector
                   isCompleted={isCompleted}
+                  isPartial={isPartial}
                   isCurrent={isCurrent}
                   isNextCurrent={isNextCurrent}
                 />

@@ -306,6 +306,7 @@ export const approvalService = {
   getRequestBadge: () => api.get('/approvals/requests/badge/'),
   approveRequest: (id, data) => api.post(`/approvals/requests/${id}/approve/`, data || {}),
   rejectRequest: (id, data) => api.post(`/approvals/requests/${id}/reject/`, data || {}),
+  returnRequest: (id, data) => api.post(`/approvals/requests/${id}/return-for-correction/`, data || {}),
   getRules: (query) => api.get('/approvals/rules/', { query }),
   createRule: (data) => api.post('/approvals/rules/', data),
   updateRule: (id, data) => api.patch(`/approvals/rules/${id}/`, data),

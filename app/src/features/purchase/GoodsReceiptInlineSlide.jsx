@@ -22,7 +22,7 @@ function numIN(val) {
   return n.toLocaleString('en-IN', { maximumFractionDigits: 2 });
 }
 
-export function GoodsReceiptInlineSlide({ po, onClose, onReceiptSaved, onNextStep, onPrevStep }) {
+export function GoodsReceiptInlineSlide({ po, delivery, onClose, onReceiptSaved, onNextStep, onPrevStep }) {
   const navigate = useNavigate();
   const {
     purchaseOrders = [],
@@ -47,6 +47,8 @@ export function GoodsReceiptInlineSlide({ po, onClose, onReceiptSaved, onNextSte
 
   const initialLines = useMemo(() => {
     const rawItems = po?.items || po?.lineItems || po?.line_items || [];
+    const deliveryQty = Number(delivery?.dispatchedQty);
+    const hasDeliveryQty = !isNaN(deliveryQty) && deliveryQty > 0;
     if (!rawItems.length) {
       return [
         {
@@ -77,7 +79,7 @@ export function GoodsReceiptInlineSlide({ po, onClose, onReceiptSaved, onNextSte
 
     return rawItems.map((it, idx) => {
       const remaining = Math.max(0, Number(it.qty || 0) - Number(it.receivedQty || 0));
-      const targetQty = remaining > 0 ? remaining : Number(it.qty || 0);
+      const targetQty = hasDeliveryQty ? deliveryQty : (remaining > 0 ? remaining : Number(it.qty || 0));
       return {
         id: `line-${idx + 1}`,
         itemId: it.itemId || it.item_id || it.item || '',
@@ -102,17 +104,37 @@ export function GoodsReceiptInlineSlide({ po, onClose, onReceiptSaved, onNextSte
         ],
       };
     });
-  }, [po]);
+  }, [po, delivery]);
 
   const [form, setForm] = useState({
     vendorId: defaultVendorId,
     poId: poId || '',
-    supplierChallanNo: '',
-    supplierChallanDate: todayStr,
+    supplierChallanNo: delivery?.supplierChallanNo || '',
+    supplierChallanDate: delivery?.supplierChallanDate || todayStr,
     receiptDate: todayStr,
     locationId: defaultLocationId,
     lines: initialLines,
   });
+
+  useEffect(() => {
+    if (delivery) {
+      const dQty = Number(delivery.dispatchedQty);
+      const hasDQty = !isNaN(dQty) && dQty > 0;
+      setForm((prev) => ({
+        ...prev,
+        supplierChallanNo: delivery.supplierChallanNo || prev.supplierChallanNo,
+        supplierChallanDate: delivery.supplierChallanDate || prev.supplierChallanDate,
+        lines: prev.lines.map((l) => ({
+          ...l,
+          receivedQty: hasDQty ? dQty : l.receivedQty,
+          takas: (l.takas || []).map((t) => ({
+            ...t,
+            qty: hasDQty ? dQty : t.qty,
+          })),
+        })),
+      }));
+    }
+  }, [delivery]);
 
   const loadPoDeliveriesAndGrns = async () => {
     if (!poId) return;

@@ -21,6 +21,23 @@ import { getStoredToken } from '../../utils/authUtils';
 import LoginShowroomBackground from './LoginShowroomBackground';
 import './login-showroom.css';
 
+export function getRoleDefaultRoute(roleCode, permissions = []) {
+  const code = (roleCode || '').toUpperCase();
+  if (code.includes('QC')) return '/inventory/qc';
+  if (code.includes('PURCHASE_OFFICER')) return '/purchase/orders';
+  if (code.includes('PURCHASE_MGR')) return '/purchase/orders';
+  if (code.includes('STORE') || code.includes('INV_MGR') || code.includes('GODOWN')) return '/inventory/dashboard';
+  if (code.includes('PROD_COORD') || code.includes('PC')) return '/pms/production-dashboard';
+  if (code.includes('PROD_STAFF') || code.includes('FIELD_STAFF')) return '/pms/daily-production';
+  if (code.includes('JOBWORK')) return '/job-work/orders';
+  if (code.includes('ACCOUNTS_MGR') || code.includes('ACCOUNTS')) return '/accounts/day-book';
+  if (code.includes('SALES')) return '/sales/orders';
+  if (code.includes('LOGISTICS')) return '/inventory/trips';
+  if (code.includes('AUDITOR')) return '/reports';
+  if (code.includes('OWNER') || code.includes('MANAGEMENT')) return '/dashboard';
+  return '/dashboard';
+}
+
 export default function LoginPage() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
@@ -81,7 +98,10 @@ export default function LoginPage() {
       setPermissions(permissions);
 
       showToast?.(`Signed in successfully as ${user?.name || email}`);
-      navigate(returnTo, { replace: true });
+      const targetRoute = (returnTo && returnTo !== '/dashboard')
+        ? returnTo
+        : getRoleDefaultRoute(user?.roleCode, permissions);
+      navigate(targetRoute, { replace: true });
     } catch (err) {
       setError(describeError(err));
     } finally {

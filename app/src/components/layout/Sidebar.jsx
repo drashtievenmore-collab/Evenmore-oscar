@@ -82,7 +82,50 @@ const SIDEBAR_THEMES = [
   { id: 'emerald', name: 'Emerald', icon: TreePine, color: '#10b981' },
 ];
 
-// ── Navigation Structure ──────────────────────────────────────
+function isItemPermitted(item, user, permissions = [], hasPermission) {
+  if (!user) return true;
+  if (user.is_superuser || permissions.includes('*')) return true;
+  const roleCode = (user.roleCode || user.role || '').toUpperCase();
+  if (roleCode === 'OWNER' || roleCode === 'AD' || roleCode === 'SYS_ADMIN') return true;
+
+  if (item.label === 'Parties') {
+    return hasPermission('view_masters') || hasPermission('view_purchase') || hasPermission('view_sales') || hasPermission('view_inventory');
+  }
+  if (item.label === 'Administration') {
+    return hasPermission('menu_admin') || hasPermission('view_approvals') || hasPermission('view_alerts') || hasPermission('view_staff');
+  }
+  if (item.label === 'Reports') {
+    return hasPermission('export_excel') || hasPermission('view_owner_mis') || hasPermission('view_financial_reports');
+  }
+
+  if (item.permission && !hasPermission(item.permission) && !permissions.includes(item.permission)) {
+    return false;
+  }
+  return true;
+}
+
+function filterNavByPermissions(items, user, permissions = [], hasPermission) {
+  if (!user || user.is_superuser || permissions.includes('*')) return items;
+  const roleCode = (user.roleCode || user.role || '').toUpperCase();
+  if (roleCode === 'OWNER' || roleCode === 'AD' || roleCode === 'SYS_ADMIN') return items;
+
+  return items
+    .map((item) => {
+      if (!isItemPermitted(item, user, permissions, hasPermission)) {
+        return null;
+      }
+      if (item.children) {
+        const filteredChildren = filterNavByPermissions(item.children, user, permissions, hasPermission);
+        if (filteredChildren.length === 0 && !item.to) {
+          return null;
+        }
+        return { ...item, children: filteredChildren };
+      }
+      return item;
+    })
+    .filter(Boolean);
+}
+
 const NAV = [
   {
     label: 'Dashboard',
@@ -93,6 +136,7 @@ const NAV = [
   {
     label: 'CRM',
     icon: LayoutGrid,
+    permission: 'menu_crm',
     defaultOpen: false,
     children: [
       { label: 'Dashboard', icon: LayoutGrid, to: '/crm/dashboard' },
@@ -125,6 +169,7 @@ const NAV = [
   {
     label: 'PMS (Projects)',
     icon: Briefcase,
+    permission: 'menu_pms',
     children: [
       { label: 'PMS Dashboard', icon: Home, to: '/pms' },
       { label: 'All Projects', icon: Layers, to: '/pms/projects' },
@@ -165,6 +210,7 @@ const NAV = [
   {
     label: 'Sales',
     icon: BarChart3,
+    permission: 'menu_sales',
     children: [
       { label: 'Quotations', icon: FileText, to: '/sales/quotations' },
       { label: 'Sales Orders', icon: ShoppingCart, to: '/sales/orders' },
@@ -182,6 +228,7 @@ const NAV = [
   {
     label: 'Purchase',
     icon: ShoppingCart,
+    permission: 'menu_purchase',
     children: [
       { label: 'Purchase Orders', icon: ClipboardList, to: '/purchase/orders' },
       { label: 'Supplier Delivery', icon: Truck, to: '/purchase/deliveries' },
@@ -207,6 +254,7 @@ const NAV = [
   {
     label: 'Inventory',
     icon: Package,
+    permission: 'menu_inventory',
     children: [
       { label: 'Dashboard', icon: Home, to: '/inventory/dashboard' },
       { label: 'Total Inventory', icon: Package, to: '/inventory/items' },
@@ -274,6 +322,7 @@ const NAV = [
   {
     label: 'Accounts',
     icon: Landmark,
+    permission: 'menu_accounts',
     children: [
       { label: 'Day Book & Position', icon: BookOpen, to: '/accounts/day-book' },
       { label: 'Cash / Bank', icon: Landmark, to: '/accounts/cash-bank' },
@@ -285,6 +334,7 @@ const NAV = [
   {
     label: 'HRMS',
     icon: UserCheck,
+    permission: 'menu_hrms',
     children: [
       { label: 'Dashboard', icon: Home, to: '/hrms/dashboard' },
       { label: 'Employees', icon: Users, to: '/hrms/employees' },
@@ -857,6 +907,8 @@ export default function Sidebar() {
   const setSidebarWidth = useAppStore((s) => s.setSidebarWidth);
   const setMobileSidebarOpen = useAppStore((s) => s.setMobileSidebarOpen);
   const currentUser = useAppStore((s) => s.currentUser);
+  const permissions = useAppStore((s) => s.permissions) || [];
+  const hasPermission = useAppStore((s) => s.hasPermission);
   const theme = useAppStore((s) => s.theme) || 'light';
   const setTheme = useAppStore((s) => s.setTheme);
   const [isGuideOpen, setIsGuideOpen] = useState(false);
@@ -865,10 +917,12 @@ export default function Sidebar() {
   const profileRef = useRef(null);
   const dragRef = useRef({ dragging: false, startX: 0, startWidth: sidebarWidth });
 
-  const filteredNav = useMemo(() => filterNavTree(NAV, searchQuery), [searchQuery]);
+  const permittedNav = useMemo(() => {
+    return filterNavByPermissions(NAV, currentUser, permissions, hasPermission);
+  }, [currentUser, permissions, hasPermission]);
 
-  // Module rows stay visible so their inline toggle is always reachable.
-  // OFF only hides children + blocks routes (see routes/index.jsx guard).
+  const filteredNav = useMemo(() => filterNavTree(permittedNav, searchQuery), [permittedNav, searchQuery]);
+
   const visibleNav = filteredNav;
 
   // PMS live nav counters. Subscribe to stable slices and derive, so the

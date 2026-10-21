@@ -41,6 +41,7 @@ import {
 import { inventoryService, partiesService } from '../../services/domainServices';
 import { api } from '../../services/api';
 import { useERP } from '../../context/ERPContext';
+import { useAppStore } from '../../stores/appStore';
 import { useNavigate, useLocation, useSearchParams } from 'react-router-dom';
 import QRCode from 'qrcode';
 import { TakaTagLabel } from './TakaTagPrintPage';
@@ -104,7 +105,23 @@ export default function LotTakaRegisterPage({
   grnId: propGrnId = null,
   isEmbedded = false,
 } = {}) {
-  const { items = [], locations = [], vendors = [], user: currentUser = { name: 'Admin' } } = useERP();
+  const { items = [], locations = [], vendors = [], user: erpUser = { name: 'Admin' } } = useERP();
+  const appCurrentUser = useAppStore((s) => s.currentUser);
+  const permissions = useAppStore((s) => s.permissions) || [];
+  const currentUser = appCurrentUser || erpUser;
+  const isAuthorizedManager = useMemo(() => {
+    return Boolean(
+      currentUser?.is_superuser ||
+      currentUser?.is_staff ||
+      currentUser?.role?.name?.toLowerCase().includes('manager') ||
+      currentUser?.role?.name?.toLowerCase().includes('admin') ||
+      currentUser?.role?.name?.toLowerCase().includes('lead') ||
+      permissions.includes('adjust_stock') ||
+      permissions.includes('manage_inventory') ||
+      permissions.includes('view_inventory') ||
+      !currentUser
+    );
+  }, [currentUser, permissions]);
 
   // Fallback direct-fetched master data if context has not loaded
   const [masterItems, setMasterItems] = useState([]);
@@ -304,19 +321,39 @@ export default function LotTakaRegisterPage({
     if (!activeGrn) return;
     const firstLine = grnLines[0] || {};
     const defaultMetersToSplit = unassignedGrnMeters > 0 ? unassignedGrnMeters : grnTotalReceivedQty;
-    const defaultRolls = Math.max(1, Math.min(10, Math.round(defaultMetersToSplit / 100) || 5));
-    const metersPerRoll = Math.floor(defaultMetersToSplit / defaultRolls);
-    const remainder = defaultMetersToSplit - (metersPerRoll * defaultRolls);
+    const DEFAULT_TAKA_METERS = 90;
+    const fullRolls = Math.floor(defaultMetersToSplit / DEFAULT_TAKA_METERS);
+    const remainder = Math.round((defaultMetersToSplit - (fullRolls * DEFAULT_TAKA_METERS)) * 10000) / 10000;
+    const defaultRolls = fullRolls + (remainder > 0.0001 ? 1 : 0);
 
     const generatedTakas = [];
     const existingCount = takasLinkedToGrn.length;
-    for (let i = 0; i < defaultRolls; i++) {
+    for (let i = 0; i < fullRolls; i++) {
       const rollNum = existingCount + i + 1;
-      const mtrs = i === defaultRolls - 1 ? metersPerRoll + remainder : metersPerRoll;
       generatedTakas.push({
         id: `taka-${Date.now()}-${i}`,
         takaRoll: String(rollNum),
-        qty: mtrs,
+        qty: DEFAULT_TAKA_METERS,
+        rollWeight: '',
+        width: firstLine.fabric_width || firstLine.fabricWidth || '58',
+        remarks: '',
+      });
+    }
+    if (remainder > 0.0001) {
+      generatedTakas.push({
+        id: `taka-${Date.now()}-${fullRolls}`,
+        takaRoll: String(existingCount + fullRolls + 1),
+        qty: remainder,
+        rollWeight: '',
+        width: firstLine.fabric_width || firstLine.fabricWidth || '58',
+        remarks: '',
+      });
+    }
+    if (generatedTakas.length === 0 && defaultMetersToSplit > 0) {
+      generatedTakas.push({
+        id: `taka-${Date.now()}-0`,
+        takaRoll: String(existingCount + 1),
+        qty: defaultMetersToSplit,
         rollWeight: '',
         width: firstLine.fabric_width || firstLine.fabricWidth || '58',
         remarks: '',
@@ -368,6 +405,52 @@ export default function LotTakaRegisterPage({
     }));
   };
 
+  const handleAutoDistributeDefault90m = () => {
+    const available = unassignedGrnMeters > 0 ? unassignedGrnMeters : grnTotalReceivedQty;
+    const DEFAULT_TAKA_METERS = 90;
+    const fullRolls = Math.floor(available / DEFAULT_TAKA_METERS);
+    const remainder = Math.round((available - (fullRolls * DEFAULT_TAKA_METERS)) * 10000) / 10000;
+    const existingCount = takasLinkedToGrn.length;
+
+    const newTakas = [];
+    for (let i = 0; i < fullRolls; i++) {
+      const rollNum = existingCount + i + 1;
+      newTakas.push({
+        id: `taka-${Date.now()}-${i}`,
+        takaRoll: String(rollNum),
+        qty: DEFAULT_TAKA_METERS,
+        rollWeight: '',
+        width: grnSplitForm.width || '58',
+        remarks: '',
+      });
+    }
+    if (remainder > 0.0001) {
+      newTakas.push({
+        id: `taka-${Date.now()}-${fullRolls}`,
+        takaRoll: String(existingCount + fullRolls + 1),
+        qty: remainder,
+        rollWeight: '',
+        width: grnSplitForm.width || '58',
+        remarks: '',
+      });
+    }
+    if (newTakas.length === 0 && available > 0) {
+      newTakas.push({
+        id: `taka-${Date.now()}-0`,
+        takaRoll: String(existingCount + 1),
+        qty: available,
+        rollWeight: '',
+        width: grnSplitForm.width || '58',
+        remarks: '',
+      });
+    }
+    setGrnSplitForm((prev) => ({
+      ...prev,
+      rollCount: newTakas.length,
+      takas: newTakas,
+    }));
+  };
+
   const handleAddTakaRow = () => {
     const existingCount = grnSplitForm.takas.length;
     const nextRollNum = (parseInt(grnSplitForm.takas[existingCount - 1]?.takaRoll, 10) || existingCount) + 1;
@@ -382,7 +465,7 @@ export default function LotTakaRegisterPage({
         {
           id: `taka-${Date.now()}-${existingCount}`,
           takaRoll: String(nextRollNum),
-          qty: remainingToAssign > 0 ? remainingToAssign : 50,
+          qty: remainingToAssign > 0 ? Math.min(90, remainingToAssign) : 90,
           rollWeight: '',
           width: prev.width || '58',
           remarks: '',
@@ -3252,9 +3335,13 @@ export default function LotTakaRegisterPage({
                   <div className="flex items-center gap-1.5 font-bold text-slate-800 text-xs">
                     <SlidersHorizontal size={14} className="text-blue-600" />
                     <span>Quick Split Generator</span>
-                    <span className="text-[11px] font-normal text-slate-500">
-                      (Evenly divide {maxAllowedMeters} M across rolls)
-                    </span>
+                    <button
+                      type="button"
+                      onClick={handleAutoDistributeDefault90m}
+                      className="px-2.5 py-1 bg-blue-600 hover:bg-blue-700 text-white rounded-md text-xs font-bold flex items-center gap-1 shadow-2xs cursor-pointer ml-1"
+                    >
+                      <Sparkles size={12} /> Reset to 90m per Taka
+                    </button>
                   </div>
                   <div className="flex items-center gap-1.5">
                     {[2, 4, 5, 8, 10, 20].map((preset) => (
@@ -3322,10 +3409,12 @@ export default function LotTakaRegisterPage({
                             <input
                               type="number"
                               step="any"
+                              disabled={!isAuthorizedManager}
                               value={t.qty}
                               onChange={(e) => handleTakaFieldChange(idx, 'qty', e.target.value)}
-                              className="w-full px-2 py-1 rounded border border-slate-200 text-right font-mono font-bold text-blue-700 text-xs"
-                              placeholder="0.00"
+                              className="w-full px-2 py-1 rounded border border-blue-200 text-right font-mono font-bold text-blue-900 text-xs bg-blue-50/20 focus:outline-none focus:border-blue-500 disabled:opacity-60"
+                              placeholder="90.00"
+                              title={isAuthorizedManager ? "Authorized manager editable quantity" : "Requires manager authorization"}
                             />
                           </td>
                           <td className="py-1.5 px-3 text-right">

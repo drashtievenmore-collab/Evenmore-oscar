@@ -1,4 +1,5 @@
 import React, { useEffect, useState, useMemo } from 'react';
+import { useNavigate } from 'react-router-dom';
 import {
   CheckCircle,
   XCircle,
@@ -43,10 +44,12 @@ const urgencyPill = (urgency) => {
 const statusPill = (status) => {
   if (status === 'Approved') return 'bg-emerald-50 text-emerald-700 border-emerald-200 font-medium';
   if (status === 'Rejected') return 'bg-rose-50 text-rose-700 border-rose-200 font-medium';
+  if (status === 'Returned') return 'bg-amber-50 text-amber-700 border-amber-200 font-medium';
   return 'bg-amber-50 text-amber-700 border-amber-200 font-medium';
 };
 
 export default function ApprovalsInboxPage() {
+  const navigate = useNavigate();
   const [activeTab, setActiveTab] = useState('inbox'); // 'inbox' | 'rules'
   const [requests, setRequests] = useState([]);
   const [rules, setRules] = useState([]);
@@ -106,6 +109,8 @@ export default function ApprovalsInboxPage() {
     try {
       if (decisionAction === 'Approved') {
         await approvalService.approveRequest(selectedRequest.id, { comments });
+      } else if (decisionAction === 'Returned') {
+        await approvalService.returnRequest(selectedRequest.id, { comments });
       } else {
         await approvalService.rejectRequest(selectedRequest.id, { comments });
       }
@@ -288,6 +293,7 @@ export default function ApprovalsInboxPage() {
                 <option value="Pending">Pending Only</option>
                 <option value="Approved">Approved</option>
                 <option value="Rejected">Rejected</option>
+                <option value="Returned">Returned for Correction</option>
               </select>
               <select
                 value={docTypeFilter}
@@ -400,30 +406,65 @@ export default function ApprovalsInboxPage() {
                           </span>
                         </td>
                         <td className="py-3 px-4 text-right whitespace-nowrap">
-                          {req.status === 'Pending' ? (
-                            <div className="inline-flex gap-2">
-                              <button
-                                onClick={() => {
-                                  setSelectedRequest(req);
-                                  setDecisionAction('Approved');
-                                }}
-                                className="px-2.5 py-1 text-xs font-semibold rounded-lg bg-emerald-600 text-white hover:bg-emerald-700 shadow-sm transition"
-                              >
-                                Approve
-                              </button>
-                              <button
-                                onClick={() => {
-                                  setSelectedRequest(req);
-                                  setDecisionAction('Rejected');
-                                }}
-                                className="px-2.5 py-1 text-xs font-semibold rounded-lg bg-rose-600 text-white hover:bg-rose-700 shadow-sm transition"
-                              >
-                                Reject
-                              </button>
-                            </div>
-                          ) : (
-                            <span className="text-xs text-slate-400 font-medium">
-                              Decided by {req.decided_by_name || 'Approver'}
+                          <div className="inline-flex gap-1.5 items-center">
+                            {req.status === 'Pending' && (
+                              <>
+                                <button
+                                  onClick={() => {
+                                    setSelectedRequest(req);
+                                    setDecisionAction('Approved');
+                                  }}
+                                  className="px-2.5 py-1 text-xs font-semibold rounded-lg bg-emerald-600 text-white hover:bg-emerald-700 shadow-sm transition"
+                                >
+                                  Approve
+                                </button>
+                                <button
+                                  onClick={() => {
+                                    setSelectedRequest(req);
+                                    setDecisionAction('Returned');
+                                  }}
+                                  className="px-2.5 py-1 text-xs font-semibold rounded-lg bg-amber-600 text-white hover:bg-amber-700 shadow-sm transition"
+                                >
+                                  Return
+                                </button>
+                                <button
+                                  onClick={() => {
+                                    setSelectedRequest(req);
+                                    setDecisionAction('Rejected');
+                                  }}
+                                  className="px-2.5 py-1 text-xs font-semibold rounded-lg bg-rose-600 text-white hover:bg-rose-700 shadow-sm transition"
+                                >
+                                  Reject
+                                </button>
+                              </>
+                            )}
+                            <button
+                              onClick={() => {
+                                const docType = req.document_type || '';
+                                if (docType === 'purchase_order' || docType.includes('purchase')) {
+                                  navigate('/purchase/orders');
+                                } else if (docType.includes('bill') || docType.includes('vendor')) {
+                                  navigate('/purchase/vendor-bills');
+                                } else if (docType.includes('qc')) {
+                                  navigate('/inventory/qc');
+                                } else if (docType.includes('jobwork')) {
+                                  navigate('/job-work/orders');
+                                } else if (docType.includes('final_po')) {
+                                  navigate('/purchase/final-job-work-pos');
+                                } else if (docType.includes('stock')) {
+                                  navigate('/inventory/stock-position');
+                                } else {
+                                  navigate('/dashboard');
+                                }
+                              }}
+                              className="px-2 py-1 text-xs font-medium rounded-lg bg-slate-100 text-slate-700 hover:bg-slate-200 border border-slate-200 transition"
+                            >
+                              View Source
+                            </button>
+                          </div>
+                          {req.status !== 'Pending' && req.decided_by_name && (
+                            <span className="text-xs text-slate-400 font-medium ml-2">
+                              Decided by {req.decided_by_name}
                             </span>
                           )}
                         </td>
@@ -576,6 +617,8 @@ export default function ApprovalsInboxPage() {
                 className={`px-4 py-2 text-xs font-bold text-white rounded-lg shadow-sm transition ${
                   decisionAction === 'Approved'
                     ? 'bg-emerald-600 hover:bg-emerald-700'
+                    : decisionAction === 'Returned'
+                    ? 'bg-amber-600 hover:bg-amber-700'
                     : 'bg-rose-600 hover:bg-rose-700'
                 }`}
               >
