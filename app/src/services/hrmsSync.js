@@ -616,5 +616,44 @@ export const pullCommercialLeakageAnnual = (year) => read('/hrms/commercial-leak
 // export const hireCandidate = (candidateId) => writeThrough(`/hrms/candidates/${candidateId}/hire/`);
 // export const pullMeetings = () => read('/hrms/meetings/');
 
+
+/** Get current user / employee punch state today. */
+export async function pullTodayPunch(employeeId = null) {
+  if (!isBackendEnabled()) return null;
+  const params = employeeId ? { employeeId } : {};
+  return api.get('/hrms/attendance/today/', params);
+}
+
+/** Record a Punch In or Punch Out event. */
+export async function recordPunch({
+  punchType,
+  remark,
+  notes,
+  employeeId,
+  source = 'web',
+  earlyReason,
+  requestRegularization,
+}) {
+  if (!isBackendEnabled()) return null;
+  return api.post('/hrms/attendance/punch/', {
+    punchType,
+    remark: remark || notes,
+    source,
+    employeeId: employeeId || undefined,
+    earlyReason: earlyReason || undefined,
+    requestRegularization: Boolean(requestRegularization),
+  });
+}
+
+/** Get punch timeline for a given employee and date. */
+export async function pullPunchTimeline(employeeId, date) {
+  if (!isBackendEnabled()) return [];
+  return api.get('/hrms/attendance/punch-timeline/', {
+    employeeId,
+    date: isoOut(date) || date,
+  });
+}
+
 export default hrmsSync;
+
 

@@ -43,6 +43,7 @@ export const ADMIN_RESOURCES = {
       email: u.email || undefined,
       phone: u.phone || undefined,
       roleId: u.roleId || undefined,
+      role: u.role || undefined,
       department: u.department || undefined,
       employeeId: u.employeeId || undefined,
       location: u.location || undefined,
