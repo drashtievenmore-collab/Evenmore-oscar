@@ -8,6 +8,7 @@ import { PageLoadingSkeleton } from '../components/common/PageLoadingSkeleton';
 
 // ── CRM (Lazy Loaded) ───────────────────────────────────────
 const LeadsPage = lazy(() => import('../features/crm/leads/LeadsPage'));
+const CRMDashboardPage = lazy(() => import('../features/crm/dashboard/CRMDashboard'));
 const LostLeadsPage = lazy(() => import('../features/crm/leads/LostLeadsPage'));
 const LeadDetailPage = lazy(() => import('../features/crm/leads/LeadDetailPage'));
 const LeadFormBuilderPage = lazy(() => import('../features/crm/leads/LeadFormBuilderPage'));
@@ -46,7 +47,6 @@ const PMSProjectsPage = lazy(() => import('../features/pms/projects/ProjectsPage
 const PMSProjectDetailPage = lazy(() => import('../features/pms/projects/ProjectDetailPage'));
 const PMSMyProjectsPage = lazy(() => import('../features/pms/projects/MyProjectsPage'));
 const PMSMyTasksPage = lazy(() => import('../features/pms/tasks/MyTasksPage'));
-const PMSStageConfigPage = lazy(() => import('../features/pms/stages/StageConfigPage'));
 const PMSTimelinePage = lazy(() => import('../features/pms/timeline/TimelinePage'));
 const PMSDelayDashboardPage = lazy(() => import('../features/pms/delays/DelayDashboardPage'));
 const PMSReportsPage = lazy(() => import('../features/pms/reports/PMSReportsPage'));
@@ -132,13 +132,14 @@ const BrokerCommissionPage = lazy(() => import('../features/sales/commercial/Bro
 
 // ── ERP — Purchase (Lazy Loaded) ──────────────────────────────
 const PurchaseOrdersPage = lazy(() => import('../features/purchase/PurchaseOrdersPage').then(m => ({ default: m.PurchaseOrdersPage })));
+const SupplierDeliveryPage = lazy(() => import('../features/purchase/SupplierDeliveryPage'));
+const FinalJobWorkPOsPage = lazy(() => import('../features/purchase/FinalJobWorkPOsPage'));
 const PurchaseBillsPage = lazy(() => import('../features/purchase/PurchaseBillsPage').then(m => ({ default: m.PurchaseBillsPage })));
 const VendorBillsPage = lazy(() => import('../features/purchase/VendorBillsPage').then(m => ({ default: m.VendorBillsPage })));
 const BillMatchingPage = lazy(() => import('../features/purchase/BillMatchingPage').then(m => ({ default: m.BillMatchingPage })));
 const PurchaseReturnsPage = lazy(() => import('../features/purchase/PurchaseReturnsPage').then(m => ({ default: m.PurchaseReturnsPage })));
 const PaymentOutPage = lazy(() => import('../features/purchase/PaymentOutPage').then(m => ({ default: m.PaymentOutPage })));
 const ExpensesPage = lazy(() => import('../features/purchase/ExpensesPage').then(m => ({ default: m.ExpensesPage })));
-// ── [PHASE-2B] Standalone Goods Receipt (GRN) page — route: /purchase/receipts ──
 const GoodsReceiptPage = lazy(() => import('../features/purchase/GoodsReceiptPage').then(m => ({ default: m.GoodsReceiptPage })));
 const SupplierReconciliationPage = lazy(() => import('../features/purchase/SupplierReconciliationPage'));
 const SupplierLedgerPage = lazy(() => import('../features/purchase/SupplierLedgerPage'));
@@ -188,12 +189,16 @@ const DayBookPage = lazy(() => import('../features/accounts/DayBookPage'));
 
 // ── ERP — Reports & Settings (Lazy Loaded) ────────────────────
 const ReportsPage = lazy(() => import('../features/reports/ReportsPage').then(m => ({ default: m.ReportsPage })));
+const OwnerMISDashboardPage = lazy(() => import('../features/reports/OwnerMISDashboardPage'));
 const SettingsPage = lazy(() => import('../features/settings/SettingsPage').then(m => ({ default: m.SettingsPage })));
 
 // ── Administration (Lazy Loaded) ──────────────────────────────
 const UsersPage = lazy(() => import('../features/administration/UsersPage'));
 const RolesPage = lazy(() => import('../features/administration/RolesPage'));
 const ClientsPage = lazy(() => import('../features/administration/ClientsPage'));
+const ApprovalsInboxPage = lazy(() => import('../features/administration/ApprovalsInboxPage'));
+const AlertCenterPage = lazy(() => import('../features/administration/AlertCenterPage'));
+const ITC04ReportPage = lazy(() => import('../features/jobwork/ITC04ReportPage'));
 
 // ── Main Dashboard (Lazy Loaded) ──────────────────────────────
 const DashboardPage = lazy(() => import('../features/sales/DashboardPage').then(m => ({ default: m.DashboardPage })));
@@ -309,7 +314,8 @@ const router = createBrowserRouter([
       { path: 'dashboard', element: <Page component={DashboardPage} /> },
 
       // ── CRM ───────────────────────────────────────────────
-      { path: 'crm', element: <Navigate to="/crm/leads" replace /> },
+      { path: 'crm', element: <Navigate to="/crm/dashboard" replace /> },
+      { path: 'crm/dashboard', element: <Page component={CRMDashboardPage} title="CRM Dashboard" /> },
       { path: 'crm/leads', element: <Page component={LeadsPage} /> },
       { path: 'crm/leads/lost', element: <Page component={LostLeadsPage} /> },
       { path: 'crm/leads/:id', element: <Page component={LeadDetailPage} /> },
@@ -341,7 +347,6 @@ const router = createBrowserRouter([
       { path: 'pms/projects/:id', element: <Page component={PMSProjectDetailPage} /> },
       { path: 'pms/my-projects', element: <Page component={PMSMyProjectsPage} /> },
       { path: 'pms/my-tasks', element: <Page component={PMSMyTasksPage} /> },
-      { path: 'pms/stages', element: <Page component={PMSStageConfigPage} /> },
       { path: 'pms/timeline', element: <Page component={PMSTimelinePage} /> },
       { path: 'pms/delays', element: <Page component={PMSDelayDashboardPage} /> },
       { path: 'pms/reports', element: <Page component={PMSReportsPage} /> },
@@ -363,6 +368,7 @@ const router = createBrowserRouter([
       { path: 'job-work/vendor-reconciliation', element: <Page component={VendorReconciliationPage} /> },
       { path: 'job-work/processor-ledger', element: <Page component={ProcessorLedgerPage} /> },
       { path: 'job-work/reprocess', element: <Page component={ReprocessPage} /> },
+      { path: 'job-work/itc-04', element: <Page component={ITC04ReportPage} title="ITC-04 Job Work Report" /> },
 
       // ── Sales ─────────────────────────────────────────────
       { path: 'sales', element: <Navigate to="/sales/quotations" replace /> },
@@ -376,9 +382,9 @@ const router = createBrowserRouter([
       { path: 'sales/payments', element: <Page component={PaymentInPage} /> },
       { path: 'sales/delivery', element: <Page component={DeliveryChallansPage} /> },
       { path: 'sales/broker-commissions', element: <Page component={BrokerCommissionPage} title="Broker Commissions" /> },
-      // [DISABLED] Warranty Cards concept commented out
-      // { path: 'sales/warranty', element: <Page component={WarrantyListPage} /> },
-      // { path: 'warranty', element: <Navigate to="/sales/warranty" replace /> },
+      // [REMOVED] Customer Warranty concept removed product-wide
+      { path: 'sales/warranty', element: <Navigate to="/sales/delivery" replace /> },
+      { path: 'warranty', element: <Navigate to="/sales/delivery" replace /> },
 
       // ── Purchase ──────────────────────────────────────────
       { path: 'purchase', element: <Navigate to="/purchase/orders" replace /> },
@@ -386,6 +392,9 @@ const router = createBrowserRouter([
       //   Restore if a dedicated vendor workspace is ever needed:
       // { path: 'purchase/vendors', element: <Navigate to="/parties" replace /> },
       { path: 'purchase/orders', element: <Page component={PurchaseOrdersPage} /> },
+      { path: 'purchase/deliveries', element: <Page component={SupplierDeliveryPage} /> },
+      { path: 'purchase/supplier-delivery', element: <Page component={SupplierDeliveryPage} /> },
+      { path: 'purchase/final-job-work-pos', element: <Page component={FinalJobWorkPOsPage} /> },
       { path: 'purchase/receipts', element: <Page component={GoodsReceiptPage} /> },
       { path: 'purchase/reconciliation', element: <Page component={SupplierReconciliationPage} /> },
       { path: 'purchase/supplier-ledger', element: <Page component={SupplierLedgerPage} /> },
@@ -417,20 +426,21 @@ const router = createBrowserRouter([
       { path: 'inventory/qc/reinspection', element: <Page component={QCReinspectionPage} title="QC Reinspection / Reprocess" /> },
       { path: 'inventory/qc/reports', element: <Page component={QCReportsPage} title="QC Reports" /> },
       { path: 'inventory/lot-register', element: <Page component={LotTakaRegisterPage} title="Lot / Taka Register" /> },
+      { path: 'inventory/lots-takas', element: <Navigate to="/inventory/lot-register" replace /> },
       { path: 'inventory/taka-tags', element: <Page component={TakaTagPrintPage} title="Taka Tag Print" /> },
       { path: 'inventory/samples', element: <Page component={SampleListPage} title="Sample Management" /> },
       { path: 'inventory/trips', element: <Page component={TripListPage} title="Logistics & Tempo Trips" /> },
       { path: 'inventory/items', element: <Page component={ItemsMasterPage} /> },
       { path: 'inventory/items/fabric', element: <Page component={ItemsMasterPage} /> },
       { path: 'inventory/items/machines', element: <Page component={ItemsMasterPage} /> },
-      { path: 'inventory/items/stock', element: <Page component={ItemsMasterPage} /> },
+      { path: 'inventory/items/stock', element: <Navigate to="/inventory/items" replace /> },
       { path: 'inventory/machines', element: <Navigate to="/inventory/items/machines" replace /> },
       { path: 'inventory/items/new', element: <Page component={AddEditItemPage} /> },
       { path: 'inventory/items/edit/:id', element: <Page component={AddEditItemPage} /> },
       { path: 'inventory/categories', element: <Page component={CategoriesPage} /> },
       { path: 'inventory/categories/machines', element: <Page component={CategoriesPage} /> },
       { path: 'inventory/categories/machine', element: <Navigate to="/inventory/categories/machines" replace /> },
-      { path: 'inventory/categories/stock', element: <Page component={CategoriesPage} /> },
+      { path: 'inventory/categories/stock', element: <Navigate to="/inventory/categories" replace /> },
       { path: 'inventory/stock-position', element: <Page component={StockPositionPage} /> },
       { path: 'inventory/stock', element: <Navigate to="/inventory/stock-position" replace /> },
       { path: 'inventory/transfers', element: <Page component={TransfersPage} /> },
@@ -536,14 +546,21 @@ const router = createBrowserRouter([
 
       // ── Reports ───────────────────────────────────────────
       { path: 'reports', element: <Page component={ReportsPage} /> },
+      { path: 'reports/owner-mis', element: <Page component={OwnerMISDashboardPage} title="Owner Executive MIS" /> },
 
       // ── Administration ────────────────────────────────────
       { path: 'administration', element: <Navigate to="/administration/settings" replace /> },
+      { path: 'administration/approvals', element: <Page component={ApprovalsInboxPage} title="Approvals Inbox" /> },
+      { path: 'administration/alerts', element: <Page component={AlertCenterPage} title="Alert Center & Exceptions" /> },
       { path: 'administration/users', element: <Page component={UsersPage} /> },
       { path: 'administration/roles', element: <Page component={RolesPage} /> },
       { path: 'administration/clients', element: <Page component={ClientsPage} /> },
       { path: 'administration/client', element: <Navigate to="/administration/clients" replace /> },
       { path: 'administration/settings', element: <Page component={SettingsPage} /> },
+      { path: 'admin/approvals', element: <Navigate to="/administration/approvals" replace /> },
+      { path: 'admin/alerts', element: <Navigate to="/administration/alerts" replace /> },
+      { path: 'approvals', element: <Navigate to="/administration/approvals" replace /> },
+      { path: 'alerts', element: <Navigate to="/administration/alerts" replace /> },
 
       // ── Catch-all ─────────────────────────────────────────
       { path: '*', element: <Navigate to="/dashboard" replace /> },

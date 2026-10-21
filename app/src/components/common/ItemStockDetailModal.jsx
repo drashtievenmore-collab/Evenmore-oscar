@@ -2,18 +2,16 @@ import React, { useState, useEffect } from 'react';
 import { X, ArrowDownLeft, ArrowUpRight, AlertTriangle, Layers, Sliders, ShieldCheck, Award, QrCode, Eye } from 'lucide-react';
 import { useERP } from '../../context/ERPContext';
 import { formatDisplayDate, formatWarrantyPeriod, getWarrantyStatusStyle } from '../../utils/warrantyUtils';
-import { WarrantyCardModal } from './WarrantyCardModal';
 // Display unit without double-pluralizing ("Pcs" -> "Pcs", "Unit" -> "Units").
 const pluralizeUom = (uom) => {
     if (!uom) return '';
     return /s$/i.test(uom) ? uom : `${uom}s`;
 };
 export const ItemStockDetailModal = ({ item, isOpen, onClose, }) => {
-    const { calculateItemStock, getItemMovements, adjustItemStock, formatCurrency, warranties = [], getWarrantyBySerial } = useERP();
+    const { calculateItemStock, getItemMovements, adjustItemStock, formatCurrency } = useERP();
     const [showAdjust, setShowAdjust] = useState(false);
     const [adjAmount, setAdjAmount] = useState(0);
     const [adjReason, setAdjReason] = useState('Cycle Count Verification');
-    const [previewWarrantyCard, setPreviewWarrantyCard] = useState(null);
     // UX only: Esc dismisses. Hooks before early return to keep order stable.
     useEffect(() => {
         if (!isOpen) return;
@@ -211,7 +209,7 @@ export const ItemStockDetailModal = ({ item, isOpen, onClose, }) => {
                   </div>
                   <div>
                     <span className="text-[10px] text-slate-400 font-semibold uppercase">Coverage Type</span>
-                    <p className="font-semibold text-blue-700">Company Customer Warranty</p>
+                    <p className="font-semibold text-blue-700">Standard OEM Warranty</p>
                   </div>
                 </div>
 
@@ -219,63 +217,34 @@ export const ItemStockDetailModal = ({ item, isOpen, onClose, }) => {
                 {(item.trackingMode === 'Serial' || (item.serialNumbers && item.serialNumbers.length > 0)) && (
                   <div className="space-y-1.5 pt-1">
                     <span className="text-[10px] font-bold text-slate-600 uppercase tracking-wider block">
-                      Physical Serial Numbers & Active Warranty Cards ({item.serialNumbers?.length || 0} units)
+                      Physical Serial Numbers ({item.serialNumbers?.length || 0} units)
                     </span>
                     <div className="overflow-x-auto rounded-lg border border-slate-200 bg-white">
                       <table className="w-full min-w-[560px] lg:min-w-0 text-left text-xs">
                         <thead className="bg-slate-50 font-semibold text-slate-500 text-[10px] uppercase border-b border-slate-200">
                           <tr>
                             <th className="py-2 px-3">Serial #</th>
-                            <th className="py-2 px-3">Warranty Card</th>
-                            <th className="py-2 px-3">Customer / Consignee</th>
-                            <th className="py-2 px-3">Coverage Status</th>
-                            <th className="py-2 px-3 text-right">Validity</th>
+                            <th className="py-2 px-3">Status</th>
+                            <th className="py-2 px-3 text-right">Standard Duration</th>
                           </tr>
                         </thead>
                         <tbody className="divide-y divide-slate-100">
-                          {(item.serialNumbers || []).map((sn) => {
-                            const wc = getWarrantyBySerial ? getWarrantyBySerial(sn) : null;
-                            const statusStyle = wc ? getWarrantyStatusStyle(wc.coverageStatus) : null;
-                            return (
-                              <tr key={sn} className="hover:bg-slate-50/60">
-                                <td className="py-2 px-3 font-mono font-bold text-slate-900 flex items-center gap-1">
-                                  <QrCode size={11} className="text-blue-600" />
-                                  {sn}
-                                </td>
-                                <td className="py-2 px-3">
-                                  {wc ? (
-                                    <button
-                                      type="button"
-                                      onClick={() => setPreviewWarrantyCard(wc)}
-                                      className="font-mono text-[11px] font-bold text-emerald-700 hover:underline flex items-center gap-1 cursor-pointer"
-                                    >
-                                      <Award size={12} className="text-emerald-600" />
-                                      {wc.cardNumber}
-                                    </button>
-                                  ) : (
-                                    <span className="text-slate-400 font-mono text-[11px]">Unissued (In Warehouse)</span>
-                                  )}
-                                </td>
-                                <td className="py-2 px-3 text-slate-700">
-                                  {wc ? wc.customerName : <span className="text-slate-400 italic">Available Stock</span>}
-                                </td>
-                                <td className="py-2 px-3">
-                                  {wc ? (
-                                    <span className={`inline-block text-[10px] font-bold px-2 py-0.5 rounded-full border ${statusStyle.bg}`}>
-                                      {statusStyle.label}
-                                    </span>
-                                  ) : (
-                                    <span className="inline-block text-[10px] font-semibold text-slate-500 bg-slate-100 px-2 py-0.5 rounded-full">
-                                      Not Activated
-                                    </span>
-                                  )}
-                                </td>
-                                <td className="py-2 px-3 text-right font-mono text-[11px] text-slate-600">
-                                  {wc ? `${formatDisplayDate(wc.startDate)} — ${formatDisplayDate(wc.expiryDate)}` : `${item.warrantyPeriod || 3} ${item.warrantyUnit || 'Years'} (on dispatch)`}
-                                </td>
-                              </tr>
-                            );
-                          })}
+                          {(item.serialNumbers || []).map((sn) => (
+                            <tr key={sn} className="hover:bg-slate-50/60">
+                              <td className="py-2 px-3 font-mono font-bold text-slate-900 flex items-center gap-1">
+                                <QrCode size={11} className="text-blue-600" />
+                                {sn}
+                              </td>
+                              <td className="py-2 px-3">
+                                <span className="inline-block text-[10px] font-semibold text-emerald-700 bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded-full">
+                                  In Warehouse
+                                </span>
+                              </td>
+                              <td className="py-2 px-3 text-right font-mono text-[11px] text-slate-600">
+                                {item.warrantyPeriod || 3} {item.warrantyUnit || 'Years'}
+                              </td>
+                            </tr>
+                          ))}
                         </tbody>
                       </table>
                     </div>
@@ -350,13 +319,5 @@ export const ItemStockDetailModal = ({ item, isOpen, onClose, }) => {
         </div>
       </div>
 
-      {/* Customer Warranty Card Preview Modal */}
-      {previewWarrantyCard && (
-        <WarrantyCardModal
-          isOpen={Boolean(previewWarrantyCard)}
-          onClose={() => setPreviewWarrantyCard(null)}
-          warrantyCard={previewWarrantyCard}
-        />
-      )}
     </div>);
 };

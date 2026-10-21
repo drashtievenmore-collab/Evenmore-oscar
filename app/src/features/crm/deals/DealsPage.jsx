@@ -161,7 +161,7 @@ function getStageStyle(name) {
 }
 
 export default function DealsPage() {
-  const { addQuotation, addSalesOrder, customers } = useERP() || {};
+  const { addQuotation, addSalesOrder, customers, quotations } = useERP() || {};
   const navigate = useNavigate();
   const storeDeals = useCrmStore((s) => s.deals);
   const dealStages = useCrmStore((s) => s.dealStages);
@@ -298,24 +298,78 @@ export default function DealsPage() {
    * backend models lost state as a Stage FK, so the flag is authoritative and
    * the name regex is only a fallback for stages created without one.
    */
-  const lostLeads = useMemo(() => {
+  /**
+   * Leads classified into pipeline stages according to status and quotation lifecycle:
+   * - Lost: leads marked lost
+   * - Won: leads with approved/accepted quotation or converted
+   * - Open: leads whose quotation was rejected (in negotiation/re-quote)
+   * - Sent: leads whose quotation has been sent
+   * - Draft: new leads entering the pipeline
+   */
+  const leadsByStage = useMemo(() => {
     const lostStageIds = new Set(
       (leadStages || []).filter((s) => s && (s.is_lost ?? s.isLost)).map((s) => s.id),
     );
-    return (allLeads || []).filter((lead) => {
-      if (!lead || lead.isConverted) return false;
-      if (lead.stageId && lostStageIds.has(lead.stageId)) return true;
-      return LOST_STAGE_PATTERN.test(String(lead.status || ''));
-    });
-  }, [allLeads, leadStages]);
-
-  const visibleLostLeads = useMemo(() => {
-    const q = searchQuery.trim().toLowerCase();
-    if (!q) return lostLeads;
-    return lostLeads.filter((lead) =>
-      `${lead.name} ${lead.company} ${lead.phone} ${lead.email}`.toLowerCase().includes(q),
+    const leadsWithDeals = new Set(
+      (deals || []).map((d) => d.leadId).filter(Boolean).map(String),
     );
-  }, [lostLeads, searchQuery]);
+    const q = searchQuery.trim().toLowerCase();
+
+    const result = {
+      Draft: [],
+      Sent: [],
+      Open: [],
+      Won: [],
+      Lost: [],
+    };
+
+    (allLeads || []).forEach((lead) => {
+      if (!lead) return;
+      if (leadsWithDeals.has(String(lead.id))) return;
+
+      if (q && !`${lead.name} ${lead.company} ${lead.phone} ${lead.email}`.toLowerCase().includes(q)) {
+        return;
+      }
+
+      const isLost = (lead.stageId && lostStageIds.has(lead.stageId)) || LOST_STAGE_PATTERN.test(String(lead.status || ''));
+      if (isLost) {
+        result.Lost.push(lead);
+        return;
+      }
+
+      const linkedQuotes = (quotations || []).filter(
+        (qt) => String(qt.leadId) === String(lead.id) || (qt.leadName && qt.leadName === lead.name),
+      );
+
+      const hasWonQuote = linkedQuotes.some((qt) =>
+        ['Accepted', 'Approved', 'Converted', 'Confirmed', 'Invoiced'].includes(qt.status),
+      ) || lead.isConverted || Boolean(lead.convertedAt);
+
+      if (hasWonQuote) {
+        result.Won.push(lead);
+        return;
+      }
+
+      const hasRejectedQuote = linkedQuotes.some((qt) => qt.status === 'Rejected');
+      if (hasRejectedQuote) {
+        result.Open.push(lead);
+        return;
+      }
+
+      const hasSentQuote = linkedQuotes.some((qt) => ['Sent', 'Viewed'].includes(qt.status));
+      if (hasSentQuote) {
+        result.Sent.push(lead);
+        return;
+      }
+
+      // Default: newly arrived leads automatically enter Draft
+      result.Draft.push(lead);
+    });
+
+    return result;
+  }, [allLeads, deals, leadStages, quotations, searchQuery]);
+
+  const visibleLostLeads = useMemo(() => leadsByStage.Lost || [], [leadsByStage]);
 
   const stats = useMemo(() => {
     const totalDeals = deals.length;
@@ -953,9 +1007,9 @@ export default function DealsPage() {
           {pipelineStages.map((column) => {
             const st = column.key;
             const items = filteredDeals.filter((d) => d.stage === st);
-            // Lost columns double as the home for lost leads, so a lead marked
-            // Lost is visible here without being converted into a deal.
-            const leadItems = column.isLost ? visibleLostLeads : [];
+            const leadItems = column.isLost
+              ? (leadsByStage.Lost || [])
+              : (leadsByStage[st] || []);
             const stageStyle = getStageStyle(st);
             const StageIcon = stageStyle.icon;
             const totalStageAmount = items.reduce((sum, d) => sum + (Number(d.price) || 0), 0);
@@ -1188,44 +1242,84 @@ export default function DealsPage() {
                     })
                   )}
 
-                  {/* Lost leads -- read-only, they link out to the lead record */}
-                  {visibleLeadItems.map((lead) => (
-                    <div
-                      key={`lead-${lead.id}`}
-                      className="bg-rose-50/40 border border-dashed border-rose-200 rounded-xl p-3.5 space-y-2.5 hover:border-rose-400 transition-colors"
-                    >
-                      <div className="flex items-start justify-between gap-2">
-                        <h4 className="text-sm font-bold text-slate-900 leading-snug truncate flex-1" title={lead.name}>
-                          <Link to={`/crm/leads/${encodeURIComponent(lead.id)}`} className="hover:text-rose-700 hover:underline">
-                            {lead.name}
-                          </Link>
-                        </h4>
-                        <span className="flex-shrink-0 text-[10px] font-bold px-2 py-0.5 rounded-full border bg-white text-rose-600 border-rose-200">
-                          Lead
-                        </span>
-                      </div>
+                  {/* Leads in this stage -- read-only cards with Lead badge */}
+                  {visibleLeadItems.map((lead) => {
+                    const leadTone = {
+                      Draft: {
+                        card: 'bg-blue-50/40 border-dashed border-blue-200 hover:border-blue-400',
+                        link: 'hover:text-blue-700',
+                        badge: 'bg-white text-blue-700 border-blue-200',
+                        metaBorder: 'border-blue-100',
+                      },
+                      Sent: {
+                        card: 'bg-purple-50/40 border-dashed border-purple-200 hover:border-purple-400',
+                        link: 'hover:text-purple-700',
+                        badge: 'bg-white text-purple-700 border-purple-200',
+                        metaBorder: 'border-purple-100',
+                      },
+                      Open: {
+                        card: 'bg-amber-50/40 border-dashed border-amber-200 hover:border-amber-400',
+                        link: 'hover:text-amber-700',
+                        badge: 'bg-white text-amber-700 border-amber-200',
+                        metaBorder: 'border-amber-100',
+                      },
+                      Won: {
+                        card: 'bg-emerald-50/40 border-dashed border-emerald-200 hover:border-emerald-400',
+                        link: 'hover:text-emerald-700',
+                        badge: 'bg-white text-emerald-700 border-emerald-200',
+                        metaBorder: 'border-emerald-100',
+                      },
+                      Lost: {
+                        card: 'bg-rose-50/40 border-dashed border-rose-200 hover:border-rose-400',
+                        link: 'hover:text-rose-700',
+                        badge: 'bg-white text-rose-600 border-rose-200',
+                        metaBorder: 'border-rose-100',
+                      },
+                    }[st] || {
+                      card: 'bg-slate-50/50 border-dashed border-slate-200 hover:border-slate-400',
+                      link: 'hover:text-slate-800',
+                      badge: 'bg-white text-slate-700 border-slate-200',
+                      metaBorder: 'border-slate-100',
+                    };
 
-                      {lead.company && (
-                        <div>
-                          <span className="inline-flex items-center gap-1 text-[11px] font-medium text-slate-500 bg-white border border-rose-100 px-2 py-0.5 rounded-md truncate max-w-full">
-                            <Building2 size={10} className="text-slate-400 flex-shrink-0" />
-                            <span className="truncate">{lead.company}</span>
+                    return (
+                      <div
+                        key={`lead-${lead.id}`}
+                        className={`${leadTone.card} rounded-xl p-3.5 space-y-2.5 transition-colors`}
+                      >
+                        <div className="flex items-start justify-between gap-2">
+                          <h4 className="text-sm font-bold text-slate-900 leading-snug truncate flex-1" title={lead.name}>
+                            <Link to={`/crm/leads/${encodeURIComponent(lead.id)}`} className={`${leadTone.link} hover:underline`}>
+                              {lead.name}
+                            </Link>
+                          </h4>
+                          <span className={`flex-shrink-0 text-[10px] font-bold px-2 py-0.5 rounded-full border ${leadTone.badge}`}>
+                            Lead
                           </span>
                         </div>
-                      )}
 
-                      <div className="flex items-center justify-between gap-2 pt-2 border-t border-rose-100 text-xs text-slate-500">
-                        <span className="truncate">
-                          {lead.phone || lead.email || 'No contact'}
-                        </span>
-                        {lead.lostReason && (
-                          <span className="text-[11px] text-rose-500 flex-shrink-0 truncate max-w-[45%]">
-                            {lead.lostReason}
-                          </span>
+                        {lead.company && (
+                          <div>
+                            <span className={`inline-flex items-center gap-1 text-[11px] font-medium text-slate-500 bg-white border ${leadTone.metaBorder} px-2 py-0.5 rounded-md truncate max-w-full`}>
+                              <Building2 size={10} className="text-slate-400 flex-shrink-0" />
+                              <span className="truncate">{lead.company}</span>
+                            </span>
+                          </div>
                         )}
+
+                        <div className={`flex items-center justify-between gap-2 pt-2 border-t ${leadTone.metaBorder} text-xs text-slate-500`}>
+                          <span className="truncate">
+                            {lead.phone || lead.email || 'No contact'}
+                          </span>
+                          {lead.lostReason && column.isLost && (
+                            <span className="text-[11px] text-rose-500 flex-shrink-0 truncate max-w-[45%]">
+                              {lead.lostReason}
+                            </span>
+                          )}
+                        </div>
                       </div>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
 
                 {/* Show More/Less Button */}
@@ -1328,12 +1422,21 @@ export default function DealsPage() {
                   </tr>
                 ))}
 
-                {/* Lost leads, so the table matches what the Lost column shows */}
-                {(selectedStage === 'All Stages' || lostStageNames.includes(selectedStage)) &&
-                  visibleLostLeads.map((lead) => (
-                    <tr key={`lead-${lead.id}`} className="bg-rose-50/40 hover:bg-rose-50/70 transition-colors">
+                {/* Leads represented in the pipeline */}
+                {Object.entries(leadsByStage).flatMap(([st, stageLeads]) => {
+                  if (selectedStage !== 'All Stages' && selectedStage !== st) return [];
+                  const tone = {
+                    Draft: { row: 'bg-blue-50/30 hover:bg-blue-50/60', badge: 'bg-white text-blue-700 border-blue-200', btn: 'bg-blue-50 text-blue-700 border-blue-200 hover:bg-blue-100' },
+                    Sent: { row: 'bg-purple-50/30 hover:bg-purple-50/60', badge: 'bg-white text-purple-700 border-purple-200', btn: 'bg-purple-50 text-purple-700 border-purple-200 hover:bg-purple-100' },
+                    Open: { row: 'bg-amber-50/30 hover:bg-amber-50/60', badge: 'bg-white text-amber-700 border-amber-200', btn: 'bg-amber-50 text-amber-700 border-amber-200 hover:bg-amber-100' },
+                    Won: { row: 'bg-emerald-50/30 hover:bg-emerald-50/60', badge: 'bg-white text-emerald-700 border-emerald-200', btn: 'bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-100' },
+                    Lost: { row: 'bg-rose-50/30 hover:bg-rose-50/60', badge: 'bg-white text-rose-600 border-rose-200', btn: 'bg-rose-50 text-rose-700 border-rose-200 hover:bg-rose-100' },
+                  }[st] || { row: 'bg-slate-50/30 hover:bg-slate-50/60', badge: 'bg-white text-slate-700 border-slate-200', btn: 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100' };
+
+                  return stageLeads.map((lead) => (
+                    <tr key={`lead-${st}-${lead.id}`} className={`${tone.row} transition-colors`}>
                       <td className="py-3.5 px-4 font-bold text-slate-900">
-                        <Link to={`/crm/leads/${encodeURIComponent(lead.id)}`} className="hover:text-rose-700 hover:underline">
+                        <Link to={`/crm/leads/${encodeURIComponent(lead.id)}`} className="hover:underline">
                           {lead.name}
                         </Link>
                       </td>
@@ -1341,7 +1444,7 @@ export default function DealsPage() {
                         <div className="flex items-center gap-2">
                           <div
                             className={`w-6 h-6 rounded-full flex items-center justify-center font-bold text-[10px] flex-shrink-0 ${
-                              lead.avatarColor || 'bg-rose-100 text-rose-700'
+                              lead.avatarColor || 'bg-blue-100 text-blue-700'
                             }`}
                           >
                             {(lead.name || '?').slice(0, 2).toUpperCase()}
@@ -1351,8 +1454,8 @@ export default function DealsPage() {
                       </td>
                       <td className="py-3.5 px-4 text-slate-600">—</td>
                       <td className="py-3.5 px-4">
-                        <span className="text-[11px] font-semibold px-2.5 py-0.5 rounded-full border bg-white text-rose-600 border-rose-200">
-                          Lost · Lead
+                        <span className={`text-[11px] font-semibold px-2.5 py-0.5 rounded-full border ${tone.badge}`}>
+                          {st} · Lead
                         </span>
                       </td>
                       <td className="py-3.5 px-4 text-right text-slate-400">—</td>
@@ -1360,7 +1463,7 @@ export default function DealsPage() {
                       <td className="py-3.5 px-4 text-right">
                         <Link
                           to={`/crm/leads/${encodeURIComponent(lead.id)}`}
-                          className="inline-flex p-1.5 bg-rose-50 hover:bg-rose-100 text-rose-700 rounded-lg border border-rose-200"
+                          className={`inline-flex p-1.5 ${tone.btn} rounded-lg border`}
                           title="View Lead"
                           aria-label={`View lead ${lead.name}`}
                         >
@@ -1368,7 +1471,8 @@ export default function DealsPage() {
                         </Link>
                       </td>
                     </tr>
-                  ))}
+                  ));
+                })}
               </tbody>
             </table>
           </div>

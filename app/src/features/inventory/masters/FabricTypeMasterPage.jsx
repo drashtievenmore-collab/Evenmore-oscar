@@ -20,6 +20,7 @@ import {
 
 import { fabricMasterSync, isBackendEnabled, describeError } from '../../../services/fabricMasterSync';
 import { uploadFileToBackend } from '../../../services/fileUploadService';
+import PageInfoButton from '../../../components/ui/PageInfoButton';
 
 // Fabric Type / Classification — list (slide 7) plus an Add / Edit / View
 // popup (slide 8). Logged in → rows live in Postgres (/inventory/fabric-types/)
@@ -413,6 +414,7 @@ export default function FabricTypeMasterPage() {
           7
         </div>
         <h1 className="text-xl sm:text-2xl font-bold text-[#0f172a] tracking-tight">Fabric Type / Classification – List</h1>
+        <PageInfoButton title="Fabric Type Master" />
       </div>
 
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 pt-1">

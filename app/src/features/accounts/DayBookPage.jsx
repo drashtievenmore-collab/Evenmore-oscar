@@ -23,6 +23,7 @@ import {
   PackageCheck,
 } from 'lucide-react';
 import { PageHeader } from '../../components/ui/PageHeader';
+import PageInfoButton from '../../components/ui/PageInfoButton';
 import { Button } from '../../components/ui/Button';
 import {
   Card,
@@ -106,7 +107,10 @@ export default function DayBookPage() {
               <Landmark size={22} />
             </div>
             <div>
-              <h1 className="text-xl font-bold text-slate-900 tracking-tight">Day Book & Business Position</h1>
+              <div className="flex items-center gap-2">
+                <h1 className="text-xl font-bold text-slate-900 tracking-tight">Day Book & Business Position</h1>
+                <PageInfoButton title="Day Book & Business Position" />
+              </div>
               <p className="text-xs text-slate-500 mt-0.5">
                 Real-time daily transaction position, ledger liquidity, receivables, payables and Tally exports.
               </p>

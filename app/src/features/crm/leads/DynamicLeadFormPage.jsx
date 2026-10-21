@@ -15,6 +15,7 @@ import { useLocation, useNavigate } from "react-router-dom";
 import { defaultLeadFormSections } from "../../../data/crm/leadFormSchema";
 import { useCrmStore } from "../../../stores/crmStore";
 import { findForm, getActiveFormId, loadForms } from "../../../services/crmForms";
+import PageInfoButton from "../../../components/ui/PageInfoButton";
 
 function getFieldIcon(field) {
   if (field.type === "Email") return Mail;
@@ -162,14 +163,17 @@ export default function DynamicLeadFormPage({
     <section className="w-full">
       {/* Top Bar */}
       <div className="flex flex-wrap lg:flex-nowrap items-center justify-between gap-3 lg:gap-0 mb-6">
-        <button
-          type="button"
-          onClick={handleBack}
-          className="inline-flex items-center gap-2 text-xs font-medium text-slate-600 hover:text-slate-900 transition cursor-pointer"
-        >
-          <ArrowLeft size={15} />
-          Back to Leads
-        </button>
+        <div className="flex items-center gap-3">
+          <button
+            type="button"
+            onClick={handleBack}
+            className="inline-flex items-center gap-2 text-xs font-medium text-slate-600 hover:text-slate-900 transition cursor-pointer"
+          >
+            <ArrowLeft size={15} />
+            Back to Leads
+          </button>
+          <PageInfoButton title="Create Lead" />
+        </div>
         <div className="flex flex-wrap lg:flex-nowrap items-center gap-2.5">
           <button
             type="button"

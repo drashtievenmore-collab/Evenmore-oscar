@@ -17,6 +17,7 @@ import {
 } from 'lucide-react';
 import api from '../../services/api';
 import PageHeader from '../../components/ui/PageHeader';
+import TablePagination from '../../components/ui/TablePagination';
 import { StatCard } from '../../components/ui/StatCard';
 import { numIN } from '../../utils/formatters';
 
@@ -26,6 +27,8 @@ export default function SupplierLedgerPage() {
   const [selectedVendorId, setSelectedVendorId] = useState('');
   const [dateFrom, setDateFrom] = useState('');
   const [dateTo, setDateTo] = useState('');
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(15);
   const [ledger, setLedger] = useState({
     openingBalance: 0,
     closingBalance: 0,
@@ -75,6 +78,16 @@ export default function SupplierLedgerPage() {
     });
     return { debits, credits };
   }, [ledger.entries]);
+
+  useEffect(() => {
+    setPage(1);
+  }, [selectedVendorId, dateFrom, dateTo]);
+
+  const pagedEntries = useMemo(() => {
+    const list = ledger.entries || [];
+    const start = (page - 1) * pageSize;
+    return list.slice(start, start + pageSize);
+  }, [ledger.entries, page, pageSize]);
 
   const vendor = ledger.vendor || vendors.find((v) => v.id === selectedVendorId) || {};
 
@@ -245,7 +258,7 @@ export default function SupplierLedgerPage() {
                 </tr>
 
                 {/* Transaction Rows */}
-                {ledger.entries.map((e, idx) => (
+                {pagedEntries.map((e, idx) => (
                   <tr key={idx} className="hover:bg-slate-50/70 transition-colors">
                     <td className="px-4 py-2.5 whitespace-nowrap text-slate-700 font-sans">{e.date}</td>
                     <td className="px-4 py-2.5 font-sans">
@@ -286,6 +299,13 @@ export default function SupplierLedgerPage() {
                 </tr>
               </tbody>
             </table>
+            <TablePagination
+              page={page}
+              pageSize={pageSize}
+              totalItems={(ledger.entries || []).length}
+              onPageChange={setPage}
+              onPageSizeChange={(sz) => { setPageSize(sz); setPage(1); }}
+            />
           </div>
         )}
       </div>

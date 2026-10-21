@@ -7,6 +7,7 @@ import {
 } from 'lucide-react';
 import Modal from '../../../components/ui/Modal';
 import KpiCard from '../../../components/ui/KpiCard';
+import PageInfoButton from '../../../components/ui/PageInfoButton';
 import './ContractDetailPage.css';
 import { printContract } from '../../../utils/contractPrint';
 import { useAppStore } from '../../../stores/appStore';
@@ -344,7 +345,10 @@ export default function ContractDetailPage() {
         <div className="flex flex-col lg:flex-row lg:items-start justify-between gap-4">
           <div className="flex gap-3 min-w-0">
             <div className="min-w-0">
-              <h1 className="contract-page-title">Contract Detail</h1>
+              <div className="flex items-center gap-2">
+                <h1 className="contract-page-title">Contract Detail</h1>
+                <PageInfoButton title="Contracts" />
+              </div>
               <div className="flex flex-wrap items-center gap-2">
                 <p className="text-sm font-bold text-slate-900">{contract.contractNumber}</p>
                 <span className={`inline-block rounded-full px-2 py-1 text-[11px] font-semibold ${statusTone(displayStatus)}`}>{displayStatus}</span>

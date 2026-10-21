@@ -21,6 +21,7 @@ import {
 import { fabricMasterSync, isBackendEnabled, describeError } from '../../../services/fabricMasterSync';
 import { uploadFileToBackend } from '../../../services/fileUploadService';
 import { refreshUnits } from '../../../hooks/useUnits';
+import PageInfoButton from '../../../components/ui/PageInfoButton';
 
 // Units of Measurement — list (slide 9) plus an Add / Edit / View popup
 // (slide 10). Logged in → rows live in Postgres (/inventory/units/) and the
@@ -491,6 +492,7 @@ export default function UomMasterPage() {
           9
         </div>
         <h1 className="text-xl sm:text-2xl font-bold text-[#0f172a] tracking-tight">Units of Measurement (UOM) – List</h1>
+        <PageInfoButton title="Units of Measurement (UOM)" />
       </div>
 
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 pt-1">

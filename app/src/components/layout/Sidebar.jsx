@@ -82,7 +82,64 @@ const SIDEBAR_THEMES = [
   { id: 'emerald', name: 'Emerald', icon: TreePine, color: '#10b981' },
 ];
 
-// ── Navigation Structure ──────────────────────────────────────
+function getEffectiveRoleCode(user) {
+  if (!user) return '';
+  if (typeof user.roleCode === 'string') return user.roleCode.toUpperCase();
+  if (user.role && typeof user.role.code === 'string') return user.role.code.toUpperCase();
+  if (typeof user.role === 'string') return user.role.toUpperCase();
+  return '';
+}
+
+function isUserAdmin(user, permissions = []) {
+  if (!user) return false;
+  if (user.is_superuser || user.isSuperuser || permissions.includes('*')) return true;
+  const roleCode = getEffectiveRoleCode(user);
+  if (roleCode === 'OWNER' || roleCode === 'AD' || roleCode === 'SYS_ADMIN' || roleCode === 'ADMIN') return true;
+  const email = (user.email || '').toLowerCase();
+  if (email.startsWith('admin@') || email.startsWith('oscar@')) return true;
+  return false;
+}
+
+function isItemPermitted(item, user, permissions = [], hasPermission) {
+  if (!user) return true;
+  if (isUserAdmin(user, permissions)) return true;
+
+  if (item.label === 'Parties') {
+    return hasPermission('view_masters') || hasPermission('view_purchase') || hasPermission('view_sales') || hasPermission('view_inventory');
+  }
+  if (item.label === 'Administration') {
+    return hasPermission('menu_admin') || hasPermission('view_approvals') || hasPermission('view_alerts') || hasPermission('view_staff');
+  }
+  if (item.label === 'Reports') {
+    return hasPermission('export_excel') || hasPermission('view_owner_mis') || hasPermission('view_financial_reports');
+  }
+
+  if (item.permission && !hasPermission(item.permission) && !permissions.includes(item.permission)) {
+    return false;
+  }
+  return true;
+}
+
+function filterNavByPermissions(items, user, permissions = [], hasPermission) {
+  if (!user || isUserAdmin(user, permissions)) return items;
+
+  return items
+    .map((item) => {
+      if (!isItemPermitted(item, user, permissions, hasPermission)) {
+        return null;
+      }
+      if (item.children) {
+        const filteredChildren = filterNavByPermissions(item.children, user, permissions, hasPermission);
+        if (filteredChildren.length === 0 && !item.to) {
+          return null;
+        }
+        return { ...item, children: filteredChildren };
+      }
+      return item;
+    })
+    .filter(Boolean);
+}
+
 const NAV = [
   {
     label: 'Dashboard',
@@ -93,8 +150,10 @@ const NAV = [
   {
     label: 'CRM',
     icon: LayoutGrid,
+    permission: 'menu_crm',
     defaultOpen: false,
     children: [
+      { label: 'Dashboard', icon: LayoutGrid, to: '/crm/dashboard' },
       {
         label: 'Leads',
         icon: Target,
@@ -124,6 +183,7 @@ const NAV = [
   {
     label: 'PMS (Projects)',
     icon: Briefcase,
+    permission: 'menu_pms',
     children: [
       { label: 'PMS Dashboard', icon: Home, to: '/pms' },
       { label: 'All Projects', icon: Layers, to: '/pms/projects' },
@@ -152,9 +212,9 @@ const NAV = [
           { label: 'Vendor Reconciliation', icon: GitCompare, to: '/job-work/vendor-reconciliation' },
           { label: 'Processor Ledger', icon: BookOpen, to: '/job-work/processor-ledger' },
           { label: 'Reprocess', icon: RotateCcw, to: '/job-work/reprocess' },
+          { label: 'ITC-04 Job Work', icon: FileSpreadsheet, to: '/job-work/itc-04' },
         ],
       },
-      { label: 'Dynamic Stages', icon: Sliders, to: '/pms/stages' },
       { label: 'Timeline & Gantt', icon: Calendar, to: '/pms/timeline' },
       { label: 'Delay Center', icon: AlertTriangle, to: '/pms/delays', badgeKey: 'pmsDelayedCount', badgeColor: '#ef4444' },
       { label: 'PMS Reports', icon: PieChart, to: '/pms/reports' },
@@ -164,6 +224,7 @@ const NAV = [
   {
     label: 'Sales',
     icon: BarChart3,
+    permission: 'menu_sales',
     children: [
       { label: 'Quotations', icon: FileText, to: '/sales/quotations' },
       { label: 'Sales Orders', icon: ShoppingCart, to: '/sales/orders' },
@@ -181,9 +242,11 @@ const NAV = [
   {
     label: 'Purchase',
     icon: ShoppingCart,
+    permission: 'menu_purchase',
     children: [
       { label: 'Purchase Orders', icon: ClipboardList, to: '/purchase/orders' },
-      // ── [PHASE-2B] New standalone Goods Receipt (GRN) nav entry ──
+      { label: 'Supplier Delivery', icon: Truck, to: '/purchase/deliveries' },
+      { label: 'Final Job Work POs', icon: FileSpreadsheet, to: '/purchase/final-job-work-pos', pill: 'New' },
       { label: 'Goods Receipt', icon: PackageCheck, to: '/purchase/receipts' },
       { label: 'Supplier Reconciliation', icon: GitCompare, to: '/purchase/reconciliation' },
       { label: 'Supplier Ledger', icon: BookOpen, to: '/purchase/supplier-ledger' },
@@ -205,8 +268,10 @@ const NAV = [
   {
     label: 'Inventory',
     icon: Package,
+    permission: 'menu_inventory',
     children: [
       { label: 'Dashboard', icon: Home, to: '/inventory/dashboard' },
+      { label: 'Total Inventory', icon: Package, to: '/inventory/items' },
       {
         label: 'Fabric Masters',
         icon: Spool,
@@ -245,7 +310,6 @@ const NAV = [
           { label: 'Customer Return Stock', to: '/inventory/stock-position?type=customer-return' },
         ],
       },
-      { label: 'Total Inventory', icon: Package, to: '/inventory/items' },
       {
         label: 'QC (Quality Check)', icon: CircleCheck, to: '/inventory/qc',
         navigateOnOpen: true,
@@ -272,6 +336,7 @@ const NAV = [
   {
     label: 'Accounts',
     icon: Landmark,
+    permission: 'menu_accounts',
     children: [
       { label: 'Day Book & Position', icon: BookOpen, to: '/accounts/day-book' },
       { label: 'Cash / Bank', icon: Landmark, to: '/accounts/cash-bank' },
@@ -283,6 +348,7 @@ const NAV = [
   {
     label: 'HRMS',
     icon: UserCheck,
+    permission: 'menu_hrms',
     children: [
       { label: 'Dashboard', icon: Home, to: '/hrms/dashboard' },
       { label: 'Employees', icon: Users, to: '/hrms/employees' },
@@ -356,13 +422,18 @@ const NAV = [
   {
     label: 'Reports',
     icon: BarChart3,
-    to: '/reports',
+    children: [
+      { label: 'Standard Reports', to: '/reports', dot: true },
+      { label: 'Owner Executive MIS', to: '/reports/owner-mis' },
+    ],
   },
 
   {
     label: 'Administration',
     icon: Shield,
     children: [
+      { label: 'My Approvals', icon: ShieldCheck, to: '/administration/approvals' },
+      { label: 'Alert Center', icon: AlertTriangle, to: '/administration/alerts' },
       { label: 'Users', to: '/administration/users' },
       { label: 'Roles', to: '/administration/roles' },
       { label: 'Clients', to: '/administration/clients' },
@@ -500,7 +571,7 @@ function NavBadge({ count, color }) {
 function NavPill({ pill }) {
   if (!pill) return null;
   return (
-    <span className="ml-1.5 px-1 py-px text-[9px] font-bold rounded bg-rose-500/20 text-rose-300 border border-rose-400/40 leading-none">
+    <span className="ml-auto px-1.5 py-0.5 text-[9.5px] font-bold rounded-full bg-blue-500/25 text-blue-300 border border-blue-400/30 leading-none">
       {pill}
     </span>
   );
@@ -850,6 +921,8 @@ export default function Sidebar() {
   const setSidebarWidth = useAppStore((s) => s.setSidebarWidth);
   const setMobileSidebarOpen = useAppStore((s) => s.setMobileSidebarOpen);
   const currentUser = useAppStore((s) => s.currentUser);
+  const permissions = useAppStore((s) => s.permissions) || [];
+  const hasPermission = useAppStore((s) => s.hasPermission);
   const theme = useAppStore((s) => s.theme) || 'light';
   const setTheme = useAppStore((s) => s.setTheme);
   const [isGuideOpen, setIsGuideOpen] = useState(false);
@@ -858,10 +931,12 @@ export default function Sidebar() {
   const profileRef = useRef(null);
   const dragRef = useRef({ dragging: false, startX: 0, startWidth: sidebarWidth });
 
-  const filteredNav = useMemo(() => filterNavTree(NAV, searchQuery), [searchQuery]);
+  const permittedNav = useMemo(() => {
+    return filterNavByPermissions(NAV, currentUser, permissions, hasPermission);
+  }, [currentUser, permissions, hasPermission]);
 
-  // Module rows stay visible so their inline toggle is always reachable.
-  // OFF only hides children + blocks routes (see routes/index.jsx guard).
+  const filteredNav = useMemo(() => filterNavTree(permittedNav, searchQuery), [permittedNav, searchQuery]);
+
   const visibleNav = filteredNav;
 
   // PMS live nav counters. Subscribe to stable slices and derive, so the

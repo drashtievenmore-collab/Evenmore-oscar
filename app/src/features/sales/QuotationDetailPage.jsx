@@ -9,6 +9,8 @@ import { sharingRequest } from '../../services/quotationSharing';
 import { toISODate } from '../../utils/dateUtils';
 import { PrintQuotationModal } from '../../components/common/PrintQuotationModal';
 import SendQuotationModal from './SendQuotationModal';
+import { api } from '../../services/api';
+import { isBackendEnabled, isServerId } from '../../services/resourceSync';
 
 function num(value, fallback = 0) {
   const n = Number(value);
@@ -134,6 +136,13 @@ export default function QuotationDetailPage() {
       if (approved) {
         await approveQuotation(quote.id);
       } else {
+        if (isBackendEnabled() && isServerId(quote.id)) {
+          try {
+            await api.post(`/sales/quotations/${quote.id}/reject/`);
+          } catch (err) {
+            console.warn('[QuotationDetail] reject API call failed:', err);
+          }
+        }
         updateQuotationStatus?.(quote.id, 'Rejected');
       }
       recordQuotationActivity?.(quote.id, approved ? 'Quotation Accepted' : 'Quotation Rejected');

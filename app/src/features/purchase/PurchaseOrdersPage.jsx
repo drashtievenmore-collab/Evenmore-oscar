@@ -1,18 +1,29 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
+import { TablePagination } from '../../components/ui/TablePagination';
 import { useERP } from '../../context/ERPContext';
 import { StatusBadge } from '../../components/ui/StatusBadge';
 import { Button } from '../../components/ui/Button';
 import {
   Plus, ClipboardList, Send, ArrowRight, X, Copy, Printer, DollarSign,
   Clock, CheckCircle2, Package, Maximize2, Minimize2, Trash2, Ban, MapPin,
-  ShoppingCart, FileText, Search, Filter, MoreVertical, ChevronDown,
+  ShoppingCart, FileText, Search, Filter, MoreVertical, ChevronDown, FileSpreadsheet,
+  Truck, Factory, Info, PackageCheck, Layers, ShieldCheck, Warehouse, FileCheck2, CreditCard, Receipt,
 } from 'lucide-react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation, useSearchParams } from 'react-router-dom';
 import { toISODate } from '../../utils/dateUtils';
 import { DocumentTimeline } from '../../components/common/DocumentTimeline';
+import { SupplierDeliveryInlineSlide } from './SupplierDeliveryInlineSlide';
+import { GoodsReceiptInlineSlide } from './GoodsReceiptInlineSlide';
+import { LotTakaInlineSlide } from './LotTakaInlineSlide';
+import { GreyQcInlineSlide } from './GreyQcInlineSlide';
+import { GreyStockUpdatedInlineSlide } from './GreyStockUpdatedInlineSlide';
+import { VendorBillInlineSlide } from './VendorBillInlineSlide';
+import { SupplierBillMatchingInlineSlide } from './SupplierBillMatchingInlineSlide';
+import { SupplierPaymentInlineSlide } from './SupplierPaymentInlineSlide';
 import { RelatedDocumentsCard } from '../../components/common/RelatedDocumentsCard';
 import { PrintPurchaseOrderModal } from '../../components/common/PrintPurchaseOrderModal';
 import PageHeader from '../../components/ui/PageHeader';
+import { api } from '../../services/api';
 import UomSelect from '../../components/common/UomSelect';
 import useUnits from '../../hooks/useUnits';
 import { formatQty, formatUnitTotals, sumByUnit, unitKey, resolveUnit } from '../../utils/uom';
@@ -89,6 +100,34 @@ function Kpi({ icon: Icon, value, label, trend, iconBg, iconColor, wave, arrowBg
   );
 }
 
+// Purchase type decides what happens after the PO is approved.
+const PURCHASE_TYPE_GREY = 'Grey Stock Purchase';
+const PURCHASE_TYPE_VENDOR_A = 'Vendor A Production';
+const PURCHASE_TYPE_FINAL_JW = 'Final Job Work';
+const PURCHASE_TYPE_OPTIONS = [
+  {
+    value: PURCHASE_TYPE_GREY,
+    label: 'Ready Grey Fabric Purchase',
+    hint: 'Buy ready fabric directly from supplier',
+    icon: Truck,
+    flow: 'PO → Supplier Delivery → GRN → Lot / Taka → QC → Stock → Vendor Bill → Bill Matching → Payment',
+  },
+  {
+    value: PURCHASE_TYPE_VENDOR_A,
+    label: 'Vendor A Production (Daily Entry)',
+    hint: 'Produce fabric through Vendor A and record daily output',
+    icon: Factory,
+    flow: 'PO → Production Instruction → Daily Entry → Completion Verification → Final Job Work PO → Bill Matching',
+  },
+];
+const purchaseTypeOf = (po) => po?.purchaseType || PURCHASE_TYPE_GREY;
+const TYPE_BADGE = {
+  [PURCHASE_TYPE_GREY]: { label: 'Ready Grey', cls: 'bg-sky-50 text-sky-700 border-sky-200' },
+  [PURCHASE_TYPE_VENDOR_A]: { label: 'Vendor A', cls: 'bg-violet-50 text-violet-700 border-violet-200' },
+  [PURCHASE_TYPE_FINAL_JW]: { label: 'Final Job Work', cls: 'bg-amber-50 text-amber-700 border-amber-200' },
+};
+const RECEIVABLE_STATUSES = ['Approved', 'Partially Received'];
+
 const STATUS_PILL = {
   Draft: 'bg-amber-50 text-amber-600 border-amber-200',
   'Pending Approval': 'bg-yellow-50 text-yellow-700 border-yellow-200',
@@ -105,17 +144,101 @@ const STATUS_PILL = {
 
 export const PurchaseOrdersPage = () => {
     const navigate = useNavigate();
-    const { purchaseOrders, vendors, items: inventoryItems, fabrics: fabricMasters, addPurchaseOrder, updatePurchaseOrderStatus, cancelPurchaseOrder, deletePurchaseOrder, getPoBilledStatus, convertPurchaseOrderToBill, purchaseBills, paymentOuts, formatCurrency, formatDateDDMMYYYY, getCurrentDateFormatted, getCurrentISODate, addDaysISO } = useERP();
+    const { purchaseOrders, vendors, items: inventoryItems, fabrics: fabricMasters, addPurchaseOrder, updatePurchaseOrderStatus, cancelPurchaseOrder, deletePurchaseOrder, getPoBilledStatus, convertPurchaseOrderToBill, purchaseBills, paymentOuts, formatCurrency, formatDateDDMMYYYY, getCurrentDateFormatted, getCurrentISODate, addDaysISO, showToast, refreshCollections } = useERP();
     const { units } = useUnits();
     const [showAddModal, setShowAddModal] = useState(false);
     const [isFullscreen, setIsFullscreen] = useState(false);
     const [selectedPo, setSelectedPo] = useState(null);
+    const [isDetailFullscreen, setIsDetailFullscreen] = useState(false);
+    const [activeTimelineSlide, setActiveTimelineSlide] = useState(null);
+    const [selectedDeliveryForGrn, setSelectedDeliveryForGrn] = useState(null);
+    const [poLifecycleData, setPoLifecycleData] = useState({
+        deliveries: [],
+        grns: [],
+        takas: [],
+        bills: [],
+        loading: false,
+    });
+
+    const loadPoLifecycle = async (poId, poNumber) => {
+        if (!poId) return;
+        try {
+            const [delRes, grnRes, lotRes, poDetailRes, billRes] = await Promise.all([
+                api.get('/purchase/deliveries/', { params: { purchaseOrderId: poId } }).catch(() => []),
+                api.get('/purchase/receipts/', { params: { purchaseOrderId: poId } }).catch(() => []),
+                api.get('/inventory/lot-register/', { params: { po: poId } }).catch(() => ({ records: [] })),
+                api.get(`/purchase/orders/${poId}/`).catch(() => null),
+                api.get('/purchase/bills/', { params: { purchaseOrderId: poId } }).catch(() => []),
+            ]);
+
+            const rawDeliveries = Array.isArray(delRes) ? delRes : (delRes?.results || delRes?.rows || delRes?.data || []);
+            const deliveries = rawDeliveries.filter((d) =>
+                String(d.purchaseOrderId || d.purchaseOrder || d.purchase_order || '') === String(poId) ||
+                (poNumber && (d.poNumber === poNumber || d.po_number === poNumber))
+            );
+
+            const rawGrns = Array.isArray(grnRes) ? grnRes : (grnRes?.results || grnRes?.rows || grnRes?.data || []);
+            const grns = rawGrns.filter((g) =>
+                String(g.purchase_order || g.purchaseOrderId || g.purchaseOrder || g.poId || '') === String(poId) ||
+                (poNumber && (g.poNumber === poNumber || g.po_number === poNumber))
+            );
+
+            const rawTakas = Array.isArray(lotRes) ? lotRes : (lotRes?.records || lotRes?.rows || lotRes?.data || lotRes?.results || []);
+            const grnIds = new Set(grns.map((g) => String(g.id)));
+            const grnNumbers = new Set(grns.map((g) => g.grn_number || g.grnNumber).filter(Boolean));
+            const takas = rawTakas.filter((lt) => {
+                const matchGrn = grnIds.has(String(lt.sourceDocumentId || lt.source_document_id || lt.grnId || lt.grn_id)) ||
+                                 grnNumbers.has(lt.grnNo || lt.grnNumber || lt.source_document_number);
+                const matchPo = String(lt.purchaseOrder || lt.poId || lt.poNumber || lt.sourceDocumentNumber || '') === String(poId) ||
+                                String(lt.purchaseOrder || lt.poNumber || lt.sourceDocumentNumber || '') === String(poNumber);
+                return matchGrn || matchPo;
+            });
+
+            const rawBills = Array.isArray(billRes) ? billRes : (billRes?.results || billRes?.rows || billRes?.data || []);
+            const bills = rawBills.filter((b) =>
+                String(b.purchase_order || b.purchaseOrderId || b.purchaseOrder || b.poId || '') === String(poId) ||
+                (poNumber && (b.poNumber === poNumber || b.po_number === poNumber || b.poRef === poNumber || b.linkedPo === poNumber))
+            );
+
+            setPoLifecycleData({ deliveries, grns, takas, bills, loading: false });
+
+            // If the PO status from backend is more up-to-date (e.g. Fully Received), mirror it
+            if (poDetailRes && poDetailRes.status) {
+                setSelectedPo((prev) => (prev && prev.id === poId ? { ...prev, ...poDetailRes } : prev));
+            }
+        } catch (err) {
+            console.warn('Failed to load PO lifecycle data:', err);
+        }
+    };
+
+    React.useEffect(() => {
+        if (selectedPo?.id) {
+            loadPoLifecycle(selectedPo.id, selectedPo.poNumber);
+        } else {
+            setPoLifecycleData({ deliveries: [], grns: [], takas: [], bills: [], loading: false });
+        }
+    }, [selectedPo?.id, selectedPo?.poNumber]);
+
+    // Collapse the detail popup back to its default size whenever it is closed
+    // or a different purchase order is opened.
+    React.useEffect(() => {
+        if (!selectedPo?.id) setIsDetailFullscreen(false);
+    }, [selectedPo?.id]);
+
     const [printPoTarget, setPrintPoTarget] = useState(null);
     const [selectedVendorId, setSelectedVendorId] = useState(vendors[0]?.id || '');
     const [poDate, setPoDate] = useState(() => getCurrentISODate());
     const [expectedDate, setExpectedDate] = useState(() => addDaysISO(getCurrentISODate(), 10));
     const [lineItems, setLineItems] = useState([]);
     const [remarks, setRemarks] = useState('');
+    const [purchaseType, setPurchaseType] = useState('');
+    // Project association is separate from purchase type: a ready grey stock
+    // purchase may be for a project or for general warehouse stock.
+    const [projectMode, setProjectMode] = useState('general');
+    const [projectId, setProjectId] = useState('');
+    const [projects, setProjects] = useState([]);
+    const [projectsError, setProjectsError] = useState('');
+    const [typeFilter, setTypeFilter] = useState('All');
     const [query, setQuery] = useState('');
     const [statusMonth, setStatusMonth] = useState('This Month');
     const [statusFilter, setStatusFilter] = useState('All');
@@ -124,15 +247,78 @@ export const PurchaseOrdersPage = () => {
     const [dateFrom, setDateFrom] = useState('');
     const [dateTo, setDateTo] = useState('');
 
+    const location = useLocation();
+    const [searchParams] = useSearchParams();
+
+    React.useEffect(() => {
+        if (location.state?.createPo || searchParams.get('action') === 'create') {
+            const prefill = location.state?.prefill || {};
+            setSelectedVendorId(prefill.vendorId || vendors[0]?.id || '');
+            setPoDate(getCurrentISODate());
+            setExpectedDate(prefill.expectedDate || addDaysISO(getCurrentISODate(), 10));
+            if (prefill.items && prefill.items.length > 0) {
+                setLineItems(prefill.items.map((it, idx) => ({
+                    id: `li-${Date.now()}-${idx}`,
+                    itemId: it.itemId || it.id || '',
+                    sku: it.sku || it.itemSku || '',
+                    itemSku: it.sku || it.itemSku || '',
+                    name: it.name || it.description || '',
+                    qty: Number(it.qty || it.suggestedQty) || 100,
+                    rate: Number(it.rate || it.costPrice) || 0,
+                    amount: (Number(it.qty || it.suggestedQty) || 100) * (Number(it.rate || it.costPrice) || 0),
+                    uom: it.uom || 'Mtr',
+                    stockUom: it.stockUom || 'Mtr',
+                })));
+            } else if (prefill.itemId) {
+                const sel = (inventoryItems || []).find((f) => f.id === prefill.itemId);
+                setLineItems([{
+                    id: `li-${Date.now()}`,
+                    itemId: prefill.itemId,
+                    sku: sel?.sku || prefill.sku || '',
+                    itemSku: sel?.sku || prefill.sku || '',
+                    name: sel?.name || prefill.name || '',
+                    qty: Number(prefill.qty || prefill.suggestedQty) || 100,
+                    rate: Number(prefill.rate || sel?.costPrice) || 0,
+                    amount: (Number(prefill.qty || 100)) * (Number(prefill.rate || sel?.costPrice) || 0),
+                    uom: sel?.purchaseUnit || sel?.uom || 'Mtr',
+                    stockUom: sel?.uom || 'Mtr',
+                }]);
+            }
+            setRemarks(prefill.notes || 'Replenishment order for grey fabric inventory.');
+            setPurchaseType(prefill.purchaseType || PURCHASE_TYPE_GREY);
+            setProjectMode(prefill.projectId ? 'project' : 'general');
+            setProjectId(prefill.projectId || '');
+            setShowAddModal(true);
+        }
+    }, [location.state, searchParams]);
+
     const handleOpenCreateModal = () => {
         setSelectedVendorId(vendors[0]?.id || '');
         setPoDate(getCurrentISODate());
         setExpectedDate(addDaysISO(getCurrentISODate(), 10));
         setLineItems([{ id: `li-${Date.now()}`, itemId: '', sku: '', itemSku: '', name: '', qty: '', rate: '', amount: 0 }]);
         setRemarks('');
+        setPurchaseType('');
+        setProjectMode('general');
+        setProjectId('');
         setIsFullscreen(false);
         setShowAddModal(true);
     };
+
+    // Projects for the optional association, read when the form opens.
+    React.useEffect(() => {
+        if (!showAddModal) return undefined;
+        let cancelled = false;
+        setProjectsError('');
+        api.get('/pms/projects/', { query: { limit: 200 } })
+            .then((res) => {
+                if (cancelled) return;
+                const rows = Array.isArray(res) ? res : (res?.results || res?.data || []);
+                setProjects(rows.filter((pr) => !['Cancelled', 'Completed', 'Closed'].includes(pr.status)));
+            })
+            .catch((err) => { if (!cancelled) setProjectsError(err?.message || 'Could not load projects.'); });
+        return () => { cancelled = true; };
+    }, [showAddModal]);
 
     const handleCloseCreateModal = () => {
         setShowAddModal(false);
@@ -141,6 +327,9 @@ export const PurchaseOrdersPage = () => {
         setExpectedDate(addDaysISO(getCurrentISODate(), 10));
         setLineItems([]);
         setRemarks('');
+        setPurchaseType('');
+        setProjectMode('general');
+        setProjectId('');
         setIsFullscreen(false);
     };
 
@@ -177,6 +366,10 @@ export const PurchaseOrdersPage = () => {
             id: `li-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
         })));
         setRemarks(po.notes || '');
+        const clonedType = purchaseTypeOf(po);
+        setPurchaseType(clonedType === PURCHASE_TYPE_FINAL_JW ? '' : clonedType);
+        setProjectMode(po.projectId ? 'project' : 'general');
+        setProjectId(po.projectId || '');
         setIsFullscreen(false);
         setShowAddModal(true);
     };
@@ -184,6 +377,8 @@ export const PurchaseOrdersPage = () => {
     const handleCreate = async (e) => {
         e.preventDefault();
         const validLines = lineItems.filter((it) => it.itemId && Number(it.qty) > 0 && Number(it.rate) > 0);
+        if (!purchaseType) { alert('Select the purchase type.'); return; }
+        if (projectMode === 'project' && !projectId) { alert('Select the project, or choose General Stock.'); return; }
         if (!selectedVendorId) { alert('Vendor is required.'); return; }
         if (!poDate) { alert('PO Date is required.'); return; }
         if (!expectedDate) { alert('Expected Delivery is required.'); return; }
@@ -206,6 +401,8 @@ export const PurchaseOrdersPage = () => {
                 date: poDate,
                 expectedDate,
                 status: 'Draft',
+                purchaseType,
+                projectId: projectMode === 'project' ? projectId : undefined,
                 items: normalizedLines,
                 notes: remarks || '',
             });
@@ -222,9 +419,22 @@ export const PurchaseOrdersPage = () => {
     const approvePo = (id) => {
         updatePurchaseOrderStatus(id, 'Approved');
     };
-    const startProductionPo = (id) => {
-        updatePurchaseOrderStatus(id, 'In Production');
+    const startProductionPo = async (id) => {
+        const po = purchaseOrders.find((p) => p.id === id);
+        if (po && purchaseTypeOf(po) !== PURCHASE_TYPE_VENDOR_A) {
+            showToast?.('Only a Vendor A Production PO starts production. Record a GRN for ready grey fabric.');
+            return;
+        }
+        try {
+            const res = await api.post(`/purchase/orders/${id}/start-production/`);
+            // The server moved the PO to In Production; mirror it, never guess.
+            if (res?.po) updatePurchaseOrderStatus(id, res.po.status || 'In Production');
+            showToast?.(res?.message || 'Production started. Instruction registered in Production Dashboard.');
+        } catch (err) {
+            showToast?.(`Production not started — ${err?.message || 'server error'}`);
+        }
     };
+    const recordGrnForPo = (po) => navigate('/purchase/receipts', { state: { grnForPo: po.id } });
     const handleConvertToBill = async (poId) => {
         try {
             await convertPurchaseOrderToBill(poId);
@@ -236,27 +446,200 @@ export const PurchaseOrdersPage = () => {
     const getPoTimelineSteps = (po) => {
         const isIssued = po.status !== 'Draft';
         const poStatusInfo = getPoBilledStatus(po.id);
-        const linkedBills = poStatusInfo.activeBills || [];
-        const isBilled = poStatusInfo.totalBilledQty > 0;
+        const lifecycleBills = poLifecycleData?.bills || [];
+        const linkedBills = lifecycleBills.length > 0 ? lifecycleBills : (poStatusInfo.activeBills || []);
         const latestBill = linkedBills[0];
-        const isPaid = latestBill?.status === 'Paid';
+        const isBilled = linkedBills.length > 0 || poStatusInfo.totalBilledQty > 0 || po.status === 'Billed';
+        const isPaid = latestBill?.status === 'Paid' || (Number(latestBill?.amountPaid || 0) > 0 && Number(latestBill?.balanceDue || 0) === 0);
+        const isMatchApproved = latestBill?.match_status === 'Approved' || latestBill?.matchStatus === 'Approved' || latestBill?.status === 'Verified' || latestBill?.status === 'Approved';
+        const isApproved = !['Draft', 'Pending Approval', 'Cancelled'].includes(po.status);
+        const receivedQty = getPoReceivedQty(po);
+        const hasReceived = receivedQty > 0;
+
+        if (purchaseTypeOf(po) === PURCHASE_TYPE_VENDOR_A) {
+            return [
+                {
+                    label: 'Purchase Order',
+                    docNumber: po.poNumber,
+                    date: formatDateDDMMYYYY(po.date),
+                    amount: po.amount,
+                    status: isIssued ? 'completed' : 'current',
+                },
+                {
+                    label: 'Production Instruction',
+                    status: po.status === 'In Production' || hasReceived ? 'completed' : isApproved ? 'current' : 'pending',
+                },
+                {
+                    label: 'Daily Production Entry',
+                    status: hasReceived || po.status === 'In Production' ? 'completed' : 'pending',
+                },
+                {
+                    label: 'Completion Verification',
+                    status: hasReceived ? 'completed' : (po.status === 'In Production' ? 'current' : 'pending'),
+                },
+                {
+                    label: 'Final Job Work PO',
+                    status: hasReceived ? 'completed' : 'pending',
+                },
+                {
+                    label: 'Agency Bill Match',
+                    docNumber: latestBill?.billNumber,
+                    amount: latestBill?.total || latestBill?.amount,
+                    status: isBilled ? 'completed' : (hasReceived ? 'current' : 'pending'),
+                },
+                {
+                    label: 'Disbursement Payment',
+                    status: isPaid ? 'completed' : (isBilled ? 'current' : 'pending'),
+                },
+            ];
+        }
+
+        const totalOrderedQty = (po.lineItems || po.items || []).reduce((s, it) => s + (Number(it.qty) || 0), 0);
+        const deliveries = (poLifecycleData?.deliveries || []);
+        const totalDispatchedQty = deliveries.reduce((s, d) => s + (Number(d.dispatchedQty) || 0), 0);
+        const hasDispatched = deliveries.length > 0 && (
+            totalDispatchedQty > 0 ||
+            deliveries.some((d) => ['Dispatched', 'In Transit', 'Delivered', 'Partially Delivered'].includes(d.status))
+        );
+        const isDeliveryComplete = totalOrderedQty > 0 ? (totalDispatchedQty >= totalOrderedQty) : hasDispatched;
+        const isDeliveryPartial = !isDeliveryComplete && (totalDispatchedQty > 0 || deliveries.some((d) => d.status === 'Partially Delivered'));
+
+        const grns = (poLifecycleData?.grns || []);
+        const totalGrnQty = grns.reduce((sum, g) => {
+            const direct = Number(g.totalQuantity || g.receivedQuantity || g.total_quantity || g.received_qty || 0);
+            if (direct > 0) return sum + direct;
+            if (Array.isArray(g.lines)) {
+                return sum + g.lines.reduce((lSum, l) => lSum + (Number(l.received_qty || l.receivedQty || l.stock_qty || l.stockQty || 0)), 0);
+            }
+            return sum;
+        }, 0);
+        const effectiveGrnQty = totalGrnQty > 0 ? totalGrnQty : receivedQty;
+        const isGrnComplete = po.status === 'Fully Received' || (totalOrderedQty > 0 && effectiveGrnQty >= totalOrderedQty);
+        const isGrnPartial = !isGrnComplete && (effectiveGrnQty > 0 || po.status === 'Partially Received');
+
+        const takas = (poLifecycleData?.takas || []);
+        const totalTakaQty = takas.reduce((s, t) => s + (Number(t.receivedQty ?? t.receivedQuantity ?? t.qty ?? t.quantity ?? t.actual_meter ?? 0)), 0);
+        const isTakaComplete = takas.length > 0 && (totalOrderedQty > 0 ? totalTakaQty >= totalOrderedQty : isGrnComplete);
+        const isTakaPartial = !isTakaComplete && takas.length > 0;
+
+        const hasQcPassed = (takas.length > 0 && takas.some((t) => t.qcStatus === 'Passed')) || grns.some((g) => g.qc_status === 'Approved' || g.qc_status === 'Passed' || g.qcStatus === 'Passed');
+        const isQcComplete = isGrnComplete && takas.length > 0 && takas.every((t) => t.qcStatus === 'Passed');
+        const isQcPartial = hasQcPassed && !isQcComplete;
+        const hasStockUpdated = hasQcPassed;
+        const isStockComplete = isQcComplete;
+
         return [
             {
+                key: 'purchase_order',
                 label: 'Purchase Order',
                 docNumber: po.poNumber,
                 date: formatDateDDMMYYYY(po.date),
                 amount: po.amount,
-                status: isIssued ? 'completed' : 'current',
+                status: isApproved ? 'completed' : 'current',
             },
             {
-                label: poStatusInfo.status === 'Partially Billed' ? 'Partial Intake & Bill' : 'Supplier Receipt & Bill',
-                docNumber: latestBill?.billNumber,
+                key: 'supplier_delivery',
+                label: 'Supplier Delivery',
+                docNumber: totalDispatchedQty > 0
+                    ? (isDeliveryPartial
+                        ? `${totalDispatchedQty.toLocaleString('en-IN')} / ${totalOrderedQty.toLocaleString('en-IN')} M`
+                        : `${totalDispatchedQty.toLocaleString('en-IN')} M`)
+                    : undefined,
+                status: isDeliveryComplete
+                    ? 'completed'
+                    : isDeliveryPartial
+                    ? 'partial'
+                    : isApproved
+                    ? 'current'
+                    : 'pending',
+                statusLabel: isDeliveryPartial ? 'Partially Delivered' : undefined,
+            },
+            {
+                key: 'grn_inward',
+                label: 'GRN / Inward',
+                docNumber: effectiveGrnQty > 0
+                    ? (isGrnPartial
+                        ? `${effectiveGrnQty.toLocaleString('en-IN')} / ${totalOrderedQty.toLocaleString('en-IN')} M`
+                        : `${effectiveGrnQty.toLocaleString('en-IN')} M`)
+                    : undefined,
+                status: isGrnComplete
+                    ? 'completed'
+                    : isGrnPartial
+                    ? 'partial'
+                    : (hasDispatched || activeTimelineSlide === 'grn_inward')
+                    ? 'current'
+                    : 'pending',
+                statusLabel: isGrnPartial ? 'Partially Received' : undefined,
+            },
+            {
+                key: 'lot_taka_creation',
+                label: 'Lot / Taka Creation',
+                docNumber: takas.length > 0
+                    ? (isTakaPartial
+                        ? `${takas.length} Rolls (${totalTakaQty.toLocaleString('en-IN')} / ${totalOrderedQty.toLocaleString('en-IN')} M)`
+                        : `${takas.length} Rolls (${totalTakaQty.toLocaleString('en-IN')} M)`)
+                    : undefined,
+                status: isTakaComplete
+                    ? 'completed'
+                    : isTakaPartial
+                    ? 'partial'
+                    : (effectiveGrnQty > 0 || activeTimelineSlide === 'lot_taka_creation')
+                    ? 'current'
+                    : 'pending',
+                statusLabel: isTakaPartial ? 'Partially Created' : undefined,
+            },
+            {
+                key: 'grey_fabric_qc',
+                label: 'Grey Fabric QC',
+                status: isQcComplete
+                    ? 'completed'
+                    : isQcPartial
+                    ? 'partial'
+                    : (takas.length > 0 || activeTimelineSlide === 'grey_fabric_qc')
+                    ? 'current'
+                    : 'pending',
+                statusLabel: isQcPartial ? 'QC In Progress' : undefined,
+            },
+            {
+                key: 'grey_stock_updated',
+                label: 'Grey Stock Updated',
+                status: isStockComplete
+                    ? 'completed'
+                    : (hasStockUpdated || activeTimelineSlide === 'grey_stock_updated')
+                    ? 'current'
+                    : 'pending',
+                statusLabel: isQcPartial ? 'Partial Stock' : undefined,
+            },
+            {
+                key: 'vendor_bill',
+                label: 'Vendor Bill',
+                docNumber: latestBill?.billNumber || latestBill?.vendorBillNumber || (isBilled ? 'Bill Recorded' : undefined),
                 amount: latestBill?.total || latestBill?.amount,
-                status: isBilled ? 'completed' : isIssued ? 'current' : 'pending',
+                status: (isBilled || isPaid || isMatchApproved)
+                    ? 'completed'
+                    : (hasStockUpdated || activeTimelineSlide === 'vendor_bill')
+                    ? 'current'
+                    : 'pending',
             },
             {
+                key: 'supplier_bill_matching',
+                label: 'Supplier Bill Matching',
+                docNumber: isMatchApproved ? 'Verified 3-Way' : (isBilled ? 'Pending Match' : undefined),
+                amount: latestBill?.total || latestBill?.amount,
+                status: (isMatchApproved || isPaid)
+                    ? 'completed'
+                    : (isBilled || activeTimelineSlide === 'supplier_bill_matching')
+                    ? 'current'
+                    : 'pending',
+            },
+            {
+                key: 'disbursement_payment',
                 label: 'Disbursement Payment',
-                status: isPaid ? 'completed' : isBilled ? 'current' : 'pending',
+                status: isPaid
+                    ? 'completed'
+                    : (isMatchApproved || activeTimelineSlide === 'disbursement_payment')
+                    ? 'current'
+                    : 'pending',
             },
         ];
     };
@@ -320,10 +703,16 @@ export const PurchaseOrdersPage = () => {
     const getPoQty = (po) => getPoLines(po).reduce((s, l) => s + (Number(l.qty) || 0), 0);
     const getPoRate = (po) => Number(getPoLines(po)[0]?.rate) || 0;
     const lineUom = (l) => l?.uom || 'Mtr';
-    const getPoReceivedLines = (po) =>
-      (purchaseBills || [])
+    const getPoReceivedLines = (po) => {
+      // A GRN against the PO records receivedQty on its lines (server side).
+      const fromGrn = getPoLines(po)
+        .filter((l) => Number(l.receivedQty) > 0)
+        .map((l) => ({ qty: Number(l.receivedQty) || 0, uom: lineUom(l) }));
+      if (fromGrn.length) return fromGrn;
+      return (purchaseBills || [])
         .filter((b) => (b.purchaseOrderId === po.id || b.poRef === po.poNumber || b.linkedPo === po.poNumber) && b.goodsReceived === true && b.status !== 'Cancelled')
         .flatMap((b) => (b.items || b.lineItems || []).map((it) => ({ qty: Number(it.receivedQty ?? it.qty) || 0, uom: lineUom(it) })));
+    };
     const getPoReceivedQty = (po) => getPoReceivedLines(po).reduce((s, l) => s + l.qty, 0);
     // Quantities are only added up within one unit (Mtr and Kg never mix).
     const orderedByUnit = (po) => sumByUnit(getPoLines(po), { uom: lineUom, units });
@@ -372,6 +761,7 @@ export const PurchaseOrdersPage = () => {
           if (!hay.includes(q)) return false;
         }
         if (statusFilter !== 'All' && getOscarStatus(p) !== statusFilter) return false;
+        if (typeFilter !== 'All' && purchaseTypeOf(p) !== typeFilter) return false;
         if (vendorFilter !== 'All' && p.vendor !== vendorFilter) return false;
         if (fabricFilter !== 'All' && getPoFabric(p) !== fabricFilter) return false;
         if (dateFrom || dateTo) {
@@ -381,7 +771,19 @@ export const PurchaseOrdersPage = () => {
         }
         return true;
       });
-    }, [purchaseOrders, query, statusFilter, vendorFilter, fabricFilter, dateFrom, dateTo, purchaseBills]);
+    }, [purchaseOrders, query, statusFilter, typeFilter, vendorFilter, fabricFilter, dateFrom, dateTo, purchaseBills]);
+
+    const [page, setPage] = useState(1);
+    const [pageSize, setPageSize] = useState(10);
+
+    useEffect(() => {
+      setPage(1);
+    }, [query, statusFilter, typeFilter, vendorFilter, fabricFilter, dateFrom, dateTo]);
+
+    const paginatedOrders = useMemo(() => {
+      const start = (page - 1) * pageSize;
+      return filtered.slice(start, start + pageSize);
+    }, [filtered, page, pageSize]);
 
     const vendorOptions = useMemo(() => [...new Set(purchaseOrders.map((p) => p.vendor).filter(Boolean))], [purchaseOrders]);
     const fabricOptions = useMemo(() => [...new Set(purchaseOrders.map((p) => getPoFabric(p)).filter((f) => f && f !== '—'))], [purchaseOrders]);
@@ -459,10 +861,19 @@ export const PurchaseOrdersPage = () => {
             <button onClick={() => approvePo(p.id)} className="px-2.5 py-1 bg-blue-600 text-white rounded-md text-xs font-semibold hover:bg-blue-700 shadow-xs transition-colors whitespace-nowrap inline-flex items-center gap-1">
               <CheckCircle2 size={11}/> Approve PO
             </button>
-          ) : getOscarStatus(p) === 'Approved' ? (
+          ) : getOscarStatus(p) === 'Approved' && purchaseTypeOf(p) === PURCHASE_TYPE_VENDOR_A ? (
             <button onClick={() => startProductionPo(p.id)} className="px-2.5 py-1 bg-violet-600 text-white rounded-md text-xs font-semibold hover:bg-violet-700 shadow-xs transition-colors whitespace-nowrap inline-flex items-center gap-1">
               <ArrowRight size={11}/> Start Production
             </button>
+          ) : RECEIVABLE_STATUSES.includes(getOscarStatus(p)) && purchaseTypeOf(p) === PURCHASE_TYPE_GREY ? (
+            <div className="flex items-center gap-1.5">
+              <button onClick={() => navigate(`/purchase/deliveries?po=${p.id}`)} className="px-2 py-1 bg-indigo-50 border border-indigo-200 text-indigo-700 rounded-md text-xs font-semibold hover:bg-indigo-100 shadow-2xs whitespace-nowrap inline-flex items-center gap-1" title="Track or record supplier dispatch">
+                <Truck size={11}/> Dispatch
+              </button>
+              <button onClick={() => recordGrnForPo(p)} className="px-2.5 py-1 bg-sky-600 text-white rounded-md text-xs font-semibold hover:bg-sky-700 shadow-xs transition-colors whitespace-nowrap inline-flex items-center gap-1" title="Record supplier delivery: GRN → Lot/Taka → QC">
+                <PackageCheck size={11}/> Record GRN
+              </button>
+            </div>
           ) : getOscarStatus(p) === 'Cancelled' ? (
             <span className="text-xs text-rose-600 font-semibold inline-flex items-center gap-1"><Ban size={11}/> Cancelled</span>
           ) : getOscarStatus(p) === 'Fully Received' ? (
@@ -492,9 +903,18 @@ export const PurchaseOrdersPage = () => {
         subtitle="Manage purchase orders and track vendor purchasing."
         guide={purchaseOrderGuide}
         actions={
-          <Button icon={Plus} onClick={handleOpenCreateModal} className="!rounded-lg !bg-[#2563eb] hover:!bg-[#1d4ed8]">
-            Create Purchase Order
-          </Button>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => navigate('/purchase/final-job-work-pos')}
+              className="inline-flex items-center gap-1.5 rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-[12px] font-bold text-blue-700 hover:bg-blue-100 transition-colors shadow-xs"
+            >
+              <FileSpreadsheet size={14} /> Final Job Work POs
+            </button>
+            <Button icon={Plus} onClick={handleOpenCreateModal} className="!rounded-lg !bg-[#2563eb] hover:!bg-[#1d4ed8]">
+              Create Purchase Order
+            </Button>
+          </div>
         }
       />
 
@@ -519,6 +939,10 @@ export const PurchaseOrdersPage = () => {
               <option value="All">All Status</option>
               {['Draft', 'Pending Approval', 'Approved', 'In Production', 'Partially Received', 'Fully Received', 'Cancelled'].map((s) => <option key={s} value={s}>{s}</option>)}
             </select>
+            <select value={typeFilter} onChange={(e) => setTypeFilter(e.target.value)} className="rounded-lg border border-slate-200 bg-white py-2 px-2 text-[12px] font-medium text-slate-600 outline-none">
+              <option value="All">All Types</option>
+              {[PURCHASE_TYPE_GREY, PURCHASE_TYPE_VENDOR_A, PURCHASE_TYPE_FINAL_JW].map((t) => <option key={t} value={t}>{t}</option>)}
+            </select>
             <select value={vendorFilter} onChange={(e) => setVendorFilter(e.target.value)} className="rounded-lg border border-slate-200 bg-white py-2 px-2 text-[12px] font-medium text-slate-600 outline-none">
               <option value="All">All Vendors</option>
               {vendorOptions.map((v) => <option key={v} value={v}>{v}</option>)}
@@ -542,10 +966,16 @@ export const PurchaseOrdersPage = () => {
               </tr>
             </thead>
             <tbody>
-              {filtered.map((p) => {
+              {paginatedOrders.map((p) => {
                 return (
                   <tr key={p.id} className="border-b border-slate-50 hover:bg-slate-50/60">
-                    <td className="px-4 py-2.5"><button onClick={() => setSelectedPo(p)} className="flex items-center gap-1.5 font-mono font-bold text-blue-600 hover:underline whitespace-nowrap"><ClipboardList size={13} className="text-slate-400" /> {p.poNumber}</button></td>
+                    <td className="px-4 py-2.5">
+                      <button onClick={() => setSelectedPo(p)} className="flex items-center gap-1.5 font-mono font-bold text-blue-600 hover:underline whitespace-nowrap"><ClipboardList size={13} className="text-slate-400" /> {p.poNumber}</button>
+                      <div className="mt-1 flex flex-wrap items-center gap-1">
+                        <span className={`inline-block rounded border px-1.5 py-px text-[9.5px] font-bold ${TYPE_BADGE[purchaseTypeOf(p)]?.cls || TYPE_BADGE[PURCHASE_TYPE_GREY].cls}`}>{TYPE_BADGE[purchaseTypeOf(p)]?.label || purchaseTypeOf(p)}</span>
+                        <span className="text-[9.5px] font-semibold text-slate-400">{p.projectCode || 'General Stock'}</span>
+                      </div>
+                    </td>
                     <td className="px-4 py-2.5 font-mono text-[11px] text-slate-500 whitespace-nowrap">{formatDateDDMMYYYY(p.date)}</td>
                     <td className="px-4 py-2.5 font-bold text-slate-700">{p.vendor}</td>
                     <td className="px-4 py-2.5 text-slate-600 font-medium whitespace-nowrap">{getPoFabric(p)}</td>
@@ -571,6 +1001,13 @@ export const PurchaseOrdersPage = () => {
             </tbody>
           </table>
         </div>
+        <TablePagination
+          total={filtered.length}
+          page={page}
+          pageSize={pageSize}
+          onPageChange={setPage}
+          onPageSizeChange={setPageSize}
+        />
       </div>
 
       {/* bottom row */}
@@ -700,6 +1137,55 @@ export const PurchaseOrdersPage = () => {
             </div>
 
             <form onSubmit={handleCreate} className="space-y-4 mt-4 overflow-y-auto pr-1 flex-1">
+              <div>
+                <label className="block font-semibold text-slate-700 mb-1.5">Purchase Type <span className="text-rose-500">*</span></label>
+                <div role="radiogroup" aria-label="Purchase Type" className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  {PURCHASE_TYPE_OPTIONS.map((opt) => {
+                    const Icon = opt.icon;
+                    const active = purchaseType === opt.value;
+                    return (
+                      <label key={opt.value} className={`flex cursor-pointer items-center gap-3 rounded-xl border p-3 transition-colors ${active ? 'border-blue-500 bg-blue-50/70 ring-1 ring-blue-200' : 'border-slate-200 bg-white hover:border-slate-300'}`}>
+                        <input type="radio" name="purchaseType" value={opt.value} checked={active} onChange={() => setPurchaseType(opt.value)} className="h-4 w-4 accent-blue-600" />
+                        <span className={`grid h-10 w-10 shrink-0 place-items-center rounded-lg ${active ? 'bg-blue-100 text-blue-700' : 'bg-slate-100 text-slate-500'}`}><Icon size={18} /></span>
+                        <span className="min-w-0">
+                          <span className="block text-[12.5px] font-bold text-slate-800">{opt.label}</span>
+                          <span className="block text-[11px] text-slate-500">{opt.hint}</span>
+                        </span>
+                      </label>
+                    );
+                  })}
+                </div>
+                <p className="mt-2 flex items-start gap-1.5 rounded-lg bg-slate-50 px-2.5 py-1.5 text-[11px] text-slate-600">
+                  <Info size={13} className="mt-px shrink-0 text-blue-500" />
+                  {purchaseType
+                    ? <span><strong>Next steps after approval:</strong> {PURCHASE_TYPE_OPTIONS.find((o) => o.value === purchaseType)?.flow}</span>
+                    : <span>Selected cycle determines the next workflow after PO.</span>}
+                </p>
+              </div>
+              <div>
+                <label className="block font-semibold text-slate-700 mb-1.5">Project Association</label>
+                <div className="flex flex-wrap items-center gap-2">
+                  {[['general', 'Without Project / General Stock'], ['project', 'With Project']].map(([mode, text]) => (
+                    <label key={mode} className={`inline-flex cursor-pointer items-center gap-2 rounded-lg border px-3 py-1.5 text-[12px] font-semibold ${projectMode === mode ? 'border-blue-500 bg-blue-50 text-blue-700' : 'border-slate-200 bg-white text-slate-600'}`}>
+                      <input type="radio" name="projectMode" value={mode} checked={projectMode === mode} onChange={() => { setProjectMode(mode); if (mode === 'general') setProjectId(''); }} className="accent-blue-600" />
+                      {text}
+                    </label>
+                  ))}
+                  {projectMode === 'project' && (
+                    <select value={projectId} onChange={(e) => setProjectId(e.target.value)} className="min-w-[240px] flex-1 border border-slate-300 rounded-lg p-2 bg-white text-slate-800 font-medium">
+                      <option value="">Select project...</option>
+                      {projects.map((pr) => (
+                        <option key={pr.id} value={pr.id}>{pr.code}{pr.customerName ? ` — ${pr.customerName}` : ''}</option>
+                      ))}
+                    </select>
+                  )}
+                </div>
+                <p className="mt-1 text-[10.5px] text-slate-400">
+                  {projectMode === 'general'
+                    ? 'Accepted fabric goes to general warehouse stock and can be allocated to a project later.'
+                    : (projectsError || 'The PO and its downstream documents are linked to this project.')}
+                </p>
+              </div>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
                   <label className="block font-semibold text-slate-700 mb-1">Vendor / Supplier *</label>
@@ -827,8 +1313,12 @@ export const PurchaseOrdersPage = () => {
         </div>)}
 
       {/* PO Detail & Lifecycle Modal */}
-      {selectedPo && (<div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-sm flex items-center justify-center p-2 sm:p-4">
-          <div className="bg-white rounded-2xl border border-slate-200 max-w-4xl w-full p-4 sm:p-6 shadow-2xl text-xs max-h-[95vh] sm:max-h-[90vh] flex flex-col overflow-hidden">
+      {selectedPo && (<div className={`fixed inset-0 z-50 bg-black/50 backdrop-blur-sm flex items-center justify-center transition-all duration-200 ${isDetailFullscreen ? 'p-0' : 'p-2 sm:p-4'}`}>
+          <div className={`bg-white border border-slate-200 shadow-2xl text-xs flex flex-col overflow-hidden transition-all duration-200 ${
+            isDetailFullscreen
+              ? 'w-full h-full rounded-none p-4 sm:p-8'
+              : 'rounded-2xl max-w-4xl w-full p-4 sm:p-6 max-h-[95vh] sm:max-h-[90vh]'
+          }`}>
             <div className="flex flex-wrap lg:flex-nowrap items-center justify-between gap-2 lg:gap-0 pb-3 border-b border-slate-200">
               <div className="flex flex-wrap lg:flex-nowrap items-center gap-2 sm:gap-3 min-w-0 lg:min-w-auto">
                 <h3 className="font-bold text-lg text-[#1F2E4A]">{selectedPo.poNumber}</h3>
@@ -838,6 +1328,15 @@ export const PurchaseOrdersPage = () => {
               <div className="flex items-center gap-2">
                 <button type="button" onClick={() => setPrintPoTarget(selectedPo)} className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg font-semibold flex items-center gap-1.5 shadow-xs">
                   <Printer size={13}/> Print Official PO
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setIsDetailFullscreen((prev) => !prev)}
+                  className="p-1.5 text-slate-400 hover:text-slate-700 rounded-lg hover:bg-slate-100 transition"
+                  title={isDetailFullscreen ? 'Exit Fullscreen' : 'Expand Fullscreen'}
+                  aria-label={isDetailFullscreen ? 'Exit Fullscreen' : 'Expand Fullscreen'}
+                >
+                  {isDetailFullscreen ? <Minimize2 size={16} /> : <Maximize2 size={16} />}
                 </button>
                 <button onClick={() => setSelectedPo(null)} className="text-slate-400 hover:text-slate-600 p-1"><X size={18}/></button>
               </div>
@@ -858,10 +1357,161 @@ export const PurchaseOrdersPage = () => {
                     <p className="text-slate-700">Expected Delivery: <strong>{formatDateDDMMYYYY(selectedPo.expectedDate)}</strong></p>
                     <p className="text-slate-700">PO Date: <strong>{formatDateDDMMYYYY(selectedPo.date)}</strong></p>
                     <p className="text-slate-700">Status: <strong className="text-slate-900">{getOscarStatus(selectedPo)}</strong></p>
+                    <p className="text-slate-700">Purchase Type: <strong className="text-slate-900">{purchaseTypeOf(selectedPo)}</strong></p>
+                    <p className="text-slate-700">Project: <strong className="text-slate-900">{selectedPo.projectCode ? `${selectedPo.projectCode}${selectedPo.projectName ? ` — ${selectedPo.projectName}` : ''}` : 'General Stock'}</strong></p>
                   </div>
                 </div>
               </div>
-              <DocumentTimeline steps={getPoTimelineSteps(selectedPo)}/>
+              <DocumentTimeline
+                steps={getPoTimelineSteps(selectedPo)}
+                onStepClick={(step) => {
+                  if (step.key) {
+                    setActiveTimelineSlide((prev) => (prev === step.key ? null : step.key));
+                    return;
+                  }
+                  const lbl = (step.label || '').toLowerCase();
+                  if (lbl.includes('delivery')) {
+                    setActiveTimelineSlide((prev) => (prev === 'supplier_delivery' ? null : 'supplier_delivery'));
+                  } else if (lbl.includes('grn') || lbl.includes('inward')) {
+                    setActiveTimelineSlide((prev) => (prev === 'grn_inward' ? null : 'grn_inward'));
+                  } else if (lbl.includes('lot') || lbl.includes('taka')) {
+                    setActiveTimelineSlide((prev) => (prev === 'lot_taka_creation' ? null : 'lot_taka_creation'));
+                  } else if (lbl.includes('qc') || lbl.includes('quality')) {
+                    setActiveTimelineSlide((prev) => (prev === 'grey_fabric_qc' ? null : 'grey_fabric_qc'));
+                  } else if (lbl.includes('stock')) {
+                    setActiveTimelineSlide((prev) => (prev === 'grey_stock_updated' ? null : 'grey_stock_updated'));
+                  } else if (lbl.includes('vendor bill')) {
+                    setActiveTimelineSlide((prev) => (prev === 'vendor_bill' ? null : 'vendor_bill'));
+                  } else if (lbl.includes('bill') || lbl.includes('match')) {
+                    setActiveTimelineSlide((prev) => (prev === 'supplier_bill_matching' ? null : 'supplier_bill_matching'));
+                  } else if (lbl.includes('payment') || lbl.includes('disbursement')) {
+                    setActiveTimelineSlide((prev) => (prev === 'disbursement_payment' ? null : 'disbursement_payment'));
+                  }
+                }}
+              />
+              {activeTimelineSlide === 'supplier_delivery' && (
+                <div className="mt-2 mb-3">
+                  <SupplierDeliveryInlineSlide
+                    po={selectedPo}
+                    onClose={() => {
+                      setSelectedDeliveryForGrn(null);
+                      setActiveTimelineSlide(null);
+                    }}
+                    onNextStep={(key, delivery) => {
+                      setSelectedDeliveryForGrn(delivery || null);
+                      setActiveTimelineSlide(key);
+                    }}
+                    onDeliverySaved={() => {
+                      loadPoLifecycle(selectedPo?.id, selectedPo?.poNumber);
+                      if (refreshCollections) refreshCollections(['purchaseOrders']);
+                    }}
+                  />
+                </div>
+              )}
+              {activeTimelineSlide === 'grn_inward' && (
+                <div className="mt-2 mb-3">
+                  <GoodsReceiptInlineSlide
+                    po={selectedPo}
+                    delivery={selectedDeliveryForGrn}
+                    onClose={() => {
+                      setSelectedDeliveryForGrn(null);
+                      setActiveTimelineSlide(null);
+                    }}
+                    onNextStep={(key) => {
+                      setSelectedDeliveryForGrn(null);
+                      setActiveTimelineSlide(key);
+                    }}
+                    onPrevStep={(key) => {
+                      setSelectedDeliveryForGrn(null);
+                      setActiveTimelineSlide(key);
+                    }}
+                    onReceiptSaved={() => {
+                      loadPoLifecycle(selectedPo?.id, selectedPo?.poNumber);
+                      if (refreshCollections) refreshCollections(['purchaseOrders', 'inventory']);
+                    }}
+                  />
+                </div>
+              )}
+              {activeTimelineSlide === 'lot_taka_creation' && (
+                <div className="mt-2 mb-3">
+                  <LotTakaInlineSlide
+                    po={selectedPo}
+                    onClose={() => setActiveTimelineSlide(null)}
+                    onNextStep={(key) => setActiveTimelineSlide(key)}
+                    onPrevStep={(key) => setActiveTimelineSlide(key)}
+                    onSwitchToGrn={() => setActiveTimelineSlide('grn_inward')}
+                    onLotSaved={() => {
+                      loadPoLifecycle(selectedPo?.id, selectedPo?.poNumber);
+                      if (refreshCollections) refreshCollections(['purchaseOrders', 'inventory']);
+                    }}
+                  />
+                </div>
+              )}
+              {activeTimelineSlide === 'grey_fabric_qc' && (
+                <div className="mt-2 mb-3">
+                  <GreyQcInlineSlide
+                    po={selectedPo}
+                    onClose={() => setActiveTimelineSlide(null)}
+                    onNextStep={(key) => setActiveTimelineSlide(key)}
+                    onPrevStep={(key) => setActiveTimelineSlide(key)}
+                    onQcSaved={() => {
+                      loadPoLifecycle(selectedPo?.id, selectedPo?.poNumber);
+                      if (refreshCollections) refreshCollections(['purchaseOrders', 'inventory']);
+                    }}
+                  />
+                </div>
+              )}
+              {activeTimelineSlide === 'grey_stock_updated' && (
+                <div className="mt-2 mb-3">
+                  <GreyStockUpdatedInlineSlide
+                    po={selectedPo}
+                    onClose={() => setActiveTimelineSlide(null)}
+                    onNextStep={(key) => setActiveTimelineSlide(key)}
+                    onPrevStep={(key) => setActiveTimelineSlide(key)}
+                  />
+                </div>
+              )}
+              {activeTimelineSlide === 'vendor_bill' && (
+                <div className="mt-2 mb-3">
+                  <VendorBillInlineSlide
+                    po={selectedPo}
+                    onClose={() => setActiveTimelineSlide(null)}
+                    onNextStep={(key) => setActiveTimelineSlide(key)}
+                    onPrevStep={(key) => setActiveTimelineSlide(key)}
+                    onBillSaved={() => {
+                      loadPoLifecycle(selectedPo?.id, selectedPo?.poNumber);
+                      if (refreshCollections) refreshCollections(['purchaseOrders', 'purchaseBills', 'vendorBills']);
+                    }}
+                  />
+                </div>
+              )}
+              {activeTimelineSlide === 'supplier_bill_matching' && (
+                <div className="mt-2 mb-3">
+                  <SupplierBillMatchingInlineSlide
+                    po={selectedPo}
+                    onClose={() => setActiveTimelineSlide(null)}
+                    onNextStep={(key) => setActiveTimelineSlide(key)}
+                    onPrevStep={(key) => setActiveTimelineSlide(key)}
+                    onBillMatched={() => {
+                      loadPoLifecycle(selectedPo?.id, selectedPo?.poNumber);
+                      if (refreshCollections) refreshCollections(['purchaseOrders', 'purchaseBills', 'vendorBills']);
+                    }}
+                  />
+                </div>
+              )}
+              {activeTimelineSlide === 'disbursement_payment' && (
+                <div className="mt-2 mb-3">
+                  <SupplierPaymentInlineSlide
+                    po={selectedPo}
+                    onClose={() => setActiveTimelineSlide(null)}
+                    onPrevStep={(key) => setActiveTimelineSlide(key)}
+                    onPaymentSaved={() => {
+                      loadPoLifecycle(selectedPo?.id, selectedPo?.poNumber);
+                      if (refreshCollections) refreshCollections(['purchaseOrders', 'purchaseBills', 'paymentOuts']);
+                    }}
+                  />
+                </div>
+              )}
               <RelatedDocumentsCard documents={getPoRelatedDocs(selectedPo)}/>
               <div className="space-y-2">
                 <h4 className="font-bold text-slate-700 uppercase tracking-wider text-xs">Fabric Line Items ({selectedPo.items?.length || 0})</h4>
@@ -892,7 +1542,9 @@ export const PurchaseOrdersPage = () => {
                 </div>
               </div>
             </div>
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 lg:gap-0 pt-4 border-t border-slate-200 bg-slate-50 -mx-4 -mb-4 px-4 sm:-mx-6 sm:-mb-6 sm:px-6 py-3">
+            <div className={`flex flex-col sm:flex-row sm:items-center justify-between gap-3 lg:gap-0 pt-4 border-t border-slate-200 bg-slate-50 px-4 py-3 ${
+              isDetailFullscreen ? '-mx-4 -mb-4 sm:-mx-8 sm:-mb-8 sm:px-8' : '-mx-4 -mb-4 sm:-mx-6 sm:-mb-6 sm:px-6'
+            }`}>
               {(() => {
                 const poInfo = getPoBilledStatus(selectedPo.id);
                 return (
@@ -911,7 +1563,115 @@ export const PurchaseOrdersPage = () => {
                       )}
                       {getOscarStatus(selectedPo) === 'Draft' && (<Button onClick={() => { issuePo(selectedPo.id); setSelectedPo(null); }}>Submit for Approval</Button>)}
                       {getOscarStatus(selectedPo) === 'Pending Approval' && (<Button onClick={() => { approvePo(selectedPo.id); setSelectedPo(null); }}>Approve PO</Button>)}
-                      {getOscarStatus(selectedPo) === 'Approved' && (<Button onClick={() => { startProductionPo(selectedPo.id); setSelectedPo(null); }}>Start Production</Button>)}
+                      {getOscarStatus(selectedPo) === 'Approved' && purchaseTypeOf(selectedPo) === PURCHASE_TYPE_VENDOR_A && (<Button onClick={() => { startProductionPo(selectedPo.id); setSelectedPo(null); }}>Start Production</Button>)}
+                      {RECEIVABLE_STATUSES.includes(getOscarStatus(selectedPo)) && purchaseTypeOf(selectedPo) === PURCHASE_TYPE_GREY && (
+                        <>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setActiveTimelineSlide((prev) => (prev === 'supplier_delivery' ? null : 'supplier_delivery'));
+                            }}
+                            className={`px-3 py-1.5 border rounded-lg font-bold flex items-center gap-1.5 text-xs shadow-2xs transition-colors ${
+                              activeTimelineSlide === 'supplier_delivery'
+                                ? 'bg-blue-600 text-white border-blue-600'
+                                : 'bg-blue-50 border-blue-200 text-blue-700 hover:bg-blue-100'
+                            }`}
+                          >
+                            <Truck size={13} /> {activeTimelineSlide === 'supplier_delivery' ? 'Hide Delivery Slide' : 'Supplier Delivery Slide'}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setActiveTimelineSlide((prev) => (prev === 'grn_inward' ? null : 'grn_inward'));
+                            }}
+                            className={`px-3 py-1.5 border rounded-lg font-bold flex items-center gap-1.5 text-xs shadow-2xs transition-colors ${
+                              activeTimelineSlide === 'grn_inward'
+                                ? 'bg-emerald-600 text-white border-emerald-600'
+                                : 'bg-emerald-50 border-emerald-200 text-emerald-700 hover:bg-emerald-100'
+                            }`}
+                          >
+                            <PackageCheck size={13} /> {activeTimelineSlide === 'grn_inward' ? 'Hide GRN Slide' : 'Record GRN (Slide)'}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setActiveTimelineSlide((prev) => (prev === 'lot_taka_creation' ? null : 'lot_taka_creation'));
+                            }}
+                            className={`px-3 py-1.5 border rounded-lg font-bold flex items-center gap-1.5 text-xs shadow-2xs transition-colors cursor-pointer ${
+                              activeTimelineSlide === 'lot_taka_creation'
+                                ? 'bg-purple-600 text-white border-purple-600'
+                                : 'bg-purple-50 border-purple-200 text-purple-700 hover:bg-purple-100'
+                            }`}
+                          >
+                            <Layers size={13} /> {activeTimelineSlide === 'lot_taka_creation' ? 'Hide Lot / Taka' : 'Lot / Taka Slide'}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setActiveTimelineSlide((prev) => (prev === 'grey_fabric_qc' ? null : 'grey_fabric_qc'));
+                            }}
+                            className={`px-3 py-1.5 border rounded-lg font-bold flex items-center gap-1.5 text-xs shadow-2xs transition-colors cursor-pointer ${
+                              activeTimelineSlide === 'grey_fabric_qc'
+                                ? 'bg-indigo-600 text-white border-indigo-600'
+                                : 'bg-indigo-50 border-indigo-200 text-indigo-700 hover:bg-indigo-100'
+                            }`}
+                          >
+                            <ShieldCheck size={13} /> {activeTimelineSlide === 'grey_fabric_qc' ? 'Hide QC Slide' : 'QC Inspection Slide'}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setActiveTimelineSlide((prev) => (prev === 'grey_stock_updated' ? null : 'grey_stock_updated'));
+                            }}
+                            className={`px-3 py-1.5 border rounded-lg font-bold flex items-center gap-1.5 text-xs shadow-2xs transition-colors cursor-pointer ${
+                              activeTimelineSlide === 'grey_stock_updated'
+                                ? 'bg-teal-600 text-white border-teal-600'
+                                : 'bg-teal-50 border-teal-200 text-teal-700 hover:bg-teal-100'
+                            }`}
+                          >
+                            <Warehouse size={13} /> {activeTimelineSlide === 'grey_stock_updated' ? 'Hide Stock Slide' : 'Godown Stock Slide'}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setActiveTimelineSlide((prev) => (prev === 'vendor_bill' ? null : 'vendor_bill'));
+                            }}
+                            className={`px-3 py-1.5 border rounded-lg font-bold flex items-center gap-1.5 text-xs shadow-2xs transition-colors cursor-pointer ${
+                              activeTimelineSlide === 'vendor_bill'
+                                ? 'bg-indigo-600 text-white border-indigo-600'
+                                : 'bg-indigo-50 border-indigo-200 text-indigo-700 hover:bg-indigo-100'
+                            }`}
+                          >
+                            <Receipt size={13} /> {activeTimelineSlide === 'vendor_bill' ? 'Hide Vendor Bill' : 'Vendor Bill Slide'}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setActiveTimelineSlide((prev) => (prev === 'supplier_bill_matching' ? null : 'supplier_bill_matching'));
+                            }}
+                            className={`px-3 py-1.5 border rounded-lg font-bold flex items-center gap-1.5 text-xs shadow-2xs transition-colors cursor-pointer ${
+                              activeTimelineSlide === 'supplier_bill_matching'
+                                ? 'bg-blue-600 text-white border-blue-600'
+                                : 'bg-blue-50 border-blue-200 text-blue-700 hover:bg-blue-100'
+                            }`}
+                          >
+                            <FileCheck2 size={13} /> {activeTimelineSlide === 'supplier_bill_matching' ? 'Hide Matching' : 'Bill Matching Slide'}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setActiveTimelineSlide((prev) => (prev === 'disbursement_payment' ? null : 'disbursement_payment'));
+                            }}
+                            className={`px-3 py-1.5 border rounded-lg font-bold flex items-center gap-1.5 text-xs shadow-2xs transition-colors cursor-pointer ${
+                              activeTimelineSlide === 'disbursement_payment'
+                                ? 'bg-emerald-600 text-white border-emerald-600'
+                                : 'bg-emerald-50 border-emerald-200 text-emerald-700 hover:bg-emerald-100'
+                            }`}
+                          >
+                            <CreditCard size={13} /> {activeTimelineSlide === 'disbursement_payment' ? 'Hide Payment' : 'Payment Slide'}
+                          </button>
+                        </>
+                      )}
                       {!['Draft', 'Cancelled'].includes(getOscarStatus(selectedPo)) && poInfo.status !== 'Billed' && getOscarStatus(selectedPo) !== 'Fully Received' && (
                         <>
                           {poInfo.totalBilledQty <= 0 && (

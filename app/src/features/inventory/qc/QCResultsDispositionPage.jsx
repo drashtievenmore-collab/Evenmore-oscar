@@ -23,6 +23,7 @@ import {
 import { inventoryService } from '../../../services/domainServices';
 import { api } from '../../../services/api';
 import { useERP } from '../../../context/ERPContext';
+import PageInfoButton from '../../../components/ui/PageInfoButton';
 
 export default function QCResultsDispositionPage() {
   const { vendors = [], items = [] } = useERP();
@@ -335,7 +336,10 @@ export default function QCResultsDispositionPage() {
               4
             </div>
             <div>
-              <h1 className="text-xl font-bold text-slate-900">QC Results & Disposition</h1>
+              <div className="flex items-center gap-2">
+                <h1 className="text-xl font-bold text-slate-900">QC Results & Disposition</h1>
+                <PageInfoButton title="QC Results & Disposition" />
+              </div>
               <p className="text-xs text-slate-500 mt-0.5">
                 Record final result and update stock to Good / Hold / Reprocess / Reject.
               </p>

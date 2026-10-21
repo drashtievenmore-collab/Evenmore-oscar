@@ -27,6 +27,7 @@ import {
   ChevronDown,
 } from 'lucide-react';
 import { inventoryService } from '../../services/domainServices';
+import PageInfoButton from '../../components/ui/PageInfoButton';
 
 // Helper for Indian Currency Formatting
 function formatINR(val) {
@@ -300,9 +301,12 @@ export function InventoryDashboardPage() {
       {/* ── TOP HEADER & FILTER BAR ────────────────────────────────────────── */}
       <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4 pb-2 border-b border-slate-200">
         <div>
-          <h1 className="text-xl sm:text-2xl font-bold tracking-tight text-slate-900">
-            Inventory Dashboard
-          </h1>
+          <div className="flex items-center gap-2">
+            <h1 className="text-xl sm:text-2xl font-bold tracking-tight text-slate-900">
+              Inventory Dashboard
+            </h1>
+            <PageInfoButton title="Inventory Dashboard" />
+          </div>
           <p className="text-xs sm:text-sm text-slate-500 font-medium mt-0.5">
             Live overview of fabric stock, QC status, movement and value
           </p>

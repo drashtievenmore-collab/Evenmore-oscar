@@ -8,6 +8,7 @@ import {
   Factory, ShieldCheck, Users, TriangleAlert, ArrowRight, ChevronDown,
   Layers, ClipboardList, Cog, Boxes, RotateCcw, Ban, HelpCircle, Loader2, RefreshCw,
 } from 'lucide-react';
+import PageInfoButton from '../../components/ui/PageInfoButton';
 
 /*
  * Business position dashboard. Every figure comes from
@@ -181,7 +182,10 @@ export const DashboardPage = () => {
       <div className="pointer-events-none absolute inset-y-0 right-0 hidden w-[300px] bg-gradient-to-r from-white via-white/55 to-transparent sm:block md:w-[380px]" />
       <div className="relative flex flex-wrap items-start justify-between gap-3 p-4">
         <div>
-          <h1 className="text-[21px] font-extrabold tracking-tight text-[#17294e]">Business Position</h1>
+          <div className="flex items-center gap-2">
+            <h1 className="text-[21px] font-extrabold tracking-tight text-[#17294e]">Business Position</h1>
+            <PageInfoButton title="Dashboard Overview" />
+          </div>
           <p className="mt-0.5 text-[12.5px] text-slate-500">
             {currentUser?.name ? `Welcome, ${currentUser.name}. ` : ''}
             {data?.date ? `Figures for ${displayDate(data.date)}, compared with ${displayDate(data.previousDate)}.` : 'Live figures from the books.'}

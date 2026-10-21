@@ -18,6 +18,7 @@ import {
 } from 'lucide-react';
 
 import { fabricMasterSync, isBackendEnabled, describeError } from '../../../services/fabricMasterSync';
+import PageInfoButton from '../../../components/ui/PageInfoButton';
 
 const PER_PAGE = 10;
 
@@ -319,6 +320,7 @@ export default function FabricQualityMasterPage() {
           <span>Fabric Masters</span>
           <span className="text-slate-300 font-bold">&gt;</span>
           <span className="text-slate-800 font-semibold">Fabric Quality Master</span>
+          <PageInfoButton title="Fabric Quality Master" />
         </div>
 
         {/* Toolbar: Search + Filter + Add New */}

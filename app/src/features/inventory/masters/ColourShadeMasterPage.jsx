@@ -19,6 +19,7 @@ import {
 } from 'lucide-react';
 
 import { fabricMasterSync, isBackendEnabled, describeError } from '../../../services/fabricMasterSync';
+import PageInfoButton from '../../../components/ui/PageInfoButton';
 
 const PER_PAGE = 10;
 
@@ -762,6 +763,7 @@ export default function ColourShadeMasterPage() {
         <h1 className="text-xl sm:text-2xl font-bold text-[#0f172a] tracking-tight">
           Colour / Shade Master – List
         </h1>
+        <PageInfoButton title="Colour / Shade Master" />
       </div>
 
       {/* ── Sub-header: Breadcrumb & Toolbar ── */}

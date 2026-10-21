@@ -36,6 +36,7 @@ import {
 } from 'lucide-react';
 import { inventoryService } from '../../../services/domainServices';
 import { useERP } from '../../../context/ERPContext';
+import PageInfoButton from '../../../components/ui/PageInfoButton';
 
 export default function QCPendingInspectionsPage() {
   const { purchaseBills = [], vendors = [], items = [], fabrics = [] } = useERP();
@@ -343,9 +344,12 @@ export default function QCPendingInspectionsPage() {
             2
           </div>
           <div>
-            <h1 className="text-xl sm:text-2xl font-bold text-[#0f172a] tracking-tight">
-              Pending Inspections
-            </h1>
+            <div className="flex items-center gap-2">
+              <h1 className="text-xl sm:text-2xl font-bold text-[#0f172a] tracking-tight">
+                Pending Inspections
+              </h1>
+              <PageInfoButton title="Pending Inspections" />
+            </div>
             <p className="text-xs text-slate-500 font-medium mt-0.5">
               Fabric received from GRN or Job Work Inward, pending for QC inspection.
             </p>

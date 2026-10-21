@@ -39,10 +39,30 @@ export const PMS_RESOURCES = {
       status: p.status || undefined,
       startDate: p.startDate || undefined,
       expectedCompletionDate: p.expectedCompletionDate || undefined,
+      paymentStatus: p.paymentStatus || undefined,
+      requirementMeters: p.requirementMeters !== undefined ? num(p.requirementMeters) : undefined,
+      dyeingSentMeters: p.dyeingSentMeters !== undefined ? num(p.dyeingSentMeters) : undefined,
+      customerProjectReceivedMeters: p.customerProjectReceivedMeters !== undefined ? num(p.customerProjectReceivedMeters) : undefined,
+      customerProjectTotalMeters: p.customerProjectTotalMeters !== undefined ? num(p.customerProjectTotalMeters) : undefined,
+      customerProjectStatus: p.customerProjectStatus || undefined,
+      ownProjectReceivedMeters: p.ownProjectReceivedMeters !== undefined ? num(p.ownProjectReceivedMeters) : undefined,
+      ownProjectTotalMeters: p.ownProjectTotalMeters !== undefined ? num(p.ownProjectTotalMeters) : undefined,
+      ownProjectStatus: p.ownProjectStatus || undefined,
+      projectTypes: p.projectTypes || undefined,
     }),
     fromApi: (row) => ({
       ...row,
       overallCompletionPct: num(row.overallCompletionPct),
+      requirementMeters: num(row.requirementMeters ?? row.productDetails?.quantity ?? 0),
+      dyeingSentMeters: num(row.dyeingSentMeters ?? 0),
+      customerProjectReceivedMeters: num(row.customerProjectReceivedMeters ?? 0),
+      customerProjectTotalMeters: num(row.customerProjectTotalMeters ?? row.requirementMeters ?? row.productDetails?.quantity ?? 0),
+      customerProjectStatus: row.customerProjectStatus || (row.status === 'Completed' ? 'Fabric Received' : 'Pending'),
+      ownProjectReceivedMeters: num(row.ownProjectReceivedMeters ?? 0),
+      ownProjectTotalMeters: num(row.ownProjectTotalMeters ?? 0),
+      ownProjectStatus: row.ownProjectStatus || 'Pending',
+      paymentStatus: row.paymentStatus || 'Pending',
+      projectTypes: Array.isArray(row.projectTypes) && row.projectTypes.length > 0 ? row.projectTypes : ['Customer Project', 'Own Project'],
       stages: (row.stages || []).map((s) => ({
         ...s,
         percentage: num(s.percentage ?? s.weightPct ?? s.weight ?? 0),
@@ -170,6 +190,36 @@ export async function updateStagePercentages(projectId, payload = {}) {
   return api.post(`${projectPath(projectId)}stage-percentages/`, payload);
 }
 
+export async function getGreyStockAllocation(projectId) {
+  if (!isBackendEnabled() || !projectId) return null;
+  try {
+    return await api.get(`${projectPath(projectId)}grey-stock-allocation/`);
+  } catch (err) {
+    console.warn('[pmsSync] get grey stock allocation failed:', err?.message || err);
+    return null;
+  }
+}
+
+export async function saveGreyStockAllocation(projectId, payload = {}) {
+  if (!isBackendEnabled() || !projectId) return null;
+  return api.post(`${projectPath(projectId)}grey-stock-allocation/`, payload);
+}
+
+export async function getProjectPurchaseOrders(projectId) {
+  if (!isBackendEnabled() || !projectId) return null;
+  try {
+    return await api.get(`${projectPath(projectId)}purchase-orders/`);
+  } catch (err) {
+    console.warn('[pmsSync] get purchase orders failed:', err?.message || err);
+    return null;
+  }
+}
+
+export async function createProjectPurchaseOrder(projectId, payload = {}) {
+  if (!isBackendEnabled() || !projectId) return null;
+  return api.post(`${projectPath(projectId)}purchase-orders/`, payload);
+}
+
 // ── stage verbs ─────────────────────────────────────────────────────────────
 
 export async function addStage(projectId, payload) {
@@ -180,6 +230,11 @@ export async function addStage(projectId, payload) {
 export async function patchStage(projectId, stageId, payload) {
   if (!isBackendEnabled()) return null;
   return api.patch(stagePath(projectId, stageId), payload);
+}
+
+export async function deleteStage(projectId, stageId) {
+  if (!isBackendEnabled()) return null;
+  return api.delete(stagePath(projectId, stageId));
 }
 
 export async function assignStage(projectId, stageId, payload) {

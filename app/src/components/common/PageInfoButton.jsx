@@ -1,103 +1,11 @@
 import React, { useState } from 'react';
 import { Info, X, HelpCircle, BookOpen, ArrowRight } from 'lucide-react';
-import { hrmsGuides } from '../../data/hrms/hrmsGuides';
-
-const TITLE_MAP = {
-  'Dashboard Overview': 'dashboard',
-  'HRMS Dashboard': 'dashboard',
-  'Employee Directory': 'employees',
-  'Attendance Management': 'attendanceOverview',
-  'Mark Attendance': 'attendanceMark',
-  'Individual Attendance': 'attendanceIndividual',
-  'Bulk Attendance': 'attendanceBulk',
-  'Attendance Requests': 'attendanceRequests',
-  'Attendance Flexibility Rules': 'attendanceFlexibility',
-  'Leave Management': 'leave',
-  'Payroll Management': 'payroll',
-  'Recruitment Operations': 'recruitmentDashboard',
-  'Recruitment & Talent Hub': 'recruitmentDashboard',
-  'Recruitment': 'recruitmentDashboard',
-  'Job Requisitions': 'jobs',
-  'Job Requisitions & Openings': 'jobs',
-  'Job Openings': 'jobs',
-  'Jobs': 'jobs',
-  'Job Details': 'jobDetails',
-  'Job Requisition Details': 'jobDetails',
-  'Candidate Directory & Pipeline': 'candidates',
-  'Candidates': 'candidates',
-  'Candidate Profile': 'candidateDetails',
-  'Candidate Profile & Dossier': 'candidateDetails',
-  'Interview Schedules': 'interviews',
-  'Interviews': 'interviews',
-  'Interview Details': 'interviewDetails',
-  'Interview Assessment Details': 'interviewDetails',
-  'Job Applications': 'applications',
-  'Applications': 'applications',
-  'Offer Letters & Rollouts': 'offers',
-  'Offer Letters & Approvals': 'offers',
-  'Offers': 'offers',
-  'Candidate Onboarding': 'onboarding',
-  'Onboarding': 'onboarding',
-  'Career Portal': 'career',
-  'Careers': 'career',
-  'Custom Screening Questions': 'customQuestions',
-  'Custom Questions': 'customQuestions',
-  'Recruitment Pipeline Funnel': 'recruitmentFunnel',
-  'Recruitment Funnel & Conversion': 'recruitmentFunnel',
-  'Recruitment Funnel': 'recruitmentFunnel',
-  'Performance Management': 'performanceDashboard',
-  'Performance': 'performanceDashboard',
-  'Performance Indicators': 'indicators',
-  'Indicators': 'indicators',
-  'Key Performance Indicators (KPI Data)': 'kpiData',
-  'KPI Data': 'kpiData',
-  'Performance Appraisal': 'appraisal',
-  'Appraisal': 'appraisal',
-  'Appraisal Funnel': 'appraisalFunnel',
-  'Goal Tracking': 'goalTracking',
-  'Goals': 'goalTracking',
-  'Goal Funnel': 'goalFunnel',
-  'Training Management': 'trainingDashboard',
-  'Training Setup': 'trainingDashboard',
-  'Training': 'trainingDashboard',
-  'Training Programs': 'trainingList',
-  'Training Funnel': 'trainingFunnel',
-  'Trainer Directory': 'trainers',
-  'Trainers': 'trainers',
-  'Org Chart': 'orgChart',
-  'Organization Chart': 'orgChart',
-  'Organization': 'orgChart',
-  'Departments': 'departments',
-  'Designations': 'designations',
-  'Locations': 'locations',
-  'Asset Setup & Inventory': 'assets',
-  'Asset Setup': 'assets',
-  'Assets': 'assets',
-  'Document Management': 'documents',
-  'Documents': 'documents',
-  'Company Policy': 'companyPolicy',
-  'Company Policies': 'companyPolicy',
-  'Personal & Team Calendar': 'calendar',
-  'Calendar': 'calendar',
-  'HR Admin Setup & Governance': 'hrAdmin',
-  'HR Admin': 'hrAdmin',
-};
+import { resolveGuide } from '../../data/guides/appGuides';
 
 export function PageInfoButton({ guide, title }) {
   const [isGuideOpen, setIsGuideOpen] = useState(false);
 
-  // Allow passing a string key (e.g. guide="payroll") or a custom guide object or infer from title
-  const resolvedKey =
-    typeof guide === 'string'
-      ? guide
-      : (title && TITLE_MAP[title]) || (title && TITLE_MAP[title.trim()]) || null;
-
-  const activeGuide =
-    typeof guide === 'object' && guide !== null
-      ? guide
-      : resolvedKey && hrmsGuides[resolvedKey]
-      ? hrmsGuides[resolvedKey]
-      : (title && hrmsGuides[title]) || null;
+  const activeGuide = resolveGuide({ guide, title });
 
   if (!activeGuide) return null;
 

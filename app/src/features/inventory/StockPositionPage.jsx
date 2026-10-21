@@ -33,6 +33,7 @@ import {
 } from 'lucide-react';
 import { inventoryService } from '../../services/domainServices';
 import { useERP } from '../../context/ERPContext';
+import PageInfoButton from '../../components/ui/PageInfoButton';
 
 // Indian Currency Helper
 function formatINR(val) {
@@ -267,6 +268,11 @@ export function StockPositionPage() {
   const [printModalRecord, setPrintModalRecord] = useState(null); // #14 Print (Printer)
   const [historyModalRecord, setHistoryModalRecord] = useState(null); // View History Audit
   const [isSampleModalOpen, setIsSampleModalOpen] = useState(false); // #10 + Issue Sample
+  const [isThresholdModalOpen, setIsThresholdModalOpen] = useState(false);
+  const [thresholdInput, setThresholdInput] = useState('');
+  const [thresholdEnabled, setThresholdEnabled] = useState(true);
+  const [isSavingThreshold, setIsSavingThreshold] = useState(false);
+  const [thresholdError, setThresholdError] = useState(null);
 
   // Top Bar User Menu & Notifications (#1, #2, #3)
   const [isUserMenuOpen, setIsUserMenuOpen] = useState(false);
@@ -902,6 +908,7 @@ export function StockPositionPage() {
           <div>
             <div className="flex items-center gap-2">
               <h1 className="text-xl font-extrabold text-slate-900 tracking-tight">Sample Stock</h1>
+              <PageInfoButton title="Sample Stock" />
               <span className="px-2 py-0.5 text-[10.5px] font-bold bg-teal-50 text-teal-700 rounded border border-teal-200">
                 Sample Inventory
               </span>
@@ -1282,6 +1289,178 @@ export function StockPositionPage() {
           </button>
         </div>
       </div>
+
+      {/* ── COMBINED GREY FABRIC STOCK & LOW-STOCK ALERT BANNER (Overview Tab) ── */}
+      {activeTab === 'overview' && data?.combinedGreyStock && (
+        <div className="bg-white rounded-xl border border-slate-200/90 shadow-xs p-4">
+          <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 pb-3 border-b border-slate-100">
+            <div className="flex items-center gap-3">
+              <div
+                className={`w-10 h-10 rounded-xl grid place-items-center shrink-0 ${
+                  data.combinedGreyStock.status === 'Critical'
+                    ? 'bg-rose-50 border border-rose-200 text-rose-600'
+                    : data.combinedGreyStock.status === 'Low Stock'
+                    ? 'bg-amber-50 border border-amber-200 text-amber-600'
+                    : data.combinedGreyStock.status === 'Sufficient'
+                    ? 'bg-emerald-50 border border-emerald-200 text-emerald-600'
+                    : 'bg-slate-50 border border-slate-200 text-slate-500'
+                }`}
+              >
+                {data.combinedGreyStock.status === 'Critical' || data.combinedGreyStock.status === 'Low Stock' ? (
+                  <AlertCircle size={20} />
+                ) : (
+                  <Layers size={20} />
+                )}
+              </div>
+              <div>
+                <div className="flex items-center gap-2">
+                  <h3 className="text-sm font-bold text-slate-900">Combined Grey Fabric Inventory</h3>
+                  <span
+                    className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider ${
+                      data.combinedGreyStock.status === 'Critical'
+                        ? 'bg-rose-100 text-rose-800 border border-rose-200'
+                        : data.combinedGreyStock.status === 'Low Stock'
+                        ? 'bg-amber-100 text-amber-800 border border-amber-200'
+                        : data.combinedGreyStock.status === 'Sufficient'
+                        ? 'bg-emerald-100 text-emerald-800 border border-emerald-200'
+                        : 'bg-slate-100 text-slate-600 border border-slate-200'
+                    }`}
+                  >
+                    {data.combinedGreyStock.status === 'Unconfigured'
+                      ? 'Minimum stock level not configured'
+                      : data.combinedGreyStock.status}
+                  </span>
+                </div>
+                <p className="text-[11px] text-slate-500 mt-0.5">
+                  Authoritative aggregate across {data.combinedGreyStock.qualitiesCount || 0} fabric qualities ({data.combinedGreyStock.takasCount || 0} active takas). Single company-wide safety threshold.
+                </p>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => {
+                  setThresholdInput(data.combinedGreyStock.threshold > 0 ? String(data.combinedGreyStock.threshold) : '');
+                  setThresholdEnabled(data.combinedGreyStock.isEnabled ?? true);
+                  setThresholdError(null);
+                  setIsThresholdModalOpen(true);
+                }}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-xs font-semibold shadow-xs transition cursor-pointer"
+              >
+                <Settings size={13} />
+                Configure Threshold
+              </button>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 pt-3">
+            <div className="p-2.5 rounded-lg bg-slate-50 border border-slate-100">
+              <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block">Physical Grey</span>
+              <div className="text-base font-extrabold text-slate-900 font-mono mt-0.5">
+                {formatQty(data.combinedGreyStock.physicalGrey, data.combinedGreyStock.uom)}
+              </div>
+              <span className="text-[9.5px] text-slate-400">At company godowns</span>
+            </div>
+
+            <div className="p-2.5 rounded-lg bg-slate-50 border border-slate-100">
+              <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block">Reserved Grey</span>
+              <div className="text-base font-extrabold text-amber-700 font-mono mt-0.5">
+                {formatQty(data.combinedGreyStock.reservedGrey, data.combinedGreyStock.uom)}
+              </div>
+              <span className="text-[9.5px] text-slate-400">Sales order commits</span>
+            </div>
+
+            <div className="p-2.5 rounded-lg bg-blue-50/60 border border-blue-100">
+              <span className="text-[10px] font-bold text-blue-800 uppercase tracking-wider block">Available Grey</span>
+              <div className="text-base font-extrabold text-blue-900 font-mono mt-0.5">
+                {formatQty(data.combinedGreyStock.availableGrey, data.combinedGreyStock.uom)}
+              </div>
+              <span className="text-[9.5px] text-blue-600 font-medium">Physical - Reserved</span>
+            </div>
+
+            <div className="p-2.5 rounded-lg bg-slate-50 border border-slate-100">
+              <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block">Safety Threshold</span>
+              <div className="text-base font-extrabold text-slate-800 font-mono mt-0.5">
+                {data.combinedGreyStock.isConfigured
+                  ? formatQty(data.combinedGreyStock.threshold, data.combinedGreyStock.uom)
+                  : 'Not Set'}
+              </div>
+              <span className="text-[9.5px] text-slate-400">Combined minimum</span>
+            </div>
+
+            <div
+              className={`p-2.5 rounded-lg border ${
+                data.combinedGreyStock.shortage > 0
+                  ? 'bg-rose-50/70 border-rose-200 text-rose-800'
+                  : 'bg-slate-50 border-slate-100 text-slate-700'
+              }`}
+            >
+              <span className="text-[10px] font-bold uppercase tracking-wider block">Shortage</span>
+              <div
+                className={`text-base font-extrabold font-mono mt-0.5 ${
+                  data.combinedGreyStock.shortage > 0 ? 'text-rose-700' : 'text-slate-600'
+                }`}
+              >
+                {data.combinedGreyStock.shortage > 0
+                  ? formatQty(data.combinedGreyStock.shortage, data.combinedGreyStock.uom)
+                  : '0.00 Mtr'}
+              </div>
+              <span className="text-[9.5px] opacity-75">
+                {data.combinedGreyStock.shortage > 0 ? 'Below safety level' : 'No shortage'}
+              </span>
+            </div>
+
+            <div className="p-2.5 rounded-lg bg-purple-50/60 border border-purple-100">
+              <span className="text-[10px] font-bold text-purple-800 uppercase tracking-wider block">External WIP</span>
+              <div className="text-base font-extrabold text-purple-900 font-mono mt-0.5">
+                {formatQty(data.combinedGreyStock.externalWip, data.combinedGreyStock.uom)}
+              </div>
+              <span
+                className="text-[9.5px] text-purple-600 truncate block"
+                title={
+                  data.combinedGreyStock.wipByParty?.length
+                    ? data.combinedGreyStock.wipByParty.map((p) => `${p.party}: ${p.quantity} Mtr`).join(', ')
+                    : 'At processors'
+                }
+              >
+                {data.combinedGreyStock.wipByParty?.length
+                  ? `${data.combinedGreyStock.wipByParty.length} processor(s)`
+                  : 'At processors'}
+              </span>
+            </div>
+          </div>
+
+          {/* Alert Callout when shortage > 0 and enabled */}
+          {data.combinedGreyStock.shortage > 0 && data.combinedGreyStock.isEnabled && (
+            <div className="mt-3 p-2.5 bg-rose-50 border border-rose-200 rounded-lg flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs text-rose-800">
+              <div className="flex items-center gap-2">
+                <AlertCircle size={15} className="shrink-0 text-rose-600" />
+                <span>
+                  <strong>Combined Grey Stock Alert:</strong> Available grey fabric ({formatQty(data.combinedGreyStock.availableGrey, data.combinedGreyStock.uom)}) has fallen below the configured minimum threshold ({formatQty(data.combinedGreyStock.threshold, data.combinedGreyStock.uom)}) by {formatQty(data.combinedGreyStock.shortage, data.combinedGreyStock.uom)}.
+                </span>
+              </div>
+              <button
+                type="button"
+                onClick={() => navigate('/administration/alerts')}
+                className="text-[11px] font-semibold text-rose-700 hover:text-rose-900 underline shrink-0 cursor-pointer text-left"
+              >
+                View in Alert Center &rarr;
+              </button>
+            </div>
+          )}
+
+          {/* Unconfigured notice */}
+          {!data.combinedGreyStock.isConfigured && (
+            <div className="mt-3 p-2.5 bg-slate-50 border border-slate-200 rounded-lg flex items-center justify-between text-xs text-slate-600">
+              <div className="flex items-center gap-2">
+                <Info size={15} className="shrink-0 text-slate-500" />
+                <span>Minimum stock level not configured. Click &ldquo;Configure Threshold&rdquo; to set a company-wide safety threshold for grey fabric.</span>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
 
       {/* ── TAB CONTENT & DATA TABLE ───────────────────────────────────────── */}
       <div className="bg-white rounded-xl border border-slate-200/90 shadow-xs overflow-hidden">
@@ -2592,6 +2771,108 @@ export function StockPositionPage() {
                     {submittingSample ? 'Saving & Posting...' : 'Issue Sample'}
                   </button>
                 </div>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* ── CONFIGURE COMBINED GREY STOCK THRESHOLD MODAL ────────────────── */}
+      {isThresholdModalOpen && (
+        <div className="fixed inset-0 z-50 bg-slate-900/40 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl max-w-md w-full shadow-2xl border border-slate-200 overflow-hidden animate-in fade-in zoom-in-95 duration-150">
+            <div className="px-5 py-4 border-b border-slate-100 flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <Settings size={18} className="text-blue-600" />
+                <h3 className="text-sm font-bold text-slate-800">Configure Combined Grey Stock Threshold</h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsThresholdModalOpen(false)}
+                className="text-slate-400 hover:text-slate-600 p-1 rounded-md"
+              >
+                <X size={16} />
+              </button>
+            </div>
+
+            <form
+              onSubmit={async (e) => {
+                e.preventDefault();
+                setIsSavingThreshold(true);
+                setThresholdError(null);
+                try {
+                  const val = parseFloat(thresholdInput) || 0;
+                  await inventoryService.updateCombinedGreyStockSetting({
+                    threshold: val,
+                    isEnabled: thresholdEnabled,
+                    uom: 'Mtr',
+                  });
+                  setIsThresholdModalOpen(false);
+                  fetchData(true);
+                } catch (err) {
+                  console.error('Failed to update threshold:', err);
+                  setThresholdError(err?.message || 'Failed to update threshold setting.');
+                } finally {
+                  setIsSavingThreshold(false);
+                }
+              }}
+              className="p-5 space-y-4 text-xs"
+            >
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1">
+                  Minimum Total Grey Stock Level (Meters) <span className="text-rose-500">*</span>
+                </label>
+                <input
+                  type="number"
+                  min="0"
+                  step="1"
+                  required
+                  placeholder="e.g. 10000"
+                  value={thresholdInput}
+                  onChange={(e) => setThresholdInput(e.target.value)}
+                  className="w-full p-2.5 border border-slate-200 rounded-lg bg-slate-50 text-slate-900 font-mono font-bold focus:bg-white focus:outline-blue-600"
+                />
+                <p className="text-[11px] text-slate-500 mt-1">
+                  Single minimum threshold applied to total available grey fabric across all qualities. Metric: Available Grey = Physical Grey - Sales Reservations.
+                </p>
+              </div>
+
+              <div className="flex items-center justify-between p-3 rounded-lg bg-slate-50 border border-slate-200">
+                <div>
+                  <span className="font-semibold text-slate-800 block">Enable Low-Stock Alert</span>
+                  <span className="text-[11px] text-slate-500">
+                    Triggers Alert Center incident and topbar notification when breached.
+                  </span>
+                </div>
+                <input
+                  type="checkbox"
+                  checked={thresholdEnabled}
+                  onChange={(e) => setThresholdEnabled(e.target.checked)}
+                  className="w-4 h-4 accent-blue-600"
+                />
+              </div>
+
+              {thresholdError && (
+                <div className="p-2.5 rounded bg-rose-50 border border-rose-200 text-rose-700 text-xs">
+                  {thresholdError}
+                </div>
+              )}
+
+              <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-100">
+                <button
+                  type="button"
+                  onClick={() => setIsThresholdModalOpen(false)}
+                  className="px-3.5 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-100 rounded-lg cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={isSavingThreshold}
+                  className="px-4 py-2 text-xs font-bold text-white bg-blue-600 hover:bg-blue-700 rounded-lg shadow-xs disabled:opacity-50 cursor-pointer"
+                >
+                  {isSavingThreshold ? 'Saving...' : 'Save Threshold'}
+                </button>
               </div>
             </form>
           </div>

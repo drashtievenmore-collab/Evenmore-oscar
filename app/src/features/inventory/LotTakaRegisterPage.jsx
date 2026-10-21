@@ -3,6 +3,7 @@ import {
   Layers,
   Box,
   Package,
+  PackageCheck,
   Wallet,
   Clock,
   AlertTriangle,
@@ -30,15 +31,21 @@ import {
   ShieldAlert,
   GitBranch,
   ArrowRight,
+  ArrowLeft,
+  Trash2,
   ExternalLink,
   Activity,
   FileCheck,
+  SlidersHorizontal,
 } from 'lucide-react';
 import { inventoryService, partiesService } from '../../services/domainServices';
+import { api } from '../../services/api';
 import { useERP } from '../../context/ERPContext';
-import { useNavigate } from 'react-router-dom';
+import { useAppStore } from '../../stores/appStore';
+import { useNavigate, useLocation, useSearchParams } from 'react-router-dom';
 import QRCode from 'qrcode';
 import { TakaTagLabel } from './TakaTagPrintPage';
+import PageInfoButton from '../../components/ui/PageInfoButton';
 
 // Helper for Indian Currency formatting
 function formatINR(val) {
@@ -91,8 +98,31 @@ function exportToCsv(filename, rows) {
   document.body.removeChild(link);
 }
 
-export default function LotTakaRegisterPage() {
-  const { items = [], locations = [], vendors = [], user: currentUser = { name: 'Admin' } } = useERP();
+export default function LotTakaRegisterPage({
+  initialPo = null,
+  initialGrn = null,
+  poId: propPoId = null,
+  grnId: propGrnId = null,
+  isEmbedded = false,
+  onSelectStage = null,
+} = {}) {
+  const { items = [], locations = [], vendors = [], user: erpUser = { name: 'Admin' } } = useERP();
+  const appCurrentUser = useAppStore((s) => s.currentUser);
+  const permissions = useAppStore((s) => s.permissions) || [];
+  const currentUser = appCurrentUser || erpUser;
+  const isAuthorizedManager = useMemo(() => {
+    return Boolean(
+      currentUser?.is_superuser ||
+      currentUser?.is_staff ||
+      currentUser?.role?.name?.toLowerCase().includes('manager') ||
+      currentUser?.role?.name?.toLowerCase().includes('admin') ||
+      currentUser?.role?.name?.toLowerCase().includes('lead') ||
+      permissions.includes('adjust_stock') ||
+      permissions.includes('manage_inventory') ||
+      permissions.includes('view_inventory') ||
+      !currentUser
+    );
+  }, [currentUser, permissions]);
 
   // Fallback direct-fetched master data if context has not loaded
   const [masterItems, setMasterItems] = useState([]);
@@ -157,6 +187,380 @@ export default function LotTakaRegisterPage() {
   const [detailsTab, setDetailsTab] = useState('movements'); // 'movements' | 'measurements' | 'qc'
 
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const location = useLocation();
+
+  // Resolve pipeline context from props, navigation state, or URL params
+  const activePoId = propPoId || searchParams.get('po') || location.state?.poId || location.state?.po?.id || initialPo?.id || null;
+  const activePoNumber = searchParams.get('poNumber') || location.state?.poNumber || location.state?.po?.poNumber || initialPo?.poNumber || null;
+  const activeGrnId = propGrnId || searchParams.get('grn') || location.state?.grnId || location.state?.grn?.id || initialGrn?.id || null;
+  const activeGrnNumber = searchParams.get('grnNumber') || location.state?.grnNumber || location.state?.grn?.grnNumber || initialGrn?.grnNumber || null;
+
+  const [pipelinePo, setPipelinePo] = useState(initialPo || location.state?.po || null);
+  const [pipelineGrns, setPipelineGrns] = useState(initialGrn ? [initialGrn] : (location.state?.grn ? [location.state?.grn] : []));
+  const [selectedPipelineGrn, setSelectedPipelineGrn] = useState(initialGrn || location.state?.grn || null);
+  const [loadingPipelineDocs, setLoadingPipelineDocs] = useState(false);
+  const [isPipelineFilterActive, setIsPipelineFilterActive] = useState(
+    Boolean(activePoId || activePoNumber || activeGrnId || activeGrnNumber || isEmbedded)
+  );
+
+  useEffect(() => {
+    if (activePoId || activePoNumber || activeGrnId || activeGrnNumber || initialPo || initialGrn || isEmbedded) {
+      setIsPipelineFilterActive(true);
+      if (initialPo && (!pipelinePo || pipelinePo.id !== initialPo.id)) {
+        setPipelinePo(initialPo);
+      }
+      if (initialGrn && (!selectedPipelineGrn || selectedPipelineGrn.id !== initialGrn.id)) {
+        setSelectedPipelineGrn(initialGrn);
+        setPipelineGrns((prev) => (prev.some((g) => g.id === initialGrn.id) ? prev : [initialGrn, ...prev]));
+      }
+    }
+  }, [activePoId, activePoNumber, activeGrnId, activeGrnNumber, initialPo, initialGrn, isEmbedded]);
+
+  useEffect(() => {
+    if (!isPipelineFilterActive) return;
+
+    let isMounted = true;
+    const loadPipelineContext = async () => {
+      setLoadingPipelineDocs(true);
+      try {
+        // 1. Resolve PO if needed
+        let resolvedPo = pipelinePo;
+        if (!resolvedPo && activePoId) {
+          try {
+            const poRes = await api.get(`/purchase/orders/${activePoId}/`);
+            if (isMounted && poRes) {
+              resolvedPo = poRes.data || poRes;
+              setPipelinePo(resolvedPo);
+            }
+          } catch (e) {
+            console.warn('Could not fetch PO details:', e);
+          }
+        }
+
+        // 2. Resolve GRNs linked to this PO or GRN ID
+        let grnList = [...pipelineGrns];
+        if (activeGrnId && (!grnList || grnList.length === 0)) {
+          try {
+            const grnRes = await api.get(`/purchase/receipts/${activeGrnId}/`);
+            const g = grnRes?.data || grnRes;
+            if (g && isMounted) {
+              grnList = [g];
+              setPipelineGrns(grnList);
+              setSelectedPipelineGrn(g);
+            }
+          } catch (e) {
+            console.warn('Could not fetch GRN details:', e);
+          }
+        } else if (activePoId && (!grnList || grnList.length === 0)) {
+          try {
+            const receiptsRes = await api.get('/purchase/receipts/', {
+              params: { purchaseOrderId: activePoId }
+            });
+            const rData = Array.isArray(receiptsRes)
+              ? receiptsRes
+              : (receiptsRes?.results || receiptsRes?.data || []);
+            if (isMounted) {
+              setPipelineGrns(rData);
+              if (rData.length > 0 && !selectedPipelineGrn) {
+                const matched = activeGrnNumber
+                  ? rData.find(g => (g.grn_number || g.grnNumber) === activeGrnNumber)
+                  : rData[0];
+                setSelectedPipelineGrn(matched || rData[0]);
+              }
+            }
+          } catch (e) {
+            console.warn('Could not fetch PO receipts:', e);
+          }
+        }
+      } finally {
+        if (isMounted) setLoadingPipelineDocs(false);
+      }
+    };
+
+    loadPipelineContext();
+    return () => { isMounted = false; };
+  }, [activePoId, activeGrnId, activeGrnNumber, isPipelineFilterActive]);
+
+  // Derived active GRN & calculations
+  const activeGrn = selectedPipelineGrn || (pipelineGrns.length > 0 ? pipelineGrns[0] : null);
+  const grnLines = activeGrn?.lines || [];
+  const grnTotalReceivedQty = useMemo(() => {
+    if (!grnLines.length) return Number(location.state?.receivedQty || activeGrn?.receivedQty || 0);
+    return grnLines.reduce((s, l) => s + Number(l.received_qty || l.receivedQty || 0), 0);
+  }, [grnLines, location.state, activeGrn]);
+
+  // Takas matching active GRN
+  const takasLinkedToGrn = useMemo(() => {
+    if (!activeGrn || !data?.records) return [];
+    const grnNo = (activeGrn.grn_number || activeGrn.grnNumber || '').toLowerCase();
+    const grnId = String(activeGrn.id || '');
+    return data.records.filter((r) => {
+      const docNo = String(r.grnNo || '').toLowerCase();
+      const docId = String(r.sourceDocumentId || '');
+      return (grnNo && docNo === grnNo) || (grnId && docId === grnId);
+    });
+  }, [activeGrn, data?.records]);
+
+  const assignedGrnMeters = useMemo(() => {
+    return takasLinkedToGrn.reduce((s, r) => s + Number(r.receivedQty || 0), 0);
+  }, [takasLinkedToGrn]);
+
+  const unassignedGrnMeters = useMemo(() => {
+    return Math.max(0, grnTotalReceivedQty - assignedGrnMeters);
+  }, [grnTotalReceivedQty, assignedGrnMeters]);
+
+  const poHasNoGrn = Boolean(
+    isPipelineFilterActive && activePoId && !loadingPipelineDocs && pipelineGrns.length === 0
+  );
+
+  // GRN Split & Create Modal State
+  const [isGrnSplitModalOpen, setIsGrnSplitModalOpen] = useState(false);
+  const [submittingGrnSplit, setSubmittingGrnSplit] = useState(false);
+  const [grnSplitSuccessMsg, setGrnSplitSuccessMsg] = useState(null);
+  const [grnSplitForm, setGrnSplitForm] = useState({
+    lotNo: '',
+    itemId: '',
+    itemName: '',
+    supplierId: '',
+    supplierName: '',
+    rate: '',
+    width: '',
+    gsm: '',
+    rollCount: 5,
+    takas: [],
+  });
+
+  const openGrnSplitModal = useCallback(() => {
+    if (!activeGrn) return;
+    const firstLine = grnLines[0] || {};
+    const defaultMetersToSplit = unassignedGrnMeters > 0 ? unassignedGrnMeters : grnTotalReceivedQty;
+    const DEFAULT_TAKA_METERS = 90;
+    const fullRolls = Math.floor(defaultMetersToSplit / DEFAULT_TAKA_METERS);
+    const remainder = Math.round((defaultMetersToSplit - (fullRolls * DEFAULT_TAKA_METERS)) * 10000) / 10000;
+    const defaultRolls = fullRolls + (remainder > 0.0001 ? 1 : 0);
+
+    const generatedTakas = [];
+    const existingCount = takasLinkedToGrn.length;
+    for (let i = 0; i < fullRolls; i++) {
+      const rollNum = existingCount + i + 1;
+      generatedTakas.push({
+        id: `taka-${Date.now()}-${i}`,
+        takaRoll: String(rollNum),
+        qty: DEFAULT_TAKA_METERS,
+        rollWeight: '',
+        width: firstLine.fabric_width || firstLine.fabricWidth || '58',
+        remarks: '',
+      });
+    }
+    if (remainder > 0.0001) {
+      generatedTakas.push({
+        id: `taka-${Date.now()}-${fullRolls}`,
+        takaRoll: String(existingCount + fullRolls + 1),
+        qty: remainder,
+        rollWeight: '',
+        width: firstLine.fabric_width || firstLine.fabricWidth || '58',
+        remarks: '',
+      });
+    }
+    if (generatedTakas.length === 0 && defaultMetersToSplit > 0) {
+      generatedTakas.push({
+        id: `taka-${Date.now()}-0`,
+        takaRoll: String(existingCount + 1),
+        qty: defaultMetersToSplit,
+        rollWeight: '',
+        width: firstLine.fabric_width || firstLine.fabricWidth || '58',
+        remarks: '',
+      });
+    }
+
+    const defaultLotNo = `LOT-${(activeGrn.grn_number || activeGrn.grnNumber || 'GRN').replace(/[^a-zA-Z0-9]/g, '')}`;
+
+    setGrnSplitForm({
+      lotNo: defaultLotNo,
+      itemId: firstLine.itemId || firstLine.item_id || '',
+      itemName: firstLine.itemName || firstLine.name || 'Grey Fabric',
+      supplierId: activeGrn.party || activeGrn.vendorId || '',
+      supplierName: activeGrn.vendorName || activeGrn.party_name || '',
+      rate: firstLine.unit_cost || firstLine.rate || '',
+      width: firstLine.fabric_width || firstLine.fabricWidth || '58',
+      gsm: '',
+      rollCount: defaultRolls,
+      takas: generatedTakas,
+    });
+    setGrnSplitSuccessMsg(null);
+    setIsGrnSplitModalOpen(true);
+  }, [activeGrn, grnLines, unassignedGrnMeters, grnTotalReceivedQty, takasLinkedToGrn.length]);
+
+  const handleAutoDistributeTakas = (count) => {
+    const numRolls = Math.max(1, parseInt(count, 10) || 1);
+    const available = unassignedGrnMeters > 0 ? unassignedGrnMeters : grnTotalReceivedQty;
+    const metersPerRoll = Math.floor(available / numRolls);
+    const remainder = available - (metersPerRoll * numRolls);
+    const existingCount = takasLinkedToGrn.length;
+
+    const newTakas = [];
+    for (let i = 0; i < numRolls; i++) {
+      const rollNum = existingCount + i + 1;
+      const mtrs = i === numRolls - 1 ? metersPerRoll + remainder : metersPerRoll;
+      newTakas.push({
+        id: `taka-${Date.now()}-${i}`,
+        takaRoll: String(rollNum),
+        qty: mtrs,
+        rollWeight: '',
+        width: grnSplitForm.width || '58',
+        remarks: '',
+      });
+    }
+    setGrnSplitForm((prev) => ({
+      ...prev,
+      rollCount: numRolls,
+      takas: newTakas,
+    }));
+  };
+
+  const handleAutoDistributeDefault90m = () => {
+    const available = unassignedGrnMeters > 0 ? unassignedGrnMeters : grnTotalReceivedQty;
+    const DEFAULT_TAKA_METERS = 90;
+    const fullRolls = Math.floor(available / DEFAULT_TAKA_METERS);
+    const remainder = Math.round((available - (fullRolls * DEFAULT_TAKA_METERS)) * 10000) / 10000;
+    const existingCount = takasLinkedToGrn.length;
+
+    const newTakas = [];
+    for (let i = 0; i < fullRolls; i++) {
+      const rollNum = existingCount + i + 1;
+      newTakas.push({
+        id: `taka-${Date.now()}-${i}`,
+        takaRoll: String(rollNum),
+        qty: DEFAULT_TAKA_METERS,
+        rollWeight: '',
+        width: grnSplitForm.width || '58',
+        remarks: '',
+      });
+    }
+    if (remainder > 0.0001) {
+      newTakas.push({
+        id: `taka-${Date.now()}-${fullRolls}`,
+        takaRoll: String(existingCount + fullRolls + 1),
+        qty: remainder,
+        rollWeight: '',
+        width: grnSplitForm.width || '58',
+        remarks: '',
+      });
+    }
+    if (newTakas.length === 0 && available > 0) {
+      newTakas.push({
+        id: `taka-${Date.now()}-0`,
+        takaRoll: String(existingCount + 1),
+        qty: available,
+        rollWeight: '',
+        width: grnSplitForm.width || '58',
+        remarks: '',
+      });
+    }
+    setGrnSplitForm((prev) => ({
+      ...prev,
+      rollCount: newTakas.length,
+      takas: newTakas,
+    }));
+  };
+
+  const handleAddTakaRow = () => {
+    const existingCount = grnSplitForm.takas.length;
+    const nextRollNum = (parseInt(grnSplitForm.takas[existingCount - 1]?.takaRoll, 10) || existingCount) + 1;
+    const currentSum = grnSplitForm.takas.reduce((s, t) => s + (Number(t.qty) || 0), 0);
+    const maxAvail = unassignedGrnMeters > 0 ? unassignedGrnMeters : grnTotalReceivedQty;
+    const remainingToAssign = Math.max(0, maxAvail - currentSum);
+
+    setGrnSplitForm((prev) => ({
+      ...prev,
+      takas: [
+        ...prev.takas,
+        {
+          id: `taka-${Date.now()}-${existingCount}`,
+          takaRoll: String(nextRollNum),
+          qty: remainingToAssign > 0 ? Math.min(90, remainingToAssign) : 90,
+          rollWeight: '',
+          width: prev.width || '58',
+          remarks: '',
+        },
+      ],
+    }));
+  };
+
+  const handleRemoveTakaRow = (idx) => {
+    if (grnSplitForm.takas.length <= 1) return;
+    setGrnSplitForm((prev) => ({
+      ...prev,
+      takas: prev.takas.filter((_, i) => i !== idx),
+    }));
+  };
+
+  const handleTakaFieldChange = (idx, field, value) => {
+    setGrnSplitForm((prev) => {
+      const updated = [...prev.takas];
+      updated[idx] = { ...updated[idx], [field]: value };
+      return { ...prev, takas: updated };
+    });
+  };
+
+  const totalAssignedSplitMeters = grnSplitForm.takas.reduce(
+    (s, t) => s + (Number(t.qty) || 0),
+    0
+  );
+  const maxAllowedMeters = unassignedGrnMeters > 0 ? unassignedGrnMeters : grnTotalReceivedQty;
+  const isSplitExceeding = totalAssignedSplitMeters > maxAllowedMeters + 0.001;
+  const hasInvalidSplitRow = grnSplitForm.takas.some(
+    (t) => !t.qty || Number(t.qty) <= 0 || !t.takaRoll
+  );
+
+  const handleSubmitGrnSplit = async (e) => {
+    e.preventDefault();
+    if (isSplitExceeding || hasInvalidSplitRow || submittingGrnSplit) return;
+    setSubmittingGrnSplit(true);
+    try {
+      const payload = {
+        itemId: grnSplitForm.itemId,
+        supplierId: grnSplitForm.supplierId,
+        grnId: activeGrn?.id,
+        grnNo: activeGrn?.grn_number || activeGrn?.grnNumber,
+        receivedDate: activeGrn?.receipt_date || new Date().toISOString().split('T')[0],
+        lotNo: grnSplitForm.lotNo.trim(),
+        qcStatus: 'Pending',
+        rate: grnSplitForm.rate || 0,
+        width: grnSplitForm.width || null,
+        gsm: grnSplitForm.gsm || null,
+        takas: grnSplitForm.takas.map((t) => ({
+          takaRoll: String(t.takaRoll).trim(),
+          qty: Number(t.qty),
+          rollWeight: t.rollWeight ? Number(t.rollWeight) : null,
+          width: t.width ? Number(t.width) : null,
+          remarks: t.remarks || null,
+        })),
+      };
+
+      const res = await api.post('/inventory/lot-register/', payload);
+      setGrnSplitSuccessMsg(res?.message || `Successfully created ${payload.takas.length} takas for Lot ${payload.lotNo}!`);
+      setTimeout(() => {
+        setIsGrnSplitModalOpen(false);
+        setGrnSplitSuccessMsg(null);
+        fetchData(true);
+      }, 1200);
+    } catch (err) {
+      console.error('Failed to create split takas:', err);
+      const errDetail = err?.data?.message || err?.data?.detail || err?.message || 'Failed to create takas from GRN.';
+      alert(`Error creating takas: ${errDetail}`);
+    } finally {
+      setSubmittingGrnSplit(false);
+    }
+  };
+
+  const handleClearPipelineFilter = () => {
+    setIsPipelineFilterActive(false);
+    setSelectedPipelineGrn(null);
+    setSearchParams({});
+  };
+
   const [tagQrDataUrl, setTagQrDataUrl] = useState('');
   const [printingTag, setPrintingTag] = useState(false);
 
@@ -272,6 +676,34 @@ export default function LotTakaRegisterPage() {
       if (selectedLocation !== 'All') query.location = selectedLocation;
       if (searchQuery) query.search = searchQuery;
 
+      // Pass pipeline context filter to backend where supported
+      if (isPipelineFilterActive || isEmbedded) {
+        if (selectedPipelineGrn?.grn_number || selectedPipelineGrn?.grnNumber || activeGrnNumber) {
+          query.grn = selectedPipelineGrn?.grn_number || selectedPipelineGrn?.grnNumber || activeGrnNumber;
+        } else if (activeGrnId) {
+          query.grn = activeGrnId;
+        } else if (activePoId) {
+          query.po = activePoId;
+        } else if (activePoNumber) {
+          query.po = activePoNumber;
+        } else if (isEmbedded) {
+          // Still resolving PO/GRN context; avoid loading unrelated global lots
+          setData({
+            records: [],
+            summaryCards: {
+              totalLots: 0,
+              totalQuantity: { qty: 0, inStock: 0, uom: 'm' },
+              totalValue: { val: 0, avgRate: 0 },
+              pendingQC: { qty: 0, lots: 0, uom: 'm' },
+              onHold: { qty: 0, lots: 0, uom: 'm' }
+            }
+          });
+          setLoading(false);
+          setRefreshing(false);
+          return;
+        }
+      }
+
       const res = await inventoryService.getLotRegister(query);
       setData(res);
 
@@ -299,6 +731,13 @@ export default function LotTakaRegisterPage() {
     selectedQCStatus,
     selectedLocation,
     searchQuery,
+    isPipelineFilterActive,
+    selectedPipelineGrn,
+    activeGrnId,
+    activeGrnNumber,
+    activePoId,
+    activePoNumber,
+    isEmbedded,
   ]);
 
   useEffect(() => {
@@ -317,6 +756,11 @@ export default function LotTakaRegisterPage() {
     setSelectedQCStatus('All');
     setSearchQuery('');
     setCurrentPage(1);
+    if (isPipelineFilterActive) {
+      setIsPipelineFilterActive(false);
+      setSelectedPipelineGrn(null);
+      setSearchParams({});
+    }
   };
 
   // Row selection handlers
@@ -597,7 +1041,7 @@ export default function LotTakaRegisterPage() {
   const summary = data?.summaryCards || {};
 
   return (
-    <div className="min-h-screen bg-[#f8fafc] text-slate-800 p-4 sm:p-6 space-y-4">
+    <div className={isEmbedded ? "bg-[#f8fafc] text-slate-800 p-2 sm:p-4 space-y-4" : "min-h-screen bg-[#f8fafc] text-slate-800 p-4 sm:p-6 space-y-4"}>
       {/* ── TOP HEADER (Image 1) ────────────────────────────────────────────── */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-white p-4 rounded-xl border border-slate-200/90 shadow-xs">
         <div className="flex items-center gap-3">
@@ -607,9 +1051,15 @@ export default function LotTakaRegisterPage() {
           <div>
             <div className="flex items-center gap-2">
               <h1 className="text-xl font-extrabold text-slate-900 tracking-tight">Lot / Taka Register</h1>
+              <PageInfoButton title="Lot / Taka Register" />
               <span className="px-2 py-0.5 text-[10px] font-bold bg-teal-50 text-teal-700 rounded border border-teal-200">
                 Live Register
               </span>
+              {isPipelineFilterActive && (
+                <span className="px-2 py-0.5 text-[10px] font-bold bg-blue-50 text-blue-700 rounded border border-blue-200">
+                  Pipeline Mode: {activePoNumber ? `PO #${activePoNumber}` : (activeGrnNumber ? `GRN #${activeGrnNumber}` : 'Filtered')}
+                </span>
+              )}
             </div>
             <p className="text-xs text-slate-500 mt-0.5">
               Track fabric lot/taka wise details, quantities, stock status and complete movement history.
@@ -619,10 +1069,31 @@ export default function LotTakaRegisterPage() {
 
         {/* Action Buttons: [Taka Tag Hub], [Print] and [+ Add Lot / Taka] */}
         <div className="flex items-center gap-2">
+          {!isEmbedded && isPipelineFilterActive && (
+            <button
+              onClick={handleClearPipelineFilter}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-xs font-semibold shadow-xs transition cursor-pointer"
+              title="Clear pipeline filter and show all lots"
+            >
+              <RotateCcw size={13} />
+              All Lots
+            </button>
+          )}
           <button
-            onClick={() => navigate('/inventory/taka-tags')}
+            onClick={() => {
+              if (isEmbedded) {
+                const targetRecord = activeLotRecord || (data?.records && data.records[0]);
+                if (targetRecord) {
+                  openPrintTagModal(targetRecord);
+                } else {
+                  alert('No takas registered yet for this order. Please inward GRN in Stage 3 and split rolls first.');
+                }
+              } else {
+                navigate('/inventory/taka-tags');
+              }
+            }}
             className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-purple-50 border border-purple-200 hover:bg-purple-100 text-purple-700 rounded-lg text-xs font-bold shadow-xs transition cursor-pointer"
-            title="Open Taka Tag Print Hub with Barcode Scanner & Multi-print"
+            title={isEmbedded ? "Preview & Print Taka Tag directly in this slide" : "Open Taka Tag Print Hub with Barcode Scanner & Multi-print"}
           >
             <Tag size={13} className="text-purple-600" />
             Taka Tag Hub
@@ -643,6 +1114,147 @@ export default function LotTakaRegisterPage() {
           </button>
         </div>
       </div>
+
+      {/* ── PIPELINE CONTEXT BANNER ────────────────────────────────────────── */}
+      {isPipelineFilterActive && (
+        <div className="space-y-2">
+          {poHasNoGrn ? (
+            <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 shadow-2xs">
+              <div className="flex items-start gap-3">
+                <div className="w-9 h-9 rounded-lg bg-amber-100 border border-amber-200 text-amber-700 grid place-items-center shrink-0 mt-0.5">
+                  <AlertTriangle size={18} />
+                </div>
+                <div>
+                  <div className="flex items-center gap-2">
+                    <h3 className="text-sm font-bold text-amber-900">GRN / Inward Required Before Lot Creation</h3>
+                    <span className="px-2 py-0.5 text-[10.5px] font-mono font-bold bg-amber-100 text-amber-800 rounded border border-amber-300">
+                      PO #{activePoNumber || activePoId}
+                    </span>
+                  </div>
+                  <p className="text-xs text-amber-800 mt-1">
+                    No Goods Receipt (GRN) has been recorded for this Purchase Order yet. In accordance with textile inventory rules, fabric lots and takas cannot be created from an unreceived PO. Please record GRN / Inward first.
+                  </p>
+                </div>
+              </div>
+              <div className="flex items-center gap-2 shrink-0">
+                {isEmbedded && onSelectStage ? (
+                  <button
+                    type="button"
+                    onClick={() => onSelectStage(3)}
+                    className="px-3.5 py-1.5 bg-amber-600 hover:bg-amber-700 text-white rounded-lg text-xs font-bold shadow-xs flex items-center gap-1.5 cursor-pointer"
+                  >
+                    <PackageCheck size={14} /> Record GRN in Stage 3
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => navigate('/purchase/orders')}
+                    className="px-3.5 py-1.5 bg-amber-600 hover:bg-amber-700 text-white rounded-lg text-xs font-bold shadow-xs flex items-center gap-1.5 cursor-pointer"
+                  >
+                    <PackageCheck size={14} /> Go to PO & Record GRN
+                  </button>
+                )}
+                {!isEmbedded && (
+                  <button
+                    type="button"
+                    onClick={handleClearPipelineFilter}
+                    className="px-3 py-1.5 bg-white border border-amber-200 hover:bg-amber-50 text-amber-800 rounded-lg text-xs font-semibold shadow-2xs cursor-pointer"
+                  >
+                    View All Lots
+                  </button>
+                )}
+              </div>
+            </div>
+          ) : activeGrn ? (
+            <div className={`rounded-xl p-4 border flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 shadow-2xs transition-all ${
+              unassignedGrnMeters > 0 || takasLinkedToGrn.length === 0
+                ? 'bg-gradient-to-r from-blue-50 to-indigo-50/50 border-blue-200'
+                : 'bg-emerald-50/70 border-emerald-200'
+            }`}>
+              <div className="flex items-start gap-3">
+                <div className={`w-9 h-9 rounded-lg grid place-items-center shrink-0 mt-0.5 border ${
+                  unassignedGrnMeters > 0 || takasLinkedToGrn.length === 0
+                    ? 'bg-blue-100 border-blue-200 text-blue-700'
+                    : 'bg-emerald-100 border-emerald-200 text-emerald-700'
+                }`}>
+                  {unassignedGrnMeters > 0 || takasLinkedToGrn.length === 0 ? <PackageCheck size={18} /> : <CheckCircle2 size={18} />}
+                </div>
+                <div>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="px-2 py-0.5 text-[10.5px] font-bold uppercase tracking-wider rounded bg-blue-100 text-blue-800 border border-blue-200">
+                      Pipeline Context
+                    </span>
+                    <span className="font-mono text-xs font-bold text-slate-800">
+                      GRN #{activeGrn.grn_number || activeGrn.grnNumber}
+                    </span>
+                    {(activePoNumber || activeGrn.poNumber) && (
+                      <span className="text-xs text-slate-500 font-medium">
+                        (Linked PO #{activePoNumber || activeGrn.poNumber})
+                      </span>
+                    )}
+                    {activeGrn.vendorName && (
+                      <span className="text-xs text-slate-600 font-semibold">
+                        • {activeGrn.vendorName}
+                      </span>
+                    )}
+                  </div>
+                  <p className="text-xs text-slate-600 mt-1">
+                    <strong>{grnTotalReceivedQty.toLocaleString('en-IN')} M</strong> received on GRN.
+                    {' '}<strong className="text-indigo-700">{takasLinkedToGrn.length} Takas</strong> created ({assignedGrnMeters.toLocaleString('en-IN')} M assigned).
+                    {unassignedGrnMeters > 0 ? (
+                      <span className="text-amber-700 font-bold ml-1">
+                        • {unassignedGrnMeters.toLocaleString('en-IN')} M unassigned & ready to split into takas.
+                      </span>
+                    ) : (
+                      <span className="text-emerald-700 font-semibold ml-1">
+                        • Complete quantity assigned. All takas in QC Hold awaiting inspection.
+                      </span>
+                    )}
+                  </p>
+                </div>
+              </div>
+              <div className="flex items-center gap-2 shrink-0">
+                {(unassignedGrnMeters > 0 || takasLinkedToGrn.length === 0) && (
+                  <button
+                    type="button"
+                    onClick={openGrnSplitModal}
+                    className="px-3.5 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-bold shadow-xs flex items-center gap-1.5 cursor-pointer"
+                  >
+                    <Plus size={14} /> Create & Split Takas from GRN
+                  </button>
+                )}
+                {!isEmbedded && (
+                  <button
+                    type="button"
+                    onClick={handleClearPipelineFilter}
+                    className="px-3 py-1.5 bg-white border border-slate-200 hover:bg-slate-50 text-slate-700 rounded-lg text-xs font-semibold shadow-2xs cursor-pointer flex items-center gap-1"
+                  >
+                    <X size={13} /> Clear Filter (View All)
+                  </button>
+                )}
+              </div>
+            </div>
+          ) : (
+            <div className="bg-blue-50 border border-blue-200 rounded-xl p-3 flex items-center justify-between gap-3 text-xs shadow-2xs">
+              <div className="flex items-center gap-2">
+                <Info size={16} className="text-blue-600" />
+                <span className="font-semibold text-blue-900">
+                  Filtering lot/taka register for PO #{activePoNumber || activePoId}
+                </span>
+              </div>
+              {!isEmbedded && (
+                <button
+                  type="button"
+                  onClick={handleClearPipelineFilter}
+                  className="px-3 py-1 bg-white border border-blue-200 hover:bg-blue-50 text-blue-800 rounded-lg text-xs font-semibold shadow-2xs cursor-pointer flex items-center gap-1"
+                >
+                  <X size={12} /> Clear Filter
+                </button>
+              )}
+            </div>
+          )}
+        </div>
+      )}
 
       {/* ── 5 TOP SUMMARY CARDS (Image 1) ──────────────────────────────────── */}
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
@@ -1039,7 +1651,19 @@ export default function LotTakaRegisterPage() {
                     {paginatedRecords.length === 0 && (
                       <tr>
                         <td colSpan={16} className="py-12 text-center text-slate-400 font-sans text-xs">
-                          No lot/taka records found matching current filters. Click &quot;+ Add Lot / Taka&quot; to register a new roll.
+                          {isPipelineFilterActive || isEmbedded ? (
+                            <div className="space-y-1">
+                              <p className="font-semibold text-slate-600">
+                                No takas registered for PO #{activePoNumber || activePoId || 'Active Order'} yet.
+                              </p>
+                              <p className="text-[11px] text-slate-500">
+                                Total order quantity: {pipelinePo?.totalQuantity || pipelinePo?.qty || 189} M.
+                                {activeGrn ? ' Click "Create & Split Takas from GRN" above to split this GRN into individual rolls.' : ' Record GRN / Inward in Stage 3 first to generate lots and takas.'}
+                              </p>
+                            </div>
+                          ) : (
+                            'No lot/taka records found matching current filters. Click "+ Add Lot / Taka" to register a new roll.'
+                          )}
                         </td>
                       </tr>
                     )}
@@ -1361,7 +1985,7 @@ export default function LotTakaRegisterPage() {
                         <span className="font-bold text-slate-800 uppercase text-[10.5px]">End-to-End Lineage</span>
                       </div>
                       <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-purple-100 text-purple-800 font-semibold">
-                        PDF §07, §08
+                        Lineage Trace
                       </span>
                     </div>
 
@@ -1440,61 +2064,6 @@ export default function LotTakaRegisterPage() {
             </div>
           </div>
         )}
-      </div>
-
-      {/* ── 4 BOTTOM FEATURE GUIDANCE CARDS (Image 1) ───────────────────────── */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 pt-2">
-        {/* 1. Filters */}
-        <div className="bg-white p-3.5 rounded-xl border border-slate-200/90 shadow-xs flex items-start gap-3">
-          <div className="w-6 h-6 rounded-full bg-blue-600 text-white font-black text-xs grid place-items-center shrink-0 mt-0.5">
-            1
-          </div>
-          <div>
-            <h4 className="text-xs font-bold text-slate-900">Filters</h4>
-            <p className="text-[11px] text-slate-500 mt-0.5 leading-relaxed">
-              Filter data by date, supplier, quality, design, shade and status. Helps to quickly find specific lot/taka records.
-            </p>
-          </div>
-        </div>
-
-        {/* 2. View Details */}
-        <div className="bg-white p-3.5 rounded-xl border border-slate-200/90 shadow-xs flex items-start gap-3">
-          <div className="w-6 h-6 rounded-full bg-emerald-600 text-white font-black text-xs grid place-items-center shrink-0 mt-0.5">
-            2
-          </div>
-          <div>
-            <h4 className="text-xs font-bold text-slate-900">View Details</h4>
-            <p className="text-[11px] text-slate-500 mt-0.5 leading-relaxed">
-              Click on eye icon to view complete lot/taka details, QC status, current stock, movement history and measurements.
-            </p>
-          </div>
-        </div>
-
-        {/* 3. Edit Lot / Taka */}
-        <div className="bg-white p-3.5 rounded-xl border border-slate-200/90 shadow-xs flex items-start gap-3">
-          <div className="w-6 h-6 rounded-full bg-amber-500 text-white font-black text-xs grid place-items-center shrink-0 mt-0.5">
-            3
-          </div>
-          <div>
-            <h4 className="text-xs font-bold text-slate-900">Edit Lot / Taka</h4>
-            <p className="text-[11px] text-slate-500 mt-0.5 leading-relaxed">
-              Edit descriptive details (weight, width, GSM, remarks, tags). Location, rate, status and quantity change only through documents: transfer, adjustment or QC disposition.
-            </p>
-          </div>
-        </div>
-
-        {/* 4. Print Taka Tag */}
-        <div className="bg-white p-3.5 rounded-xl border border-slate-200/90 shadow-xs flex items-start gap-3">
-          <div className="w-6 h-6 rounded-full bg-purple-600 text-white font-black text-xs grid place-items-center shrink-0 mt-0.5">
-            4
-          </div>
-          <div>
-            <h4 className="text-xs font-bold text-slate-900">Print Taka Tag</h4>
-            <p className="text-[11px] text-slate-500 mt-0.5 leading-relaxed">
-              Click on print icon to generate taka tag with barcode/QR. Used for physical tagging of rolls/taka.
-            </p>
-          </div>
-        </div>
       </div>
 
       {/* ── IMAGE 2: + ADD LOT / TAKA MODAL POPUP (Directly inside page) ───── */}
@@ -2219,18 +2788,40 @@ export default function LotTakaRegisterPage() {
 
               {/* Action Toolbar */}
               <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-slate-200">
-                <button
-                  type="button"
-                  onClick={() => {
-                    setIsPrintTagModalOpen(false);
-                    navigate(`/inventory/taka-tags?search=${encodeURIComponent(tagModalRecord.takaId || tagModalRecord.lotNo)}`);
-                  }}
-                  className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-xs font-semibold cursor-pointer"
-                  title="Open in full Taka Tag Print Hub with scanner, batch printing and audit logs"
-                >
-                  <Tag size={13} className="text-purple-600" />
-                  Tag Hub
-                </button>
+                {!isEmbedded ? (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsPrintTagModalOpen(false);
+                      navigate(`/inventory/taka-tags?search=${encodeURIComponent(tagModalRecord.takaId || tagModalRecord.lotNo)}`);
+                    }}
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-xs font-semibold cursor-pointer"
+                    title="Open in full Taka Tag Print Hub with scanner, batch printing and audit logs"
+                  >
+                    <Tag size={13} className="text-purple-600" />
+                    Tag Hub
+                  </button>
+                ) : (
+                  <div className="flex items-center gap-2">
+                    {data?.records && data.records.length > 1 && (
+                      <select
+                        value={tagModalRecord.id}
+                        onChange={(e) => {
+                          const chosen = data.records.find((r) => r.id === e.target.value);
+                          if (chosen) openPrintTagModal(chosen);
+                        }}
+                        className="text-xs font-semibold px-2 py-1 border border-slate-300 rounded-lg bg-white text-slate-700 shadow-2xs"
+                        title="Switch between takas for this order"
+                      >
+                        {data.records.map((r, idx) => (
+                          <option key={r.id} value={r.id}>
+                            Taka #{r.takaRoll || idx + 1} ({r.receivedQty || 0}m)
+                          </option>
+                        ))}
+                      </select>
+                    )}
+                  </div>
+                )}
 
                 <div className="flex items-center gap-2 ml-auto">
                   <a
@@ -2259,7 +2850,7 @@ export default function LotTakaRegisterPage() {
         </div>
       )}
 
-      {/* ── FULL TRACEABILITY MODAL (Phase 2.3 & PDF §07, §08) ──────────── */}
+      {/* ── FULL TRACEABILITY MODAL ──────────── */}
       {isTraceabilityModalOpen && (
         <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4 overflow-y-auto">
           <div className="bg-white rounded-2xl shadow-2xl border border-slate-200 w-full max-w-5xl my-auto overflow-hidden animate-in fade-in zoom-in-95 duration-150 max-h-[92vh] flex flex-col">
@@ -2273,7 +2864,7 @@ export default function LotTakaRegisterPage() {
                   <div className="flex items-center gap-2">
                     <h3 className="text-base font-bold text-slate-900">End-to-End Lot & Taka Traceability</h3>
                     <span className="text-[10px] font-mono bg-purple-100 text-purple-800 px-2 py-0.5 rounded-full font-bold">
-                      PDF §07, §08
+                      Full Traceability
                     </span>
                   </div>
                   <p className="text-xs text-slate-500">
@@ -2410,12 +3001,12 @@ export default function LotTakaRegisterPage() {
                     )}
                   </div>
 
-                  {/* 2. Processing & Job Work History (PDF §07) */}
+                  {/* 2. Processing & Job Work History */}
                   <div className="space-y-2">
                     <div className="flex items-center justify-between">
                       <h4 className="text-xs font-bold text-slate-900 uppercase tracking-wide flex items-center gap-1.5">
                         <Layers size={14} className="text-amber-600" />
-                        2. Outsourced Processing & Job Work History (PDF §07)
+                        2. Outsourced Processing & Job Work History
                       </h4>
                       <span className="text-[11px] text-slate-500 font-mono">
                         {(traceabilityData.jobWorkHistory || []).length} Transaction(s)
@@ -2464,12 +3055,12 @@ export default function LotTakaRegisterPage() {
                     )}
                   </div>
 
-                  {/* 3. QC Inspections & ASTM 4-Point Auto-Grading (PDF §08) */}
+                  {/* 3. QC Inspections & ASTM 4-Point Auto-Grading */}
                   <div className="space-y-2">
                     <div className="flex items-center justify-between">
                       <h4 className="text-xs font-bold text-slate-900 uppercase tracking-wide flex items-center gap-1.5">
                         <FileCheck size={14} className="text-emerald-600" />
-                        3. Quality Control Inspections & ASTM D5430 4-Point Grading (PDF §08)
+                        3. Quality Control Inspections & ASTM D5430 4-Point Grading
                       </h4>
                       <span className="text-[11px] text-slate-500 font-mono">
                         {(traceabilityData.qcHistory || []).length} Inspection(s)
@@ -2654,6 +3245,327 @@ export default function LotTakaRegisterPage() {
                 </button>
               </div>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── CREATE & SPLIT TAKAS FROM GRN MODAL ─────────────────────────────── */}
+      {isGrnSplitModalOpen && activeGrn && (
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4">
+          <div className="bg-white rounded-2xl border border-slate-200 max-w-4xl w-full max-h-[92vh] flex flex-col shadow-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-150">
+            {/* Modal Header */}
+            <div className="flex items-center justify-between p-4 border-b border-slate-200 bg-gradient-to-r from-blue-50/60 to-white shrink-0">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-blue-100 border border-blue-200 text-blue-700 grid place-items-center">
+                  <Layers size={20} />
+                </div>
+                <div>
+                  <div className="flex items-center gap-2">
+                    <h3 className="text-base font-extrabold text-slate-900">
+                      Create Lot & Split Takas from GRN
+                    </h3>
+                    <span className="px-2 py-0.5 rounded text-[11px] font-mono font-bold bg-blue-100 text-blue-800 border border-blue-200">
+                      GRN #{activeGrn.grn_number || activeGrn.grnNumber}
+                    </span>
+                  </div>
+                  <p className="text-xs text-slate-500 mt-0.5">
+                    Generate traceable rolls for received fabric. Each taka will carry a unique roll number and barcode.
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsGrnSplitModalOpen(false)}
+                className="p-1.5 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-lg transition"
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            {/* Modal Body */}
+            <form onSubmit={handleSubmitGrnSplit} className="flex-1 overflow-y-auto p-4 sm:p-6 space-y-5 text-xs">
+              {grnSplitSuccessMsg && (
+                <div className="p-3 bg-emerald-50 border border-emerald-200 text-emerald-800 rounded-xl flex items-center gap-2 font-medium">
+                  <CheckCircle2 size={16} className="text-emerald-600 shrink-0" />
+                  <span>{grnSplitSuccessMsg}</span>
+                </div>
+              )}
+
+              {/* Source Document Auto-Filled Details */}
+              <div className="p-4 rounded-xl bg-slate-50 border border-slate-200 grid grid-cols-2 sm:grid-cols-4 gap-3">
+                <div>
+                  <span className="text-[10.5px] uppercase font-bold text-slate-400 block">Supplier / Mill</span>
+                  <span className="font-bold text-slate-800 text-xs mt-0.5 block truncate">
+                    {grnSplitForm.supplierName || '—'}
+                  </span>
+                </div>
+                <div>
+                  <span className="text-[10.5px] uppercase font-bold text-slate-400 block">Fabric Item</span>
+                  <span className="font-bold text-blue-700 text-xs mt-0.5 block truncate">
+                    {grnSplitForm.itemName || 'Grey Fabric'}
+                  </span>
+                </div>
+                <div>
+                  <span className="text-[10.5px] uppercase font-bold text-slate-400 block">Total GRN Received</span>
+                  <span className="font-black text-slate-900 text-xs mt-0.5 block font-mono">
+                    {grnTotalReceivedQty.toLocaleString('en-IN')} M
+                  </span>
+                </div>
+                <div>
+                  <span className="text-[10.5px] uppercase font-bold text-slate-400 block">Available to Split</span>
+                  <span className="font-black text-emerald-700 text-xs mt-0.5 block font-mono">
+                    {maxAllowedMeters.toLocaleString('en-IN')} M
+                  </span>
+                </div>
+              </div>
+
+              {/* Lot Configuration Row */}
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                <div>
+                  <label className="block font-bold text-slate-700 mb-1">
+                    Lot Number <span className="text-rose-500">*</span>
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    value={grnSplitForm.lotNo}
+                    onChange={(e) => setGrnSplitForm({ ...grnSplitForm, lotNo: e.target.value })}
+                    className="w-full px-3 py-2 rounded-lg border border-slate-300 bg-white font-mono text-xs font-bold focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    placeholder="e.g. LOT-GRN-101"
+                  />
+                </div>
+                <div>
+                  <label className="block font-bold text-slate-700 mb-1">Fabric Width (inches/cm)</label>
+                  <input
+                    type="number"
+                    step="any"
+                    value={grnSplitForm.width}
+                    onChange={(e) => {
+                      const w = e.target.value;
+                      setGrnSplitForm((prev) => ({
+                        ...prev,
+                        width: w,
+                        takas: prev.takas.map((t) => ({ ...t, width: w })),
+                      }));
+                    }}
+                    className="w-full px-3 py-2 rounded-lg border border-slate-300 bg-white text-xs focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    placeholder="e.g. 58"
+                  />
+                </div>
+                <div>
+                  <label className="block font-bold text-slate-700 mb-1">Fabric GSM</label>
+                  <input
+                    type="number"
+                    step="any"
+                    value={grnSplitForm.gsm}
+                    onChange={(e) => setGrnSplitForm({ ...grnSplitForm, gsm: e.target.value })}
+                    className="w-full px-3 py-2 rounded-lg border border-slate-300 bg-white text-xs focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    placeholder="e.g. 140"
+                  />
+                </div>
+              </div>
+
+              {/* Quick Split Tool */}
+              <div className="p-3.5 rounded-xl bg-blue-50/60 border border-blue-200/80 space-y-2">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div className="flex items-center gap-1.5 font-bold text-slate-800 text-xs">
+                    <SlidersHorizontal size={14} className="text-blue-600" />
+                    <span>Quick Split Generator</span>
+                    <button
+                      type="button"
+                      onClick={handleAutoDistributeDefault90m}
+                      className="px-2.5 py-1 bg-blue-600 hover:bg-blue-700 text-white rounded-md text-xs font-bold flex items-center gap-1 shadow-2xs cursor-pointer ml-1"
+                    >
+                      <Sparkles size={12} /> Reset to 90m per Taka
+                    </button>
+                  </div>
+                  <div className="flex items-center gap-1.5">
+                    {[2, 4, 5, 8, 10, 20].map((preset) => (
+                      <button
+                        key={preset}
+                        type="button"
+                        onClick={() => handleAutoDistributeTakas(preset)}
+                        className={`px-2 py-1 rounded-md text-[11px] font-bold border transition ${
+                          grnSplitForm.rollCount === preset
+                            ? 'bg-blue-600 text-white border-blue-600'
+                            : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-100'
+                        }`}
+                      >
+                        {preset} Rolls
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </div>
+
+              {/* Takas Table */}
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <h4 className="font-bold text-slate-800 text-xs uppercase tracking-wide">
+                    Taka / Roll Breakdown ({grnSplitForm.takas.length} Rolls)
+                  </h4>
+                  <button
+                    type="button"
+                    onClick={handleAddTakaRow}
+                    className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg border border-blue-200 bg-blue-50 text-blue-700 hover:bg-blue-100 text-xs font-bold cursor-pointer"
+                  >
+                    <Plus size={13} /> Add Roll
+                  </button>
+                </div>
+
+                <div className="border border-slate-200 rounded-xl overflow-hidden shadow-2xs">
+                  <table className="w-full text-left text-xs border-collapse">
+                    <thead className="bg-slate-50 border-b border-slate-200 text-[10.5px] font-bold text-slate-500 uppercase tracking-wider">
+                      <tr>
+                        <th className="py-2 px-3 w-12 text-center">#</th>
+                        <th className="py-2 px-3 w-32">Roll #</th>
+                        <th className="py-2 px-3 w-32 text-right">Meters (Qty) *</th>
+                        <th className="py-2 px-3 w-28 text-right">Weight (kg)</th>
+                        <th className="py-2 px-3 w-24 text-right">Width</th>
+                        <th className="py-2 px-3">Remarks</th>
+                        <th className="py-2 px-3 w-10 text-center"></th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100">
+                      {grnSplitForm.takas.map((t, idx) => (
+                        <tr key={t.id || idx} className="hover:bg-slate-50/50">
+                          <td className="py-1.5 px-3 text-center text-slate-400 font-mono text-[11px]">
+                            {idx + 1}
+                          </td>
+                          <td className="py-1.5 px-3">
+                            <input
+                              type="text"
+                              value={t.takaRoll}
+                              onChange={(e) => handleTakaFieldChange(idx, 'takaRoll', e.target.value)}
+                              className="w-full px-2 py-1 rounded border border-slate-200 font-mono text-xs font-bold"
+                              placeholder={`#${idx + 1}`}
+                            />
+                          </td>
+                          <td className="py-1.5 px-3 text-right">
+                            <input
+                              type="number"
+                              step="any"
+                              disabled={!isAuthorizedManager}
+                              value={t.qty}
+                              onChange={(e) => handleTakaFieldChange(idx, 'qty', e.target.value)}
+                              className="w-full px-2 py-1 rounded border border-blue-200 text-right font-mono font-bold text-blue-900 text-xs bg-blue-50/20 focus:outline-none focus:border-blue-500 disabled:opacity-60"
+                              placeholder="90.00"
+                              title={isAuthorizedManager ? "Authorized manager editable quantity" : "Requires manager authorization"}
+                            />
+                          </td>
+                          <td className="py-1.5 px-3 text-right">
+                            <input
+                              type="number"
+                              step="any"
+                              value={t.rollWeight}
+                              onChange={(e) => handleTakaFieldChange(idx, 'rollWeight', e.target.value)}
+                              className="w-full px-2 py-1 rounded border border-slate-200 text-right text-xs"
+                              placeholder="kg"
+                            />
+                          </td>
+                          <td className="py-1.5 px-3 text-right">
+                            <input
+                              type="number"
+                              step="any"
+                              value={t.width}
+                              onChange={(e) => handleTakaFieldChange(idx, 'width', e.target.value)}
+                              className="w-full px-2 py-1 rounded border border-slate-200 text-right text-xs"
+                              placeholder="in"
+                            />
+                          </td>
+                          <td className="py-1.5 px-3">
+                            <input
+                              type="text"
+                              value={t.remarks}
+                              onChange={(e) => handleTakaFieldChange(idx, 'remarks', e.target.value)}
+                              className="w-full px-2 py-1 rounded border border-slate-200 text-xs"
+                              placeholder="Optional roll notes"
+                            />
+                          </td>
+                          <td className="py-1.5 px-3 text-center">
+                            <button
+                              type="button"
+                              onClick={() => handleRemoveTakaRow(idx)}
+                              disabled={grnSplitForm.takas.length <= 1}
+                              className="p-1 text-slate-400 hover:text-rose-600 disabled:opacity-30 disabled:hover:text-slate-400 cursor-pointer"
+                              title="Remove taka"
+                            >
+                              <Trash2 size={13} />
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                    <tfoot className="bg-slate-50 border-t border-slate-200 font-semibold text-xs">
+                      <tr>
+                        <td colSpan={2} className="py-2.5 px-3 text-slate-700">
+                          Total Taka Meters:
+                        </td>
+                        <td className={`py-2.5 px-3 text-right font-mono font-black text-sm ${
+                          isSplitExceeding ? 'text-rose-600' : 'text-slate-900'
+                        }`}>
+                          {totalAssignedSplitMeters.toLocaleString('en-IN')} M
+                        </td>
+                        <td colSpan={4} className="py-2.5 px-3">
+                          <div className="flex items-center justify-between text-xs">
+                            <span className="text-slate-500">
+                              Available on GRN: <strong className="text-slate-800">{maxAllowedMeters.toLocaleString('en-IN')} M</strong>
+                            </span>
+                            <span className={isSplitExceeding ? 'text-rose-600 font-bold' : (totalAssignedSplitMeters === maxAllowedMeters ? 'text-emerald-700 font-bold' : 'text-amber-700 font-bold')}>
+                              {isSplitExceeding
+                                ? `Exceeds by ${(totalAssignedSplitMeters - maxAllowedMeters).toFixed(2)} M`
+                                : totalAssignedSplitMeters === maxAllowedMeters
+                                ? '✓ Exact quantity matched'
+                                : `Remaining: ${(maxAllowedMeters - totalAssignedSplitMeters).toFixed(2)} M unassigned`}
+                            </span>
+                          </div>
+                        </td>
+                      </tr>
+                    </tfoot>
+                  </table>
+                </div>
+              </div>
+
+              {/* Validation Alerts */}
+              {isSplitExceeding && (
+                <div className="p-3 bg-rose-50 border border-rose-200 text-rose-800 rounded-xl flex items-center gap-2 text-xs font-semibold">
+                  <AlertTriangle size={15} className="text-rose-600 shrink-0" />
+                  <span>
+                    Validation Error: Total taka meters ({totalAssignedSplitMeters} M) exceeds the available quantity ({maxAllowedMeters} M).
+                    Reduce taka quantities before saving.
+                  </span>
+                </div>
+              )}
+
+              {/* QC Hold Notice */}
+              <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl flex items-center justify-between text-slate-600 text-xs">
+                <div className="flex items-center gap-2">
+                  <ShieldAlert size={15} className="text-amber-600 shrink-0" />
+                  <span>
+                    Stock Rule: Created takas will be assigned to <strong>SYS-QC-HOLD</strong> with <strong>QC Status: Pending</strong> and 0 available stock until inspected and released by Quality Control.
+                  </span>
+                </div>
+              </div>
+
+              {/* Modal Footer */}
+              <div className="flex items-center justify-between pt-4 border-t border-slate-200">
+                <button
+                  type="button"
+                  onClick={() => setIsGrnSplitModalOpen(false)}
+                  className="px-4 py-2 border border-slate-200 text-slate-700 hover:bg-slate-50 rounded-lg text-xs font-semibold cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={isSplitExceeding || totalAssignedSplitMeters <= 0 || hasInvalidSplitRow || submittingGrnSplit}
+                  className="px-5 py-2 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white rounded-lg text-xs font-bold shadow-xs cursor-pointer flex items-center gap-1.5"
+                >
+                  <PackageCheck size={14} />
+                  {submittingGrnSplit ? 'Creating Takas...' : `Create ${grnSplitForm.takas.length} Takas & Send to QC Hold`}
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}

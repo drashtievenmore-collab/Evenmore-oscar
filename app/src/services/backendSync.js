@@ -130,6 +130,9 @@ function documentToApi(doc, { partyField = 'partyId', partyKeys = [] } = {}, { p
     salesOrder: link(doc.salesOrderId || doc.sourceSalesOrderId),
     // Purchase bill → its purchase order (ignored by documents without one).
     purchaseOrder: link(doc.purchaseOrderId),
+    // Purchase order workflow + optional project (ignored elsewhere).
+    purchaseType: doc.purchaseType || undefined,
+    projectId: link(doc.projectId),
     vendorBillNumber: doc.vendorBillNumber || undefined,
     crmDeal: link(doc.dealId),
     crmLead: link(doc.leadId),
@@ -407,7 +410,7 @@ export const RESOURCES = {
       name: item.name,
       description: item.description || undefined,
       categoryId: item.categoryId || undefined,
-      itemKind: item.itemKind || 'Standalone',
+      itemKind: item.itemKind || 'Fabric',
       uom: item.uom || 'Unit',
       purchaseUnit: item.purchaseUnit || undefined,
       salesUnit: item.salesUnit || undefined,
@@ -448,9 +451,21 @@ export const RESOURCES = {
       customFieldValues: item.customFieldValues || undefined,
     }),
     // `availableQty` / `status` come off the movement ledger, so the row the
-    // server returns is the only correct one.
-    fromApi: (row) => ({ ...row, vendor: row.vendor || '', _synced: true }),
-    // Derived columns are rejected on update (api.md §4.2).
+    fromApi: (row) => ({
+      ...row,
+      itemKind: 'Fabric',
+      vendor: row.vendor || '',
+      fabricQuality: row.fabricQuality || row.fabric_quality || '',
+      fabricDesign: row.fabricDesign || row.fabric_design || '',
+      fabricColor: row.fabricColor || row.fabric_color || '',
+      costPrice: row.costPrice !== undefined ? Number(row.costPrice) : (row.cost_price !== undefined ? Number(row.cost_price) : 0),
+      sellingPrice: row.sellingPrice !== undefined ? Number(row.sellingPrice) : (row.selling_price !== undefined ? Number(row.selling_price) : 0),
+      reorderLevel: row.reorderLevel !== undefined ? Number(row.reorderLevel) : (row.reorder_level !== undefined ? Number(row.reorder_level) : 0),
+      onHandQty: row.onHandQty !== undefined ? Number(row.onHandQty) : (row.on_hand_qty !== undefined ? Number(row.on_hand_qty) : (row.stock !== undefined ? Number(row.stock) : 0)),
+      reservedQty: row.reservedQty !== undefined ? Number(row.reservedQty) : (row.reserved_qty !== undefined ? Number(row.reserved_qty) : 0),
+      availableQty: row.availableQty !== undefined ? Number(row.availableQty) : (row.available_qty !== undefined ? Number(row.available_qty) : 0),
+      _synced: true,
+    }),
     omitOnUpdate: ['availableQty', 'serialNumbers'],
   },
 
@@ -862,7 +877,15 @@ export const RESOURCES = {
       openingBalance: b.openingBalance !== undefined ? num(b.openingBalance) : undefined,
       isActive: b.isActive ?? undefined,
     }),
-    fromApi: (row) => ({ ...row, _synced: true }),
+    fromApi: (row) => ({
+      ...row,
+      bankName: row.bank_name || row.bankName || row.name,
+      accountNumber: row.account_number || row.accountNumber,
+      openingBalance: row.opening_balance ?? row.openingBalance,
+      isActive: row.is_active ?? row.isActive,
+      isDefault: row.is_default ?? row.isDefault,
+      _synced: true,
+    }),
   },
 
   bankTransfers: {

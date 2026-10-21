@@ -97,6 +97,7 @@ export async function apiClient(
     timeoutMs = DEFAULT_TIMEOUT_MS,
     retries = 0,
     query = null,
+    params = null,
     clearAuthOnUnauthorized = true,
     idempotencyKey = null,
     signal = null,
@@ -105,7 +106,8 @@ export async function apiClient(
 ) {
   const token = getAuthToken();
   const normalizedEp = normalizeEndpoint(endpoint);
-  const url = `${API_BASE_URL}${normalizedEp}${query ? buildQuery(query) : ''}`;
+  const queryParams = query || params || customConfig.params || null;
+  const url = `${API_BASE_URL}${normalizedEp}${queryParams ? buildQuery(queryParams) : ''}`;
 
   const requestHeaders = {
     'Content-Type': 'application/json',

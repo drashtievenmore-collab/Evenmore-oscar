@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import { TablePagination } from '../../components/ui/TablePagination';
 import { useERP } from '../../context/ERPContext';
 import { StatusBadge } from '../../components/ui/StatusBadge';
 import { StatCard } from '../../components/ui/StatCard';
@@ -25,6 +26,7 @@ import {
   Search,
 } from 'lucide-react';
 import api from '../../services/api';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { numIN } from '../../utils/formatters';
 
 const goodsReceiptGuide = {
@@ -52,6 +54,7 @@ export const GoodsReceiptPage = () => {
     items: masterItems = [],
     locations = [],
     receivePurchaseBillGoods,
+    refreshCollections,
     formatCurrency,
     formatDateDDMMYYYY,
   } = useERP();
@@ -74,7 +77,11 @@ export const GoodsReceiptPage = () => {
   const [note, setNote] = useState('');
 
   // Standalone GRN Modal State (Phase 2.2)
+  const location = useLocation();
+  const navigate = useNavigate();
   const [standaloneModalOpen, setStandaloneModalOpen] = useState(false);
+  // One key per opened form: a double-clicked Save replays, never posts twice.
+  const [grnIdempotencyKey, setGrnIdempotencyKey] = useState('');
   const [standaloneSubmitting, setStandaloneSubmitting] = useState(false);
   const [standaloneError, setStandaloneError] = useState('');
   const [standaloneSuccess, setStandaloneSuccess] = useState('');
@@ -192,12 +199,15 @@ export const GoodsReceiptPage = () => {
   };
 
   // ── Standalone GRN Form Handlers (Phase 2.2) ──
-  const openStandaloneModal = () => {
+  const openStandaloneModal = (prefill = {}) => {
     setStandaloneError('');
     setStandaloneSuccess('');
+    setGrnIdempotencyKey(
+      typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : `grn-${Date.now()}-${Math.random().toString(36).slice(2)}`
+    );
     const defaultLoc = locations?.[0]?.id || '';
     setStandaloneForm({
-      vendorId: '',
+      vendorId: prefill.vendorId || '',
       poId: '',
       supplierChallanNo: '',
       supplierChallanDate: todayStr,
@@ -210,10 +220,14 @@ export const GoodsReceiptPage = () => {
     setStandaloneModalOpen(true);
   };
 
+  // Only approved ready grey stock POs are received here; Vendor A
+  // production POs go through daily production entry instead.
   const availableVendorPos = useMemo(() => {
     if (!standaloneForm.vendorId) return [];
     return purchaseOrders.filter(
-      (po) => String(po.vendorId || po.partyId) === String(standaloneForm.vendorId) && po.status !== 'Cancelled'
+      (po) => String(po.vendorId || po.partyId) === String(standaloneForm.vendorId)
+        && ['Grey Stock Purchase', 'Ready Grey Fabric Purchase', 'Ready Grey', 'Grey Fabric'].includes(po.purchaseType || 'Grey Stock Purchase')
+        && ['Approved', 'Partially Received', 'Fully Received', 'Issued'].includes(po.status)
     );
   }, [purchaseOrders, standaloneForm.vendorId]);
 
@@ -262,6 +276,17 @@ export const GoodsReceiptPage = () => {
       lines: poLines,
     }));
   };
+
+  // "Record GRN" on a purchase order lands here with that PO preselected.
+  const grnForPo = location.state?.grnForPo;
+  useEffect(() => {
+    if (!grnForPo) return;
+    const po = purchaseOrders.find((p) => p.id === grnForPo);
+    if (!po) return; // the orders are still loading
+    openStandaloneModal({ vendorId: po.vendorId || po.partyId });
+    handlePoSelect(po.id);
+    navigate(location.pathname, { replace: true, state: {} });
+  }, [grnForPo, purchaseOrders]);
 
   const handleAddLine = () => {
     setStandaloneForm((prev) => ({
@@ -412,7 +437,7 @@ export const GoodsReceiptPage = () => {
         receiptDate: standaloneForm.receiptDate,
         lines: standaloneForm.lines.map((l) => ({
           itemId: l.itemId,
-          purchaseOrderLineId: l.poLineId || null,
+          poLineId: l.poLineId || null,
           orderedQty: Number(l.orderedQty) || 0,
           receivedQty: Number(l.receivedQty) || 0,
           unitCost: Number(l.unitCost) || 0,
@@ -430,9 +455,11 @@ export const GoodsReceiptPage = () => {
         })),
       };
 
-      const res = await api.post('/purchase/receipts/', payload);
-      setStandaloneSuccess(`GRN ${res.grn_number || res.id} created successfully! Stock moved to QC Hold.`);
+      const res = await api.post('/purchase/receipts/', payload, { idempotencyKey: grnIdempotencyKey || undefined });
+      setStandaloneSuccess(`GRN ${res.grnNumber || res.grn_number || res.id} created successfully! Stock moved to QC Hold.`);
       fetchGrns();
+      // The PO's received quantity and status changed on the server.
+      if (standaloneForm.poId) refreshCollections?.(['purchaseOrders']);
       setTimeout(() => {
         setStandaloneModalOpen(false);
         setActiveTab('receipts');
@@ -456,6 +483,18 @@ export const GoodsReceiptPage = () => {
     );
   }, [grnList, grnSearch]);
 
+  const [grnPage, setGrnPage] = useState(1);
+  const [grnPageSize, setGrnPageSize] = useState(10);
+
+  useEffect(() => {
+    setGrnPage(1);
+  }, [grnSearch]);
+
+  const paginatedGrnList = useMemo(() => {
+    const start = (grnPage - 1) * grnPageSize;
+    return filteredGrnList.slice(start, start + grnPageSize);
+  }, [filteredGrnList, grnPage, grnPageSize]);
+
   return (
     <div className="space-y-6">
       <PageHeader
@@ -465,7 +504,7 @@ export const GoodsReceiptPage = () => {
         actions={
           <div className="flex items-center gap-2">
             <button
-              onClick={openStandaloneModal}
+              onClick={() => openStandaloneModal()}
               className="inline-flex items-center gap-1.5 rounded-lg bg-blue-600 px-3.5 py-2 text-xs font-semibold text-white shadow-xs hover:bg-blue-700 transition"
             >
               <Plus size={14} /> New GRN Intake
@@ -549,7 +588,7 @@ export const GoodsReceiptPage = () => {
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100">
-                    {filteredGrnList.map((g) => (
+                    {paginatedGrnList.map((g) => (
                       <tr key={g.id} className="hover:bg-slate-50/70 transition-colors">
                         <td className="px-4 py-3 font-mono font-bold text-blue-600">{g.grn_number}</td>
                         <td className="px-4 py-3 text-slate-700">{g.receipt_date}</td>
@@ -571,6 +610,15 @@ export const GoodsReceiptPage = () => {
                   </tbody>
                 </table>
               </div>
+            )}
+            {filteredGrnList.length > 0 && (
+              <TablePagination
+                total={filteredGrnList.length}
+                page={grnPage}
+                pageSize={grnPageSize}
+                onPageChange={setGrnPage}
+                onPageSizeChange={setGrnPageSize}
+              />
             )}
           </div>
         </div>

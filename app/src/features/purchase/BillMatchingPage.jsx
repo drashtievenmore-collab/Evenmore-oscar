@@ -5,6 +5,7 @@ import { isBackendEnabled } from '../../services/backendSync';
 import { StatusBadge } from '../../components/ui/StatusBadge';
 import { Button } from '../../components/ui/Button';
 import { PageHeader } from '../../components/common/PageHeader';
+import TablePagination from '../../components/ui/TablePagination';
 import { RefreshCw, Check, X, AlertTriangle, Users, FileText, IndianRupee } from 'lucide-react';
 
 const billMatchingGuide = {
@@ -82,6 +83,7 @@ export const BillMatchingPage = () => {
   const [matchingFailed, setMatchingFailed] = useState(false);
   const [history, setHistory] = useState([]);
   const [remarks, setRemarks] = useState('');
+  const [remarksError, setRemarksError] = useState('');
   const [actionBusy, setActionBusy] = useState(false);
   // Login session (JWT) lasts 60 minutes. When it lapses the page keeps
   // showing cached data but every write is blocked — surface that explicitly
@@ -119,6 +121,18 @@ export const BillMatchingPage = () => {
       return hay.includes(term);
     });
   }, [vendorBills, search, statusFilter]);
+
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(10);
+
+  useEffect(() => {
+    setPage(1);
+  }, [search, statusFilter]);
+
+  const pagedFiltered = useMemo(() => {
+    const start = (page - 1) * pageSize;
+    return filtered.slice(start, start + pageSize);
+  }, [filtered, page, pageSize]);
 
   useEffect(() => {
     if (!selectedId && filtered.length > 0) {
@@ -197,6 +211,12 @@ export const BillMatchingPage = () => {
 
   const handleApprove = async () => {
     if (!selected || !approveVendorBill) return;
+    // Releasing a payable against a variance needs a recorded reason.
+    if (isMismatch && !remarks.trim()) {
+      setRemarksError('Enter remarks explaining the variance before approving a mismatched bill.');
+      return;
+    }
+    setRemarksError('');
     setActionBusy(true);
     try {
       const approved = await approveVendorBill(selected.id, remarks);
@@ -297,7 +317,7 @@ export const BillMatchingPage = () => {
           <div className="overflow-y-auto flex-1 divide-y divide-slate-100">
             {filtered.length === 0 ? (
               <div className="p-6 text-center text-slate-500 text-xs">No vendor bills found.</div>
-            ) : filtered.map((b) => (
+            ) : pagedFiltered.map((b) => (
               <button
                 key={b.id}
                 onClick={() => { setSelectedId(b.id); setSearchParams({ bill: b.id }); }}
@@ -311,6 +331,15 @@ export const BillMatchingPage = () => {
                 </div>
               </button>
             ))}
+          </div>
+          <div className="border-t border-slate-100">
+            <TablePagination
+              page={page}
+              pageSize={pageSize}
+              totalItems={filtered.length}
+              onPageChange={setPage}
+              onPageSizeChange={(sz) => { setPageSize(sz); setPage(1); }}
+            />
           </div>
         </div>
 
@@ -399,6 +428,11 @@ export const BillMatchingPage = () => {
                         <p className="flex items-center gap-1.5 font-bold text-[13px] text-rose-700 mb-3">
                           <AlertTriangle size={14} /> Mismatch Details
                         </p>
+                        {Array.isArray(matching?.reasons) && matching.reasons.length > 0 && (
+                          <ul className="mb-3 list-disc space-y-0.5 pl-5 text-[11.5px] text-rose-800">
+                            {matching.reasons.map((reason) => <li key={reason}>{reason}</li>)}
+                          </ul>
+                        )}
                         <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                           <div className="bg-white border border-rose-100 rounded-xl p-4 text-xs flex gap-3">
                             <span className="w-8 h-8 rounded-full bg-rose-100 text-rose-600 flex items-center justify-center shrink-0">
@@ -407,8 +441,11 @@ export const BillMatchingPage = () => {
                             <div className="space-y-1">
                               <p className="font-bold text-rose-700">Quantity Mismatch</p>
                               <p className="text-slate-600">PO Qty: <span className="font-mono font-bold text-slate-900">{fmtQty(mPOQty)}</span></p>
+                              {summary.grnQty !== undefined && (
+                                <p className="text-slate-600">GRN Qty: <span className="font-mono font-bold text-slate-900">{fmtQty(summary.grnQty)}</span></p>
+                              )}
                               <p className="text-slate-600">Bill Qty: <span className="font-mono font-bold text-slate-900">{fmtQty(mBillQty)}</span></p>
-                              <p className="text-slate-600">Difference: <span className="font-mono font-bold text-rose-700">{fmtQtyDiff(mQtyDiff)}</span></p>
+                              <p className="text-slate-600">Difference{summary.grnQty !== undefined ? ' (Bill − GRN)' : ''}: <span className="font-mono font-bold text-rose-700">{fmtQtyDiff(mQtyDiff)}</span></p>
                             </div>
                           </div>
                           <div className="bg-white border border-rose-100 rounded-xl p-4 text-xs flex gap-3">
@@ -476,7 +513,8 @@ export const BillMatchingPage = () => {
                   {/* Approval action */}
                   <div className="border border-slate-200 rounded-xl p-4">
                     <p className="text-slate-400 font-semibold mb-2">Approval Action</p>
-                    <textarea value={remarks} onChange={(ev) => setRemarks(ev.target.value)} rows={4} placeholder="Approval remarks (optional)" className="w-full border border-slate-300 rounded-lg p-2 bg-white text-slate-800 placeholder:text-slate-400" />
+                    <textarea value={remarks} onChange={(ev) => setRemarks(ev.target.value)} rows={4} placeholder={isMismatch ? 'Approval remarks (required for a mismatched bill)' : 'Approval remarks (optional)'} className={`w-full border rounded-lg p-2 bg-white text-slate-800 placeholder:text-slate-400 ${remarksError ? 'border-rose-400' : 'border-slate-300'}`} />
+                    {remarksError && <p className="text-[11px] font-semibold text-rose-600">{remarksError}</p>}
                     <div className="flex gap-2 mt-3">
                       <button onClick={handleApprove} disabled={!isPending || actionBusy || !authed} title={!authed ? 'Session expired — log in again' : undefined} className="flex-1 px-3 py-2 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-40 text-white rounded-lg font-semibold flex items-center justify-center gap-1.5 cursor-pointer">
                         <Check size={14} /> Approve Bill

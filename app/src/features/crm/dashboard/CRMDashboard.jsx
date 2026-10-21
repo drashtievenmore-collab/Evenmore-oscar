@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { Users, UserPlus, Clock, TrendingUp, DollarSign, Search, Mail, Phone, CalendarDays, FileText, ClipboardList, Video, Send } from "lucide-react";
 import { useCrmStore } from "../../../stores/crmStore";
-import { initials, describeError } from "../../../services/crmSync";
+import { initials, describeError, pullDashboard as pullCrmDashboard } from "../../../services/crmSync";
 import { useERP } from "../../../context/ERPContext";
 import { useAppStore } from "../../../stores/appStore";
 import { CRM_TEAM_MEMBERS } from "../../../services/leadStageAutomation";
@@ -96,6 +96,14 @@ export default function DashboardView() {
   const [query, setQuery] = useState("");
   const [completeTarget, setCompleteTarget] = useState(null);
   const [isCreateLeadOpen, setIsCreateLeadOpen] = useState(false);
+  const [crmDashboardKpis, setCrmDashboardKpis] = useState(null);
+  useEffect(() => {
+    let active = true;
+    pullCrmDashboard().then((data) => {
+      if (active) setCrmDashboardKpis(data?.kpis || null);
+    }).catch(() => {});
+    return () => { active = false; };
+  }, []);
 
   async function handleCreateLead(data) {
     try {
@@ -146,11 +154,11 @@ export default function DashboardView() {
   }, 0);
   const revenueExpected = dealsTotal + invoicesTotal + quotationsTotal;
   const kpis = [
-    { label: "Total Active Leads", value: String(activeLeads), icon: Users },
+    { label: "Total Active Leads", value: String(crmDashboardKpis?.openLeads ?? activeLeads), icon: Users },
     { label: "New Leads", value: String(newLeads), icon: UserPlus },
-    { label: "Pending Tasks", value: String(pendingTasks), icon: Clock },
-    { label: "Deals in Pipeline", value: String(pipelineDeals), icon: TrendingUp, note: formatShortINR(dealsTotal) },
-    { label: "Total Revenue Expected", value: formatCurrency(revenueExpected), icon: DollarSign, note: formatCurrency(outstandingTotal) + " due" }
+    { label: "Pending Tasks", value: String(crmDashboardKpis?.openTasks ?? pendingTasks), icon: Clock },
+    { label: "Deals in Pipeline", value: String(crmDashboardKpis?.openDeals ?? pipelineDeals), icon: TrendingUp, note: formatShortINR(crmDashboardKpis?.pipelineValue ?? dealsTotal) },
+    { label: "Won Value", value: formatCurrency(crmDashboardKpis?.wonValue ?? 0), icon: DollarSign, note: (crmDashboardKpis?.winRatePct ?? 0) + "% win rate" }
   ];
   const pipeline = DEAL_STAGES.map((stage, i) => ({
     label: stage,
@@ -364,9 +372,30 @@ export default function DashboardView() {
                       </span>
                     </td>
                     <td style={{ padding: "10px 8px", textAlign: "right" }}>
-                      <button type="button" onClick={() => completeTask(t)} style={{ border: "1px solid #2f6fed", color: "#2f6fed", background: "#fff", borderRadius: 8, padding: "6px 12px", fontSize: 12, fontWeight: 800 }}>
-                        {t.status === "Completed" ? "Done" : "Complete"}
-                      </button>
+                      {(() => {
+                        const isDone = t.status === "Completed";
+                        return (
+                          <button
+                            type="button"
+                            onClick={() => completeTask(t)}
+                            disabled={isDone}
+                            title={isDone ? "Task is completed" : "Click to complete task"}
+                            style={{
+                              border: isDone ? "1px solid #16a34a" : "1px solid #dc2626",
+                              color: isDone ? "#15803d" : "#dc2626",
+                              background: isDone ? "#f0fdf4" : "#fef2f2",
+                              borderRadius: 8,
+                              padding: "6px 14px",
+                              fontSize: 12,
+                              fontWeight: 800,
+                              cursor: isDone ? "default" : "pointer",
+                              transition: "all 0.15s ease",
+                            }}
+                          >
+                            {isDone ? "Done" : "Complete"}
+                          </button>
+                        );
+                      })()}
                     </td>
                   </tr>
                 );
