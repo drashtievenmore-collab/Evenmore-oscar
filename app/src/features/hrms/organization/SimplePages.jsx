@@ -52,7 +52,7 @@ export function Designations() {
       </div>
     </div>;
 }
-export function Training() {
+/* export function Training() { // Hidden: Training commented out
   const showToast = useAppStore((s) => s.showToast);
   return <div className="flex flex-col gap-6">
       <PageHeader
@@ -68,7 +68,7 @@ export function Training() {
         <tbody className="divide-y divide-bdr/40"><tr><td className="py-3 px-5 font-medium">Leadership Essentials</td><td className="py-3 px-5">Sarah Mitchell</td><td className="py-3 px-5">Oct 18 • 2 days</td><td className="py-3 px-5"><Badge tone="warning">Upcoming</Badge></td></tr><tr><td className="py-3 px-5 font-medium">Secure Coding 101</td><td className="py-3 px-5">David Park</td><td className="py-3 px-5">Oct 08 • 4h</td><td className="py-3 px-5"><Badge tone="success">Completed</Badge></td></tr></tbody>
       </table></div>
     </div>;
-}
+} */
 export function Assets() {
   return <div className="flex flex-col gap-6">
       <PageHeader

@@ -514,11 +514,13 @@ const router = createBrowserRouter([
       { path: 'hrms/performance/appraisal-funnel', element: <Page component={AppraisalFunnel} /> },
       // { path: 'hrms/performance/goal-tracking', element: <Page component={GoalTracking} /> }, // Hidden: Goal Tracking feature commented out
       // { path: 'hrms/performance/goal-funnel', element: <Page component={GoalFunnel} /> }, // Hidden: Goal Funnel feature commented out
-      { path: 'hrms/training', element: <TrainingPage component={TrainingDashboard} /> },
-      { path: 'hrms/training/list', element: <TrainingPage component={() => <TrainingDashboard initialTab="list" />} /> },
-      { path: 'hrms/training/training-funnel', element: <TrainingPage component={() => <TrainingDashboard initialTab="funnel" />} /> },
-      { path: 'hrms/training/trainers', element: <TrainingPage component={() => <TrainingDashboard initialTab="trainers" />} /> },
-      { path: 'hrms/training/funnel', element: <TrainingPage component={() => <TrainingDashboard initialTab="funnel" />} /> },
+      // { path: 'hrms/training', element: <TrainingPage component={TrainingDashboard} /> }, // Hidden: Training feature commented out
+      // { path: 'hrms/training/list', element: <TrainingPage component={() => <TrainingDashboard initialTab="list" />} /> },
+      // { path: 'hrms/training/training-funnel', element: <TrainingPage component={() => <TrainingDashboard initialTab="funnel" />} /> },
+      // { path: 'hrms/training/trainers', element: <TrainingPage component={() => <TrainingDashboard initialTab="trainers" />} /> },
+      // { path: 'hrms/training/funnel', element: <TrainingPage component={() => <TrainingDashboard initialTab="funnel" />} /> },
+      { path: 'hrms/training', element: <Navigate to="/hrms/dashboard" replace /> },
+      { path: 'hrms/training/*', element: <Navigate to="/hrms/dashboard" replace /> },
       { path: 'hrms/org-chart', element: <Page component={OrgChartPage} /> },
       { path: 'hrms/departments', element: <Page component={DepartmentsPage} /> },
       { path: 'hrms/designations', element: <Page component={DesignationsPage} /> },

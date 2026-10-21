@@ -403,7 +403,7 @@ const NAV = [
           // { label: 'Goal Funnel', to: '/hrms/performance/goal-funnel' }, // Hidden: Goal Funnel feature commented out
         ],
       },
-      { label: 'Training', icon: GraduationCap, to: '/hrms/training' },
+      // { label: 'Training', icon: GraduationCap, to: '/hrms/training' }, // Hidden: Training feature commented out
       { label: 'HR Admin', icon: ShieldCheck, to: '/hrms/hr-admin' },
       { label: 'Asset Setup', icon: Briefcase, to: '/hrms/assets' },
       { label: 'Documents', icon: FileText, to: '/hrms/documents' },

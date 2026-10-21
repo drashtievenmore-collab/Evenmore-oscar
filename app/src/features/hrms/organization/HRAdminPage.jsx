@@ -2150,7 +2150,7 @@ export default function HRAdminPage({ defaultTab }) {
                 <Sliders size={20} />
               </div>
               <div>
-                <h4 className="font-bold text-[14px] text-slate-900">Module Availability — Recruitment &amp; Training</h4>
+                <h4 className="font-bold text-[14px] text-slate-900">Module Availability — Recruitment</h4>
                 <p className="text-[12px] text-muted">
                   Turn a module ON to show it in the HRMS sidebar and enable its pages. Turn it OFF to hide it completely.
                 </p>
@@ -2182,7 +2182,7 @@ export default function HRAdminPage({ defaultTab }) {
                   <span className={`absolute top-0.5 w-5 h-5 rounded-full bg-white shadow transition-all ${recruitmentEnabled ? "left-[22px]" : "left-0.5"}`} />
                 </button>
               </div>
-              {/* Training toggle */}
+              {/* Training toggle commented out
               <div className="bg-white border border-bdr rounded-xl p-3.5 flex items-center justify-between gap-3">
                 <div>
                   <div className="text-[13px] font-bold text-slate-900">Training</div>
@@ -2206,7 +2206,9 @@ export default function HRAdminPage({ defaultTab }) {
                 >
                   <span className={`absolute top-0.5 w-5 h-5 rounded-full bg-white shadow transition-all ${trainingEnabled ? "left-[22px]" : "left-0.5"}`} />
                 </button>
+                </div>
               </div>
+              */}
             </div>
           </div>
 
