@@ -5,6 +5,7 @@ import Modal from '../../../components/ui/Modal';
 import PageHeader from '../../../components/ui/PageHeader';
 import { hrmsGuides } from '../../../data/hrms/hrmsGuides';
 import { hrmsSync, isBackendEnabled } from '../../../services/hrmsSync';
+import { Avatar } from "../../../components/hrms/Avatar";
 import {
   Building2,
   Plus,
@@ -159,7 +160,7 @@ export function DepartmentsPage() {
                     </td>
                     <td className="py-4 px-5">
                       <div className="flex items-center gap-2">
-                        <img src={d.avatar} alt="" className="w-7 h-7 rounded-full object-cover" />
+                        <Avatar name={d.head} size="xs" />
                         <span className="font-medium text-slate-800">{d.head}</span>
                       </div>
                     </td>
@@ -192,7 +193,7 @@ export function DepartmentsPage() {
                   <Badge tone={d.status === 'Active' ? 'success' : 'warning'}>{d.status}</Badge>
                 </div>
                 <div className="text-[12.5px] text-muted flex items-center gap-2 mt-2.5">
-                  <img src={d.avatar} alt="" className="w-6 h-6 rounded-full object-cover" />
+                  <Avatar name={d.head} size="xs" />
                   <span>Head: <b className="text-slate-800 font-medium">{d.head}</b></span>
                 </div>
               </div>

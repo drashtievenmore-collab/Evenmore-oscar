@@ -68,6 +68,9 @@ const Requests = lazy(() => import('../features/hrms/attendance/Requests'));
 const Flexibility = lazy(() => import('../features/hrms/attendance/Flexibility'));
 const Leave = lazy(() => import('../features/hrms/leave/Leave'));
 const Payroll = lazy(() => import('../features/hrms/payroll/Payroll'));
+const IncentivesPage = lazy(() => import('../features/hrms/incentives/IncentivesPage'));
+const AgencyMonitoringPage = lazy(() => import('../features/hrms/agency/AgencyMonitoringPage'));
+const CommercialLeakagePage = lazy(() => import('../features/hrms/leakage/CommercialLeakagePage'));
 const RecruitmentDashboard = lazy(() => import('../features/hrms/recruitment/RecruitmentDashboard'));
 const Jobs = lazy(() => import('../features/hrms/recruitment/Jobs'));
 const JobDetails = lazy(() => import('../features/hrms/recruitment/JobDetails'));
@@ -487,18 +490,22 @@ const router = createBrowserRouter([
       { path: 'hrms/attendance/flexibility', element: <Page component={Flexibility} /> },
       { path: 'hrms/leave', element: <Page component={Leave} /> },
       { path: 'hrms/payroll', element: <Page component={Payroll} /> },
-      { path: 'hrms/recruitment', element: <RecruitmentPage component={RecruitmentDashboard} /> },
-      { path: 'hrms/recruitment/jobs', element: <RecruitmentPage component={Jobs} /> },
-      { path: 'hrms/recruitment/jobs/:id', element: <RecruitmentPage component={JobDetails} /> },
-      { path: 'hrms/recruitment/candidates', element: <RecruitmentPage component={Candidates} /> },
-      { path: 'hrms/recruitment/candidates/:id', element: <RecruitmentPage component={CandidateDetails} /> },
-      { path: 'hrms/recruitment/interviews', element: <RecruitmentPage component={Interviews} /> },
-      { path: 'hrms/recruitment/interviews/:id', element: <RecruitmentPage component={InterviewDetails} /> },
-      { path: 'hrms/recruitment/applications', element: <RecruitmentPage component={Applications} /> },
-      { path: 'hrms/recruitment/offers', element: <RecruitmentPage component={Offers} /> },
-      { path: 'hrms/recruitment/onboarding', element: <RecruitmentPage component={Onboarding} /> },
-      { path: 'hrms/recruitment/career', element: <RecruitmentPage component={Career} /> },
-      { path: 'hrms/recruitment/questions', element: <RecruitmentPage component={CustomQuestions} /> },
+      { path: 'hrms/incentives', element: <Page component={IncentivesPage} /> },
+      { path: 'hrms/agency-monitoring', element: <Page component={AgencyMonitoringPage} /> },
+      { path: 'hrms/commercial-leakage', element: <Page component={CommercialLeakagePage} /> },
+      // Recruitment routes commented out per Oscar letter pad scope (kept for reference, do not remove):
+      // { path: 'hrms/recruitment', element: <RecruitmentPage component={RecruitmentDashboard} /> },
+      // { path: 'hrms/recruitment/jobs', element: <RecruitmentPage component={Jobs} /> },
+      // { path: 'hrms/recruitment/jobs/:id', element: <RecruitmentPage component={JobDetails} /> },
+      // { path: 'hrms/recruitment/candidates', element: <RecruitmentPage component={Candidates} /> },
+      // { path: 'hrms/recruitment/candidates/:id', element: <RecruitmentPage component={CandidateDetails} /> },
+      // { path: 'hrms/recruitment/interviews', element: <RecruitmentPage component={Interviews} /> },
+      // { path: 'hrms/recruitment/interviews/:id', element: <RecruitmentPage component={InterviewDetails} /> },
+      // { path: 'hrms/recruitment/applications', element: <RecruitmentPage component={Applications} /> },
+      // { path: 'hrms/recruitment/offers', element: <RecruitmentPage component={Offers} /> },
+      // { path: 'hrms/recruitment/onboarding', element: <RecruitmentPage component={Onboarding} /> },
+      // { path: 'hrms/recruitment/career', element: <RecruitmentPage component={Career} /> },
+      // { path: 'hrms/recruitment/questions', element: <RecruitmentPage component={CustomQuestions} /> },
       // { path: 'hrms/recruitment/funnel', element: <Page component={RecruitmentFunnel} /> }, // Hidden: Recruitment Funnel feature commented out
       { path: 'hrms/performance', element: <Page component={PerformanceDashboard} /> },
       { path: 'hrms/performance/indicators', element: <Page component={Indicators} /> },

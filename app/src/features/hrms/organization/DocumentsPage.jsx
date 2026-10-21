@@ -5,6 +5,7 @@ import { Badge } from "../../../components/hrms/Badge";
 import Modal from "../../../components/ui/Modal";
 import PageHeader from "../../../components/ui/PageHeader";
 import { hrmsGuides } from "../../../data/hrms/hrmsGuides";
+import { Avatar } from "../../../components/hrms/Avatar";
 import {
   FileText,
   Download,
@@ -276,7 +277,7 @@ export function DocumentsPage() {
         email: `${selectedEmpName.toLowerCase().replace(/\s+/g, ".")}@company.com`,
         joining: "Jan 15, 2023",
         status: "Active",
-        avatar: `https://i.pravatar.cc/100?u=${encodeURIComponent(selectedEmpName)}`,
+        avatar: null,
       }
     );
   }, [employees, selectedEmpName]);
@@ -772,13 +773,7 @@ export function DocumentsPage() {
                             </div>
                           ) : (
                             <div className="flex items-center gap-2">
-                              <div className="w-6 h-6 rounded-full bg-slate-200 overflow-hidden shrink-0">
-                                <img
-                                  src={`https://i.pravatar.cc/100?u=${encodeURIComponent(d.employee)}`}
-                                  alt=""
-                                  className="w-full h-full object-cover"
-                                />
-                              </div>
+                              <Avatar name={d.employee} size="xs" />
                               <span className="font-medium text-slate-800">{d.employee}</span>
                             </div>
                           )}

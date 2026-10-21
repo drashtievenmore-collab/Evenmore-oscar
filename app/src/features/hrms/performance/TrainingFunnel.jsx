@@ -1,4 +1,5 @@
 import { useState, useMemo } from "react";
+import { Avatar } from "../../../components/hrms/Avatar";
 import { useNavigate } from "react-router-dom";
 import {
   Plus,
@@ -566,7 +567,7 @@ export default function TrainingFunnel({ embedded = false, onBack }) {
                       </td>
                       <td className="py-3 px-4">
                         <div className="flex items-center gap-2">
-                          {t.avatar && <img src={t.avatar} alt="" className="w-6 h-6 rounded-full" />}
+                          <Avatar name={t.trainer || t.name} size="xs" />
                           <span>{t.trainer}</span>
                         </div>
                       </td>

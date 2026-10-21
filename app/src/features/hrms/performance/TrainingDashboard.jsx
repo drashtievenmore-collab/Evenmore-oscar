@@ -1,4 +1,5 @@
 import { useState, useMemo, useEffect } from "react";
+import { Avatar } from "../../../components/hrms/Avatar";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { useAppStore } from "../../../stores/appStore";
 import { useTrainingStore } from "../../../stores/trainingStore";
@@ -257,9 +258,7 @@ export default function TrainingDashboard({ initialTab }) {
                         <td className="py-3 font-semibold text-slate-800">{p.name}</td>
                         <td className="py-3 text-slate-600">
                           <div className="flex items-center gap-1.5">
-                            {p.avatar ? (
-                              <img src={p.avatar} alt="" className="w-5 h-5 rounded-full" />
-                            ) : null}
+                            <Avatar name={p.name || p.employee} size="xs" />
                             <span>{p.trainer}</span>
                           </div>
                         </td>

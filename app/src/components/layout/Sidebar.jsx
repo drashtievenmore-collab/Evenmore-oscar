@@ -30,6 +30,7 @@ import {
   AlertTriangle,
   PieChart,
   CalendarCheck,
+  Award,
   ListChecks,
   ClipboardList,
   Factory,
@@ -367,23 +368,27 @@ const NAV = [
       },
       { label: 'Leave', icon: CalendarCheck, to: '/hrms/leave' },
       { label: 'Payroll', icon: Receipt, to: '/hrms/payroll' },
-      {
-        label: 'Recruitment',
-        icon: UserPlus,
-        defaultOpen: false,
-        children: [
-          { label: 'Dashboard', to: '/hrms/recruitment', dot: true },
-          { label: 'Jobs', to: '/hrms/recruitment/jobs' },
-          { label: 'Candidates', to: '/hrms/recruitment/candidates' },
-          { label: 'Interviews', to: '/hrms/recruitment/interviews' },
-          { label: 'Applications', to: '/hrms/recruitment/applications' },
-          { label: 'Offers', to: '/hrms/recruitment/offers' },
-          { label: 'Onboarding', to: '/hrms/recruitment/onboarding' },
-          { label: 'Career', to: '/hrms/recruitment/career' },
-          { label: 'Custom Questions', to: '/hrms/recruitment/questions' },
-          // { label: 'Funnel', to: '/hrms/recruitment/funnel' }, // Hidden: Recruitment Funnel feature commented out
-        ],
-      },
+      { label: 'Incentives', icon: Award, to: '/hrms/incentives' },
+      { label: 'Agency Monitoring', icon: Factory, to: '/hrms/agency-monitoring' },
+      { label: 'Commercial Leakage', icon: PieChart, to: '/hrms/commercial-leakage' },
+      // Recruitment commented out per Oscar letter pad scope (kept for reference, do not remove):
+      // {
+      //   label: 'Recruitment',
+      //   icon: UserPlus,
+      //   defaultOpen: false,
+      //   children: [
+      //     { label: 'Dashboard', to: '/hrms/recruitment', dot: true },
+      //     { label: 'Jobs', to: '/hrms/recruitment/jobs' },
+      //     { label: 'Candidates', to: '/hrms/recruitment/candidates' },
+      //     { label: 'Interviews', to: '/hrms/recruitment/interviews' },
+      //     { label: 'Applications', to: '/hrms/recruitment/applications' },
+      //     { label: 'Offers', to: '/hrms/recruitment/offers' },
+      //     { label: 'Onboarding', to: '/hrms/recruitment/onboarding' },
+      //     { label: 'Career', to: '/hrms/recruitment/career' },
+      //     { label: 'Custom Questions', to: '/hrms/recruitment/questions' },
+      //     // { label: 'Funnel', to: '/hrms/recruitment/funnel' }, // Hidden: Recruitment Funnel feature commented out
+      //   ],
+      // },
       {
         label: 'Performance',
         icon: TrendingUp,

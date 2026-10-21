@@ -95,7 +95,20 @@ const useAttendanceStoreBase = create((set, get) => ({
   },
 
   // Which view the screen shows (HR vs employee); a UI choice, not stored data.
-  setRole: (role) => set({ role })
+  setRole: (role) => set({ role }),
+
+  // =============================================================================
+  // COMMENTED OUT PER OSCAR LETTER PAD SCOPE (Kept for reference, do not delete):
+  // =============================================================================
+  // punchIn: async (coords) => {
+  //   const res = await recordPunch({ type: 'IN', latitude: coords?.lat, longitude: coords?.lng });
+  //   set((s) => ({ punchState: 'IN', lastPunch: res }));
+  // },
+  // punchOut: async (coords) => {
+  //   const res = await recordPunch({ type: 'OUT', latitude: coords?.lat, longitude: coords?.lng });
+  //   set((s) => ({ punchState: 'OUT', lastPunch: res }));
+  // },
+  // tickPunch: () => set((s) => ({ punchDuration: s.punchDuration + 1 })),
 }));
 
 // Hydrated the first time a screen reads it, not at boot — services/lazyModules.

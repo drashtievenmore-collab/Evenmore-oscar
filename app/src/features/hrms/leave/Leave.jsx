@@ -6,6 +6,7 @@ import { Badge } from "../../../components/hrms/Badge";
 import Modal from "../../../components/ui/Modal";
 import PageHeader from "../../../components/ui/PageHeader";
 import { hrmsGuides } from "../../../data/hrms/hrmsGuides";
+import { Avatar } from "../../../components/hrms/Avatar";
 import {
   Calendar,
   Search,
@@ -227,14 +228,14 @@ export default function Leave() {
     addLeave({
       id: "LV-" + Date.now().toString().slice(-4),
       employee: form.employeeName,
-      avatar: `https://i.pravatar.cc/100?u=${encodeURIComponent(form.employeeName)}`,
+      avatar: null,
       type: form.type,
       from: form.from,
       to: form.to,
       days: netDeductedDays,
       reason: form.reason,
       delegate: chosenDelegate,
-      delegateAvatar: chosenDelegateEmp?.avatar || `https://i.pravatar.cc/100?u=${encodeURIComponent(chosenDelegate)}`,
+      delegateAvatar: chosenDelegateEmp?.avatar || null,
       status: "Pending Review",
       handover: form.handover || "General coverage of active tasks.",
       submittedAt: new Date().toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }),
@@ -328,7 +329,7 @@ export default function Leave() {
       .map((l) => ({
         id: l.id,
         emp: l.delegate || "Assigned Colleague",
-        avatar: l.delegateAvatar || `https://i.pravatar.cc/100?u=${encodeURIComponent(l.delegate || "delegate")}`,
+        avatar: l.delegateAvatar || null,
         dates: `${l.from} – ${l.to}`,
         note: l.handover || l.reason || "Client coordination and urgent ticket escalation coverage.",
         status: l.status === "Approved" ? "Active" : l.status === "Rejected" ? "Declined" : "Upcoming",
@@ -555,7 +556,7 @@ export default function Leave() {
                         form.delegate === emp.name ? "bg-navy/5" : ""
                       }`}
                     >
-                      <img src={emp.avatar} alt={emp.name} className="w-7 h-7 rounded-full object-cover" />
+                      <Avatar name={emp.name} size="xs" />
                       <div>
                         <div className="text-[13px] font-medium leading-none text-slate-900">{emp.name}</div>
                         <div className="text-[11px] text-muted mt-0.5">
@@ -671,11 +672,7 @@ export default function Leave() {
                 >
                   <div className="flex justify-between items-start gap-3">
                     <div className="flex items-center gap-3 min-w-0 lg:min-w-auto">
-                      <img
-                        src={l.avatar || `https://i.pravatar.cc/100?u=${encodeURIComponent(l.employee)}`}
-                        alt={l.employee}
-                        className="w-10 h-10 rounded-full object-cover border border-slate-200 shrink-0 lg:shrink"
-                      />
+                      <Avatar name={l.employee} size="md" />
                       <div className="min-w-0 lg:min-w-auto">
                         <div className="flex flex-wrap lg:flex-nowrap items-center gap-x-2">
                           <span className="text-[13.5px] font-bold text-slate-900">{l.employee}</span>
@@ -708,11 +705,7 @@ export default function Leave() {
                   {/* Delegate Handover Card */}
                   <div className="bg-slate-50 border border-bdr/70 rounded-xl p-3 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
                     <div className="flex items-center gap-2.5">
-                      <img
-                        src={l.delegateAvatar || `https://i.pravatar.cc/100?u=${encodeURIComponent(currentDelegate)}`}
-                        alt=""
-                        className="w-7 h-7 rounded-full object-cover border border-slate-200"
-                      />
+                      <Avatar name={currentDelegate} size="xs" />
                       <div>
                         <div className="text-[12.5px] font-semibold text-slate-800 flex items-center gap-1.5">
                           <span>Delegate: {currentDelegate}</span>
@@ -899,11 +892,7 @@ export default function Leave() {
                   <tr key={r.id || i} className="hover:bg-slate-50/60 transition">
                     <td className="py-3.5 px-5">
                       <div className="flex items-center gap-2.5">
-                        <img
-                          src={r.avatar || `https://i.pravatar.cc/100?u=${encodeURIComponent(r.emp)}`}
-                          alt=""
-                          className="w-8 h-8 rounded-full object-cover border border-slate-200"
-                        />
+                        <Avatar name={r.emp} size="xs" />
                         <span className="font-semibold text-slate-900">{r.emp}</span>
                       </div>
                     </td>
@@ -963,11 +952,7 @@ export default function Leave() {
                   <tr key={c.id} className="hover:bg-slate-50/60 transition">
                     <td className="py-3.5 px-5">
                       <div className="flex items-center gap-2.5">
-                        <img
-                          src={c.avatar || `https://i.pravatar.cc/100?u=${encodeURIComponent(c.employee)}`}
-                          alt=""
-                          className="w-8 h-8 rounded-full object-cover border border-slate-200"
-                        />
+                        <Avatar name={c.employee} size="xs" />
                         <div>
                           <div className="font-semibold text-slate-900">{c.employee}</div>
                           <div className="text-[11px] text-muted">{c.id}</div>
@@ -1053,11 +1038,7 @@ export default function Leave() {
                   <tr key={e.id} className="hover:bg-slate-50/60 transition">
                     <td className="py-3.5 px-5">
                       <div className="flex items-center gap-2.5">
-                        <img
-                          src={e.avatar || `https://i.pravatar.cc/100?u=${encodeURIComponent(e.employee)}`}
-                          alt=""
-                          className="w-8 h-8 rounded-full object-cover border border-slate-200"
-                        />
+                        <Avatar name={e.employee} size="xs" />
                         <div>
                           <div className="font-semibold text-slate-900">{e.employee}</div>
                           <div className="text-[11px] text-muted">{e.id} • {e.requestDate}</div>
@@ -1368,7 +1349,7 @@ export default function Leave() {
                 const totalAmt = daysNum * dailyRate;
                 requestEncashment({
                   employee: encashForm.employeeName,
-                  avatar: `https://i.pravatar.cc/100?u=${encodeURIComponent(encashForm.employeeName)}`,
+                  avatar: null,
                   days: daysNum,
                   ratePerDay: dailyRate,
                   amount: totalAmt,
@@ -1466,7 +1447,7 @@ export default function Leave() {
                 if (!compOffForm.reason.trim()) return showToast("Please enter work justification", "error");
                 requestCompOff({
                   employee: compOffForm.employeeName,
-                  avatar: `https://i.pravatar.cc/100?u=${encodeURIComponent(compOffForm.employeeName)}`,
+                  avatar: null,
                   workedDate: compOffForm.workedDate,
                   hoursWorked: Number(compOffForm.hoursWorked),
                   creditDays: Number(compOffForm.creditDays),

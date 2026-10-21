@@ -6,6 +6,7 @@ import { ConfirmModal } from "../../../components/hrms/Shared";
 import PageHeader from "../../../components/ui/PageHeader";
 import { hrmsGuides } from "../../../data/hrms/hrmsGuides";
 import { bulkAttendance, isBackendEnabled } from "../../../services/hrmsSync";
+import { Avatar } from "../../../components/hrms/Avatar";
 
 const INITIAL_EMPLOYEES = [];
 
@@ -41,7 +42,7 @@ export default function BulkAttendance() {
         name: r.name,
         dept: r.dept,
         status: r.status || "Present",
-        avatar: r.avatar || r.img || `https://i.pravatar.cc/100?u=${r.id || r.name}`,
+        avatar: r.avatar || r.img || null,
       }));
     }
     return INITIAL_EMPLOYEES;
@@ -57,7 +58,7 @@ export default function BulkAttendance() {
           name: r.name,
           dept: r.dept,
           status: r.status || "Present",
-          avatar: r.avatar || r.img || `https://i.pravatar.cc/100?u=${r.id || r.name}`,
+          avatar: r.avatar || r.img || null,
         }))
       );
     } else if (storeEmployees && storeEmployees.length > 0) {
@@ -67,7 +68,7 @@ export default function BulkAttendance() {
           name: emp.name,
           dept: emp.department || "Engineering",
           status: "Present",
-          avatar: emp.avatar || `https://i.pravatar.cc/100?u=${emp.id || emp.name}`,
+          avatar: emp.avatar || null,
         }))
       );
     }
@@ -259,7 +260,7 @@ export default function BulkAttendance() {
                   </td>
                   <td>
                     <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                      <img src={e.avatar} alt={e.name} className="bulk-avatar" loading="lazy" />
+                      <Avatar name={e.name} size="sm" />
                       <span style={{ fontWeight: 600, color: "#111827", whiteSpace: "nowrap" }}>
                         {e.name}
                       </span>

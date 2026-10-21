@@ -1,6 +1,6 @@
 import { create } from "zustand";
 import { lazyStore } from "../services/lazyModules";
-import { writeThrough, pullTracked, pullWorkingDays, pushWorkingDays, pullPayrollFor } from "../services/hrmsSync";
+import { writeThrough, pullTracked, pullWorkingDays, pushWorkingDays, pullPayrollFor, pullCommercialLeakageAnnual } from "../services/hrmsSync";
 
 const STORAGE_KEY = "hrms_payroll_store_v4";
 
@@ -115,6 +115,13 @@ const usePayrollStoreBase = create((set, get) => ({
    * `loadOwnHistory` once the session knows which employee they are.
    */
   ownHistory: [],
+  commercialLeakage: null,
+
+  fetchCommercialLeakage: async (year) => {
+    const data = await pullCommercialLeakageAnnual(year);
+    set({ commercialLeakage: data });
+    return data;
+  },
 
   loadOwnHistory: async (employeeId) => {
     if (!employeeId) return [];
