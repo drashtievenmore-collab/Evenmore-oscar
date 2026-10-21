@@ -718,7 +718,6 @@ img { display: block; max-width: 100%; }
   min-height: 100vh;
   display: grid;
   grid-template-columns: minmax(0, 1fr);
-  transition: grid-template-columns 0.2s cubic-bezier(0.4, 0, 0.2, 1);
   width: 100%;
 }
 
@@ -1118,12 +1117,13 @@ img { display: block; max-width: 100%; }
 .sidebar-resize-handle {
   position: absolute;
   top: 0;
-  right: 0;
-  width: 6px;
+  right: -3px;
+  width: 8px;
   height: 100%;
   padding: 0;
   cursor: col-resize;
   z-index: 40;
+  user-select: none;
 }
 
 .resize-thumb {
