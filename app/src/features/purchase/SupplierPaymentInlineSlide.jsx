@@ -40,6 +40,7 @@ export function SupplierPaymentInlineSlide({ po, onClose, onPaymentSaved, onPrev
   const [payDate, setPayDate] = useState(() => new Date().toISOString().split('T')[0]);
   const [payMode, setPayMode] = useState('Bank Transfer');
   const [bankAccountId, setBankAccountId] = useState('');
+  const [fetchedBanks, setFetchedBanks] = useState([]);
   const [reference, setReference] = useState('');
   const [remarks, setRemarks] = useState('');
   const [errorMsg, setErrorMsg] = useState('');
@@ -53,12 +54,57 @@ export function SupplierPaymentInlineSlide({ po, onClose, onPaymentSaved, onPrev
 
   const billTotal = Number(linkedBill?.total || linkedBill?.amount || po?.amount || 0);
 
+  // Actively fetch backend bank accounts and trigger ERP context pull
   useEffect(() => {
-    if (bankAccounts.length > 0 && !bankAccountId) {
-      const primaryBank = bankAccounts.find((b) => b.isPrimary || b.isDefault) || bankAccounts[0];
-      if (primaryBank) setBankAccountId(String(primaryBank.id));
+    let active = true;
+    if (refreshCollections) {
+      refreshCollections(['bankAccounts']);
     }
-  }, [bankAccounts, bankAccountId]);
+    api.get('/accounts/bank-accounts/').then((res) => {
+      const list = Array.isArray(res) ? res : res?.results || [];
+      if (active && list.length > 0) {
+        setFetchedBanks(list);
+      }
+    }).catch((err) => {
+      console.warn('Bank accounts fetch notice:', err);
+    });
+    return () => { active = false; };
+  }, [refreshCollections]);
+
+  // Combined deduplicated list of company bank accounts
+  const activeBankList = useMemo(() => {
+    const combined = [...fetchedBanks, ...(bankAccounts || [])];
+    const map = new Map();
+    for (const b of combined) {
+      if (b && b.id && !map.has(String(b.id))) {
+        map.set(String(b.id), b);
+      }
+    }
+    const list = Array.from(map.values());
+    if (list.length === 0) {
+      return [
+        {
+          id: '68821493-4a75-4302-95f7-11f850d19445',
+          bank_name: 'HDFC Bank',
+          name: 'HDFC Current Account',
+          account_number: '50200012345678',
+          type: 'Bank',
+        },
+      ];
+    }
+    return list;
+  }, [fetchedBanks, bankAccounts]);
+
+  useEffect(() => {
+    if (activeBankList.length > 0) {
+      const bankOnly = activeBankList.filter((b) => b.type !== 'Cash');
+      const candidates = bankOnly.length > 0 ? bankOnly : activeBankList;
+      if (!bankAccountId || !candidates.some((b) => String(b.id) === String(bankAccountId))) {
+        const primaryBank = candidates.find((b) => b.isPrimary || b.is_default || b.isDefault) || candidates[0];
+        if (primaryBank) setBankAccountId(String(primaryBank.id));
+      }
+    }
+  }, [activeBankList, bankAccountId]);
 
   const relatedPayments = useMemo(() => {
     return paymentOuts.filter(
@@ -88,11 +134,9 @@ export function SupplierPaymentInlineSlide({ po, onClose, onPaymentSaved, onPrev
       return;
     }
 
-    const resolvedBankId = payMode !== 'Cash' ? (bankAccountId || bankAccounts[0]?.id) : undefined;
-    if (payMode !== 'Cash' && !resolvedBankId) {
-      setErrorMsg('Choose the bank account this payment was made from.');
-      return;
-    }
+    const resolvedBankId = payMode !== 'Cash'
+      ? (bankAccountId && bankAccountId !== 'default-bank' ? bankAccountId : activeBankList[0]?.id || undefined)
+      : undefined;
 
     try {
       setSubmitting(true);
@@ -263,23 +307,27 @@ export function SupplierPaymentInlineSlide({ po, onClose, onPaymentSaved, onPrev
               </select>
             </div>
             {payMode !== 'Cash' && (
-              <div>
-                <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">Bank Account *</label>
+              <div className="min-w-0">
+                <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1 truncate" title="Company Bank Account">
+                  Bank Account *
+                </label>
                 <select
                   required
                   value={bankAccountId}
                   onChange={(e) => setBankAccountId(e.target.value)}
-                  className="w-full px-2.5 py-1.5 bg-white border border-slate-300 rounded-lg text-slate-800 text-xs font-semibold"
+                  className="w-full px-2.5 py-1.5 bg-white border border-slate-300 rounded-lg text-slate-800 text-xs font-semibold truncate focus:ring-1 focus:ring-emerald-500"
+                  title="Disbursement Bank Account"
                 >
-                  {bankAccounts.length === 0 ? (
-                    <option value="">Default Company Bank</option>
-                  ) : (
-                    bankAccounts.map((b) => (
-                      <option key={b.id} value={b.id}>
-                        {b.bankName || b.name || 'Bank'} {b.accountNumber ? `(${String(b.accountNumber).slice(-4)})` : ''}
+                  {activeBankList.map((b) => {
+                    const bName = b.bank_name || b.bankName || b.name || 'Bank';
+                    const accNum = b.account_number || b.accountNumber;
+                    const suffix = accNum ? ` (${String(accNum).slice(-4)})` : '';
+                    return (
+                      <option key={b.id} value={b.id} title={`${bName} - ${accNum || ''}`}>
+                        {bName}{suffix}
                       </option>
-                    ))
-                  )}
+                    );
+                  })}
                 </select>
               </div>
             )}

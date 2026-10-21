@@ -24,6 +24,7 @@ import { useNavigate } from 'react-router-dom';
 import { api } from '../../../../services/api';
 import { getProjectPurchaseOrders } from '../../../../services/pmsSync';
 import { usePmsStore } from '../../../../stores/pmsStore';
+import TablePagination from '../../../../components/ui/TablePagination';
 
 const STATUS_PILLS = {
   'Pending Dispatch': 'bg-amber-50 text-amber-700 border-amber-200',
@@ -183,6 +184,18 @@ export function Stage2SupplierDeliveryWorkspace({
 
   const pendingDispatch = Math.max(0, totalOrderedQty - totalDispatchedQty);
 
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(10);
+
+  useEffect(() => {
+    setPage(1);
+  }, [selectedPoId]);
+
+  const pagedPoDeliveries = useMemo(() => {
+    const start = (page - 1) * pageSize;
+    return poDeliveries.slice(start, start + pageSize);
+  }, [poDeliveries, page, pageSize]);
+
   const handleRefresh = async () => {
     setRefreshing(true);
     await loadData();
@@ -291,14 +304,24 @@ export function Stage2SupplierDeliveryWorkspace({
   };
 
   const handleReceiveGrn = (delivery) => {
-    navigate('/purchase/receipts', {
-      state: {
-        grnForPo: delivery.purchaseOrderId || delivery.purchaseOrder,
+    if (onSelectStage) {
+      onSelectStage(4, {
+        deliveryId: delivery.id,
         supplierChallanNo: delivery.supplierChallanNo,
         supplierChallanDate: delivery.supplierChallanDate,
         dispatchQty: delivery.dispatchedQty,
-      },
-    });
+        poId: delivery.purchaseOrderId || delivery.purchaseOrder || activePo?.id,
+      });
+    } else {
+      navigate('/purchase/receipts', {
+        state: {
+          grnForPo: delivery.purchaseOrderId || delivery.purchaseOrder,
+          supplierChallanNo: delivery.supplierChallanNo,
+          supplierChallanDate: delivery.supplierChallanDate,
+          dispatchQty: delivery.dispatchedQty,
+        },
+      });
+    }
   };
 
   return (
@@ -308,7 +331,7 @@ export function Stage2SupplierDeliveryWorkspace({
           <div>
             <div className="flex items-center gap-2 flex-wrap">
               <span className="px-2.5 py-1 rounded-md text-[11px] font-black bg-blue-100 text-blue-700 uppercase tracking-wider">
-                Stage 2
+                Stage {stage?.sequence || 3}
               </span>
               <h2 className="text-lg sm:text-xl font-extrabold text-[#17294e]">
                 Supplier Delivery & Dispatch Tracking
@@ -709,7 +732,7 @@ export function Stage2SupplierDeliveryWorkspace({
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
-                  {poDeliveries.map((d) => (
+                  {pagedPoDeliveries.map((d) => (
                     <tr key={d.id} className="hover:bg-slate-50/70">
                       <td className="py-3 px-3 font-mono font-bold text-blue-700">
                         {d.deliveryNumber}
@@ -774,6 +797,13 @@ export function Stage2SupplierDeliveryWorkspace({
                   ))}
                 </tbody>
               </table>
+              <TablePagination
+                page={page}
+                pageSize={pageSize}
+                totalItems={poDeliveries.length}
+                onPageChange={setPage}
+                onPageSizeChange={(sz) => { setPageSize(sz); setPage(1); }}
+              />
             </div>
           )}
         </div>
@@ -781,18 +811,18 @@ export function Stage2SupplierDeliveryWorkspace({
         <div className="flex items-center justify-between pt-5 mt-6 border-t border-slate-100">
           <button
             type="button"
-            onClick={() => onSelectStage && onSelectStage(1)}
-            className="inline-flex items-center gap-1.5 text-xs font-semibold text-slate-600 hover:text-slate-900"
+            onClick={() => onSelectStage && onSelectStage(2)}
+            className="inline-flex items-center gap-1.5 text-xs font-semibold text-slate-600 hover:text-slate-900 cursor-pointer"
           >
-            <ArrowLeft size={13} /> Back to Stage 1: Purchase Order
+            <ArrowLeft size={13} /> Back to Stage 2: Purchase Order
           </button>
 
           <button
             type="button"
-            onClick={() => onSelectStage && onSelectStage(3)}
+            onClick={() => onSelectStage && onSelectStage(4)}
             className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold shadow-xs cursor-pointer"
           >
-            Proceed to Stage 3: GRN / Inward <ArrowRight size={13} />
+            Proceed to Stage 4: GRN / Inward <ArrowRight size={13} />
           </button>
         </div>
       </div>

@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import { TablePagination } from '../../components/ui/TablePagination';
 import { useERP } from '../../context/ERPContext';
 import { StatusBadge } from '../../components/ui/StatusBadge';
 import { StatCard } from '../../components/ui/StatCard';
@@ -482,6 +483,18 @@ export const GoodsReceiptPage = () => {
     );
   }, [grnList, grnSearch]);
 
+  const [grnPage, setGrnPage] = useState(1);
+  const [grnPageSize, setGrnPageSize] = useState(10);
+
+  useEffect(() => {
+    setGrnPage(1);
+  }, [grnSearch]);
+
+  const paginatedGrnList = useMemo(() => {
+    const start = (grnPage - 1) * grnPageSize;
+    return filteredGrnList.slice(start, start + grnPageSize);
+  }, [filteredGrnList, grnPage, grnPageSize]);
+
   return (
     <div className="space-y-6">
       <PageHeader
@@ -575,7 +588,7 @@ export const GoodsReceiptPage = () => {
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100">
-                    {filteredGrnList.map((g) => (
+                    {paginatedGrnList.map((g) => (
                       <tr key={g.id} className="hover:bg-slate-50/70 transition-colors">
                         <td className="px-4 py-3 font-mono font-bold text-blue-600">{g.grn_number}</td>
                         <td className="px-4 py-3 text-slate-700">{g.receipt_date}</td>
@@ -597,6 +610,15 @@ export const GoodsReceiptPage = () => {
                   </tbody>
                 </table>
               </div>
+            )}
+            {filteredGrnList.length > 0 && (
+              <TablePagination
+                total={filteredGrnList.length}
+                page={grnPage}
+                pageSize={grnPageSize}
+                onPageChange={setGrnPage}
+                onPageSizeChange={setGrnPageSize}
+              />
             )}
           </div>
         </div>

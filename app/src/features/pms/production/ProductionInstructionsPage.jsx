@@ -8,6 +8,7 @@ import {
 } from 'lucide-react';
 import { toISODate } from '../../../utils/dateUtils';
 import PageHeader from '../../../components/ui/PageHeader';
+import TablePagination from '../../../components/ui/TablePagination';
 import KpiCard from '../../../components/ui/KpiCard';
 import { api } from '../../../services/api';
 import {
@@ -67,6 +68,8 @@ export default function ProductionInstructionsPage() {
   const [vendorFilter, setVendorFilter] = useState('All');
   const [dateFrom, setDateFrom] = useState('');
   const [dateTo, setDateTo] = useState('');
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(10);
 
   // Create form state
   const [poId, setPoId] = useState('');
@@ -223,6 +226,15 @@ export default function ProductionInstructionsPage() {
     });
   }, [instructions, query, statusFilter, vendorFilter, dateFrom, dateTo]);
 
+  useEffect(() => {
+    setPage(1);
+  }, [query, statusFilter, vendorFilter, dateFrom, dateTo]);
+
+  const pagedInstructions = useMemo(() => {
+    const start = (page - 1) * pageSize;
+    return filtered.slice(start, start + pageSize);
+  }, [filtered, page, pageSize]);
+
   const handleSelectPo = (id) => {
     setPoId(id);
     const po = purchaseOrders.find((p) => p.id === id);
@@ -339,9 +351,9 @@ export default function ProductionInstructionsPage() {
               </tr>
             </thead>
             <tbody>
-              {filtered.map((pi, idx) => (
+              {pagedInstructions.map((pi, idx) => (
                 <tr key={pi.id} className="border-b border-slate-50 hover:bg-slate-50/60">
-                  <td className="px-3 py-2.5 text-center text-slate-400 font-mono">{idx + 1}</td>
+                  <td className="px-3 py-2.5 text-center text-slate-400 font-mono">{(page - 1) * pageSize + idx + 1}</td>
                   <td className="px-3 py-2.5 whitespace-nowrap">
                     <button onClick={() => navigate(`/pms/production-completion?pi=${encodeURIComponent(pi.id)}`)} className="font-mono font-bold text-blue-600 hover:underline" title="Open Production Completion & Verification">{pi.piNumber}</button>
                   </td>
@@ -424,6 +436,13 @@ export default function ProductionInstructionsPage() {
               )}
             </tbody>
           </table>
+          <TablePagination
+            page={page}
+            pageSize={pageSize}
+            totalItems={filtered.length}
+            onPageChange={setPage}
+            onPageSizeChange={(sz) => { setPageSize(sz); setPage(1); }}
+          />
         </div>
       </div>
 

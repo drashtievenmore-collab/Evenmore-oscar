@@ -6,6 +6,7 @@ import { fetchJWOs, createJWO, lookupJWORate, errorMessage } from '../../service
 import { api } from '../../services/api';
 import { useERP } from '../../context/ERPContext';
 import PageHeader from '../../components/ui/PageHeader';
+import TablePagination from '../../components/ui/TablePagination';
 
 const statusPill = (s) =>
   s === 'Completed'
@@ -27,6 +28,8 @@ export default function JobWorkOrdersPage() {
   const [loadError, setLoadError] = useState('');
   const [q, setQ] = useState('');
   const [status, setStatus] = useState('All');
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(10);
 
   // Masters from backend
   const [processorsList, setProcessorsList] = useState([]);
@@ -119,6 +122,15 @@ export default function JobWorkOrdersPage() {
       }),
     [orders, q, status],
   );
+
+  useEffect(() => {
+    setPage(1);
+  }, [q, status]);
+
+  const pagedRows = useMemo(() => {
+    const start = (page - 1) * pageSize;
+    return rows.slice(start, start + pageSize);
+  }, [rows, page, pageSize]);
 
   const openCreateModal = () => {
     setModalVendor('');
@@ -267,11 +279,11 @@ export default function JobWorkOrdersPage() {
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-50 text-slate-700">
-              {rows.map((o, idx) => {
+              {pagedRows.map((o, idx) => {
                 const k = jwoKpis(o);
                 return (
                   <tr key={o.id} className="hover:bg-slate-50/60 transition">
-                    <td className="px-3 py-2.5 text-slate-400 font-semibold">{idx + 1}</td>
+                    <td className="px-3 py-2.5 text-slate-400 font-semibold">{(page - 1) * pageSize + idx + 1}</td>
                     <td className="px-3 py-2.5 font-bold text-[#17294e]">
                       <button
                         onClick={() => navigate(`/job-work/orders/${o.id}`)}
@@ -339,6 +351,13 @@ export default function JobWorkOrdersPage() {
               )}
             </tbody>
           </table>
+          <TablePagination
+            page={page}
+            pageSize={pageSize}
+            totalItems={rows.length}
+            onPageChange={setPage}
+            onPageSizeChange={(sz) => { setPageSize(sz); setPage(1); }}
+          />
         </div>
       </div>
 

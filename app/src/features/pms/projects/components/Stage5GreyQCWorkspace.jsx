@@ -143,7 +143,7 @@ export function Stage5GreyQCWorkspace({
         <div>
           <div className="flex items-center gap-2">
             <span className="px-2 py-0.5 rounded-md text-[11px] font-black bg-blue-100 text-blue-700 uppercase tracking-wider">
-              Stage 5
+              Stage 6
             </span>
             <h2 className="text-base font-extrabold text-[#17294e]">Grey Fabric Quality Control (QC)</h2>
           </div>
@@ -259,18 +259,18 @@ export function Stage5GreyQCWorkspace({
       <div className="flex items-center justify-between pt-4 border-t border-slate-100">
         <button
           type="button"
-          onClick={() => onSelectStage && onSelectStage(4)}
+          onClick={() => onSelectStage && onSelectStage(5)}
           className="inline-flex items-center gap-1.5 text-xs font-semibold text-slate-600 hover:text-slate-900"
         >
-          <ArrowLeft size={13} /> Back to Lot & Taka Creation
+          <ArrowLeft size={13} /> Back to Stage 5: Lot & Taka Creation
         </button>
 
         <button
           type="button"
-          onClick={() => onSelectStage && onSelectStage(6)}
+          onClick={() => onSelectStage && onSelectStage(7)}
           className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold shadow-xs cursor-pointer"
         >
-          Proceed to Stage 6: Grey Stock Updated <ArrowRight size={13} />
+          Proceed to Stage 7: Grey Stock Updated <ArrowRight size={13} />
         </button>
       </div>
 

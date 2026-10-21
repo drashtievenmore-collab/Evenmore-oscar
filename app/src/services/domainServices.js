@@ -93,6 +93,10 @@ export const salesService = {
   getInvoiceOutstanding: (invoiceId) => api.get(`/sales/invoices/${invoiceId}/outstanding/`),
   // Commercials & Brokerage (Phase 3)
   getBrokerCommissions: (query) => api.get('/sales/broker-commissions/', { query }),
+  getBrokerLeads: (query) => api.get('/sales/broker-commissions/leads/', { query }),
+  getBrokerAnalytics: (query) => api.get('/sales/broker-commissions/analytics/', { query }),
+  getBrokersList: (query) => api.get('/masters/brokers/', { query }),
+  createBroker: (data) => api.post('/masters/brokers/', data),
   approveBrokerCommission: (id) => api.post(`/sales/broker-commissions/${id}/approve/`),
   makeBrokerPayable: (id) => api.post(`/sales/broker-commissions/${id}/make-payable/`),
   payBrokerCommission: (id, data) => api.post(`/sales/broker-commissions/${id}/pay/`, data),

@@ -103,6 +103,9 @@ function StageIcon({ name, department, sequence }) {
   if (text.includes('stock updated')) {
     return <Boxes size={18} strokeWidth={1.8} />;
   }
+  if (text.includes('vendor bill') || text.includes('bill entry')) {
+    return <Receipt size={18} strokeWidth={1.8} />;
+  }
   if (text.includes('assign') || text.includes('employee')) {
     return <ClipboardList size={18} strokeWidth={1.8} />;
   }
@@ -169,6 +172,21 @@ function getStageSummary(stage, pipelineSummary) {
     };
   }
 
+  const stageNameLower = (stage.name || '').toLowerCase();
+  if (stageNameLower.includes('vendor bill') || stageNameLower.includes('purchase bill')) {
+    const billNo = doc?.number || stage.document?.number || q.billNumber || q.vendorBillNumber;
+    const billAmt = q.billAmount || q.amount || q.total;
+    return {
+      line1: billNo ? `Bill #${billNo}` : (billAmt ? `₹${Number(billAmt).toLocaleString('en-IN')}` : 'Bill: —'),
+      line2: billNo ? (billAmt ? `₹${Number(billAmt).toLocaleString('en-IN')}` : 'Invoice Recorded') : 'Bill Entry Pending',
+    };
+  }
+  if (stageNameLower.includes('bill match') || stageNameLower.includes('bill matching')) {
+    return {
+      line1: stage.status === 'Completed' ? 'Matched 3-Way' : 'Match: Pending',
+      line2: 'PO + GRN + Bill',
+    };
+  }
   if (seq === 1) {
     const alloc = q.reserved || pipelineSummary?.allocated_meters || 0;
     const cust = pipelineSummary?.customer_meters;
@@ -278,14 +296,15 @@ function getStageSummary(stage, pipelineSummary) {
 }
 
 export const PURCHASE_PO_STAGES = [
-  { name: 'Create Grey Purchase PO', department: 'Purchase', branch: 'branch_purchase', weight: 3.75, icon: 'FileText' },
-  { name: 'Supplier Delivery', department: 'Purchase', branch: 'branch_purchase', weight: 3.75, icon: 'Truck' },
-  { name: 'GRN / Inward', department: 'Inventory', branch: 'branch_purchase', weight: 3.75, icon: 'Boxes' },
-  { name: 'Lot & Taka Creation', department: 'Inventory', branch: 'branch_purchase', weight: 3.75, icon: 'Layers' },
-  { name: 'Grey QC', department: 'QC', branch: 'branch_purchase', weight: 3.75, icon: 'ShieldCheck' },
-  { name: 'Grey Stock Updated', department: 'Inventory', branch: 'branch_purchase', weight: 3.75, icon: 'Boxes' },
-  { name: 'Supplier Bill Matching', department: 'Accounts', branch: 'branch_purchase', weight: 3.75, icon: 'FileSpreadsheet' },
-  { name: 'Payment', department: 'Accounts', branch: 'branch_purchase', weight: 3.75, icon: 'IndianRupee' },
+  { name: 'Create Grey Purchase PO', department: 'Purchase', branch: 'branch_purchase', weight: 3.33, icon: 'FileText' },
+  { name: 'Supplier Delivery', department: 'Purchase', branch: 'branch_purchase', weight: 3.33, icon: 'Truck' },
+  { name: 'GRN / Inward', department: 'Inventory', branch: 'branch_purchase', weight: 3.33, icon: 'Boxes' },
+  { name: 'Lot & Taka Creation', department: 'Inventory', branch: 'branch_purchase', weight: 3.33, icon: 'Layers' },
+  { name: 'Grey QC', department: 'QC', branch: 'branch_purchase', weight: 3.33, icon: 'ShieldCheck' },
+  { name: 'Grey Stock Updated', department: 'Inventory', branch: 'branch_purchase', weight: 3.33, icon: 'Boxes' },
+  { name: 'Vendor Bill', department: 'Accounts', branch: 'branch_purchase', weight: 3.34, icon: 'Receipt' },
+  { name: 'Supplier Bill Matching', department: 'Accounts', branch: 'branch_purchase', weight: 3.34, icon: 'FileSpreadsheet' },
+  { name: 'Payment', department: 'Accounts', branch: 'branch_purchase', weight: 3.34, icon: 'IndianRupee' },
 ];
 
 export const VENDOR_PRODUCTION_STAGES = [
@@ -301,14 +320,14 @@ export const VENDOR_PRODUCTION_STAGES = [
 ];
 
 export const DOWNSTREAM_STAGES = [
-  { name: 'Processing Plan & Vendor Assignment', department: 'Job Work', branch: 'common', weight: 10, icon: 'ClipboardList' },
-  { name: 'Job Work Outward (Send to Vendor)', department: 'Job Work', branch: 'common', weight: 10, icon: 'Truck' },
-  { name: 'Processing (Dyeing)', department: 'Job Work', branch: 'common', weight: 10, icon: 'Cog' },
-  { name: 'Job Work Inward (Receive)', department: 'Job Work', branch: 'common', weight: 10, icon: 'ArrowDownToLine' },
-  { name: 'Quality Check & Stock Allocation', department: 'QC', branch: 'common', weight: 10, icon: 'ShieldCheck' },
-  { name: 'Customer Dispatch', department: 'Dispatch', branch: 'common', weight: 10, icon: 'Boxes' },
-  { name: 'Invoice & Payment Collection', department: 'Accounts', branch: 'common', weight: 10, icon: 'IndianRupee' },
-  { name: 'Project Closure', department: 'Management', branch: 'common', weight: 10, icon: 'CheckCircle2' },
+  { name: 'Processing Plan & Vendor Assignment', department: 'Job Work', branch: 'common', weight: 7.5, icon: 'ClipboardList' },
+  { name: 'Job Work Outward (Send to Vendor)', department: 'Job Work', branch: 'common', weight: 7.5, icon: 'Truck' },
+  { name: 'Processing (Dyeing)', department: 'Job Work', branch: 'common', weight: 7.5, icon: 'Cog' },
+  { name: 'Job Work Inward (Receive)', department: 'Job Work', branch: 'common', weight: 7.5, icon: 'ArrowDownToLine' },
+  { name: 'Quality Check & Stock Allocation', department: 'QC', branch: 'common', weight: 7.5, icon: 'ShieldCheck' },
+  { name: 'Customer Dispatch', department: 'Dispatch', branch: 'common', weight: 7.5, icon: 'Boxes' },
+  { name: 'Invoice & Payment Collection', department: 'Accounts', branch: 'common', weight: 7.5, icon: 'IndianRupee' },
+  { name: 'Project Closure', department: 'Management', branch: 'common', weight: 7.5, icon: 'CheckCircle2' },
 ];
 
 export const STAGE_1_DEF = {
@@ -389,6 +408,21 @@ export function buildStaticPipelineStages(project) {
       }
     }
 
+    if (def.name === 'Vendor Bill') {
+      const cfvData = project.customFieldValues || project.custom_field_values || {};
+      const hasBill =
+        Boolean(project.pipelineSummary?.vendor_bill_number) ||
+        Boolean(project.pipelineSummary?.vendor_bill_id) ||
+        Boolean(cfvData?.vendor_bill_number) ||
+        Boolean(cfvData?.vendor_bill_id) ||
+        Boolean(existing?.document?.number) ||
+        existing?.status === 'Completed';
+      if (hasBill) {
+        status = 'Completed';
+        completionPct = 100;
+      }
+    }
+
     const weight = existing ? (existing.percentage ?? existing.weightPct ?? def.weight) : def.weight;
 
     return {
@@ -414,6 +448,22 @@ export function buildStaticPipelineStages(project) {
       approvals: existing?.approvals || [],
     };
   });
+
+  const rawSum = baseStages.reduce((sum, s) => sum + (Number(s.weight) || 0), 0);
+  if (rawSum > 0 && Math.abs(rawSum - 100) > 0.001) {
+    baseStages.forEach((s) => {
+      s.weight = Math.round(((s.weight / rawSum) * 100) * 100) / 100;
+      s.percentage = s.weight;
+      s.weightPct = s.weight;
+    });
+    const finalSum = baseStages.reduce((sum, s) => sum + s.weight, 0);
+    const diff = Math.round((100 - finalSum) * 100) / 100;
+    if (diff !== 0 && baseStages.length > 0) {
+      baseStages[baseStages.length - 1].weight = Math.round((baseStages[baseStages.length - 1].weight + diff) * 100) / 100;
+      baseStages[baseStages.length - 1].percentage = baseStages[baseStages.length - 1].weight;
+      baseStages[baseStages.length - 1].weightPct = baseStages[baseStages.length - 1].weight;
+    }
+  }
 
   return baseStages;
 }

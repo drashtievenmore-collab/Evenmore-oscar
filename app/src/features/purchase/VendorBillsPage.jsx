@@ -1,9 +1,10 @@
-import React, { useMemo, useState } from 'react';
+import React, { useMemo, useState, useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useERP } from '../../context/ERPContext';
 import { StatusBadge } from '../../components/ui/StatusBadge';
 import { Button } from '../../components/ui/Button';
 import { PageHeader } from '../../components/common/PageHeader';
+import TablePagination from '../../components/ui/TablePagination';
 import { Plus, X, Eye, Pencil, Trash2, Send, Upload } from 'lucide-react';
 import { toISODate, getCurrentISODate } from '../../utils/dateUtils';
 
@@ -51,6 +52,8 @@ export const VendorBillsPage = () => {
   const [statusFilter, setStatusFilter] = useState('');
   const [dateFrom, setDateFrom] = useState('');
   const [dateTo, setDateTo] = useState('');
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(10);
   const [showModal, setShowModal] = useState(false);
   const [editingId, setEditingId] = useState(null);
   const [selectedId, setSelectedId] = useState(null);
@@ -92,6 +95,15 @@ export const VendorBillsPage = () => {
       return hay.includes(term);
     });
   }, [vendorBills, purchaseOrders, search, vendorFilter, statusFilter, dateFrom, dateTo]);
+
+  useEffect(() => {
+    setPage(1);
+  }, [search, vendorFilter, statusFilter, dateFrom, dateTo]);
+
+  const paginatedBills = useMemo(() => {
+    const start = (page - 1) * pageSize;
+    return filtered.slice(start, start + pageSize);
+  }, [filtered, page, pageSize]);
 
   const selected = useMemo(
     () => (vendorBills || []).find((b) => b.id === selectedId) || null,
@@ -303,9 +315,9 @@ export const VendorBillsPage = () => {
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
-                {filtered.map((b, idx) => (
+                {paginatedBills.map((b, idx) => (
                   <tr key={b.id} className="hover:bg-slate-50/70">
-                    <td className="p-2.5 font-mono text-slate-400">{idx + 1}</td>
+                    <td className="p-2.5 font-mono text-slate-400">{(page - 1) * pageSize + idx + 1}</td>
                     <td className="p-2.5">
                       <button onClick={() => setSelectedId(b.id)} className="font-mono font-bold text-primary hover:underline cursor-pointer">
                         {b.vendorBillNumber || b.billNumber}
@@ -330,6 +342,13 @@ export const VendorBillsPage = () => {
                 ))}
               </tbody>
             </table>
+            <TablePagination
+              page={page}
+              pageSize={pageSize}
+              totalItems={filtered.length}
+              onPageChange={setPage}
+              onPageSizeChange={(sz) => { setPageSize(sz); setPage(1); }}
+            />
           </div>
         )}
       </div>

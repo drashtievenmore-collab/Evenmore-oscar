@@ -1,6 +1,7 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import {
   Boxes,
+  Truck,
   Plus,
   RefreshCw,
   FileText,
@@ -9,23 +10,33 @@ import {
   AlertTriangle,
   ArrowRight,
   ArrowLeft,
-  X,
   ExternalLink,
   Layers,
   ShieldCheck,
+  Building2,
+  Calendar,
+  Hash,
+  RotateCcw,
+  Sparkles,
 } from 'lucide-react';
 import { api } from '../../../../services/api';
 import { getProjectPurchaseOrders } from '../../../../services/pmsSync';
 import { usePmsStore } from '../../../../stores/pmsStore';
+import { useERP } from '../../../../context/ERPContext';
 import { useNavigate } from 'react-router-dom';
+import { TablePagination } from '../../../../components/ui/TablePagination';
 
 export function Stage3GRNInwardWorkspace({
   project,
   stage,
   onSyncPipeline,
   onSelectStage,
+  deliveryContext,
 }) {
   const navigate = useNavigate();
+  const formRef = useRef(null);
+  const { locations = [], refreshCollections } = useERP() || {};
+
   const showToast = usePmsStore((s) => s.showToast);
   const toast = useMemo(
     () => ({
@@ -39,21 +50,82 @@ export function Stage3GRNInwardWorkspace({
   const projectId = project?.id;
   const [loading, setLoading] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
-  const [purchaseOrders, setPurchaseOrders] = useState([]);
-  const [receipts, setReceipts] = useState([]);
-  const [deliveries, setDeliveries] = useState([]);
-
-  const [isModalOpen, setIsModalOpen] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+
+  const [purchaseOrders, setPurchaseOrders] = useState([]);
+  const [selectedPoId, setSelectedPoId] = useState('');
+  const [receipts, setReceipts] = useState([]);
+  const [histPage, setHistPage] = useState(1);
+  const [histPageSize, setHistPageSize] = useState(5);
+
+  const paginatedReceipts = useMemo(() => {
+    const start = (histPage - 1) * histPageSize;
+    return receipts.slice(start, start + histPageSize);
+  }, [receipts, histPage, histPageSize]);
+  const [deliveries, setDeliveries] = useState([]);
+  const [fetchedLocations, setFetchedLocations] = useState([]);
+
+  const todayStr = useMemo(() => new Date().toISOString().split('T')[0], []);
 
   const [grnForm, setGrnForm] = useState({
     supplierChallanNo: '',
-    supplierChallanDate: new Date().toISOString().split('T')[0],
-    receiptDate: new Date().toISOString().split('T')[0],
+    supplierChallanDate: todayStr,
+    receiptDate: todayStr,
     receivedQty: '',
     rollCount: 10,
+    locationId: '',
+    gateEntryNo: '',
     remarks: '',
   });
+
+  // Pre-fill from deliveryContext if passed (e.g. clicked "Receive GRN" on a dispatch)
+  useEffect(() => {
+    if (deliveryContext) {
+      setGrnForm((prev) => ({
+        ...prev,
+        supplierChallanNo: deliveryContext.supplierChallanNo || prev.supplierChallanNo,
+        supplierChallanDate: deliveryContext.supplierChallanDate || prev.supplierChallanDate,
+        receivedQty: deliveryContext.dispatchQty ? String(deliveryContext.dispatchQty) : prev.receivedQty,
+      }));
+      if (deliveryContext.poId) {
+        setSelectedPoId(String(deliveryContext.poId));
+      }
+      if (formRef.current) {
+        formRef.current.scrollIntoView({ behavior: 'smooth' });
+      }
+    }
+  }, [deliveryContext]);
+
+  // Load locations if not in ERPContext
+  useEffect(() => {
+    let active = true;
+    if (locations.length === 0) {
+      api.get('/inventory/locations/').then((res) => {
+        const list = Array.isArray(res) ? res : res?.results || [];
+        if (active && list.length > 0) {
+          setFetchedLocations(list);
+        }
+      }).catch(() => {});
+    }
+    return () => { active = false; };
+  }, [locations]);
+
+  const activeLocations = useMemo(() => {
+    return locations.length > 0 ? locations : fetchedLocations;
+  }, [locations, fetchedLocations]);
+
+  // Set default location
+  useEffect(() => {
+    if (activeLocations.length > 0 && !grnForm.locationId) {
+      const qcHold = activeLocations.find(
+        (l) => (l.name || '').toLowerCase().includes('qc') || (l.name || '').toLowerCase().includes('main')
+      );
+      setGrnForm((prev) => ({
+        ...prev,
+        locationId: qcHold ? String(qcHold.id) : String(activeLocations[0].id),
+      }));
+    }
+  }, [activeLocations, grnForm.locationId]);
 
   const loadData = async () => {
     if (!projectId) return;
@@ -68,6 +140,9 @@ export function Stage3GRNInwardWorkspace({
       if (poRes.status === 'fulfilled' && poRes.value) {
         poList = Array.isArray(poRes.value) ? poRes.value : (poRes.value.data || poRes.value.results || []);
         setPurchaseOrders(poList);
+        if (!selectedPoId && poList.length > 0) {
+          setSelectedPoId(String(poList[0].id));
+        }
       }
 
       if (delRes.status === 'fulfilled' && delRes.value) {
@@ -108,13 +183,36 @@ export function Stage3GRNInwardWorkspace({
     toast.info('GRN records refreshed.');
   };
 
-  const activePo = purchaseOrders[0] || null;
+  const activePo = useMemo(() => {
+    return purchaseOrders.find((p) => String(p.id) === String(selectedPoId)) || purchaseOrders[0] || null;
+  }, [purchaseOrders, selectedPoId]);
+
+  const primaryFabric = useMemo(() => {
+    if (!activePo) return null;
+    const items = activePo.items || activePo.lineItems || [];
+    if (items.length > 0) return items[0];
+    return {
+      name: activePo.itemName || activePo.fabricName || 'Grey Fabric',
+      rate: activePo.rate || 0,
+      qty: activePo.qty || activePo.quantity || 0,
+      uom: 'Mtr',
+    };
+  }, [activePo]);
 
   const totalOrderedQty = useMemo(() => {
     if (!activePo) return 0;
     const lines = activePo.items || activePo.lineItems || [];
-    return lines.reduce((s, l) => s + (Number(l.qty) || 0), 0);
+    const lineSum = lines.reduce((s, l) => s + (Number(l.qty) || 0), 0);
+    return lineSum > 0 ? lineSum : (Number(activePo.qty || activePo.quantity) || 0);
   }, [activePo]);
+
+  const totalDispatchedQty = useMemo(() => {
+    if (!activePo) return 0;
+    const activeDelivs = deliveries.filter(
+      (d) => String(d.purchaseOrderId || d.purchaseOrder) === String(activePo.id)
+    );
+    return activeDelivs.reduce((sum, d) => sum + (Number(d.dispatchedQty || d.dispatched_qty) || 0), 0);
+  }, [deliveries, activePo]);
 
   const totalReceivedQty = useMemo(() => {
     return receipts.reduce((sum, r) => {
@@ -124,7 +222,41 @@ export function Stage3GRNInwardWorkspace({
     }, 0);
   }, [receipts]);
 
-  const pendingBalance = Math.max(0, totalOrderedQty - totalReceivedQty);
+  const pendingInward = Math.max(0, totalOrderedQty - totalReceivedQty);
+
+  // Set default receivedQty if empty
+  useEffect(() => {
+    if (!grnForm.receivedQty && pendingInward > 0) {
+      setGrnForm((prev) => ({ ...prev, receivedQty: String(pendingInward) }));
+    }
+  }, [pendingInward]);
+
+  const handleScrollToForm = () => {
+    if (formRef.current) {
+      formRef.current.scrollIntoView({ behavior: 'smooth' });
+    }
+  };
+
+  const handleOpenStandalone = () => {
+    if (activePo) {
+      navigate(`/purchase/receipts?po=${activePo.id}&project=${project?.id || ''}`);
+    } else {
+      navigate('/purchase/receipts');
+    }
+  };
+
+  const handleClearForm = () => {
+    setGrnForm({
+      supplierChallanNo: '',
+      supplierChallanDate: todayStr,
+      receiptDate: todayStr,
+      receivedQty: pendingInward > 0 ? String(pendingInward) : '',
+      rollCount: 10,
+      locationId: activeLocations[0]?.id ? String(activeLocations[0].id) : '',
+      gateEntryNo: '',
+      remarks: '',
+    });
+  };
 
   const handleCreateGrn = async (e) => {
     e.preventDefault();
@@ -139,40 +271,68 @@ export function Stage3GRNInwardWorkspace({
     }
 
     const lines = activePo.items || activePo.lineItems || [];
-    const firstLine = lines[0];
+    const firstLine = lines[0] || {
+      itemId: activePo.itemId,
+      id: null,
+      qty: totalOrderedQty,
+      rate: activePo.rate || 0,
+      uom: 'Mtr',
+    };
+    const rollCnt = Math.max(1, Number(grnForm.rollCount) || 1);
+    const perRoll = Math.floor(qty / rollCnt);
+    const lastRoll = perRoll + (qty - perRoll * rollCnt);
+
+    const takasArray = Array.from({ length: rollCnt }, (_, i) => ({
+      takaNumber: String(i + 1),
+      qty: i === rollCnt - 1 ? lastRoll : perRoll,
+      width: 44,
+      remarks: 'Auto-split from physical GRN intake dock',
+    }));
 
     setSubmitting(true);
     try {
+      // Auto-approve PO if still in Draft
+      if (activePo.status === 'Draft') {
+        try {
+          await api.patch(`/purchase/orders/${activePo.id}/`, { status: 'Approved' });
+          activePo.status = 'Approved';
+        } catch (err) {
+          console.warn('Auto approval notice:', err);
+        }
+      }
+
       const payload = {
         partyId: activePo.vendorId || activePo.party_id,
+        locationId: grnForm.locationId || activeLocations[0]?.id || undefined,
         purchaseOrderId: activePo.id,
-        supplierChallanNo: grnForm.supplierChallanNo,
+        supplierChallanNo: grnForm.supplierChallanNo || `CH-${activePo.poNumber || Date.now()}`,
         supplierChallanDate: grnForm.supplierChallanDate || null,
         receiptDate: grnForm.receiptDate,
+        gateEntryNo: grnForm.gateEntryNo || undefined,
         lines: [
           {
             itemId: firstLine?.itemId || firstLine?.item?.id,
+            poLineId: firstLine?.id || null,
             orderedQty: Number(firstLine?.qty || totalOrderedQty),
             receivedQty: qty,
-            rollCount: Number(grnForm.rollCount) || 10,
+            rollCount: rollCnt,
             uom: firstLine?.uom || 'Mtr',
             unitCost: Number(firstLine?.rate || 0),
             remarks: grnForm.remarks,
+            takas: takasArray,
           },
         ],
       };
 
-      await api.post('/purchase/receipts/', payload);
-      toast.success('Goods Receipt (GRN) created and posted to QC-Hold.');
-      setIsModalOpen(false);
-      setGrnForm({
-        supplierChallanNo: '',
-        supplierChallanDate: new Date().toISOString().split('T')[0],
-        receiptDate: new Date().toISOString().split('T')[0],
-        receivedQty: '',
-        rollCount: 10,
-        remarks: '',
-      });
+      const res = await api.post('/purchase/receipts/', payload);
+      const grnNum = res?.grnNumber || res?.grn_number || res?.id || 'New';
+      toast.success(`GRN #${grnNum} created! Fabric posted to QC-Hold with ${rollCnt} takas.`);
+
+      if (refreshCollections) {
+        refreshCollections(['purchaseOrders', 'inventory']);
+      }
+
+      handleClearForm();
       await loadData();
       if (onSyncPipeline) await onSyncPipeline();
     } catch (err) {
@@ -183,177 +343,234 @@ export function Stage3GRNInwardWorkspace({
   };
 
   return (
-    <div className="rounded-2xl border border-[#dce5f4] bg-white p-5 shadow-2xs space-y-5">
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-4 border-b border-slate-100">
-        <div>
-          <div className="flex items-center gap-2">
-            <span className="px-2 py-0.5 rounded-md text-[11px] font-black bg-blue-100 text-blue-700 uppercase tracking-wider">
-              Stage 3
-            </span>
-            <h2 className="text-base font-extrabold text-[#17294e]">Goods Receipt Note (GRN) / Inward</h2>
-          </div>
-          <p className="text-xs text-slate-500 font-medium mt-1">
-            Physical dock receipt of grey fabric. Fabric is received into QC Hold location and lot/taka rolls are generated for inspection.
-          </p>
-        </div>
-
-        <div className="flex items-center gap-2">
-          <button
-            type="button"
-            onClick={handleRefresh}
-            disabled={refreshing}
-            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-[#dce5f4] bg-white text-slate-700 hover:bg-slate-50 text-xs font-semibold shadow-2xs cursor-pointer"
-          >
-            <RefreshCw size={13} className={refreshing ? 'animate-spin' : ''} />
-            Refresh
-          </button>
-
-          <button
-            type="button"
-            onClick={() => setIsModalOpen(true)}
-            disabled={!activePo}
-            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-sky-600 hover:bg-sky-700 text-white text-xs font-bold shadow-xs cursor-pointer disabled:opacity-50"
-          >
-            <Plus size={14} /> Record GRN Inward
-          </button>
-        </div>
-      </div>
-
-      {activePo && (
-        <div className="p-4 rounded-xl bg-slate-50/80 border border-slate-200/80 grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
+    <div className="space-y-6">
+      <div className="rounded-2xl border border-[#dce5f4] bg-white p-5 sm:p-6 shadow-sm">
+        {/* ── Top Workspace Header ── */}
+        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 pb-5 border-b border-slate-100">
           <div>
-            <span className="text-[11px] font-semibold text-slate-400 block">Purchase Order</span>
-            <span className="font-mono font-bold text-blue-700">{activePo.poNumber}</span>
-          </div>
-          <div>
-            <span className="text-[11px] font-semibold text-slate-400 block">Ordered Quantity</span>
-            <span className="font-mono font-black text-slate-900">{totalOrderedQty.toLocaleString('en-IN')} M</span>
-          </div>
-          <div>
-            <span className="text-[11px] font-semibold text-slate-400 block">Total Received (GRN)</span>
-            <span className="font-mono font-black text-emerald-700">{totalReceivedQty.toLocaleString('en-IN')} M</span>
-          </div>
-          <div>
-            <span className="text-[11px] font-semibold text-slate-400 block">Pending Balance</span>
-            <span className="font-mono font-black text-amber-700">{pendingBalance.toLocaleString('en-IN')} M</span>
-          </div>
-        </div>
-      )}
-
-      <div className="space-y-3">
-        <div className="flex items-center justify-between">
-          <h3 className="text-xs font-bold uppercase tracking-wider text-slate-600">
-            Receipt Records / GRNs ({receipts.length})
-          </h3>
-          <span className="text-[11px] text-slate-400">Multiple GRNs against one PO supported</span>
-        </div>
-
-        {receipts.length === 0 ? (
-          <div className="p-8 text-center border border-dashed border-slate-200 rounded-xl">
-            <Boxes size={32} className="mx-auto mb-2 text-slate-300" />
-            <p className="text-xs font-bold text-slate-700">No GRN recorded yet</p>
-            <p className="text-[11px] text-slate-400 mt-0.5">
-              Record physical receipt when the vehicle arrives at the warehouse dock.
+            <div className="flex items-center gap-2 flex-wrap">
+              <span className="px-2.5 py-1 rounded-md text-[11px] font-black bg-blue-100 text-blue-700 uppercase tracking-wider">
+                Stage {stage?.sequence || 4}
+              </span>
+              <h2 className="text-lg sm:text-xl font-extrabold text-[#17294e]">
+                Goods Receipt Note (GRN) & Fabric Inward
+              </h2>
+            </div>
+            <p className="text-xs text-slate-500 font-medium mt-1">
+              Physical dock intake of grey fabric against supplier challan. Posts stock into QC-Hold location with roll/taka breakdown.
             </p>
-            {activePo && (
-              <button
-                type="button"
-                onClick={() => setIsModalOpen(true)}
-                className="mt-3 inline-flex items-center gap-1.5 px-3 py-1.5 bg-sky-600 text-white rounded-lg text-xs font-bold shadow-xs hover:bg-sky-700 cursor-pointer"
+          </div>
+
+          <div className="flex items-center gap-2 flex-wrap">
+            {purchaseOrders.length > 1 && (
+              <select
+                value={selectedPoId}
+                onChange={(e) => setSelectedPoId(e.target.value)}
+                className="px-3 py-1.5 border border-slate-300 rounded-lg text-xs font-semibold bg-white text-slate-700"
               >
-                <Plus size={13} /> Record GRN Now
-              </button>
+                {purchaseOrders.map((p) => (
+                  <option key={p.id} value={p.id}>
+                    {p.poNumber} — {p.vendor || p.party_name || 'Supplier'}
+                  </option>
+                ))}
+              </select>
             )}
+
+            <button
+              type="button"
+              onClick={handleRefresh}
+              disabled={refreshing}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-[#dce5f4] bg-white text-slate-700 hover:bg-slate-50 text-xs font-semibold shadow-2xs cursor-pointer"
+            >
+              <RefreshCw size={13} className={refreshing ? 'animate-spin' : ''} />
+              Refresh
+            </button>
+
+            <button
+              type="button"
+              onClick={handleOpenStandalone}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-blue-200 bg-blue-50 hover:bg-blue-100 text-blue-700 text-xs font-bold shadow-2xs cursor-pointer"
+            >
+              <ExternalLink size={13} />
+              Open Standalone Screen
+            </button>
+
+            <button
+              type="button"
+              onClick={handleScrollToForm}
+              className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold shadow-xs cursor-pointer"
+            >
+              <Plus size={14} /> Record GRN Inward
+            </button>
           </div>
-        ) : (
-          <div className="overflow-x-auto rounded-xl border border-slate-200">
-            <table className="w-full text-left text-xs border-collapse">
-              <thead>
-                <tr className="bg-slate-50 border-b border-slate-200 text-[10.5px] font-bold text-slate-500 uppercase tracking-wider">
-                  <th className="py-2.5 px-3">GRN #</th>
-                  <th className="py-2.5 px-3">Receipt Date</th>
-                  <th className="py-2.5 px-3">Supplier Challan</th>
-                  <th className="py-2.5 px-3 text-right">Received Qty</th>
-                  <th className="py-2.5 px-3">QC Status</th>
-                  <th className="py-2.5 px-3 text-center">Actions</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100">
-                {receipts.map((r) => {
-                  const lineQty = (r.lines || []).reduce((s, l) => s + (Number(l.receivedQty || l.received_qty) || 0), 0);
-                  const displayQty = lineQty > 0 ? lineQty : (Number(r.receivedQty) || 0);
-                  const qc = r.qcStatus || r.qc_status || 'Pending';
-                  return (
-                    <tr key={r.id} className="hover:bg-slate-50/60">
-                      <td className="py-2.5 px-3 font-mono font-bold text-blue-700">
-                        {r.grnNumber || r.grn_number || f`GRN-${r.id}`}
-                      </td>
-                      <td className="py-2.5 px-3 text-slate-700">{r.receiptDate || r.receipt_date || '—'}</td>
-                      <td className="py-2.5 px-3 font-medium text-slate-800">{r.supplierChallanNo || r.supplier_challan_no || '—'}</td>
-                      <td className="py-2.5 px-3 text-right font-mono font-bold text-slate-900">
-                        {displayQty.toLocaleString('en-IN')} M
-                      </td>
-                      <td className="py-2.5 px-3">
-                        <span className={`inline-block px-2 py-0.5 rounded-full text-[10px] font-bold border ${
-                          qc === 'Approved' ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : 'bg-amber-50 text-amber-700 border-amber-200'
-                        }`}>
-                          {qc}
-                        </span>
-                      </td>
-                      <td className="py-2.5 px-3 text-center">
-                        <button
-                          type="button"
-                          onClick={() => onSelectStage && onSelectStage(4)}
-                          className="px-2 py-1 text-[11px] font-semibold rounded-md border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 shadow-2xs"
-                        >
-                          View Takas
-                        </button>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </div>
+        </div>
 
-      <div className="flex items-center justify-between pt-4 border-t border-slate-100">
-        <button
-          type="button"
-          onClick={() => onSelectStage && onSelectStage(2)}
-          className="inline-flex items-center gap-1.5 text-xs font-semibold text-slate-600 hover:text-slate-900"
-        >
-          <ArrowLeft size={13} /> Back to Supplier Delivery
-        </button>
-
-        <button
-          type="button"
-          onClick={() => onSelectStage && onSelectStage(4)}
-          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold shadow-xs cursor-pointer"
-        >
-          Proceed to Stage 4: Lot & Taka Creation <ArrowRight size={13} />
-        </button>
-      </div>
-
-      {isModalOpen && (
-        <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4">
-          <div className="bg-white rounded-2xl border border-slate-200 max-w-md w-full p-5 shadow-2xl text-xs flex flex-col overflow-hidden">
-            <div className="flex items-center justify-between pb-3 border-b border-slate-100">
-              <h3 className="text-sm font-bold text-slate-900">Record Physical GRN Inward</h3>
-              <button
-                type="button"
-                onClick={() => setIsModalOpen(false)}
-                className="p-1 text-slate-400 hover:text-slate-700 rounded-lg hover:bg-slate-100"
-              >
-                <X size={16} />
-              </button>
+        {/* ── Section 1: Purchase Order & Reference Details ── */}
+        {activePo ? (
+          <div className="mt-5 rounded-xl border border-slate-200 bg-slate-50/70 p-4">
+            <div className="flex items-center justify-between pb-3 mb-3 border-b border-slate-200/80">
+              <div className="flex items-center gap-2">
+                <FileText size={16} className="text-blue-600" />
+                <h4 className="text-xs font-bold text-slate-800 uppercase tracking-wider">
+                  1. Purchase Order & Fabric Reference Details
+                </h4>
+              </div>
+              <span className="font-mono text-xs font-bold text-blue-700 bg-blue-50 px-2.5 py-0.5 rounded border border-blue-200">
+                {activePo.poNumber}
+              </span>
             </div>
 
-            <form onSubmit={handleCreateGrn} className="space-y-3 mt-3">
+            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-4 text-xs">
               <div>
-                <label className="block font-semibold text-slate-700 mb-1">
-                  Received Quantity (Mtrs) <span className="text-rose-500">*</span>
+                <span className="text-[10.5px] font-semibold text-slate-400 block uppercase">Supplier / Vendor</span>
+                <p className="font-bold text-slate-800 truncate mt-0.5">{activePo.vendor || activePo.party_name || '—'}</p>
+                <p className="text-[10px] text-slate-500 font-mono">{activePo.vendorCode || activePo.party_gstin || 'VEND-001'}</p>
+              </div>
+
+              <div>
+                <span className="text-[10.5px] font-semibold text-slate-400 block uppercase">Fabric Quality</span>
+                <p className="font-bold text-slate-800 truncate mt-0.5">
+                  {primaryFabric?.name || primaryFabric?.description || activePo.fabricName || 'Grey Fabric'}
+                </p>
+                <p className="text-[10px] text-slate-500">
+                  {primaryFabric?.uom || 'Mtr'} · {primaryFabric?.gsm ? `${primaryFabric.gsm} GSM` : 'Standard'}
+                </p>
+              </div>
+
+              <div>
+                <span className="text-[10.5px] font-semibold text-slate-400 block uppercase">Ordered Quantity</span>
+                <p className="font-mono font-black text-slate-900 text-sm mt-0.5">
+                  {totalOrderedQty.toLocaleString('en-IN')} <span className="text-xs font-normal text-slate-500">M</span>
+                </p>
+                <p className="text-[10px] text-slate-400">Total ordered meters</p>
+              </div>
+
+              <div>
+                <span className="text-[10.5px] font-semibold text-slate-400 block uppercase">Total Dispatched</span>
+                <p className="font-mono font-bold text-emerald-700 text-sm mt-0.5">
+                  {totalDispatchedQty.toLocaleString('en-IN')} <span className="text-xs font-normal text-slate-500">M</span>
+                </p>
+                <p className="text-[10px] text-slate-400">Supplier transit dispatches</p>
+              </div>
+
+              <div>
+                <span className="text-[10.5px] font-semibold text-slate-400 block uppercase">Total PO Value</span>
+                <p className="font-mono font-black text-slate-900 text-sm mt-0.5">
+                  ₹{Number(activePo.total || activePo.amount || 0).toLocaleString('en-IN')}
+                </p>
+                <p className="text-[10px] text-emerald-600 font-medium">Approved Value</p>
+              </div>
+
+              <div>
+                <span className="text-[10.5px] font-semibold text-slate-400 block uppercase">Project Association</span>
+                <p className="font-bold text-slate-800 truncate mt-0.5">{project?.name || project?.code || 'General Stock'}</p>
+                <p className="text-[10px] text-indigo-600 font-mono">{project?.code || 'PRJ-STOCK'}</p>
+              </div>
+            </div>
+          </div>
+        ) : (
+          <div className="mt-5 p-4 rounded-xl border border-dashed border-amber-300 bg-amber-50 text-xs text-amber-800 flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <AlertTriangle size={16} className="text-amber-600" />
+              <span>No Purchase Order linked to this project. Create or associate a PO in Stage 2 to record GRN inward.</span>
+            </div>
+            <button
+              type="button"
+              onClick={() => onSelectStage && onSelectStage(2)}
+              className="px-3 py-1 bg-amber-600 text-white rounded-lg font-bold hover:bg-amber-700"
+            >
+              Go to Stage 2: PO
+            </button>
+          </div>
+        )}
+
+        {/* ── Section 2: Inward Summary & Fulfillment Status ── */}
+        <div className="mt-6">
+          <div className="flex items-center gap-2 mb-3">
+            <Boxes size={16} className="text-indigo-600" />
+            <h4 className="text-xs font-bold text-slate-800 uppercase tracking-wider">
+              2. Inward Summary & Fulfillment Status
+            </h4>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+            <div className="p-4 rounded-xl border border-slate-200 bg-white shadow-2xs">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">Ordered Quantity</span>
+                <div className="p-2 rounded-lg bg-blue-50 text-blue-600">
+                  <FileText size={16} />
+                </div>
+              </div>
+              <p className="text-2xl font-black text-slate-900 mt-2 font-mono">
+                {totalOrderedQty.toLocaleString('en-IN')} <span className="text-xs font-normal text-slate-500">M</span>
+              </p>
+              <p className="text-[11px] text-slate-400 mt-0.5">Total contracted requirement</p>
+            </div>
+
+            <div className="p-4 rounded-xl border border-emerald-200 bg-emerald-50/40 shadow-2xs">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-bold text-emerald-800 uppercase tracking-wider">Total Dispatched</span>
+                <div className="p-2 rounded-lg bg-emerald-100 text-emerald-700">
+                  <Truck size={16} />
+                </div>
+              </div>
+              <p className="text-2xl font-black text-emerald-900 mt-2 font-mono">
+                {totalDispatchedQty.toLocaleString('en-IN')} <span className="text-xs font-normal text-emerald-700">M</span>
+              </p>
+              <p className="text-[11px] text-emerald-700 mt-0.5">
+                {totalOrderedQty > 0 ? `${Math.round((totalDispatchedQty / totalOrderedQty) * 100)}% dispatched` : '0 dispatches'}
+              </p>
+            </div>
+
+            <div className="p-4 rounded-xl border border-purple-200 bg-purple-50/40 shadow-2xs">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-bold text-purple-800 uppercase tracking-wider">Received via GRN</span>
+                <div className="p-2 rounded-lg bg-purple-100 text-purple-700">
+                  <Boxes size={16} />
+                </div>
+              </div>
+              <p className="text-2xl font-black text-purple-900 mt-2 font-mono">
+                {totalReceivedQty.toLocaleString('en-IN')} <span className="text-xs font-normal text-purple-700">M</span>
+              </p>
+              <p className="text-[11px] text-purple-700 mt-0.5">
+                {totalOrderedQty > 0 ? `${Math.round((totalReceivedQty / totalOrderedQty) * 100)}% received into QC-Hold` : '0 m received'}
+              </p>
+            </div>
+
+            <div className="p-4 rounded-xl border border-amber-200 bg-amber-50/40 shadow-2xs">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-bold text-amber-800 uppercase tracking-wider">Pending Inward</span>
+                <div className="p-2 rounded-lg bg-amber-100 text-amber-700">
+                  <Clock size={16} />
+                </div>
+              </div>
+              <p className="text-2xl font-black text-amber-900 mt-2 font-mono">
+                {pendingInward.toLocaleString('en-IN')} <span className="text-xs font-normal text-amber-700">M</span>
+              </p>
+              <p className="text-[11px] text-amber-700 mt-0.5">Remaining fabric intake</p>
+            </div>
+          </div>
+        </div>
+
+        {/* ── Section 3: Record Goods Receipt Note (GRN) Inward ── */}
+        <div ref={formRef} className="mt-6 rounded-xl border border-slate-200 bg-white p-5 shadow-2xs">
+          <div className="flex items-center justify-between pb-3 mb-4 border-b border-slate-100">
+            <div className="flex items-center gap-2">
+              <Boxes size={17} className="text-emerald-600" />
+              <h4 className="text-xs font-bold text-slate-900 uppercase tracking-wider">
+                3. Record Goods Receipt Note (GRN) Inward
+              </h4>
+            </div>
+            <span className="text-[11px] text-slate-500">
+              Remaining to receive: <strong className="font-mono text-emerald-700">{pendingInward.toLocaleString('en-IN')} M</strong>
+            </span>
+          </div>
+
+          <form onSubmit={handleCreateGrn} className="space-y-4 text-xs">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+              <div>
+                <label className="block font-bold text-slate-700 mb-1">
+                  Received Qty (Mtrs) <span className="text-rose-500">*</span>
                 </label>
                 <input
                   type="number"
@@ -362,88 +579,282 @@ export function Stage3GRNInwardWorkspace({
                   min="1"
                   value={grnForm.receivedQty}
                   onChange={(e) => setGrnForm({ ...grnForm, receivedQty: e.target.value })}
-                  placeholder={pendingBalance ? String(pendingBalance) : '1000'}
-                  className="w-full border border-slate-300 rounded-lg p-2 bg-white text-slate-800 font-mono"
+                  placeholder={pendingInward > 0 ? String(pendingInward) : '1000'}
+                  className="w-full border border-slate-300 rounded-lg p-2.5 bg-white text-slate-900 font-mono font-bold focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-600"
                 />
-              </div>
-
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block font-semibold text-slate-700 mb-1">Receipt Date</label>
-                  <input
-                    type="date"
-                    required
-                    value={grnForm.receiptDate}
-                    onChange={(e) => setGrnForm({ ...grnForm, receiptDate: e.target.value })}
-                    className="w-full border border-slate-300 rounded-lg p-2 bg-white text-slate-800"
-                  />
-                </div>
-                <div>
-                  <label className="block font-semibold text-slate-700 mb-1">Rolls / Takas Count</label>
-                  <input
-                    type="number"
-                    min="1"
-                    value={grnForm.rollCount}
-                    onChange={(e) => setGrnForm({ ...grnForm, rollCount: e.target.value })}
-                    className="w-full border border-slate-300 rounded-lg p-2 bg-white text-slate-800 font-mono"
-                  />
-                </div>
-              </div>
-
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block font-semibold text-slate-700 mb-1">Supplier Challan No</label>
-                  <input
-                    type="text"
-                    value={grnForm.supplierChallanNo}
-                    onChange={(e) => setGrnForm({ ...grnForm, supplierChallanNo: e.target.value })}
-                    placeholder="e.g. CH-2026-9811"
-                    className="w-full border border-slate-300 rounded-lg p-2 bg-white text-slate-800"
-                  />
-                </div>
-                <div>
-                  <label className="block font-semibold text-slate-700 mb-1">Challan Date</label>
-                  <input
-                    type="date"
-                    value={grnForm.supplierChallanDate}
-                    onChange={(e) => setGrnForm({ ...grnForm, supplierChallanDate: e.target.value })}
-                    className="w-full border border-slate-300 rounded-lg p-2 bg-white text-slate-800"
-                  />
-                </div>
+                <span className="text-[10px] text-slate-400 mt-1 block">
+                  Pending PO balance: {pendingInward.toLocaleString('en-IN')} Mtrs
+                </span>
               </div>
 
               <div>
-                <label className="block font-semibold text-slate-700 mb-1">Remarks</label>
-                <textarea
-                  rows={2}
-                  value={grnForm.remarks}
-                  onChange={(e) => setGrnForm({ ...grnForm, remarks: e.target.value })}
-                  placeholder="Dock receipt notes, condition check..."
-                  className="w-full border border-slate-300 rounded-lg p-2 bg-white text-slate-800 resize-none"
+                <label className="block font-bold text-slate-700 mb-1">
+                  Receipt Date <span className="text-rose-500">*</span>
+                </label>
+                <input
+                  type="date"
+                  required
+                  value={grnForm.receiptDate}
+                  onChange={(e) => setGrnForm({ ...grnForm, receiptDate: e.target.value })}
+                  className="w-full border border-slate-300 rounded-lg p-2.5 bg-white text-slate-800 focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-600"
                 />
               </div>
 
-              <div className="flex items-center justify-end gap-2 pt-3 border-t border-slate-100">
-                <button
-                  type="button"
-                  onClick={() => setIsModalOpen(false)}
-                  className="px-3 py-1.5 border border-slate-300 text-slate-700 rounded-lg hover:bg-slate-100 font-semibold"
+              <div>
+                <label className="block font-bold text-slate-700 mb-1">
+                  Destination Godown / Location <span className="text-rose-500">*</span>
+                </label>
+                <select
+                  required
+                  value={grnForm.locationId}
+                  onChange={(e) => setGrnForm({ ...grnForm, locationId: e.target.value })}
+                  className="w-full border border-slate-300 rounded-lg p-2.5 bg-white text-slate-800 font-semibold focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-600"
                 >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  disabled={submitting}
-                  className="px-4 py-1.5 bg-sky-600 hover:bg-sky-700 text-white rounded-lg font-bold shadow-xs disabled:opacity-60"
-                >
-                  {submitting ? 'Posting GRN...' : 'Post GRN Inward'}
-                </button>
+                  {activeLocations.map((loc) => (
+                    <option key={loc.id} value={loc.id}>
+                      {loc.name || loc.code} {loc.code ? `(${loc.code})` : ''}
+                    </option>
+                  ))}
+                  {activeLocations.length === 0 && (
+                    <option value="qc-hold-default">Main Godown / QC-Hold</option>
+                  )}
+                </select>
               </div>
-            </form>
-          </div>
+
+              <div>
+                <label className="block font-bold text-slate-700 mb-1">
+                  Rolls / Takas Count <span className="text-rose-500">*</span>
+                </label>
+                <input
+                  type="number"
+                  min="1"
+                  required
+                  value={grnForm.rollCount}
+                  onChange={(e) => setGrnForm({ ...grnForm, rollCount: e.target.value })}
+                  placeholder="10"
+                  className="w-full border border-slate-300 rounded-lg p-2.5 bg-white text-slate-900 font-mono font-bold focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-600"
+                />
+                <span className="text-[10px] text-slate-400 mt-1 block">
+                  Generates initial lot takas
+                </span>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+              <div>
+                <label className="block font-bold text-slate-700 mb-1">Supplier Challan No.</label>
+                <input
+                  type="text"
+                  value={grnForm.supplierChallanNo}
+                  onChange={(e) => setGrnForm({ ...grnForm, supplierChallanNo: e.target.value })}
+                  placeholder="e.g. CH-2026-9041"
+                  className="w-full border border-slate-300 rounded-lg p-2.5 bg-white text-slate-800 focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-600"
+                />
+              </div>
+
+              <div>
+                <label className="block font-bold text-slate-700 mb-1">Supplier Challan Date</label>
+                <input
+                  type="date"
+                  value={grnForm.supplierChallanDate}
+                  onChange={(e) => setGrnForm({ ...grnForm, supplierChallanDate: e.target.value })}
+                  className="w-full border border-slate-300 rounded-lg p-2.5 bg-white text-slate-800 focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-600"
+                />
+              </div>
+
+              <div>
+                <label className="block font-bold text-slate-700 mb-1">Gate Inward / LR / Bilty Ref</label>
+                <input
+                  type="text"
+                  value={grnForm.gateEntryNo}
+                  onChange={(e) => setGrnForm({ ...grnForm, gateEntryNo: e.target.value })}
+                  placeholder="e.g. GATE-2026-441 / LR-998"
+                  className="w-full border border-slate-300 rounded-lg p-2.5 bg-white text-slate-800 focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-600"
+                />
+              </div>
+
+              <div>
+                <label className="block font-bold text-slate-700 mb-1">Routing & Quality Status</label>
+                <div className="p-2.5 bg-amber-50 border border-amber-200 rounded-lg flex items-center gap-2 text-amber-800 font-bold">
+                  <ShieldCheck size={16} className="text-amber-600 shrink-0" />
+                  <span className="truncate">QC-Hold (Inspection Queued)</span>
+                </div>
+              </div>
+            </div>
+
+            {/* Roll Breakdown Dynamic Preview */}
+            <div className="p-3 bg-emerald-50/60 border border-emerald-200 rounded-xl flex items-center justify-between text-xs">
+              <div className="flex items-center gap-2 text-emerald-900 font-semibold">
+                <Layers size={16} className="text-emerald-600" />
+                <span>
+                  Auto-Split Preview: <strong>{grnForm.receivedQty || 0} Mtrs</strong> will be divided across{' '}
+                  <strong>{grnForm.rollCount || 1} rolls</strong> (~{Math.round((Number(grnForm.receivedQty) || 0) / (Number(grnForm.rollCount) || 1))} Mtrs each) on inward intake.
+                </span>
+              </div>
+              <span className="text-[11px] font-bold text-emerald-700 bg-white px-2.5 py-1 rounded-md border border-emerald-200 shadow-2xs">
+                Auto Lot Taka Ready
+              </span>
+            </div>
+
+            <div>
+              <label className="block font-bold text-slate-700 mb-1">Dock Inspection Remarks / Notes</label>
+              <textarea
+                rows={2}
+                value={grnForm.remarks}
+                onChange={(e) => setGrnForm({ ...grnForm, remarks: e.target.value })}
+                placeholder="Fabric condition on vehicle arrival, bundle count, bale wrapping status..."
+                className="w-full border border-slate-300 rounded-lg p-2.5 bg-white text-slate-800 resize-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-600"
+              />
+            </div>
+
+            <div className="flex items-center justify-end gap-3 pt-3 border-t border-slate-100">
+              <button
+                type="button"
+                onClick={handleClearForm}
+                className="px-4 py-2 border border-slate-300 text-slate-700 rounded-xl font-bold hover:bg-slate-100 cursor-pointer"
+              >
+                Clear
+              </button>
+              <button
+                type="submit"
+                disabled={submitting}
+                className="px-6 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl font-bold shadow-xs flex items-center gap-2 disabled:opacity-60 cursor-pointer"
+              >
+                <CheckCircle2 size={15} />
+                {submitting ? 'Posting GRN Inward...' : 'Save & Post GRN to QC-Hold'}
+              </button>
+            </div>
+          </form>
         </div>
-      )}
+
+        {/* ── Section 4: GRN / Inward Receipt History ── */}
+        <div className="mt-6">
+          <div className="flex items-center justify-between mb-3">
+            <div className="flex items-center gap-2">
+              <Layers size={16} className="text-indigo-600" />
+              <h4 className="text-xs font-bold text-slate-800 uppercase tracking-wider">
+                4. Inward Goods Receipts / GRN History ({receipts.length})
+              </h4>
+            </div>
+            <span className="text-[11px] text-slate-400">Multiple GRNs against one PO supported</span>
+          </div>
+
+          {receipts.length === 0 ? (
+            <div className="p-8 text-center border border-dashed border-slate-200 rounded-xl bg-slate-50/50">
+              <Boxes size={32} className="mx-auto mb-2 text-slate-300" />
+              <p className="text-xs font-bold text-slate-700">No Goods Receipts (GRN) recorded yet</p>
+              <p className="text-[11px] text-slate-400 mt-0.5">
+                Record physical receipt when the vehicle arrives at the warehouse dock.
+              </p>
+              <button
+                type="button"
+                onClick={handleScrollToForm}
+                className="mt-3 inline-flex items-center gap-1.5 px-3 py-1.5 bg-emerald-600 text-white rounded-lg text-xs font-bold shadow-xs hover:bg-emerald-700 cursor-pointer"
+              >
+                <Plus size={13} /> Record GRN Inward Above
+              </button>
+            </div>
+          ) : (
+            <div className="rounded-xl border border-slate-200 overflow-hidden bg-white">
+              <div className="overflow-x-auto">
+                <table className="w-full text-left text-xs border-collapse">
+                  <thead>
+                    <tr className="bg-slate-50 border-b border-slate-200 text-[10.5px] font-bold text-slate-500 uppercase tracking-wider">
+                      <th className="py-2.5 px-3">GRN #</th>
+                      <th className="py-2.5 px-3">Receipt Date</th>
+                      <th className="py-2.5 px-3">Supplier Challan</th>
+                      <th className="py-2.5 px-3 text-right">Received Qty</th>
+                      <th className="py-2.5 px-3 text-center">Rolls / Takas</th>
+                      <th className="py-2.5 px-3">Godown / Location</th>
+                      <th className="py-2.5 px-3">QC Status</th>
+                      <th className="py-2.5 px-3 text-center">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {paginatedReceipts.map((r) => {
+                      const lineQty = (r.lines || []).reduce((s, l) => s + (Number(l.receivedQty || l.received_qty) || 0), 0);
+                      const displayQty = lineQty > 0 ? lineQty : (Number(r.receivedQty) || 0);
+                      const qc = r.qcStatus || r.qc_status || 'QC-Hold';
+                      const rollCount = (r.lines || []).reduce((s, l) => s + (l.takas?.length || Number(l.rollCount) || 0), 0) || '—';
+                      return (
+                        <tr key={r.id} className="hover:bg-slate-50/60">
+                          <td className="py-3 px-3 font-mono font-bold text-blue-700">
+                            {r.grnNumber || r.grn_number || `GRN-${String(r.id).slice(-4)}`}
+                          </td>
+                          <td className="py-3 px-3 text-slate-700">{r.receiptDate || r.receipt_date || '—'}</td>
+                          <td className="py-3 px-3 font-medium text-slate-800">
+                            {r.supplierChallanNo || r.supplier_challan_no || '—'}
+                          </td>
+                          <td className="py-3 px-3 text-right font-mono font-bold text-slate-900">
+                            {displayQty.toLocaleString('en-IN')} M
+                          </td>
+                          <td className="py-3 px-3 text-center font-mono font-semibold text-slate-700">
+                            {rollCount} Rolls
+                          </td>
+                          <td className="py-3 px-3 text-slate-600 font-medium">
+                            {r.locationName || r.location_name || 'QC-Hold Godown'}
+                          </td>
+                          <td className="py-3 px-3">
+                            <span
+                              className={`inline-block px-2.5 py-0.5 rounded-full text-[10px] font-bold border ${
+                                qc === 'Approved'
+                                  ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                                  : 'bg-amber-50 text-amber-700 border-amber-200'
+                              }`}
+                            >
+                              {qc}
+                            </span>
+                          </td>
+                          <td className="py-3 px-3 text-center">
+                            <button
+                              type="button"
+                              onClick={() => onSelectStage && onSelectStage(5)}
+                              className="px-2.5 py-1 text-[11px] font-bold rounded-lg bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 shadow-2xs inline-flex items-center gap-1 cursor-pointer"
+                            >
+                              Proceed to Takas <ArrowRight size={11} />
+                            </button>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+              {receipts.length > 5 && (
+                <TablePagination
+                  total={receipts.length}
+                  page={histPage}
+                  pageSize={histPageSize}
+                  pageSizeOptions={[5, 10, 20]}
+                  onPageChange={setHistPage}
+                  onPageSizeChange={setHistPageSize}
+                />
+              )}
+            </div>
+          )}
+        </div>
+
+        {/* ── Stage Navigation Footer ── */}
+        <div className="flex items-center justify-between pt-5 mt-6 border-t border-slate-100">
+          <button
+            type="button"
+            onClick={() => onSelectStage && onSelectStage(3)}
+            className="inline-flex items-center gap-1.5 text-xs font-semibold text-slate-600 hover:text-slate-900 cursor-pointer"
+          >
+            <ArrowLeft size={13} /> Back to Stage 3: Supplier Delivery
+          </button>
+
+          <button
+            type="button"
+            onClick={() => onSelectStage && onSelectStage(5)}
+            className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold shadow-xs cursor-pointer"
+          >
+            Proceed to Stage 5: Lot & Taka Creation <ArrowRight size={13} />
+          </button>
+        </div>
+      </div>
     </div>
   );
 }
+
 export default Stage3GRNInwardWorkspace;

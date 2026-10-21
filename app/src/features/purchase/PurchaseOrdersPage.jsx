@@ -1,4 +1,5 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
+import { TablePagination } from '../../components/ui/TablePagination';
 import { useERP } from '../../context/ERPContext';
 import { StatusBadge } from '../../components/ui/StatusBadge';
 import { Button } from '../../components/ui/Button';
@@ -772,6 +773,18 @@ export const PurchaseOrdersPage = () => {
       });
     }, [purchaseOrders, query, statusFilter, typeFilter, vendorFilter, fabricFilter, dateFrom, dateTo, purchaseBills]);
 
+    const [page, setPage] = useState(1);
+    const [pageSize, setPageSize] = useState(10);
+
+    useEffect(() => {
+      setPage(1);
+    }, [query, statusFilter, typeFilter, vendorFilter, fabricFilter, dateFrom, dateTo]);
+
+    const paginatedOrders = useMemo(() => {
+      const start = (page - 1) * pageSize;
+      return filtered.slice(start, start + pageSize);
+    }, [filtered, page, pageSize]);
+
     const vendorOptions = useMemo(() => [...new Set(purchaseOrders.map((p) => p.vendor).filter(Boolean))], [purchaseOrders]);
     const fabricOptions = useMemo(() => [...new Set(purchaseOrders.map((p) => getPoFabric(p)).filter((f) => f && f !== '—'))], [purchaseOrders]);
 
@@ -953,7 +966,7 @@ export const PurchaseOrdersPage = () => {
               </tr>
             </thead>
             <tbody>
-              {filtered.map((p) => {
+              {paginatedOrders.map((p) => {
                 return (
                   <tr key={p.id} className="border-b border-slate-50 hover:bg-slate-50/60">
                     <td className="px-4 py-2.5">
@@ -988,6 +1001,13 @@ export const PurchaseOrdersPage = () => {
             </tbody>
           </table>
         </div>
+        <TablePagination
+          total={filtered.length}
+          page={page}
+          pageSize={pageSize}
+          onPageChange={setPage}
+          onPageSizeChange={setPageSize}
+        />
       </div>
 
       {/* bottom row */}

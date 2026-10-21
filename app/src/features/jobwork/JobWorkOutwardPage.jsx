@@ -4,6 +4,7 @@ import { Eye, MoreHorizontal, Pencil, Plus, Trash2, X } from 'lucide-react';
 import { numIN, toDDMMYYYY, purgeLegacyJobWorkCache } from './jobWorkOrdersStore';
 import { fetchJWOs, fetchPlans, createJWORow, deleteJWORow, errorMessage } from '../../services/jobWorkSync';
 import PageHeader from '../../components/ui/PageHeader';
+import TablePagination from '../../components/ui/TablePagination';
 
 const statusPill = (s) =>
   s === 'Sent' || s === 'Fully Received' || s === 'Completed'
@@ -56,6 +57,8 @@ export default function JobWorkOutwardPage() {
   const [status, setStatus] = useState('All');
   const [fromDate, setFromDate] = useState('');
   const [toDate, setToDate] = useState('');
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(10);
   const [menuId, setMenuId] = useState(null);
   const [showForm, setShowForm] = useState(false);
   const [form, setForm] = useState({
@@ -109,6 +112,15 @@ export default function JobWorkOutwardPage() {
     if (toDate && (r.date || '') > toDate) return false;
     return true;
   }), [rows, outwardNo, jwoNo, vendor, process, status, fromDate, toDate]);
+
+  useEffect(() => {
+    setPage(1);
+  }, [outwardNo, jwoNo, vendor, process, status, fromDate, toDate]);
+
+  const pagedFiltered = useMemo(() => {
+    const start = (page - 1) * pageSize;
+    return filtered.slice(start, start + pageSize);
+  }, [filtered, page, pageSize]);
 
   const handleDelete = async (r) => {
     setMenuId(null);
@@ -262,9 +274,9 @@ export default function JobWorkOutwardPage() {
               </tr>
             </thead>
             <tbody>
-              {filtered.map((r, idx) => (
+              {pagedFiltered.map((r, idx) => (
                 <tr key={`${r.jwoId}-${r.id}`} className="border-b border-slate-50 hover:bg-slate-50/60">
-                  <td className="px-3 py-2.5 text-center text-slate-400">{idx + 1}</td>
+                  <td className="px-3 py-2.5 text-center text-slate-400">{(page - 1) * pageSize + idx + 1}</td>
                   <td className="px-3 py-2.5 font-mono font-bold text-blue-600">{r.no}</td>
                   <td className="px-3 py-2.5">
                     <button onClick={() => navigate(`/job-work/orders/${r.jwoId}`)} className="font-mono font-bold text-blue-600 hover:underline">{r.jwoNo}</button>
@@ -325,6 +337,13 @@ export default function JobWorkOutwardPage() {
               )}
             </tbody>
           </table>
+          <TablePagination
+            page={page}
+            pageSize={pageSize}
+            totalItems={filtered.length}
+            onPageChange={setPage}
+            onPageSizeChange={(sz) => { setPageSize(sz); setPage(1); }}
+          />
         </div>
       </div>
 

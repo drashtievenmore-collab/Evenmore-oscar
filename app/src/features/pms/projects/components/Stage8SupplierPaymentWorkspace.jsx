@@ -160,7 +160,7 @@ export function Stage8SupplierPaymentWorkspace({
         <div>
           <div className="flex items-center gap-2">
             <span className="px-2 py-0.5 rounded-md text-[11px] font-black bg-blue-100 text-blue-700 uppercase tracking-wider">
-              Stage 8
+              Stage 9
             </span>
             <h2 className="text-base font-extrabold text-[#17294e]">Supplier Disbursement & Payment Out</h2>
           </div>
@@ -245,18 +245,18 @@ export function Stage8SupplierPaymentWorkspace({
       <div className="flex items-center justify-between pt-4 border-t border-slate-100">
         <button
           type="button"
-          onClick={() => onSelectStage && onSelectStage(7)}
+          onClick={() => onSelectStage && onSelectStage(9)}
           className="inline-flex items-center gap-1.5 text-xs font-semibold text-slate-600 hover:text-slate-900"
         >
-          <ArrowLeft size={13} /> Back to Supplier Bill Matching
+          <ArrowLeft size={13} /> Back to Stage 9: Supplier Bill Matching
         </button>
 
         <button
           type="button"
-          onClick={() => onSelectStage && onSelectStage(9)}
+          onClick={() => onSelectStage && onSelectStage(11)}
           className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold shadow-xs cursor-pointer"
         >
-          Proceed to Downstream Dyeing / Processing <ArrowRight size={13} />
+          Proceed to Stage 11: Downstream Processing <ArrowRight size={13} />
         </button>
       </div>
 

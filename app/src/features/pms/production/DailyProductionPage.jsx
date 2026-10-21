@@ -3,6 +3,7 @@ import { useNavigate, useSearchParams } from 'react-router-dom';
 import { ArrowLeft, Plus, Pencil, Trash2, X, AlertTriangle, Lock } from 'lucide-react';
 import { Button } from '../../../components/ui/Button';
 import PageHeader from '../../../components/ui/PageHeader';
+import TablePagination from '../../../components/ui/TablePagination';
 import { api } from '../../../services/api';
 import { statusPill, isLockedStatus, errorText, fmtNum, listOf } from './productionStatus';
 
@@ -66,6 +67,9 @@ export default function DailyProductionPage() {
   const [saving, setSaving] = useState(false);
   const [activating, setActivating] = useState(false);
   const [reloadKey, setReloadKey] = useState(0);
+
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(10);
 
   const [showModal, setShowModal] = useState(false);
   const [editing, setEditing] = useState(null);
@@ -170,6 +174,15 @@ export default function DailyProductionPage() {
       return { ...e, cumulative, balance: assignedQty - cumulative };
     });
   }, [entries, assignedQty]);
+
+  useEffect(() => {
+    setPage(1);
+  }, [pi?.id]);
+
+  const pagedRows = useMemo(() => {
+    const start = (page - 1) * pageSize;
+    return rows.slice(start, start + pageSize);
+  }, [rows, page, pageSize]);
 
   // Totals come from the server (instruction.totalProduced / balance).
   const totalProduced = pi?.totalProduced ?? null;
@@ -409,9 +422,9 @@ export default function DailyProductionPage() {
               </tr>
             </thead>
             <tbody>
-              {rows.map((row, idx) => (
+              {pagedRows.map((row, idx) => (
                 <tr key={row.id} className="border-b border-[#f1f5fb] text-slate-600">
-                  <td className="px-4 py-3 font-semibold text-slate-400">{idx + 1}</td>
+                  <td className="px-4 py-3 font-semibold text-slate-400">{(page - 1) * pageSize + idx + 1}</td>
                   <td className="px-4 py-3">{toDDMMYYYY(row.date)}</td>
                   <td className="px-4 py-3">{fmt(row.produced)}</td>
                   <td className="px-4 py-3">{fmt(row.cumulative)}</td>
@@ -446,6 +459,13 @@ export default function DailyProductionPage() {
             </tbody>
           </table>
         </div>
+        <TablePagination
+          page={page}
+          pageSize={pageSize}
+          totalItems={rows.length}
+          onPageChange={setPage}
+          onPageSizeChange={(sz) => { setPageSize(sz); setPage(1); }}
+        />
       </div>
       </>
       )}

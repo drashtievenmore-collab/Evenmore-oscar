@@ -110,7 +110,7 @@ export function Stage7SupplierBillMatchingWorkspace({
           <div className="space-y-1">
             <div className="flex items-center gap-2 flex-wrap">
               <span className="text-[10px] font-extrabold uppercase tracking-wider px-2 py-0.5 rounded bg-purple-50 text-purple-700 border border-purple-200">
-                Stage 7: Accounts Verification
+                Stage {stage?.sequence || 9}: Accounts Verification
               </span>
               <span className="text-[11px] font-bold text-slate-500">
                 Department: <span className="text-slate-800">Accounts</span>
@@ -120,7 +120,7 @@ export function Stage7SupplierBillMatchingWorkspace({
               </span>
             </div>
             <h2 className="text-base font-bold text-slate-900 tracking-tight">
-              Stage 7: Supplier Bill Matching
+              Stage {stage?.sequence || 9}: Supplier Bill Matching
             </h2>
             <p className="text-xs text-slate-500 max-w-2xl">
               Conduct official 3-way check comparing Supplier Purchase Order rates & quantities against GRN verified inward takas and vendor invoices. Approval authorizes payment release.
@@ -300,20 +300,20 @@ export function Stage7SupplierBillMatchingWorkspace({
       <div className="rounded-xl border border-[#dce5f4] bg-white p-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-2xs">
         <button
           type="button"
-          onClick={() => onSelectStage?.(6)}
+          onClick={() => onSelectStage?.(8)}
           className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg border border-slate-300 bg-white hover:bg-slate-50 text-slate-700 font-semibold text-xs transition-colors cursor-pointer"
         >
           <ArrowLeft size={13} />
-          <span>Back to Stage 6: Grey QC</span>
+          <span>Back to Stage 8: Vendor Bill</span>
         </button>
 
         <div className="flex items-center gap-2">
           <button
             type="button"
-            onClick={() => onSelectStage?.(8)}
+            onClick={() => onSelectStage?.(10)}
             className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs transition-colors cursor-pointer"
           >
-            <span>Next: Stage 8 (Grey Stock Updated)</span>
+            <span>Next: Stage 10 (Payment)</span>
             <ArrowRight size={13} />
           </button>
         </div>

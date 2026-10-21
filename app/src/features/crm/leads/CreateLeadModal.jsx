@@ -3,7 +3,8 @@ import { useCrmStore } from '../../../stores/crmStore';
 import { loadForms, findForm, getActiveFormId, LEAD_FORM } from '../../../services/crmForms';
 import { defaultLeadFormSections, TEXTILE_FABRIC_OPTIONS, LEGACY_FABRIC_OPTIONS } from '../../../data/crm/leadFormSchema';
 import { matchKnownLeadField } from './leadColumns';
-import { CalendarDays, ChevronDown, Clock3, ImagePlus, Plus, X } from "lucide-react";
+import { CalendarDays, ChevronDown, Clock3, ImagePlus, Plus, X, Building2, ShieldCheck, Percent } from "lucide-react";
+import { salesService } from "../../../services/domainServices";
 
 /** Shipped Lead Source options — only these are offered for new selection. */
 export const DEFAULT_LEAD_SOURCES = [
@@ -509,6 +510,17 @@ export function leadFormValuesToPayload(values, sections, { sources = [], userOp
     // Pass through any extra dynamic values
     _extra: values,
     fieldValues,
+    customValues: {
+      broker_id: values.broker_id || undefined,
+      broker_name: values.broker_name || undefined,
+      broker_code: values.broker_code || undefined,
+      commission_basis: values.commission_basis || undefined,
+      commission_rate: values.commission_rate || undefined,
+      commission_notes: values.commission_notes || undefined,
+      expected_meters: values.expected_meters || undefined,
+      expected_takas: values.expected_takas || undefined,
+      fabric_quality: values.fabric_quality || undefined,
+    },
   };
 }
 
@@ -522,6 +534,16 @@ export default function CreateLeadModal({ isOpen, onClose, onCreate, onEditLayou
 
   // Flat map of fieldId → value
   const [values, setValues] = useState({});
+  const [brokers, setBrokers] = useState([]);
+
+  useEffect(() => {
+    if (isOpen) {
+      salesService.getBrokersList().then((res) => {
+        const rows = res?.data || res?.results || res || [];
+        if (Array.isArray(rows)) setBrokers(rows);
+      }).catch(() => {});
+    }
+  }, [isOpen]);
 
   // Only the lead name is truly required — the server stores every other
   // field as optional, so filling just the name is enough to create a lead.
@@ -590,6 +612,96 @@ export default function CreateLeadModal({ isOpen, onClose, onCreate, onEditLayou
 
         {/* Dynamic body — renders whatever sections/fields the builder saved */}
         <div className="lead-create-modal-body">
+          {(() => {
+            const sourceField = fieldBy('lead-source', /source/);
+            const currentSourceVal = String(values[sourceField?.id] ?? '');
+            const matchedSource = (sources || []).find((s) => String(s.id) === currentSourceVal || String(s.name).toLowerCase() === currentSourceVal.toLowerCase());
+            const isBroker = (matchedSource?.name || currentSourceVal).toLowerCase() === 'broker' || Boolean(values.broker_id);
+            if (!isBroker) return null;
+
+            return (
+              <div className="col-span-full bg-indigo-50/70 p-4 rounded-xl border border-indigo-200 mb-2 space-y-3">
+                <div className="text-xs font-bold text-indigo-950 uppercase tracking-wide flex items-center gap-1.5">
+                  <ShieldCheck size={15} className="text-indigo-600" />
+                  Broker Attribution & Agreed Commission Agreement
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-700 mb-1">
+                      Select Broker <span className="text-rose-500">*</span>
+                    </label>
+                    <select
+                      value={values.broker_id || ''}
+                      onChange={(e) => {
+                        const bId = e.target.value;
+                        const b = brokers.find((x) => String(x.id) === String(bId));
+                        setValues((prev) => ({
+                          ...prev,
+                          broker_id: bId,
+                          broker_name: b?.name || '',
+                          broker_code: b?.code || '',
+                          commission_basis: b?.commission_type || 'percent',
+                          commission_rate: b?.default_value ? String(b.default_value) : '',
+                          commission_notes: b ? `Terms from ${b.name} (${b.commission_type} @ ${b.default_value || 0})` : '',
+                        }));
+                      }}
+                      className="w-full px-3 py-2 text-xs border border-slate-300 rounded-lg bg-white focus:ring-2 focus:ring-indigo-500 font-medium text-slate-800"
+                    >
+                      <option value="">-- Select Broker --</option>
+                      {brokers.map((b) => (
+                        <option key={b.id} value={b.id}>{b.name} ({b.code})</option>
+                      ))}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-700 mb-1">Commission Basis</label>
+                    <select
+                      value={values.commission_basis || 'percent'}
+                      onChange={(e) => setValues((prev) => ({ ...prev, commission_basis: e.target.value }))}
+                      className="w-full px-3 py-2 text-xs border border-slate-300 rounded-lg bg-white focus:ring-2 focus:ring-indigo-500 font-medium text-slate-800"
+                    >
+                      <option value="percent">Percentage of Net Value (%)</option>
+                      <option value="per_meter">Fixed per Meter (₹/m)</option>
+                      <option value="per_taka">Fixed per Taka (₹/taka)</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-700 mb-1">Agreed Rate</label>
+                    <input
+                      type="number"
+                      step="any"
+                      placeholder="e.g. 2.0 or 2.50"
+                      value={values.commission_rate ?? ''}
+                      onChange={(e) => setValues((prev) => ({ ...prev, commission_rate: e.target.value }))}
+                      className="w-full px-3 py-2 text-xs border border-slate-300 rounded-lg bg-white focus:ring-2 focus:ring-indigo-500 font-semibold text-slate-800"
+                    />
+                  </div>
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-700 mb-1">Fabric Quality</label>
+                    <input
+                      type="text"
+                      placeholder="e.g. 60 Lea Linen or 40s Cotton"
+                      value={values.fabric_quality ?? ''}
+                      onChange={(e) => setValues((prev) => ({ ...prev, fabric_quality: e.target.value }))}
+                      className="w-full px-3 py-2 text-xs border border-slate-300 rounded-lg bg-white focus:ring-2 focus:ring-indigo-500 text-slate-800"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-700 mb-1">Commission Notes / Approval</label>
+                    <input
+                      type="text"
+                      placeholder="Terms agreed for this lead..."
+                      value={values.commission_notes ?? ''}
+                      onChange={(e) => setValues((prev) => ({ ...prev, commission_notes: e.target.value }))}
+                      className="w-full px-3 py-2 text-xs border border-slate-300 rounded-lg bg-white focus:ring-2 focus:ring-indigo-500 text-slate-800"
+                    />
+                  </div>
+                </div>
+              </div>
+            );
+          })()}
           {sections.map((section) => (
             <div key={section.id} style={{ gridColumn: "1 / -1", display: "contents" }}>
               {sections.length > 1 && (

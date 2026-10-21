@@ -12,6 +12,9 @@ import {
   AlertCircle,
   X,
   Check,
+  ChevronDown,
+  ChevronRight,
+  Eye,
 } from 'lucide-react';
 import { getGreyStockAllocation, saveGreyStockAllocation } from '../../../../services/pmsSync';
 import { usePmsStore } from '../../../../stores/pmsStore';
@@ -34,9 +37,12 @@ export function Stage1GreyStockWorkspace({
 
   const projectId = project?.id;
   const [loading, setLoading] = useState(false);
+  const [viewMode, setViewMode] = useState('summary'); // 'summary' (default) | 'rolls'
+  const [expandedFabrics, setExpandedFabrics] = useState(new Set());
   const [searchQuery, setSearchQuery] = useState('');
   const [fabricFilter, setFabricFilter] = useState('ALL');
   const [locationFilter, setLocationFilter] = useState('ALL');
+  const [qcFilter, setQcFilter] = useState('ALL');
   const [isDetailsOpen, setDetailsOpen] = useState(false);
   const [isPoModalOpen, setPoModalOpen] = useState(false);
   const [isProdModalOpen, setProdModalOpen] = useState(false);
@@ -287,8 +293,75 @@ export function Stage1GreyStockWorkspace({
     }
   };
 
+  const toggleFabricExpand = (key) => {
+    setExpandedFabrics((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  };
+
+  const toggleExpandAll = () => {
+    if (expandedFabrics.size === fabricGroups.length) {
+      setExpandedFabrics(new Set());
+    } else {
+      setExpandedFabrics(new Set(fabricGroups.map((g) => g.fabricKey)));
+    }
+  };
+
+  const handleAllocateFabricMax = (fabricKey) => {
+    setLots((prevLots) => {
+      const updated = [...prevLots];
+      let currentAlloc = updated.reduce((acc, l) => acc + (Number(l.allocateQty) || 0), 0);
+      let needed = Math.max(0, projectRequirement - currentAlloc);
+
+      for (let i = 0; i < updated.length; i++) {
+        const l = updated[i];
+        const fKey = l.fabricKey || `${l.fabricQuality || 'Standard'}_${l.design || 'Plain'}_${l.shade || 'Grey'}`;
+        const isEligible = l.isAllocatable ?? (l.qcStatus === 'Passed');
+        if (fKey === fabricKey && isEligible && l.usable > 0) {
+          const already = Number(l.allocateQty) || 0;
+          const remainingInLot = Math.max(0, l.usable - already);
+          if (remainingInLot > 0 && needed > 0) {
+            const add = Math.min(needed, remainingInLot);
+            const total = already + add;
+            updated[i] = {
+              ...l,
+              allocateQty: total,
+              balance: Math.max(0, l.usable - total),
+              status: 'Selected',
+            };
+            needed -= add;
+          }
+        }
+      }
+      syncAllocation(updated);
+      return updated;
+    });
+  };
+
+  const handleClearFabricAllocation = (fabricKey) => {
+    setLots((prevLots) => {
+      const updated = prevLots.map((l) => {
+        const fKey = l.fabricKey || `${l.fabricQuality || 'Standard'}_${l.design || 'Plain'}_${l.shade || 'Grey'}`;
+        if (fKey === fabricKey && l.allocateQty > 0) {
+          return {
+            ...l,
+            allocateQty: 0,
+            balance: l.usable,
+            status: 'Available',
+          };
+        }
+        return l;
+      });
+      syncAllocation(updated);
+      return updated;
+    });
+  };
+
   const fabricOptions = useMemo(() => {
-    return Array.from(new Set(lots.map((l) => l.fabricQuality).filter(Boolean)));
+    return Array.from(new Set(lots.map((l) => l.fabricName || l.fabricQuality).filter(Boolean)));
   }, [lots]);
 
   const locationOptions = useMemo(() => {
@@ -297,24 +370,91 @@ export function Stage1GreyStockWorkspace({
 
   const filteredLots = useMemo(() => {
     return lots.filter((lot) => {
-      if (fabricFilter !== 'ALL' && lot.fabricQuality !== fabricFilter) return false;
+      const fName = lot.fabricName || lot.fabricQuality;
+      if (fabricFilter !== 'ALL' && fName !== fabricFilter && lot.fabricQuality !== fabricFilter) return false;
       if (locationFilter !== 'ALL' && lot.location !== locationFilter) return false;
+      if (qcFilter !== 'ALL') {
+        const qc = (lot.qcStatus || '').toLowerCase();
+        if (qcFilter === 'Passed' && qc !== 'passed') return false;
+        if (qcFilter === 'QC Hold' && (qc === 'passed' || qc.includes('reject'))) return false;
+        if (qcFilter === 'Rejected' && !qc.includes('reject')) return false;
+      }
       if (searchQuery.trim()) {
         const q = searchQuery.toLowerCase();
-        const mFabric = (lot.fabricQuality || '').toLowerCase().includes(q);
+        const mFabric = (lot.fabricName || '').toLowerCase().includes(q) || (lot.fabricQuality || '').toLowerCase().includes(q);
         const mLot = (lot.lotNumber || '').toLowerCase().includes(q);
+        const mTaka = (lot.takaId || '').toLowerCase().includes(q) || String(lot.takaNumber || '').includes(q);
         const mLoc = (lot.location || '').toLowerCase().includes(q);
-        if (!mFabric && !mLot && !mLoc) return false;
+        if (!mFabric && !mLot && !mTaka && !mLoc) return false;
       }
       return true;
     });
-  }, [lots, fabricFilter, locationFilter, searchQuery]);
+  }, [lots, fabricFilter, locationFilter, qcFilter, searchQuery]);
 
-  const totalStock = useMemo(() => filteredLots.reduce((acc, l) => acc + (Number(l.totalStock) || 0), 0), [filteredLots]);
-  const totalReserved = useMemo(() => filteredLots.reduce((acc, l) => acc + (Number(l.reserved) || 0), 0), [filteredLots]);
-  const totalUsable = useMemo(() => filteredLots.reduce((acc, l) => acc + (Number(l.usable) || 0), 0), [filteredLots]);
-  const totalAllocated = useMemo(() => filteredLots.reduce((acc, l) => acc + (Number(l.allocateQty) || 0), 0), [filteredLots]);
-  const totalBalance = useMemo(() => filteredLots.reduce((acc, l) => acc + (Number(l.balance) || 0), 0), [filteredLots]);
+  const fabricGroups = useMemo(() => {
+    const groups = new Map();
+    filteredLots.forEach((lot) => {
+      const key = lot.fabricKey || `${lot.fabricQuality || 'Standard'}_${lot.design || 'Plain'}_${lot.shade || 'Grey'}`;
+      if (!groups.has(key)) {
+        groups.set(key, {
+          fabricKey: key,
+          fabricName: lot.fabricName || lot.fabricQuality || 'Grey Fabric',
+          fabricQuality: lot.fabricQuality || 'Standard',
+          design: lot.design || '—',
+          shade: lot.shade || '—',
+          uom: lot.uom || 'Meters',
+          physicalStock: 0,
+          qcPassedStock: 0,
+          qcHoldStock: 0,
+          rejectedStock: 0,
+          reservedStock: 0,
+          usableStock: 0,
+          allocatedToProject: 0,
+          balanceStock: 0,
+          takas: [],
+          lotNumbers: new Set(),
+        });
+      }
+      const g = groups.get(key);
+      const physical = Number(lot.totalStock) || 0;
+      const reserved = Number(lot.reserved) || 0;
+      const usable = Number(lot.usable) || 0;
+      const allocated = Number(lot.allocateQty) || 0;
+      const balance = Number(lot.balance) || 0;
+      const isPassed = lot.isAllocatable ?? (lot.qcStatus === 'Passed');
+      const isRejected = (lot.qcStatus || '').toLowerCase().includes('reject') || lot.status === 'Reject';
+
+      g.physicalStock += physical;
+      if (isPassed) {
+        g.qcPassedStock += physical;
+        g.reservedStock += reserved;
+        g.usableStock += usable;
+        g.allocatedToProject += allocated;
+        g.balanceStock += balance;
+      } else if (isRejected) {
+        g.rejectedStock += physical;
+      } else {
+        g.qcHoldStock += physical;
+      }
+      g.takas.push(lot);
+      if (lot.lotNumber) g.lotNumbers.add(lot.lotNumber);
+    });
+
+    return Array.from(groups.values()).map((g) => ({
+      ...g,
+      takasCount: g.takas.length,
+      lotsCount: g.lotNumbers.size,
+    }));
+  }, [filteredLots]);
+
+  const totalPhysical = useMemo(() => fabricGroups.reduce((acc, g) => acc + g.physicalStock, 0), [fabricGroups]);
+  const totalPassed = useMemo(() => fabricGroups.reduce((acc, g) => acc + g.qcPassedStock, 0), [fabricGroups]);
+  const totalHold = useMemo(() => fabricGroups.reduce((acc, g) => acc + g.qcHoldStock, 0), [fabricGroups]);
+  const totalRejected = useMemo(() => fabricGroups.reduce((acc, g) => acc + g.rejectedStock, 0), [fabricGroups]);
+  const totalReserved = useMemo(() => fabricGroups.reduce((acc, g) => acc + g.reservedStock, 0), [fabricGroups]);
+  const totalUsable = useMemo(() => fabricGroups.reduce((acc, g) => acc + g.usableStock, 0), [fabricGroups]);
+  const totalAllocated = useMemo(() => fabricGroups.reduce((acc, g) => acc + g.allocatedToProject, 0), [fabricGroups]);
+  const totalBalance = useMemo(() => fabricGroups.reduce((acc, g) => acc + g.balanceStock, 0), [fabricGroups]);
 
   const projectRequirement = Number(stageMeta.requiredMeters || 3000);
   const shortageQty = Math.max(0, projectRequirement - totalAllocated);
@@ -365,12 +505,43 @@ export function Stage1GreyStockWorkspace({
 
       <div className="grid grid-cols-1 xl:grid-cols-12 gap-4 items-start">
         <div className="xl:col-span-7 rounded-xl border border-[#dce5f4] bg-white p-4 shadow-2xs space-y-3.5">
-          <h3 className="text-xs font-bold text-blue-600 tracking-wide uppercase">
-            Available Grey Stock
-          </h3>
+          <div className="flex items-center justify-between flex-wrap gap-2 pb-1">
+            <div className="flex items-center gap-2">
+              <h3 className="text-xs font-bold text-blue-600 tracking-wide uppercase">
+                Available Grey Stock
+              </h3>
+              <span className="text-[11px] text-slate-400 font-medium">
+                ({fabricGroups.length} Fabrics, {filteredLots.length} Takas)
+              </span>
+            </div>
+            <div className="inline-flex items-center rounded-lg border border-slate-200 bg-slate-50 p-0.5 text-xs">
+              <button
+                type="button"
+                onClick={() => setViewMode('summary')}
+                className={`px-2.5 py-1 rounded-md font-semibold transition-colors cursor-pointer ${
+                  viewMode === 'summary'
+                    ? 'bg-white text-blue-600 shadow-2xs font-bold'
+                    : 'text-slate-600 hover:text-slate-900'
+                }`}
+              >
+                Fabric Summary (Default)
+              </button>
+              <button
+                type="button"
+                onClick={() => setViewMode('rolls')}
+                className={`px-2.5 py-1 rounded-md font-semibold transition-colors cursor-pointer ${
+                  viewMode === 'rolls'
+                    ? 'bg-white text-blue-600 shadow-2xs font-bold'
+                    : 'text-slate-600 hover:text-slate-900'
+                }`}
+              >
+                All Takas / Rolls ({filteredLots.length})
+              </button>
+            </div>
+          </div>
 
           <div className="flex items-center gap-2 flex-wrap">
-            <div className="relative flex-1 min-w-[200px]">
+            <div className="relative flex-1 min-w-[180px]">
               <Search
                 size={14}
                 className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none"
@@ -379,7 +550,7 @@ export function Stage1GreyStockWorkspace({
                 type="text"
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                placeholder="Search by Fabric, Lot/Taka, Location..."
+                placeholder="Search Fabric, Lot, Taka ID, Location..."
                 className="w-full text-xs pl-8 pr-3 py-1.5 rounded-lg border border-slate-200 bg-white text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
               />
             </div>
@@ -410,6 +581,17 @@ export function Stage1GreyStockWorkspace({
               ))}
             </select>
 
+            <select
+              value={qcFilter}
+              onChange={(e) => setQcFilter(e.target.value)}
+              className="text-xs py-1.5 px-2.5 rounded-lg border border-slate-200 bg-white text-slate-700 focus:outline-none focus:ring-1 focus:ring-blue-500 cursor-pointer"
+            >
+              <option value="ALL">All QC Status</option>
+              <option value="Passed">QC Passed</option>
+              <option value="QC Hold">QC Hold</option>
+              <option value="Rejected">Rejected</option>
+            </select>
+
             <button
               type="button"
               onClick={loadData}
@@ -421,123 +603,496 @@ export function Stage1GreyStockWorkspace({
             </button>
           </div>
 
-          <div className="overflow-x-auto border border-slate-100 rounded-lg">
-            <table className="w-full text-left text-xs">
-              <thead>
-                <tr className="bg-slate-50/80 text-[11px] font-semibold text-slate-600 border-b border-slate-200">
-                  <th className="py-2.5 px-3 w-10 text-center">
-                    <div className="flex items-center justify-center gap-1">
-                      <input
-                        type="checkbox"
-                        checked={allSelected}
-                        onChange={(e) => handleToggleAll(e.target.checked)}
-                        className="rounded border-slate-300 text-blue-600 focus:ring-blue-500 cursor-pointer"
-                      />
-                      <span className="text-[10px] text-slate-400">{selectedCount}</span>
-                    </div>
-                  </th>
-                  <th className="py-2.5 px-2.5">Fabric / Quality</th>
-                  <th className="py-2.5 px-2.5">Lot / Taka</th>
-                  <th className="py-2.5 px-2.5">Location</th>
-                  <th className="py-2.5 px-2 text-right">Total Stock (m)</th>
-                  <th className="py-2.5 px-2 text-right">Reserved (m)</th>
-                  <th className="py-2.5 px-2 text-right">Usable Qty (m)</th>
-                  <th className="py-2.5 px-2 text-center">Allocate Qty (m)</th>
-                  <th className="py-2.5 px-2 text-right">Balance (m)</th>
-                  <th className="py-2.5 px-2.5 text-center">Status</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100 text-slate-700">
-                {filteredLots.map((lot) => {
-                  const isSelected = lot.allocateQty > 0;
-                  return (
-                    <tr
-                      key={lot.id || lot.lotNumber}
-                      className={isSelected ? 'bg-blue-50/20' : 'hover:bg-slate-50/50'}
-                    >
-                      <td className="py-2 px-3 text-center">
+          {viewMode === 'summary' ? (
+            /* ================= FABRIC-WISE SUMMARY VIEW (DEFAULT) ================= */
+            <div className="overflow-x-auto border border-slate-100 rounded-lg">
+              <table className="w-full text-left text-xs">
+                <thead>
+                  <tr className="bg-slate-50/80 text-[11px] font-semibold text-slate-600 border-b border-slate-200">
+                    <th className="py-2.5 px-3">
+                      <div className="flex items-center gap-1.5">
+                        <button
+                          type="button"
+                          onClick={toggleExpandAll}
+                          title="Expand/Collapse All"
+                          className="text-slate-400 hover:text-slate-600 p-0.5 rounded cursor-pointer"
+                        >
+                          {expandedFabrics.size === fabricGroups.length && fabricGroups.length > 0 ? (
+                            <ChevronDown size={14} />
+                          ) : (
+                            <ChevronRight size={14} />
+                          )}
+                        </button>
+                        <span>Fabric / Quality</span>
+                      </div>
+                    </th>
+                    <th className="py-2.5 px-2.5">Design & Shade</th>
+                    <th className="py-2.5 px-2 text-right">Physical (m)</th>
+                    <th className="py-2.5 px-2 text-right">QC Passed (m)</th>
+                    <th className="py-2.5 px-2 text-right">QC Hold (m)</th>
+                    <th className="py-2.5 px-2 text-right">Rejected (m)</th>
+                    <th className="py-2.5 px-2 text-right">Reserved (m)</th>
+                    <th className="py-2.5 px-2 text-right text-emerald-700 font-bold">Usable (m)</th>
+                    <th className="py-2.5 px-2 text-center text-blue-700 font-bold">Allocated (m)</th>
+                    <th className="py-2.5 px-2 text-right">Balance (m)</th>
+                    <th className="py-2.5 px-2.5 text-center">Action</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100 text-slate-700">
+                  {fabricGroups.map((fg) => {
+                    const isExpanded = expandedFabrics.has(fg.fabricKey);
+                    const hasAlloc = fg.allocatedToProject > 0;
+                    return (
+                      <React.Fragment key={fg.fabricKey}>
+                        <tr
+                          className={`cursor-pointer transition-colors ${
+                            isExpanded
+                              ? 'bg-blue-50/40 border-l-4 border-l-blue-600'
+                              : hasAlloc
+                              ? 'bg-blue-50/15 hover:bg-blue-50/30'
+                              : 'hover:bg-slate-50/60'
+                          }`}
+                          onClick={() => toggleFabricExpand(fg.fabricKey)}
+                        >
+                          <td className="py-2.5 px-3">
+                            <div className="flex items-center gap-2">
+                              <span className="text-slate-400 hover:text-blue-600 transition-transform">
+                                {isExpanded ? (
+                                  <ChevronDown size={14} className="text-blue-600" />
+                                ) : (
+                                  <ChevronRight size={14} />
+                                )}
+                              </span>
+                              <div>
+                                <span className="font-bold text-slate-900 block leading-tight">
+                                  {fg.fabricName}
+                                </span>
+                                <div className="flex items-center gap-1.5 mt-0.5">
+                                  <span className="text-[10px] px-1.5 py-0.2 rounded bg-slate-100 text-slate-600 border border-slate-200">
+                                    {fg.fabricQuality}
+                                  </span>
+                                  <span className="text-[10px] text-slate-400 font-mono">
+                                    {fg.takasCount} Takas ({fg.lotsCount} Lots)
+                                  </span>
+                                </div>
+                              </div>
+                            </div>
+                          </td>
+                          <td className="py-2.5 px-2.5 text-slate-600 whitespace-nowrap">
+                            <span className="font-medium text-slate-800">{fg.design}</span>
+                            <span className="text-slate-400 mx-1">/</span>
+                            <span className="text-slate-600">{fg.shade}</span>
+                          </td>
+                          <td className="py-2.5 px-2 text-right font-medium text-slate-900">
+                            {fg.physicalStock.toLocaleString('en-IN')}
+                          </td>
+                          <td className="py-2.5 px-2 text-right font-semibold text-emerald-700">
+                            {fg.qcPassedStock.toLocaleString('en-IN')}
+                          </td>
+                          <td className="py-2.5 px-2 text-right">
+                            {fg.qcHoldStock > 0 ? (
+                              <span className="inline-block px-1.5 py-0.5 rounded text-[11px] font-semibold bg-amber-50 text-amber-700 border border-amber-200">
+                                {fg.qcHoldStock.toLocaleString('en-IN')}
+                              </span>
+                            ) : (
+                              <span className="text-slate-300">0</span>
+                            )}
+                          </td>
+                          <td className="py-2.5 px-2 text-right">
+                            {fg.rejectedStock > 0 ? (
+                              <span className="inline-block px-1.5 py-0.5 rounded text-[11px] font-semibold bg-rose-50 text-rose-700 border border-rose-200">
+                                {fg.rejectedStock.toLocaleString('en-IN')}
+                              </span>
+                            ) : (
+                              <span className="text-slate-300">0</span>
+                            )}
+                          </td>
+                          <td className="py-2.5 px-2 text-right text-slate-500 font-medium">
+                            {fg.reservedStock > 0 ? fg.reservedStock.toLocaleString('en-IN') : <span className="text-slate-300">0</span>}
+                          </td>
+                          <td className="py-2.5 px-2 text-right font-bold text-emerald-700">
+                            {fg.usableStock.toLocaleString('en-IN')}
+                          </td>
+                          <td className="py-2.5 px-2 text-center">
+                            {fg.allocatedToProject > 0 ? (
+                              <span className="inline-block bg-blue-600 text-white font-bold text-[11px] px-2 py-0.5 rounded shadow-2xs">
+                                {fg.allocatedToProject.toLocaleString('en-IN')}
+                              </span>
+                            ) : (
+                              <span className="text-slate-300 text-xs">0</span>
+                            )}
+                          </td>
+                          <td className="py-2.5 px-2 text-right font-medium text-slate-700">
+                            {fg.balanceStock.toLocaleString('en-IN')}
+                          </td>
+                          <td className="py-2.5 px-2.5 text-center whitespace-nowrap" onClick={(e) => e.stopPropagation()}>
+                            <button
+                              type="button"
+                              onClick={() => toggleFabricExpand(fg.fabricKey)}
+                              className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-[11px] font-semibold border transition-all cursor-pointer ${
+                                isExpanded
+                                  ? 'bg-blue-600 text-white border-blue-600'
+                                  : 'border-blue-200 text-blue-600 hover:bg-blue-50'
+                              }`}
+                            >
+                              <span>{isExpanded ? 'Hide' : `Takas (${fg.takasCount})`}</span>
+                            </button>
+                          </td>
+                        </tr>
+
+                        {/* Drill-down panel for individual takas/rolls */}
+                        {isExpanded && (
+                          <tr className="bg-slate-50/80">
+                            <td colSpan={11} className="p-0 border-b border-blue-200">
+                              <div className="p-3 bg-blue-50/20 space-y-2 border-l-4 border-l-blue-600">
+                                <div className="flex items-center justify-between flex-wrap gap-2 px-1">
+                                  <div className="flex items-center gap-2">
+                                    <span className="text-xs font-bold text-slate-900">
+                                      {fg.fabricName} ({fg.fabricQuality})
+                                    </span>
+                                    <span className="text-[11px] text-slate-500">
+                                      Roll Details & Taka Allocation ({fg.takasCount} Rolls)
+                                    </span>
+                                  </div>
+                                  <div className="flex items-center gap-2">
+                                    <button
+                                      type="button"
+                                      onClick={() => handleAllocateFabricMax(fg.fabricKey)}
+                                      className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md bg-blue-600 hover:bg-blue-700 text-white text-[11px] font-semibold transition-colors cursor-pointer"
+                                    >
+                                      + Auto-Allocate Usable
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={() => handleClearFabricAllocation(fg.fabricKey)}
+                                      className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md border border-slate-300 hover:bg-slate-100 text-slate-700 text-[11px] font-semibold transition-colors cursor-pointer"
+                                    >
+                                      Clear Fabric
+                                    </button>
+                                  </div>
+                                </div>
+
+                                <div className="overflow-x-auto border border-slate-200 rounded-lg bg-white">
+                                  <table className="w-full text-left text-xs">
+                                    <thead>
+                                      <tr className="bg-slate-100/80 text-[10px] font-semibold text-slate-600 border-b border-slate-200">
+                                        <th className="py-2 px-2.5 w-8 text-center">#</th>
+                                        <th className="py-2 px-2.5">Taka ID / Roll</th>
+                                        <th className="py-2 px-2.5">Lot Number</th>
+                                        <th className="py-2 px-2.5">Location</th>
+                                        <th className="py-2 px-2 text-center">QC Status</th>
+                                        <th className="py-2 px-2 text-right">Total Stock</th>
+                                        <th className="py-2 px-2 text-right">Reserved</th>
+                                        <th className="py-2 px-2 text-right font-bold text-emerald-700">Usable</th>
+                                        <th className="py-2 px-2 text-center">Allocate (m)</th>
+                                        <th className="py-2 px-2 text-right">Balance</th>
+                                        <th className="py-2 px-2.5 text-center">Status</th>
+                                      </tr>
+                                    </thead>
+                                    <tbody className="divide-y divide-slate-100">
+                                      {fg.takas.map((lot, idx) => {
+                                        const isAllocated = lot.allocateQty > 0;
+                                        const isEligible = lot.isAllocatable ?? (lot.qcStatus === 'Passed');
+                                        return (
+                                          <tr
+                                            key={lot.id || lot.lotTakaId || `${lot.lotNumber}_${lot.takaNumber}`}
+                                            className={
+                                              isAllocated
+                                                ? 'bg-blue-50/30'
+                                                : !isEligible
+                                                ? 'bg-slate-50/50 text-slate-400'
+                                                : 'hover:bg-slate-50/40'
+                                            }
+                                          >
+                                            <td className="py-2 px-2.5 text-center">
+                                              <input
+                                                type="checkbox"
+                                                disabled={!isEligible || lot.usable <= 0}
+                                                checked={isAllocated}
+                                                onChange={() => handleToggleLot(lot.id)}
+                                                className="rounded border-slate-300 text-blue-600 focus:ring-blue-500 cursor-pointer disabled:cursor-not-allowed disabled:opacity-40"
+                                              />
+                                            </td>
+                                            <td className="py-2 px-2.5 font-mono text-slate-800 font-semibold whitespace-nowrap">
+                                              <span>{lot.takaId || `TAK-${idx + 1}`}</span>
+                                              {lot.takaNumber && (
+                                                <span className="ml-1 text-[10px] text-slate-400 font-sans">
+                                                  (Roll #{lot.takaNumber})
+                                                </span>
+                                              )}
+                                            </td>
+                                            <td className="py-2 px-2.5 font-mono text-[11px] text-slate-600 whitespace-nowrap">
+                                              {lot.lotNumber}
+                                            </td>
+                                            <td className="py-2 px-2.5 text-slate-600 whitespace-nowrap">
+                                              {lot.location || '—'}
+                                            </td>
+                                            <td className="py-2 px-2 text-center whitespace-nowrap">
+                                              {isEligible ? (
+                                                <span className="inline-flex items-center gap-1 px-1.5 py-0.2 rounded text-[10px] font-semibold bg-emerald-100 text-emerald-800 border border-emerald-200">
+                                                  <CheckCircle2 size={10} />
+                                                  <span>Passed</span>
+                                                </span>
+                                              ) : (lot.qcStatus || '').toLowerCase().includes('reject') ? (
+                                                <span className="inline-flex items-center gap-1 px-1.5 py-0.2 rounded text-[10px] font-semibold bg-rose-100 text-rose-800 border border-rose-200">
+                                                  Rejected
+                                                </span>
+                                              ) : (
+                                                <span className="inline-flex items-center gap-1 px-1.5 py-0.2 rounded text-[10px] font-semibold bg-amber-100 text-amber-800 border border-amber-200">
+                                                  QC Hold
+                                                </span>
+                                              )}
+                                            </td>
+                                            <td className="py-2 px-2 text-right font-medium text-slate-800">
+                                              {Number(lot.totalStock || 0).toLocaleString('en-IN')}
+                                            </td>
+                                            <td className="py-2 px-2 text-right text-slate-500">
+                                              {Number(lot.reserved || 0).toLocaleString('en-IN')}
+                                            </td>
+                                            <td className="py-2 px-2 text-right font-bold text-emerald-700">
+                                              {Number(lot.usable || 0).toLocaleString('en-IN')}
+                                            </td>
+                                            <td className="py-1 px-2 text-center">
+                                              <input
+                                                type="number"
+                                                min="0"
+                                                max={lot.usable}
+                                                disabled={!isEligible || lot.usable <= 0}
+                                                value={lot.allocateQty}
+                                                onChange={(e) => handleAllocateQtyChange(lot.id, e.target.value)}
+                                                className="w-16 text-center text-xs font-semibold py-1 px-1 rounded border border-slate-300 focus:border-blue-500 focus:outline-none bg-white shadow-2xs disabled:bg-slate-100 disabled:cursor-not-allowed"
+                                              />
+                                            </td>
+                                            <td className="py-2 px-2 text-right font-medium text-slate-600">
+                                              {Number(lot.balance || 0).toLocaleString('en-IN')}
+                                            </td>
+                                            <td className="py-2 px-2.5 text-center whitespace-nowrap">
+                                              {isAllocated ? (
+                                                <span className="inline-flex items-center gap-0.5 px-1.5 py-0.2 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-800 border border-emerald-200">
+                                                  Selected
+                                                </span>
+                                              ) : !isEligible ? (
+                                                <span className="inline-flex items-center px-1.5 py-0.2 rounded-full text-[10px] font-medium bg-slate-100 text-slate-500">
+                                                  Held
+                                                </span>
+                                              ) : (
+                                                <span className="inline-flex items-center px-1.5 py-0.2 rounded-full text-[10px] font-medium bg-sky-50 text-sky-700 border border-sky-100">
+                                                  Available
+                                                </span>
+                                              )}
+                                            </td>
+                                          </tr>
+                                        );
+                                      })}
+                                    </tbody>
+                                  </table>
+                                </div>
+                              </div>
+                            </td>
+                          </tr>
+                        )}
+                      </React.Fragment>
+                    );
+                  })}
+                </tbody>
+                <tfoot>
+                  <tr className="bg-slate-100/80 border-t-2 border-slate-300 font-bold text-slate-900 text-xs">
+                    <td colSpan={2} className="py-3 px-3">
+                      Σ RECONCILED TOTALS ({fabricGroups.length} Fabrics, {filteredLots.length} Takas)
+                    </td>
+                    <td className="py-3 px-2 text-right">
+                      {totalPhysical.toLocaleString('en-IN')} m
+                    </td>
+                    <td className="py-3 px-2 text-right text-emerald-700">
+                      {totalPassed.toLocaleString('en-IN')} m
+                    </td>
+                    <td className="py-3 px-2 text-right text-amber-700">
+                      {totalHold.toLocaleString('en-IN')} m
+                    </td>
+                    <td className="py-3 px-2 text-right text-rose-700">
+                      {totalRejected.toLocaleString('en-IN')} m
+                    </td>
+                    <td className="py-3 px-2 text-right text-slate-500">
+                      {totalReserved.toLocaleString('en-IN')} m
+                    </td>
+                    <td className="py-3 px-2 text-right text-emerald-700 font-bold">
+                      {totalUsable.toLocaleString('en-IN')} m
+                    </td>
+                    <td className="py-3 px-2 text-center">
+                      <span className="inline-block bg-blue-600 text-white font-bold text-xs px-2.5 py-0.5 rounded shadow-2xs">
+                        {totalAllocated.toLocaleString('en-IN')} m
+                      </span>
+                    </td>
+                    <td className="py-3 px-2 text-right text-slate-800">
+                      {totalBalance.toLocaleString('en-IN')} m
+                    </td>
+                    <td className="py-3 px-2.5 text-center" />
+                  </tr>
+                </tfoot>
+              </table>
+            </div>
+          ) : (
+            /* ================= ALL TAKAS / ROLLS FLAT VIEW ================= */
+            <div className="overflow-x-auto border border-slate-100 rounded-lg">
+              <table className="w-full text-left text-xs">
+                <thead>
+                  <tr className="bg-slate-50/80 text-[11px] font-semibold text-slate-600 border-b border-slate-200">
+                    <th className="py-2.5 px-3 w-10 text-center">
+                      <div className="flex items-center justify-center gap-1">
                         <input
                           type="checkbox"
-                          checked={isSelected}
-                          onChange={() => handleToggleLot(lot.id)}
+                          checked={allSelected}
+                          onChange={(e) => handleToggleAll(e.target.checked)}
                           className="rounded border-slate-300 text-blue-600 focus:ring-blue-500 cursor-pointer"
                         />
-                      </td>
-                      <td className="py-2 px-2.5 font-medium text-slate-800 whitespace-nowrap">
-                        {lot.fabricQuality}
-                      </td>
-                      <td className="py-2 px-2.5 text-slate-600 font-mono text-[11px] whitespace-nowrap">
-                        {lot.lotNumber}
-                      </td>
-                      <td className="py-2 px-2.5 text-slate-600 whitespace-nowrap">
-                        {lot.location}
-                      </td>
-                      <td className="py-2 px-2 text-right font-medium">
-                        {Number(lot.totalStock || 0).toLocaleString('en-IN')}
-                      </td>
-                      <td className="py-2 px-2 text-right text-slate-500 font-medium">
-                        {Number(lot.reserved || 0).toLocaleString('en-IN')}
-                      </td>
-                      <td className="py-2 px-2 text-right font-semibold text-slate-800">
-                        {Number(lot.usable || 0).toLocaleString('en-IN')}
-                      </td>
-                      <td className="py-1 px-2 text-center">
-                        <input
-                          type="number"
-                          min="0"
-                          max={lot.usable}
-                          value={lot.allocateQty}
-                          onChange={(e) => handleAllocateQtyChange(lot.id, e.target.value)}
-                          className="w-16 text-center text-xs font-semibold py-1 px-1 rounded border border-slate-300 focus:border-blue-500 focus:outline-none bg-white shadow-2xs"
-                        />
-                      </td>
-                      <td className="py-2 px-2 text-right font-medium text-slate-600">
-                        {Number(lot.balance || 0).toLocaleString('en-IN')}
-                      </td>
-                      <td className="py-2 px-2.5 text-center whitespace-nowrap">
-                        {isSelected ? (
-                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-semibold bg-emerald-100 text-emerald-800 border border-emerald-200">
-                            <CheckCircle2 size={11} className="text-emerald-700" />
-                            <span>Selected</span>
+                        <span className="text-[10px] text-slate-400">{selectedCount}</span>
+                      </div>
+                    </th>
+                    <th className="py-2.5 px-2.5">Fabric / Quality</th>
+                    <th className="py-2.5 px-2.5">Taka ID / Roll</th>
+                    <th className="py-2.5 px-2.5">Lot Number</th>
+                    <th className="py-2.5 px-2.5">Location</th>
+                    <th className="py-2.5 px-2 text-center">QC Status</th>
+                    <th className="py-2.5 px-2 text-right">Total Stock (m)</th>
+                    <th className="py-2.5 px-2 text-right">Reserved (m)</th>
+                    <th className="py-2.5 px-2 text-right text-emerald-700 font-bold">Usable Qty (m)</th>
+                    <th className="py-2.5 px-2 text-center">Allocate Qty (m)</th>
+                    <th className="py-2.5 px-2 text-right">Balance (m)</th>
+                    <th className="py-2.5 px-2.5 text-center">Status</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100 text-slate-700">
+                  {filteredLots.map((lot, idx) => {
+                    const isSelected = lot.allocateQty > 0;
+                    const isEligible = lot.isAllocatable ?? (lot.qcStatus === 'Passed');
+                    return (
+                      <tr
+                        key={lot.id || lot.lotTakaId || `${lot.lotNumber}_${lot.takaNumber}`}
+                        className={
+                          isSelected
+                            ? 'bg-blue-50/20'
+                            : !isEligible
+                            ? 'bg-slate-50/50 text-slate-400'
+                            : 'hover:bg-slate-50/50'
+                        }
+                      >
+                        <td className="py-2 px-3 text-center">
+                          <input
+                            type="checkbox"
+                            disabled={!isEligible || lot.usable <= 0}
+                            checked={isSelected}
+                            onChange={() => handleToggleLot(lot.id)}
+                            className="rounded border-slate-300 text-blue-600 focus:ring-blue-500 cursor-pointer disabled:cursor-not-allowed disabled:opacity-40"
+                          />
+                        </td>
+                        <td className="py-2 px-2.5 font-medium text-slate-800 whitespace-nowrap">
+                          <span>{lot.fabricName || lot.fabricQuality}</span>
+                          <span className="ml-1 text-[10px] text-slate-400 font-normal">
+                            ({lot.fabricQuality})
                           </span>
-                        ) : (
-                          <span className="inline-flex items-center justify-center px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-sky-100 text-sky-800 border border-sky-200">
-                            Available
-                          </span>
-                        )}
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-              <tfoot>
-                <tr className="bg-slate-50/70 border-t border-slate-200 font-bold text-slate-800">
-                  <td className="py-2.5 px-3 text-center" />
-                  <td colSpan={3} className="py-2.5 px-2.5 text-xs font-bold text-slate-700">
-                    Σ TOTAL FILTERED LOTS ({filteredLots.length})
-                  </td>
-                  <td className="py-2.5 px-2 text-right">
-                    {totalStock.toLocaleString('en-IN')} m
-                  </td>
-                  <td className="py-2.5 px-2 text-right text-slate-500">
-                    {totalReserved.toLocaleString('en-IN')} m
-                  </td>
-                  <td className="py-2.5 px-2 text-right text-emerald-600 font-bold">
-                    {totalUsable.toLocaleString('en-IN')} m
-                  </td>
-                  <td className="py-2 px-2 text-center">
-                    <span className="inline-block bg-blue-600 text-white font-bold text-xs px-2.5 py-0.5 rounded shadow-2xs">
-                      {totalAllocated.toLocaleString('en-IN')} m
-                    </span>
-                  </td>
-                  <td className="py-2.5 px-2 text-right font-medium text-slate-700">
-                    {totalBalance.toLocaleString('en-IN')} m
-                  </td>
-                  <td className="py-2.5 px-2.5 text-center" />
-                </tr>
-              </tfoot>
-            </table>
-          </div>
+                        </td>
+                        <td className="py-2 px-2.5 font-mono text-slate-800 font-semibold whitespace-nowrap">
+                          <span>{lot.takaId || `TAK-${idx + 1}`}</span>
+                          {lot.takaNumber && (
+                            <span className="ml-1 text-[10px] text-slate-400 font-sans">
+                              (Roll #{lot.takaNumber})
+                            </span>
+                          )}
+                        </td>
+                        <td className="py-2 px-2.5 text-slate-600 font-mono text-[11px] whitespace-nowrap">
+                          {lot.lotNumber}
+                        </td>
+                        <td className="py-2 px-2.5 text-slate-600 whitespace-nowrap">
+                          {lot.location || '—'}
+                        </td>
+                        <td className="py-2 px-2 text-center whitespace-nowrap">
+                          {isEligible ? (
+                            <span className="inline-flex items-center gap-1 px-1.5 py-0.2 rounded text-[10px] font-semibold bg-emerald-100 text-emerald-800 border border-emerald-200">
+                              <CheckCircle2 size={10} />
+                              <span>Passed</span>
+                            </span>
+                          ) : (lot.qcStatus || '').toLowerCase().includes('reject') ? (
+                            <span className="inline-flex items-center px-1.5 py-0.2 rounded text-[10px] font-semibold bg-rose-100 text-rose-800 border border-rose-200">
+                              Rejected
+                            </span>
+                          ) : (
+                            <span className="inline-flex items-center px-1.5 py-0.2 rounded text-[10px] font-semibold bg-amber-100 text-amber-800 border border-amber-200">
+                              QC Hold
+                            </span>
+                          )}
+                        </td>
+                        <td className="py-2 px-2 text-right font-medium">
+                          {Number(lot.totalStock || 0).toLocaleString('en-IN')}
+                        </td>
+                        <td className="py-2 px-2 text-right text-slate-500 font-medium">
+                          {Number(lot.reserved || 0).toLocaleString('en-IN')}
+                        </td>
+                        <td className="py-2 px-2 text-right font-semibold text-emerald-700">
+                          {Number(lot.usable || 0).toLocaleString('en-IN')}
+                        </td>
+                        <td className="py-1 px-2 text-center">
+                          <input
+                            type="number"
+                            min="0"
+                            max={lot.usable}
+                            disabled={!isEligible || lot.usable <= 0}
+                            value={lot.allocateQty}
+                            onChange={(e) => handleAllocateQtyChange(lot.id, e.target.value)}
+                            className="w-16 text-center text-xs font-semibold py-1 px-1 rounded border border-slate-300 focus:border-blue-500 focus:outline-none bg-white shadow-2xs disabled:bg-slate-100 disabled:cursor-not-allowed"
+                          />
+                        </td>
+                        <td className="py-2 px-2 text-right font-medium text-slate-600">
+                          {Number(lot.balance || 0).toLocaleString('en-IN')}
+                        </td>
+                        <td className="py-2 px-2.5 text-center whitespace-nowrap">
+                          {isSelected ? (
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-semibold bg-emerald-100 text-emerald-800 border border-emerald-200">
+                              <CheckCircle2 size={11} className="text-emerald-700" />
+                              <span>Selected</span>
+                            </span>
+                          ) : !isEligible ? (
+                            <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium bg-slate-100 text-slate-500">
+                              QC Hold
+                            </span>
+                          ) : (
+                            <span className="inline-flex items-center justify-center px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-sky-100 text-sky-800 border border-sky-200">
+                              Available
+                            </span>
+                          )}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+                <tfoot>
+                  <tr className="bg-slate-50/70 border-t border-slate-200 font-bold text-slate-800">
+                    <td className="py-2.5 px-3 text-center" />
+                    <td colSpan={5} className="py-2.5 px-2.5 text-xs font-bold text-slate-700">
+                      Σ TOTAL FILTERED LOTS ({filteredLots.length})
+                    </td>
+                    <td className="py-2.5 px-2 text-right">
+                      {totalPhysical.toLocaleString('en-IN')} m
+                    </td>
+                    <td className="py-2.5 px-2 text-right text-slate-500">
+                      {totalReserved.toLocaleString('en-IN')} m
+                    </td>
+                    <td className="py-2.5 px-2 text-right text-emerald-600 font-bold">
+                      {totalUsable.toLocaleString('en-IN')} m
+                    </td>
+                    <td className="py-2 px-2 text-center">
+                      <span className="inline-block bg-blue-600 text-white font-bold text-xs px-2.5 py-0.5 rounded shadow-2xs">
+                        {totalAllocated.toLocaleString('en-IN')} m
+                      </span>
+                    </td>
+                    <td className="py-2.5 px-2 text-right font-medium text-slate-700">
+                      {totalBalance.toLocaleString('en-IN')} m
+                    </td>
+                    <td className="py-2.5 px-2.5 text-center" />
+                  </tr>
+                </tfoot>
+              </table>
+            </div>
+          )}
         </div>
 
         <div className="xl:col-span-5 rounded-xl border border-[#dce5f4] bg-white p-4 shadow-2xs space-y-4">

@@ -14,6 +14,7 @@ import {
 } from 'lucide-react';
 import { numIN, toDDMMYYYY, purgeLegacyJobWorkCache } from './jobWorkOrdersStore';
 import PageHeader from '../../components/ui/PageHeader';
+import TablePagination from '../../components/ui/TablePagination';
 import { useERP } from '../../context/ERPContext';
 import { api } from '../../services/api';
 import { fetchPlans, createPlan, updatePlan, deletePlan, errorMessage } from '../../services/jobWorkSync';
@@ -709,6 +710,8 @@ export default function ProcessPlanListPage() {
   const [statusFilter, setStatusFilter] = useState('All');
   const [fromDate, setFromDate] = useState('');
   const [toDate, setToDate] = useState('');
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(10);
 
   // Mode: list vs create/edit
   const isCreateRoute = location.pathname.endsWith('/create');
@@ -766,6 +769,15 @@ export default function ProcessPlanListPage() {
       return true;
     });
   }, [plans, processFilter, fabricFilter, vendorFilter, statusFilter, fromDate, toDate]);
+
+  useEffect(() => {
+    setPage(1);
+  }, [processFilter, fabricFilter, vendorFilter, statusFilter, fromDate, toDate]);
+
+  const pagedPlans = useMemo(() => {
+    const start = (page - 1) * pageSize;
+    return filteredRows.slice(start, start + pageSize);
+  }, [filteredRows, page, pageSize]);
 
   const handleOpenCreate = () => {
     setEditingPlan(null);
@@ -970,13 +982,13 @@ export default function ProcessPlanListPage() {
                   </td>
                 </tr>
               ) : (
-                filteredRows.map((p, idx) => {
+                pagedPlans.map((p, idx) => {
                   const pQty = Number(p.plannedQty || p.expectedQty) || 0;
                   const pLoss = Number(p.expectedLoss) || 0;
                   const pRet = Number(p.expectedReturnQty) || Math.round(pQty * (1 - pLoss / 100));
                   return (
                     <tr key={p.id || idx} className="border-b border-slate-100 hover:bg-slate-50/50">
-                      <td className="px-3.5 py-3 text-center text-slate-500 font-medium">{idx + 1}</td>
+                      <td className="px-3.5 py-3 text-center text-slate-500 font-medium">{(page - 1) * pageSize + idx + 1}</td>
                       <td className="px-3.5 py-3">
                         <button
                           onClick={() => navigate(`/job-work/process-plan/${p.id}`)}
@@ -1063,6 +1075,13 @@ export default function ProcessPlanListPage() {
               )}
             </tbody>
           </table>
+          <TablePagination
+            page={page}
+            pageSize={pageSize}
+            totalItems={filteredRows.length}
+            onPageChange={setPage}
+            onPageSizeChange={(sz) => { setPageSize(sz); setPage(1); }}
+          />
         </div>
       </div>
     </div>

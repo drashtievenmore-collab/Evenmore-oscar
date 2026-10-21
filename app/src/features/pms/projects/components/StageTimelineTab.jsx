@@ -17,8 +17,11 @@ import { Stage3GRNInwardWorkspace } from './Stage3GRNInwardWorkspace';
 import { Stage4LotTakaWorkspace } from './Stage4LotTakaWorkspace';
 import { Stage5GreyQCWorkspace } from './Stage5GreyQCWorkspace';
 import { Stage6GreyStockUpdatedWorkspace } from './Stage6GreyStockUpdatedWorkspace';
+import { StageVendorBillWorkspace } from './StageVendorBillWorkspace';
 import { Stage7SupplierBillMatchingWorkspace } from './Stage7SupplierBillMatchingWorkspace';
 import { Stage8SupplierPaymentWorkspace } from './Stage8SupplierPaymentWorkspace';
+import { StageDownstreamWorkspace } from './StageDownstreamWorkspace';
+import { StageVendorProductionWorkspace } from './StageVendorProductionWorkspace';
 
 export function StageTimelineTab({
   project,
@@ -34,6 +37,14 @@ export function StageTimelineTab({
   const [isAddStageOpen, setAddStageOpen] = useState(false);
   const [isSyncing, setIsSyncing] = useState(false);
   const [selectedStageSeq, setSelectedStageSeq] = useState(1);
+  const [deliveryContext, setDeliveryContext] = useState(null);
+
+  const handleSelectStage = (seq, context = null) => {
+    setSelectedStageSeq(seq);
+    if (context) {
+      setDeliveryContext(context);
+    }
+  };
 
   const currentUser = useAppStore((s) => s.currentUser);
   const isCreator = isProjectCreator(project, currentUser);
@@ -46,9 +57,8 @@ export function StageTimelineTab({
   );
 
   const currentStage = ordered.find((s) => s.sequence === selectedStageSeq) || ordered[0];
-  const stageName = (currentStage?.name || '').toLowerCase();
-
-  const readOnly = project.status === 'Completed';
+  const stageName = (currentStage?.name || '').trim();
+  const stageBranch = currentStage?.branch;
 
   return (
     <div className="space-y-4">
@@ -93,7 +103,7 @@ export function StageTimelineTab({
                   <button
                     type="button"
                     onClick={() => setAddStageOpen(true)}
-                    className="inline-flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1.5 rounded-lg border border-[#dce5f4] bg-white text-slate-700 hover:bg-slate-50 hover:text-blue-600 transition-colors shadow-2xs"
+                    className="inline-flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1.5 rounded-lg border border-[#dce5f4] bg-white text-slate-700 hover:bg-slate-50 hover:text-blue-600 transition-colors shadow-2xs cursor-pointer"
                     title="Add a custom dynamic stage"
                   >
                     <Plus size={13} /> Add Dynamic Stage
@@ -103,7 +113,7 @@ export function StageTimelineTab({
                     <button
                       type="button"
                       onClick={() => setPercentagesOpen(true)}
-                      className="inline-flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1.5 rounded-lg border border-[#dce5f4] bg-white text-slate-700 hover:bg-slate-50 hover:text-blue-600 transition-colors shadow-2xs"
+                      className="inline-flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1.5 rounded-lg border border-[#dce5f4] bg-white text-slate-700 hover:bg-slate-50 hover:text-blue-600 transition-colors shadow-2xs cursor-pointer"
                       title="Configure stage percentage weights"
                     >
                       <Percent size={13} /> Stage Weights
@@ -119,7 +129,7 @@ export function StageTimelineTab({
             currentStageId={project.currentStageId}
             pipelineSummary={project.pipelineSummary}
             selectedStageSequence={selectedStageSeq}
-            onSelectStage={(seq) => setSelectedStageSeq(seq)}
+            onSelectStage={(seq) => handleSelectStage(seq)}
           />
         </div>
       ) : (
@@ -132,7 +142,8 @@ export function StageTimelineTab({
         </div>
       )}
 
-      {((selectedStageSeq === 1 && (stageName.includes('stock check') || stageName.includes('grey stock check'))) || (!stageName.includes('po') && !stageName.includes('delivery') && selectedStageSeq === 1)) && (
+      {/* Stage 1: Grey Stock Check & Allocation */}
+      {(selectedStageSeq === 1 || stageName === 'Grey Stock Check & Allocation') && (
         <Stage1GreyStockWorkspace
           project={project}
           stage={ordered.find((s) => s.sequence === 1)}
@@ -141,34 +152,39 @@ export function StageTimelineTab({
         />
       )}
 
-      {(stageName.includes('purchase po') || stageName.includes('purchase order') || (selectedStageSeq === 2 && !stageName.includes('delivery'))) && (
+      {/* Grey Purchase Branch: Stage 2 - Create Grey Purchase PO */}
+      {stageBranch === 'branch_purchase' && stageName === 'Create Grey Purchase PO' && (
         <Stage2PurchasePOWorkspace
           project={project}
-          stage={ordered.find((s) => s.name?.toLowerCase().includes('po') || s.sequence === 2)}
+          stage={currentStage}
           onSyncPipeline={onSyncPipeline}
           onSelectStage={(seq) => setSelectedStageSeq(seq)}
         />
       )}
 
-      {(stageName.includes('supplier delivery') || stageName.includes('delivery')) && (
+      {/* Grey Purchase Branch: Stage 3 - Supplier Delivery */}
+      {stageBranch === 'branch_purchase' && stageName === 'Supplier Delivery' && (
         <Stage2SupplierDeliveryWorkspace
           project={project}
           stage={currentStage}
           onSyncPipeline={onSyncPipeline}
-          onSelectStage={(seq) => setSelectedStageSeq(seq)}
+          onSelectStage={handleSelectStage}
         />
       )}
 
-      {(stageName.includes('grn') || stageName.includes('inward')) && (
+      {/* Grey Purchase Branch: Stage 4 - GRN / Inward */}
+      {stageBranch === 'branch_purchase' && stageName === 'GRN / Inward' && (
         <Stage3GRNInwardWorkspace
           project={project}
           stage={currentStage}
           onSyncPipeline={onSyncPipeline}
-          onSelectStage={(seq) => setSelectedStageSeq(seq)}
+          onSelectStage={handleSelectStage}
+          deliveryContext={deliveryContext}
         />
       )}
 
-      {(stageName.includes('lot') || stageName.includes('taka')) && (
+      {/* Grey Purchase Branch: Stage 5 - Lot & Taka Creation */}
+      {stageBranch === 'branch_purchase' && stageName === 'Lot & Taka Creation' && (
         <Stage4LotTakaWorkspace
           project={project}
           stage={currentStage}
@@ -177,7 +193,8 @@ export function StageTimelineTab({
         />
       )}
 
-      {(stageName.includes('qc') || stageName.includes('quality check') || stageName.includes('grey qc')) && (
+      {/* Grey Purchase Branch: Stage 6 - Grey QC */}
+      {stageBranch === 'branch_purchase' && stageName === 'Grey QC' && (
         <Stage5GreyQCWorkspace
           project={project}
           stage={currentStage}
@@ -186,7 +203,8 @@ export function StageTimelineTab({
         />
       )}
 
-      {(stageName.includes('stock updated') || stageName.includes('grey stock updated')) && (
+      {/* Grey Purchase Branch: Stage 7 - Grey Stock Updated */}
+      {stageBranch === 'branch_purchase' && stageName === 'Grey Stock Updated' && (
         <Stage6GreyStockUpdatedWorkspace
           project={project}
           stage={currentStage}
@@ -195,7 +213,18 @@ export function StageTimelineTab({
         />
       )}
 
-      {(stageName.includes('supplier bill matching') || stageName.includes('bill match')) && (
+      {/* Grey Purchase Branch: Stage 8 - Vendor Bill */}
+      {stageBranch === 'branch_purchase' && (stageName === 'Vendor Bill' || stageName === 'Vendor Bill Entry') && (
+        <StageVendorBillWorkspace
+          project={project}
+          stage={currentStage}
+          onSyncPipeline={onSyncPipeline}
+          onSelectStage={(seq) => setSelectedStageSeq(seq)}
+        />
+      )}
+
+      {/* Grey Purchase Branch: Stage 9 - Supplier Bill Matching */}
+      {stageBranch === 'branch_purchase' && stageName === 'Supplier Bill Matching' && (
         <Stage7SupplierBillMatchingWorkspace
           project={project}
           stage={currentStage}
@@ -204,12 +233,35 @@ export function StageTimelineTab({
         />
       )}
 
-      {(stageName.includes('payment') || stageName.includes('disbursement')) && (
+      {/* Grey Purchase Branch: Stage 9 - Payment */}
+      {stageBranch === 'branch_purchase' && stageName === 'Payment' && (
         <Stage8SupplierPaymentWorkspace
           project={project}
           stage={currentStage}
           onSyncPipeline={onSyncPipeline}
           onSelectStage={(seq) => setSelectedStageSeq(seq)}
+        />
+      )}
+
+      {/* Vendor A Production Branch Stages */}
+      {stageBranch === 'branch_production' && (
+        <StageVendorProductionWorkspace
+          stage={currentStage}
+          project={project}
+          onSyncPipeline={onSyncPipeline}
+          onSelectStage={(seq) => setSelectedStageSeq(seq)}
+          totalStages={ordered.length}
+        />
+      )}
+
+      {/* Downstream Common Stages (Stages 10 - 17) */}
+      {stageBranch === 'common' && selectedStageSeq !== 1 && stageName !== 'Grey Stock Check & Allocation' && (
+        <StageDownstreamWorkspace
+          stage={currentStage}
+          project={project}
+          onSyncPipeline={onSyncPipeline}
+          onSelectStage={(seq) => setSelectedStageSeq(seq)}
+          totalStages={ordered.length}
         />
       )}
 

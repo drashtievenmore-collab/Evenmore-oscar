@@ -7,12 +7,10 @@ import {
   Eye,
   EyeOff,
   ArrowRight,
-  Building2,
   CheckCircle2,
   AlertCircle,
   KeyRound,
   HelpCircle,
-  ChevronDown,
 } from 'lucide-react';
 import { useAppStore } from '../../stores/appStore';
 import { login as loginRequest } from '../../services/authService';
@@ -50,11 +48,7 @@ export default function LoginPage() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
-  // Empty by default: the server resolves the tenant from the email address and
-  // only needs a slug when the same address exists in more than one tenant
-  // (api.md §2).
-  const [tenant, setTenant] = useState('');
-  const [showTenant, setShowTenant] = useState(false);
+
   const [rememberMe, setRememberMe] = useState(true);
 
   const [isLoading, setIsLoading] = useState(false);
@@ -90,7 +84,6 @@ export default function LoginPage() {
       const { user, permissions } = await loginRequest({
         email,
         password,
-        tenant,
         remember: rememberMe,
       });
 
@@ -100,7 +93,7 @@ export default function LoginPage() {
       showToast?.(`Signed in successfully as ${user?.name || email}`);
       const targetRoute = (returnTo && returnTo !== '/dashboard')
         ? returnTo
-        : getRoleDefaultRoute(user?.roleCode, permissions);
+        : getRoleDefaultRoute(user?.roleCode || user?.role?.code, permissions);
       navigate(targetRoute, { replace: true });
     } catch (err) {
       setError(describeError(err));
@@ -194,31 +187,6 @@ export default function LoginPage() {
               >
                 Forgot password?
               </button>
-            </div>
-
-            <div>
-              <button
-                type="button"
-                onClick={() => setShowTenant(!showTenant)}
-                className="w-full flex items-center gap-2 bg-white border border-slate-200 rounded-xl py-3 px-3.5 text-[13px] text-slate-500 hover:border-slate-300 cursor-pointer"
-              >
-                <Building2 size={16} className="shrink-0" />
-                <span className="flex-1 text-left truncate">
-                  {tenant ? tenant : 'Custom workspace / tenant domain'}
-                </span>
-                <ChevronDown size={16} className={`shrink-0 transition-transform ${showTenant ? 'rotate-180' : ''}`} />
-              </button>
-              {showTenant && (
-                <div className="mt-2">
-                  <input
-                    type="text"
-                    value={tenant}
-                    onChange={(e) => setTenant(e.target.value)}
-                    placeholder="Tenant identifier (e.g. evenmore-main)"
-                    className="w-full bg-white border border-slate-200 rounded-xl py-2.5 px-3 text-[13px] focus:outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20"
-                  />
-                </div>
-              )}
             </div>
 
             <label className="flex items-center gap-2 cursor-pointer select-none pt-1">

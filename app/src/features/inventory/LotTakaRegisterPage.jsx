@@ -104,6 +104,7 @@ export default function LotTakaRegisterPage({
   poId: propPoId = null,
   grnId: propGrnId = null,
   isEmbedded = false,
+  onSelectStage = null,
 } = {}) {
   const { items = [], locations = [], vendors = [], user: erpUser = { name: 'Admin' } } = useERP();
   const appCurrentUser = useAppStore((s) => s.currentUser);
@@ -200,8 +201,21 @@ export default function LotTakaRegisterPage({
   const [selectedPipelineGrn, setSelectedPipelineGrn] = useState(initialGrn || location.state?.grn || null);
   const [loadingPipelineDocs, setLoadingPipelineDocs] = useState(false);
   const [isPipelineFilterActive, setIsPipelineFilterActive] = useState(
-    Boolean(activePoId || activePoNumber || activeGrnId || activeGrnNumber)
+    Boolean(activePoId || activePoNumber || activeGrnId || activeGrnNumber || isEmbedded)
   );
+
+  useEffect(() => {
+    if (activePoId || activePoNumber || activeGrnId || activeGrnNumber || initialPo || initialGrn || isEmbedded) {
+      setIsPipelineFilterActive(true);
+      if (initialPo && (!pipelinePo || pipelinePo.id !== initialPo.id)) {
+        setPipelinePo(initialPo);
+      }
+      if (initialGrn && (!selectedPipelineGrn || selectedPipelineGrn.id !== initialGrn.id)) {
+        setSelectedPipelineGrn(initialGrn);
+        setPipelineGrns((prev) => (prev.some((g) => g.id === initialGrn.id) ? prev : [initialGrn, ...prev]));
+      }
+    }
+  }, [activePoId, activePoNumber, activeGrnId, activeGrnNumber, initialPo, initialGrn, isEmbedded]);
 
   useEffect(() => {
     if (!isPipelineFilterActive) return;
@@ -663,7 +677,7 @@ export default function LotTakaRegisterPage({
       if (searchQuery) query.search = searchQuery;
 
       // Pass pipeline context filter to backend where supported
-      if (isPipelineFilterActive) {
+      if (isPipelineFilterActive || isEmbedded) {
         if (selectedPipelineGrn?.grn_number || selectedPipelineGrn?.grnNumber || activeGrnNumber) {
           query.grn = selectedPipelineGrn?.grn_number || selectedPipelineGrn?.grnNumber || activeGrnNumber;
         } else if (activeGrnId) {
@@ -672,6 +686,21 @@ export default function LotTakaRegisterPage({
           query.po = activePoId;
         } else if (activePoNumber) {
           query.po = activePoNumber;
+        } else if (isEmbedded) {
+          // Still resolving PO/GRN context; avoid loading unrelated global lots
+          setData({
+            records: [],
+            summaryCards: {
+              totalLots: 0,
+              totalQuantity: { qty: 0, inStock: 0, uom: 'm' },
+              totalValue: { val: 0, avgRate: 0 },
+              pendingQC: { qty: 0, lots: 0, uom: 'm' },
+              onHold: { qty: 0, lots: 0, uom: 'm' }
+            }
+          });
+          setLoading(false);
+          setRefreshing(false);
+          return;
         }
       }
 
@@ -708,6 +737,7 @@ export default function LotTakaRegisterPage({
     activeGrnNumber,
     activePoId,
     activePoNumber,
+    isEmbedded,
   ]);
 
   useEffect(() => {
@@ -1039,7 +1069,7 @@ export default function LotTakaRegisterPage({
 
         {/* Action Buttons: [Taka Tag Hub], [Print] and [+ Add Lot / Taka] */}
         <div className="flex items-center gap-2">
-          {isPipelineFilterActive && (
+          {!isEmbedded && isPipelineFilterActive && (
             <button
               onClick={handleClearPipelineFilter}
               className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-xs font-semibold shadow-xs transition cursor-pointer"
@@ -1050,9 +1080,20 @@ export default function LotTakaRegisterPage({
             </button>
           )}
           <button
-            onClick={() => navigate('/inventory/taka-tags')}
+            onClick={() => {
+              if (isEmbedded) {
+                const targetRecord = activeLotRecord || (data?.records && data.records[0]);
+                if (targetRecord) {
+                  openPrintTagModal(targetRecord);
+                } else {
+                  alert('No takas registered yet for this order. Please inward GRN in Stage 3 and split rolls first.');
+                }
+              } else {
+                navigate('/inventory/taka-tags');
+              }
+            }}
             className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-purple-50 border border-purple-200 hover:bg-purple-100 text-purple-700 rounded-lg text-xs font-bold shadow-xs transition cursor-pointer"
-            title="Open Taka Tag Print Hub with Barcode Scanner & Multi-print"
+            title={isEmbedded ? "Preview & Print Taka Tag directly in this slide" : "Open Taka Tag Print Hub with Barcode Scanner & Multi-print"}
           >
             <Tag size={13} className="text-purple-600" />
             Taka Tag Hub
@@ -1096,20 +1137,32 @@ export default function LotTakaRegisterPage({
                 </div>
               </div>
               <div className="flex items-center gap-2 shrink-0">
-                <button
-                  type="button"
-                  onClick={() => navigate('/purchase/orders')}
-                  className="px-3.5 py-1.5 bg-amber-600 hover:bg-amber-700 text-white rounded-lg text-xs font-bold shadow-xs flex items-center gap-1.5 cursor-pointer"
-                >
-                  <PackageCheck size={14} /> Go to PO & Record GRN
-                </button>
-                <button
-                  type="button"
-                  onClick={handleClearPipelineFilter}
-                  className="px-3 py-1.5 bg-white border border-amber-200 hover:bg-amber-50 text-amber-800 rounded-lg text-xs font-semibold shadow-2xs cursor-pointer"
-                >
-                  View All Lots
-                </button>
+                {isEmbedded && onSelectStage ? (
+                  <button
+                    type="button"
+                    onClick={() => onSelectStage(3)}
+                    className="px-3.5 py-1.5 bg-amber-600 hover:bg-amber-700 text-white rounded-lg text-xs font-bold shadow-xs flex items-center gap-1.5 cursor-pointer"
+                  >
+                    <PackageCheck size={14} /> Record GRN in Stage 3
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => navigate('/purchase/orders')}
+                    className="px-3.5 py-1.5 bg-amber-600 hover:bg-amber-700 text-white rounded-lg text-xs font-bold shadow-xs flex items-center gap-1.5 cursor-pointer"
+                  >
+                    <PackageCheck size={14} /> Go to PO & Record GRN
+                  </button>
+                )}
+                {!isEmbedded && (
+                  <button
+                    type="button"
+                    onClick={handleClearPipelineFilter}
+                    className="px-3 py-1.5 bg-white border border-amber-200 hover:bg-amber-50 text-amber-800 rounded-lg text-xs font-semibold shadow-2xs cursor-pointer"
+                  >
+                    View All Lots
+                  </button>
+                )}
               </div>
             </div>
           ) : activeGrn ? (
@@ -1170,13 +1223,15 @@ export default function LotTakaRegisterPage({
                     <Plus size={14} /> Create & Split Takas from GRN
                   </button>
                 )}
-                <button
-                  type="button"
-                  onClick={handleClearPipelineFilter}
-                  className="px-3 py-1.5 bg-white border border-slate-200 hover:bg-slate-50 text-slate-700 rounded-lg text-xs font-semibold shadow-2xs cursor-pointer flex items-center gap-1"
-                >
-                  <X size={13} /> Clear Filter (View All)
-                </button>
+                {!isEmbedded && (
+                  <button
+                    type="button"
+                    onClick={handleClearPipelineFilter}
+                    className="px-3 py-1.5 bg-white border border-slate-200 hover:bg-slate-50 text-slate-700 rounded-lg text-xs font-semibold shadow-2xs cursor-pointer flex items-center gap-1"
+                  >
+                    <X size={13} /> Clear Filter (View All)
+                  </button>
+                )}
               </div>
             </div>
           ) : (
@@ -1187,13 +1242,15 @@ export default function LotTakaRegisterPage({
                   Filtering lot/taka register for PO #{activePoNumber || activePoId}
                 </span>
               </div>
-              <button
-                type="button"
-                onClick={handleClearPipelineFilter}
-                className="px-3 py-1 bg-white border border-blue-200 hover:bg-blue-50 text-blue-800 rounded-lg text-xs font-semibold shadow-2xs cursor-pointer flex items-center gap-1"
-              >
-                <X size={12} /> Clear Filter
-              </button>
+              {!isEmbedded && (
+                <button
+                  type="button"
+                  onClick={handleClearPipelineFilter}
+                  className="px-3 py-1 bg-white border border-blue-200 hover:bg-blue-50 text-blue-800 rounded-lg text-xs font-semibold shadow-2xs cursor-pointer flex items-center gap-1"
+                >
+                  <X size={12} /> Clear Filter
+                </button>
+              )}
             </div>
           )}
         </div>
@@ -1594,7 +1651,19 @@ export default function LotTakaRegisterPage({
                     {paginatedRecords.length === 0 && (
                       <tr>
                         <td colSpan={16} className="py-12 text-center text-slate-400 font-sans text-xs">
-                          No lot/taka records found matching current filters. Click &quot;+ Add Lot / Taka&quot; to register a new roll.
+                          {isPipelineFilterActive || isEmbedded ? (
+                            <div className="space-y-1">
+                              <p className="font-semibold text-slate-600">
+                                No takas registered for PO #{activePoNumber || activePoId || 'Active Order'} yet.
+                              </p>
+                              <p className="text-[11px] text-slate-500">
+                                Total order quantity: {pipelinePo?.totalQuantity || pipelinePo?.qty || 189} M.
+                                {activeGrn ? ' Click "Create & Split Takas from GRN" above to split this GRN into individual rolls.' : ' Record GRN / Inward in Stage 3 first to generate lots and takas.'}
+                              </p>
+                            </div>
+                          ) : (
+                            'No lot/taka records found matching current filters. Click "+ Add Lot / Taka" to register a new roll.'
+                          )}
                         </td>
                       </tr>
                     )}
@@ -1995,61 +2064,6 @@ export default function LotTakaRegisterPage({
             </div>
           </div>
         )}
-      </div>
-
-      {/* ── 4 BOTTOM FEATURE GUIDANCE CARDS (Image 1) ───────────────────────── */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 pt-2">
-        {/* 1. Filters */}
-        <div className="bg-white p-3.5 rounded-xl border border-slate-200/90 shadow-xs flex items-start gap-3">
-          <div className="w-6 h-6 rounded-full bg-blue-600 text-white font-black text-xs grid place-items-center shrink-0 mt-0.5">
-            1
-          </div>
-          <div>
-            <h4 className="text-xs font-bold text-slate-900">Filters</h4>
-            <p className="text-[11px] text-slate-500 mt-0.5 leading-relaxed">
-              Filter data by date, supplier, quality, design, shade and status. Helps to quickly find specific lot/taka records.
-            </p>
-          </div>
-        </div>
-
-        {/* 2. View Details */}
-        <div className="bg-white p-3.5 rounded-xl border border-slate-200/90 shadow-xs flex items-start gap-3">
-          <div className="w-6 h-6 rounded-full bg-emerald-600 text-white font-black text-xs grid place-items-center shrink-0 mt-0.5">
-            2
-          </div>
-          <div>
-            <h4 className="text-xs font-bold text-slate-900">View Details</h4>
-            <p className="text-[11px] text-slate-500 mt-0.5 leading-relaxed">
-              Click on eye icon to view complete lot/taka details, QC status, current stock, movement history and measurements.
-            </p>
-          </div>
-        </div>
-
-        {/* 3. Edit Lot / Taka */}
-        <div className="bg-white p-3.5 rounded-xl border border-slate-200/90 shadow-xs flex items-start gap-3">
-          <div className="w-6 h-6 rounded-full bg-amber-500 text-white font-black text-xs grid place-items-center shrink-0 mt-0.5">
-            3
-          </div>
-          <div>
-            <h4 className="text-xs font-bold text-slate-900">Edit Lot / Taka</h4>
-            <p className="text-[11px] text-slate-500 mt-0.5 leading-relaxed">
-              Edit descriptive details (weight, width, GSM, remarks, tags). Location, rate, status and quantity change only through documents: transfer, adjustment or QC disposition.
-            </p>
-          </div>
-        </div>
-
-        {/* 4. Print Taka Tag */}
-        <div className="bg-white p-3.5 rounded-xl border border-slate-200/90 shadow-xs flex items-start gap-3">
-          <div className="w-6 h-6 rounded-full bg-purple-600 text-white font-black text-xs grid place-items-center shrink-0 mt-0.5">
-            4
-          </div>
-          <div>
-            <h4 className="text-xs font-bold text-slate-900">Print Taka Tag</h4>
-            <p className="text-[11px] text-slate-500 mt-0.5 leading-relaxed">
-              Click on print icon to generate taka tag with barcode/QR. Used for physical tagging of rolls/taka.
-            </p>
-          </div>
-        </div>
       </div>
 
       {/* ── IMAGE 2: + ADD LOT / TAKA MODAL POPUP (Directly inside page) ───── */}
@@ -2774,18 +2788,40 @@ export default function LotTakaRegisterPage({
 
               {/* Action Toolbar */}
               <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-slate-200">
-                <button
-                  type="button"
-                  onClick={() => {
-                    setIsPrintTagModalOpen(false);
-                    navigate(`/inventory/taka-tags?search=${encodeURIComponent(tagModalRecord.takaId || tagModalRecord.lotNo)}`);
-                  }}
-                  className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-xs font-semibold cursor-pointer"
-                  title="Open in full Taka Tag Print Hub with scanner, batch printing and audit logs"
-                >
-                  <Tag size={13} className="text-purple-600" />
-                  Tag Hub
-                </button>
+                {!isEmbedded ? (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsPrintTagModalOpen(false);
+                      navigate(`/inventory/taka-tags?search=${encodeURIComponent(tagModalRecord.takaId || tagModalRecord.lotNo)}`);
+                    }}
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-xs font-semibold cursor-pointer"
+                    title="Open in full Taka Tag Print Hub with scanner, batch printing and audit logs"
+                  >
+                    <Tag size={13} className="text-purple-600" />
+                    Tag Hub
+                  </button>
+                ) : (
+                  <div className="flex items-center gap-2">
+                    {data?.records && data.records.length > 1 && (
+                      <select
+                        value={tagModalRecord.id}
+                        onChange={(e) => {
+                          const chosen = data.records.find((r) => r.id === e.target.value);
+                          if (chosen) openPrintTagModal(chosen);
+                        }}
+                        className="text-xs font-semibold px-2 py-1 border border-slate-300 rounded-lg bg-white text-slate-700 shadow-2xs"
+                        title="Switch between takas for this order"
+                      >
+                        {data.records.map((r, idx) => (
+                          <option key={r.id} value={r.id}>
+                            Taka #{r.takaRoll || idx + 1} ({r.receivedQty || 0}m)
+                          </option>
+                        ))}
+                      </select>
+                    )}
+                  </div>
+                )}
 
                 <div className="flex items-center gap-2 ml-auto">
                   <a

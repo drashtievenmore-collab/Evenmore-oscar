@@ -20,6 +20,7 @@ import { useNavigate, useSearchParams } from 'react-router-dom';
 import { api } from '../../services/api';
 import { useERP } from '../../context/ERPContext';
 import PageHeader from '../../components/ui/PageHeader';
+import TablePagination from '../../components/ui/TablePagination';
 
 const STATUS_PILLS = {
   'Pending Dispatch': 'bg-amber-50 text-amber-700 border-amber-200',
@@ -52,6 +53,19 @@ export default function SupplierDeliveryPage() {
   const [activePoId, setActivePoId] = useState(poQuery);
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('All');
+
+  const [historyPage, setHistoryPage] = useState(1);
+  const [historyPageSize, setHistoryPageSize] = useState(10);
+  const [allPage, setAllPage] = useState(1);
+  const [allPageSize, setAllPageSize] = useState(10);
+
+  useEffect(() => {
+    setHistoryPage(1);
+  }, [activePoId]);
+
+  useEffect(() => {
+    setAllPage(1);
+  }, [search, statusFilter]);
 
   const [isUpdateModalOpen, setUpdateModalOpen] = useState(false);
   const [selectedDelivery, setSelectedDelivery] = useState(null);
@@ -148,6 +162,28 @@ export default function SupplierDeliveryPage() {
   }, [currentPoDeliveries]);
 
   const pendingDispatch = Math.max(0, totalOrderedQty - totalDispatchedQty);
+
+  const pagedCurrentDeliveries = useMemo(() => {
+    const start = (historyPage - 1) * historyPageSize;
+    return currentPoDeliveries.slice(start, start + historyPageSize);
+  }, [currentPoDeliveries, historyPage, historyPageSize]);
+
+  const allFilteredDeliveries = useMemo(() => {
+    return deliveries.filter((d) => {
+      if (statusFilter !== 'All' && d.status !== statusFilter) return false;
+      if (search) {
+        const q = search.toLowerCase();
+        const hay = `${d.deliveryNumber || ''} ${d.poNumber || ''} ${d.supplierName || ''} ${d.supplierChallanNo || ''}`.toLowerCase();
+        if (!hay.includes(q)) return false;
+      }
+      return true;
+    });
+  }, [deliveries, statusFilter, search]);
+
+  const pagedAllDeliveries = useMemo(() => {
+    const start = (allPage - 1) * allPageSize;
+    return allFilteredDeliveries.slice(start, start + allPageSize);
+  }, [allFilteredDeliveries, allPage, allPageSize]);
 
   const handleClearForm = () => {
     setDispatchForm(initialDispatchState);
@@ -658,7 +694,7 @@ export default function SupplierDeliveryPage() {
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100">
-                    {currentPoDeliveries.map((d) => (
+                    {pagedCurrentDeliveries.map((d) => (
                       <tr key={d.id} className="hover:bg-slate-50/70">
                         <td className="py-3 px-3 font-mono font-bold text-blue-700">
                           {d.deliveryNumber}
@@ -723,6 +759,13 @@ export default function SupplierDeliveryPage() {
                     ))}
                   </tbody>
                 </table>
+                <TablePagination
+                  page={historyPage}
+                  pageSize={historyPageSize}
+                  totalItems={currentPoDeliveries.length}
+                  onPageChange={setHistoryPage}
+                  onPageSizeChange={(sz) => { setHistoryPageSize(sz); setHistoryPage(1); }}
+                />
               </div>
             )}
           </div>
@@ -759,7 +802,7 @@ export default function SupplierDeliveryPage() {
           <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden shadow-2xs">
             <div className="p-4 border-b border-slate-100 flex items-center justify-between">
               <h3 className="text-xs font-bold text-slate-800 uppercase tracking-wider">
-                All Supplier Deliveries ({deliveries.length})
+                All Supplier Deliveries ({allFilteredDeliveries.length})
               </h3>
             </div>
 
@@ -768,7 +811,7 @@ export default function SupplierDeliveryPage() {
                 <RefreshCw size={24} className="animate-spin mx-auto mb-2 text-blue-500" />
                 <p className="text-xs font-semibold">Loading supplier deliveries...</p>
               </div>
-            ) : deliveries.length === 0 ? (
+            ) : allFilteredDeliveries.length === 0 ? (
               <div className="p-12 text-center">
                 <Truck size={36} className="mx-auto mb-3 text-slate-300" />
                 <p className="text-sm font-bold text-slate-700">No supplier deliveries found</p>
@@ -792,70 +835,67 @@ export default function SupplierDeliveryPage() {
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100">
-                    {deliveries
-                      .filter((d) => {
-                        if (statusFilter !== 'All' && d.status !== statusFilter) return false;
-                        if (search) {
-                          const q = search.toLowerCase();
-                          const hay = `${d.deliveryNumber || ''} ${d.poNumber || ''} ${d.supplierName || ''} ${d.supplierChallanNo || ''}`.toLowerCase();
-                          if (!hay.includes(q)) return false;
-                        }
-                        return true;
-                      })
-                      .map((d) => (
-                        <tr key={d.id} className="hover:bg-slate-50/80">
-                          <td className="py-3 px-4 font-mono font-bold text-blue-700">{d.deliveryNumber}</td>
-                          <td className="py-3 px-4">
+                    {pagedAllDeliveries.map((d) => (
+                      <tr key={d.id} className="hover:bg-slate-50/80">
+                        <td className="py-3 px-4 font-mono font-bold text-blue-700">{d.deliveryNumber}</td>
+                        <td className="py-3 px-4">
+                          <button
+                            type="button"
+                            onClick={() => setActivePoId(String(d.purchaseOrderId || d.purchaseOrder))}
+                            className="font-mono font-bold text-blue-600 hover:underline bg-blue-50 px-2 py-0.5 rounded border border-blue-200"
+                          >
+                            {d.poNumber || 'PO'}
+                          </button>
+                        </td>
+                        <td className="py-3 px-4">
+                          <p className="font-bold text-slate-900">{d.supplierName || '—'}</p>
+                          <p className="text-[11px] text-slate-500">{d.fabricName || 'Grey Fabric'}</p>
+                        </td>
+                        <td className="py-3 px-4 text-right font-mono font-bold text-slate-900">
+                          {Number(d.dispatchedQty || 0).toLocaleString('en-IN')} M
+                        </td>
+                        <td className="py-3 px-4">
+                          <p className="font-medium text-slate-800">Disp: {d.dispatchDate || '—'}</p>
+                          <p className="text-[11px] text-slate-500">Exp: {d.expectedDeliveryDate || '—'}</p>
+                        </td>
+                        <td className="py-3 px-4">
+                          <p className="font-semibold text-slate-800">{d.supplierChallanNo || '—'}</p>
+                          <p className="text-[10px] text-slate-500">{d.transporterName || '—'}</p>
+                        </td>
+                        <td className="py-3 px-4">
+                          <span className={`inline-block px-2.5 py-1 rounded-full text-[10px] font-extrabold border ${STATUS_PILLS[d.status] || STATUS_PILLS.Dispatched}`}>
+                            {d.status}
+                          </span>
+                        </td>
+                        <td className="py-3 px-4 text-center">
+                          <div className="flex items-center justify-center gap-1.5">
                             <button
                               type="button"
-                              onClick={() => setActivePoId(String(d.purchaseOrderId || d.purchaseOrder))}
-                              className="font-mono font-bold text-blue-600 hover:underline bg-blue-50 px-2 py-0.5 rounded border border-blue-200"
+                              onClick={() => openUpdateModal(d)}
+                              className="px-2 py-1 text-xs font-semibold rounded-lg border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 shadow-2xs"
                             >
-                              {d.poNumber || 'PO'}
+                              Update
                             </button>
-                          </td>
-                          <td className="py-3 px-4">
-                            <p className="font-bold text-slate-900">{d.supplierName || '—'}</p>
-                            <p className="text-[11px] text-slate-500">{d.fabricName || 'Grey Fabric'}</p>
-                          </td>
-                          <td className="py-3 px-4 text-right font-mono font-bold text-slate-900">
-                            {Number(d.dispatchedQty || 0).toLocaleString('en-IN')} M
-                          </td>
-                          <td className="py-3 px-4">
-                            <p className="font-medium text-slate-800">Disp: {d.dispatchDate || '—'}</p>
-                            <p className="text-[11px] text-slate-500">Exp: {d.expectedDeliveryDate || '—'}</p>
-                          </td>
-                          <td className="py-3 px-4">
-                            <p className="font-semibold text-slate-800">{d.supplierChallanNo || '—'}</p>
-                            <p className="text-[10px] text-slate-500">{d.transporterName || '—'}</p>
-                          </td>
-                          <td className="py-3 px-4">
-                            <span className={`inline-block px-2.5 py-1 rounded-full text-[10px] font-extrabold border ${STATUS_PILLS[d.status] || STATUS_PILLS.Dispatched}`}>
-                              {d.status}
-                            </span>
-                          </td>
-                          <td className="py-3 px-4 text-center">
-                            <div className="flex items-center justify-center gap-1.5">
-                              <button
-                                type="button"
-                                onClick={() => openUpdateModal(d)}
-                                className="px-2 py-1 text-xs font-semibold rounded-lg border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 shadow-2xs"
-                              >
-                                Update
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => handleCreateGrn(d)}
-                                className="px-2 py-1 text-xs font-bold rounded-lg bg-sky-600 hover:bg-sky-700 text-white shadow-2xs flex items-center gap-1"
-                              >
-                                <Boxes size={12} /> Receive GRN
-                              </button>
-                            </div>
-                          </td>
-                        </tr>
-                      ))}
+                            <button
+                              type="button"
+                              onClick={() => handleCreateGrn(d)}
+                              className="px-2 py-1 text-xs font-bold rounded-lg bg-sky-600 hover:bg-sky-700 text-white shadow-2xs flex items-center gap-1"
+                            >
+                              <Boxes size={12} /> Receive GRN
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
                   </tbody>
                 </table>
+                <TablePagination
+                  page={allPage}
+                  pageSize={allPageSize}
+                  totalItems={allFilteredDeliveries.length}
+                  onPageChange={setAllPage}
+                  onPageSizeChange={(sz) => { setAllPageSize(sz); setAllPage(1); }}
+                />
               </div>
             )}
           </div>

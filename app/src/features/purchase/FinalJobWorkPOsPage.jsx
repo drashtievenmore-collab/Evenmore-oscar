@@ -5,6 +5,7 @@ import {
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import PageHeader from '../../components/ui/PageHeader';
+import TablePagination from '../../components/ui/TablePagination';
 import { useERP } from '../../context/ERPContext';
 import { api } from '../../services/api';
 import GenerateFinalJobWorkPOModal from './GenerateFinalJobWorkPOModal';
@@ -66,6 +67,8 @@ export default function FinalJobWorkPOsPage() {
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('All');
   const [vendorFilter, setVendorFilter] = useState('All');
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(10);
 
   const loadJobWorkOrders = () => {
     setLoading(true);
@@ -113,6 +116,15 @@ export default function FinalJobWorkPOsPage() {
       return matchSearch && matchStatus && matchVendor;
     });
   }, [orders, search, statusFilter, vendorFilter]);
+
+  useEffect(() => {
+    setPage(1);
+  }, [search, statusFilter, vendorFilter]);
+
+  const paginatedOrders = useMemo(() => {
+    const start = (page - 1) * pageSize;
+    return filteredOrders.slice(start, start + pageSize);
+  }, [filteredOrders, page, pageSize]);
 
   // KPI Computations
   const totalCount = orders.length;
@@ -256,7 +268,7 @@ export default function FinalJobWorkPOsPage() {
                   </td>
                 </tr>
               )}
-              {!loading && filteredOrders.map((po) => {
+              {!loading && paginatedOrders.map((po) => {
                 const vendorName = po.party_name || po.party?.name || '—';
                 const totalQty = (po.line_items || []).reduce((s, l) => s + (Number(l.qty) || 0), 0);
                 const pillClass = STATUS_PILL[po.status] || 'bg-slate-50 text-slate-600 border-slate-200';
@@ -321,6 +333,13 @@ export default function FinalJobWorkPOsPage() {
               )}
             </tbody>
           </table>
+          <TablePagination
+            page={page}
+            pageSize={pageSize}
+            totalItems={filteredOrders.length}
+            onPageChange={setPage}
+            onPageSizeChange={(sz) => { setPageSize(sz); setPage(1); }}
+          />
         </div>
       </div>
 

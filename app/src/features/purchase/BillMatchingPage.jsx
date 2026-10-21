@@ -5,6 +5,7 @@ import { isBackendEnabled } from '../../services/backendSync';
 import { StatusBadge } from '../../components/ui/StatusBadge';
 import { Button } from '../../components/ui/Button';
 import { PageHeader } from '../../components/common/PageHeader';
+import TablePagination from '../../components/ui/TablePagination';
 import { RefreshCw, Check, X, AlertTriangle, Users, FileText, IndianRupee } from 'lucide-react';
 
 const billMatchingGuide = {
@@ -120,6 +121,18 @@ export const BillMatchingPage = () => {
       return hay.includes(term);
     });
   }, [vendorBills, search, statusFilter]);
+
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(10);
+
+  useEffect(() => {
+    setPage(1);
+  }, [search, statusFilter]);
+
+  const pagedFiltered = useMemo(() => {
+    const start = (page - 1) * pageSize;
+    return filtered.slice(start, start + pageSize);
+  }, [filtered, page, pageSize]);
 
   useEffect(() => {
     if (!selectedId && filtered.length > 0) {
@@ -304,7 +317,7 @@ export const BillMatchingPage = () => {
           <div className="overflow-y-auto flex-1 divide-y divide-slate-100">
             {filtered.length === 0 ? (
               <div className="p-6 text-center text-slate-500 text-xs">No vendor bills found.</div>
-            ) : filtered.map((b) => (
+            ) : pagedFiltered.map((b) => (
               <button
                 key={b.id}
                 onClick={() => { setSelectedId(b.id); setSearchParams({ bill: b.id }); }}
@@ -318,6 +331,15 @@ export const BillMatchingPage = () => {
                 </div>
               </button>
             ))}
+          </div>
+          <div className="border-t border-slate-100">
+            <TablePagination
+              page={page}
+              pageSize={pageSize}
+              totalItems={filtered.length}
+              onPageChange={setPage}
+              onPageSizeChange={(sz) => { setPageSize(sz); setPage(1); }}
+            />
           </div>
         </div>
 

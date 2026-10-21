@@ -877,7 +877,15 @@ export const RESOURCES = {
       openingBalance: b.openingBalance !== undefined ? num(b.openingBalance) : undefined,
       isActive: b.isActive ?? undefined,
     }),
-    fromApi: (row) => ({ ...row, _synced: true }),
+    fromApi: (row) => ({
+      ...row,
+      bankName: row.bank_name || row.bankName || row.name,
+      accountNumber: row.account_number || row.accountNumber,
+      openingBalance: row.opening_balance ?? row.openingBalance,
+      isActive: row.is_active ?? row.isActive,
+      isDefault: row.is_default ?? row.isDefault,
+      _synced: true,
+    }),
   },
 
   bankTransfers: {

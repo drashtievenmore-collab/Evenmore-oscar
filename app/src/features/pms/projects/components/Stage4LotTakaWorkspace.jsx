@@ -73,27 +73,6 @@ export function Stage4LotTakaWorkspace({
   const activePo = purchaseOrders[0] || null;
   const activeGrn = receipts[0] || null;
 
-  const handleOpenFullscreenRegister = () => {
-    const params = new URLSearchParams();
-    if (activePo?.id) params.set('po', activePo.id);
-    if (activePo?.poNumber) params.set('poNumber', activePo.poNumber);
-    if (activeGrn?.id) params.set('grn', activeGrn.id);
-    const grnNo = activeGrn?.grn_number || activeGrn?.grnNumber;
-    if (grnNo) params.set('grnNumber', grnNo);
-
-    navigate(`/inventory/lot-register?${params.toString()}`, {
-      state: {
-        po: activePo,
-        poId: activePo?.id,
-        poNumber: activePo?.poNumber,
-        grn: activeGrn,
-        grnId: activeGrn?.id,
-        grnNumber: grnNo,
-        source: 'pipeline',
-      },
-    });
-  };
-
   return (
     <div className="space-y-4">
       {/* Stage 4 Navigation & Context Header */}
@@ -102,7 +81,7 @@ export function Stage4LotTakaWorkspace({
           <div>
             <div className="flex items-center gap-2">
               <span className="px-2 py-0.5 rounded-md text-[11px] font-black bg-blue-100 text-blue-700 uppercase tracking-wider">
-                Stage 4
+                Stage 5
               </span>
               <h2 className="text-base font-extrabold text-[#17294e]">Lot & Taka Creation (Traceability)</h2>
             </div>
@@ -112,13 +91,9 @@ export function Stage4LotTakaWorkspace({
           </div>
 
           <div className="flex items-center gap-2">
-            <button
-              type="button"
-              onClick={handleOpenFullscreenRegister}
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-indigo-200 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 text-xs font-bold shadow-2xs cursor-pointer"
-            >
-              <ExternalLink size={13} /> Open Fullscreen Register
-            </button>
+            <span className="text-xs font-semibold px-2.5 py-1 rounded-md bg-slate-100 text-slate-700 border border-slate-200">
+              Order: {activePo?.poNumber || 'PO Loading...'} ({activePo?.totalQuantity || activePo?.qty || 189} M)
+            </span>
           </div>
         </div>
 
@@ -126,29 +101,31 @@ export function Stage4LotTakaWorkspace({
         <div className="flex items-center justify-between text-xs pt-1">
           <button
             type="button"
-            onClick={() => onSelectStage && onSelectStage(3)}
+            onClick={() => onSelectStage && onSelectStage(4)}
             className="inline-flex items-center gap-1.5 text-xs font-semibold text-slate-600 hover:text-slate-900 cursor-pointer"
           >
-            <ArrowLeft size={13} /> Back to Stage 3: GRN / Inward
+            <ArrowLeft size={13} /> Back to Stage 4: GRN / Inward
           </button>
 
           <button
             type="button"
-            onClick={() => onSelectStage && onSelectStage(5)}
+            onClick={() => onSelectStage && onSelectStage(6)}
             className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold shadow-xs cursor-pointer"
           >
-            Proceed to Stage 5: Grey Fabric QC <ArrowRight size={13} />
+            Proceed to Stage 6: Grey Fabric QC <ArrowRight size={13} />
           </button>
         </div>
       </div>
 
       {/* Embedded Live OSCAR Lot / Taka Register with PO & GRN Context */}
       <LotTakaRegisterPage
+        key={activePo?.id || 'lot-reg-loading'}
         initialPo={activePo}
         initialGrn={activeGrn}
         poId={activePo?.id}
         grnId={activeGrn?.id}
         isEmbedded={true}
+        onSelectStage={onSelectStage}
       />
     </div>
   );

@@ -16,6 +16,7 @@ import {
 import { api } from '../../../../services/api';
 import { getProjectPurchaseOrders, getGreyStockAllocation, saveGreyStockAllocation } from '../../../../services/pmsSync';
 import { usePmsStore } from '../../../../stores/pmsStore';
+import TablePagination from '../../../../components/ui/TablePagination';
 import { useNavigate } from 'react-router-dom';
 
 export function Stage6GreyStockUpdatedWorkspace({
@@ -44,6 +45,8 @@ export function Stage6GreyStockUpdatedWorkspace({
   const [isAllocateModalOpen, setIsAllocateModalOpen] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [allocateQty, setAllocateQty] = useState('');
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(10);
 
   const loadData = async () => {
     if (!projectId) return;
@@ -98,6 +101,11 @@ export function Stage6GreyStockUpdatedWorkspace({
     return lots.reduce((sum, l) => sum + (Number(l.allocateQty || l.allocated || 0)), 0);
   }, [lots]);
 
+  const pagedLots = useMemo(() => {
+    const start = (page - 1) * pageSize;
+    return lots.slice(start, start + pageSize);
+  }, [lots, page, pageSize]);
+
   const projectRequirement = Number(project?.requirementMeters || project?.quantity || 3000);
 
   const handleAllocate = async (e) => {
@@ -137,7 +145,7 @@ export function Stage6GreyStockUpdatedWorkspace({
         <div>
           <div className="flex items-center gap-2">
             <span className="px-2 py-0.5 rounded-md text-[11px] font-black bg-blue-100 text-blue-700 uppercase tracking-wider">
-              Stage 6
+              Stage 7
             </span>
             <h2 className="text-base font-extrabold text-[#17294e]">Grey Stock Updated (Warehouse Inventory)</h2>
           </div>
@@ -219,7 +227,7 @@ export function Stage6GreyStockUpdatedWorkspace({
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
-                {lots.map((l, idx) => (
+                {pagedLots.map((l, idx) => (
                   <tr key={l.id || idx} className="hover:bg-slate-50/60">
                     <td className="py-2.5 px-3 font-mono font-bold text-blue-700">{l.lotNo || l.lot_number || `LOT-2026-${idx + 1}`}</td>
                     <td className="py-2.5 px-3 font-semibold text-slate-800">{l.fabric || 'Cotton Grey 60s'}</td>
@@ -239,6 +247,13 @@ export function Stage6GreyStockUpdatedWorkspace({
                 ))}
               </tbody>
             </table>
+            <TablePagination
+              page={page}
+              pageSize={pageSize}
+              totalItems={lots.length}
+              onPageChange={setPage}
+              onPageSizeChange={(sz) => { setPageSize(sz); setPage(1); }}
+            />
           </div>
         )}
       </div>
@@ -246,18 +261,18 @@ export function Stage6GreyStockUpdatedWorkspace({
       <div className="flex items-center justify-between pt-4 border-t border-slate-100">
         <button
           type="button"
-          onClick={() => onSelectStage && onSelectStage(5)}
+          onClick={() => onSelectStage && onSelectStage(6)}
           className="inline-flex items-center gap-1.5 text-xs font-semibold text-slate-600 hover:text-slate-900"
         >
-          <ArrowLeft size={13} /> Back to Grey Fabric QC
+          <ArrowLeft size={13} /> Back to Stage 6: Grey Fabric QC
         </button>
 
         <button
           type="button"
-          onClick={() => onSelectStage && onSelectStage(7)}
+          onClick={() => onSelectStage && onSelectStage(8)}
           className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold shadow-xs cursor-pointer"
         >
-          Proceed to Stage 7: Supplier Bill Matching <ArrowRight size={13} />
+          Proceed to Stage 8: Vendor Bill <ArrowRight size={13} />
         </button>
       </div>
 
