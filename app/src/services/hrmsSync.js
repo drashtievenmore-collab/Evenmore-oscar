@@ -139,7 +139,37 @@ export const HRMS_RESOURCES = {
 
   departments: plain('/hrms/departments/'),
   designations: plain('/hrms/designations/'),
-  locations: plain('/hrms/locations/'),
+  // The server keeps `address` as a JSON object ({line1, city, state, ...});
+  // the screens show and edit it as one line of text. Office type has no
+  // column, so it rides inside the address object.
+  locations: plain('/hrms/locations/', {
+    toApi: (loc) => {
+      const detail = loc.addressDetail && typeof loc.addressDetail === 'object' ? loc.addressDetail : {};
+      const address = typeof loc.address === 'object' && loc.address !== null
+        ? { ...detail, ...loc.address }
+        : { ...detail, line1: loc.address || undefined };
+      if (loc.type) address.type = loc.type;
+      return compact({ name: loc.name, timezone: loc.timezone || undefined, address });
+    },
+    fromApi: (row) => {
+      const detail = row.address && typeof row.address === 'object' ? row.address : {};
+      const text = typeof row.address === 'string'
+        ? row.address
+        : ['line1', 'line2', 'city', 'state', 'pincode', 'country']
+          .map((k) => detail[k])
+          .filter(Boolean)
+          .join(', ');
+      return {
+        ...row,
+        address: text,
+        addressDetail: detail,
+        type: detail.type || 'Branch',
+        timezone: row.timezone || '',
+        count: num(row.employeeCount),
+        _synced: true,
+      };
+    },
+  }),
   teams: plain('/hrms/teams/'),
   holidays: {
     ...dated('/hrms/holidays/', ['date']),

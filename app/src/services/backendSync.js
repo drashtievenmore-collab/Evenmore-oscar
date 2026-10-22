@@ -139,7 +139,10 @@ function documentToApi(doc, { partyField = 'partyId', partyKeys = [] } = {}, { p
     vendorBillNumber: doc.vendorBillNumber || undefined,
     crmDeal: link(doc.dealId),
     crmLead: link(doc.leadId),
-    salesperson: doc.salesperson || undefined,
+    // The quotation composer keeps `salesPerson`; the server resolves either
+    // the HRMS employee id or the name to `salesperson_fk` (incentive basis).
+    salesperson: doc.salesperson || doc.salesPerson || undefined,
+    salespersonId: link(doc.salespersonId),
     broker: doc.broker || undefined,
     paymentTerms: doc.paymentTerms || undefined,
     creditDays: doc.creditDays !== undefined ? num(doc.creditDays) : undefined,
@@ -171,6 +174,8 @@ function documentFromApi(row, { numberField, partyLabel = 'customer' } = {}) {
     date: displayIn(row.date),
     dueDate: row.dueDate || undefined,
     salesperson: row.salesperson || '',
+    salesPerson: row.salesperson || '',
+    salespersonId: row.salespersonId || '',
     broker: row.broker || '',
     paymentTerms: row.paymentTerms || '',
     creditDays: row.creditDays !== undefined ? num(row.creditDays) : 0,
