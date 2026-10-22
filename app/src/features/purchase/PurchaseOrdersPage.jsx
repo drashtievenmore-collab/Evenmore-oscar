@@ -8,6 +8,7 @@ import {
   Clock, CheckCircle2, Package, Maximize2, Minimize2, Trash2, Ban, MapPin,
   ShoppingCart, FileText, Search, Filter, MoreVertical, ChevronDown, FileSpreadsheet,
   Truck, Factory, Info, PackageCheck, Layers, ShieldCheck, Warehouse, FileCheck2, CreditCard, Receipt,
+  Building2, Calendar, Sparkles,
 } from 'lucide-react';
 import { useNavigate, useLocation, useSearchParams } from 'react-router-dom';
 import { toISODate } from '../../utils/dateUtils';
@@ -19,6 +20,7 @@ import { GreyQcInlineSlide } from './GreyQcInlineSlide';
 import { GreyStockUpdatedInlineSlide } from './GreyStockUpdatedInlineSlide';
 import { VendorBillInlineSlide } from './VendorBillInlineSlide';
 import { SupplierBillMatchingInlineSlide } from './SupplierBillMatchingInlineSlide';
+import { AgencyBillMatchingInlineSlide } from './AgencyBillMatchingInlineSlide';
 import { SupplierPaymentInlineSlide } from './SupplierPaymentInlineSlide';
 import { PoProductionInstructionSection } from './PoProductionInstructionSection';
 import { PoDailyProductionEntrySection } from './PoDailyProductionEntrySection';
@@ -29,6 +31,7 @@ import { RelatedDocumentsCard } from '../../components/common/RelatedDocumentsCa
 import { PrintPurchaseOrderModal } from '../../components/common/PrintPurchaseOrderModal';
 import PageHeader from '../../components/ui/PageHeader';
 import { api } from '../../services/api';
+import { fabricMasterSync } from '../../services/fabricMasterSync';
 import UomSelect from '../../components/common/UomSelect';
 import useUnits from '../../hooks/useUnits';
 import { formatQty, formatUnitTotals, sumByUnit, unitKey, resolveUnit } from '../../utils/uom';
@@ -161,6 +164,35 @@ export const PurchaseOrdersPage = () => {
     const finalJobWorkPoRef = React.useRef(null);
     const [showVerificationInline, setShowVerificationInline] = useState(false);
     const [selectedDeliveryForGrn, setSelectedDeliveryForGrn] = useState(null);
+    const [fabricVariantsList, setFabricVariantsList] = useState([]);
+    const [fabricLoading, setFabricLoading] = useState(false);
+    const [fabricLoadError, setFabricLoadError] = useState('');
+    // refreshCollections is re-created on every ERP state change; reading it via a
+    // ref keeps loadFabrics stable so opening the form doesn't re-trigger it forever.
+    const refreshCollectionsRef = React.useRef(refreshCollections);
+    refreshCollectionsRef.current = refreshCollections;
+    const loadFabrics = React.useCallback(async () => {
+        setFabricLoading(true);
+        setFabricLoadError('');
+        try {
+            if (typeof refreshCollectionsRef.current === 'function') {
+                refreshCollectionsRef.current(['items']);
+            }
+            const variants = await fabricMasterSync.pull('fabricVariants');
+            if (Array.isArray(variants)) {
+                setFabricVariantsList(variants);
+            }
+        } catch (err) {
+            setFabricLoadError('Could not refresh fabric master items.');
+        } finally {
+            setFabricLoading(false);
+        }
+    }, []);
+    useEffect(() => {
+        if (showAddModal) {
+            loadFabrics();
+        }
+    }, [showAddModal, loadFabrics]);
     const [poLifecycleData, setPoLifecycleData] = useState({
         deliveries: [],
         grns: [],
@@ -361,7 +393,10 @@ export const PurchaseOrdersPage = () => {
                     next.name = sel.name;
                     next.sku = sel.sku;
                     next.itemSku = sel.sku;
-                    next.rate = Number(sel.costPrice) || '';
+                    next.rate = Number(sel.costPrice) || Number(sel.rate) || '';
+                    next.fabricQualityId = sel.fabricQualityId || undefined;
+                    next.designId = sel.designId || undefined;
+                    next.shadeId = sel.shadeId || undefined;
                     // Default to the item's stock unit (fabric quality's UOM for
                     // master-derived fabrics); compatible units can be picked after.
                     next.stockUom = sel.uom || 'Mtr';
@@ -405,6 +440,10 @@ export const PurchaseOrdersPage = () => {
         if (!vend) { alert('Vendor is required.'); return; }
         const normalizedLines = validLines.map((it) => ({
             ...it,
+            itemId: it.itemId,
+            fabricQualityId: it.fabricQualityId || undefined,
+            designId: it.designId || undefined,
+            shadeId: it.shadeId || undefined,
             qty: Number(it.qty),
             rate: Number(it.rate),
             amount: Number(it.qty) * Number(it.rate),
@@ -543,25 +582,14 @@ export const PurchaseOrdersPage = () => {
                     status: hasFinalPo ? 'completed' : (isPiVerified ? 'current' : 'pending'),
                 },
                 {
-                    label: 'Vendor Bill',
-                    key: 'vendor_bill',
-                    docNumber: latestBill?.billNumber || latestBill?.vendorBillNumber || (isBilled ? 'Bill Recorded' : undefined),
+                    label: 'Agency Bill Match',
+                    key: 'agency_bill_match',
+                    docNumber: latestBill?.billNumber || latestBill?.vendorBillNumber || (isBilled ? 'Invoice Recorded' : undefined),
                     amount: latestBill?.total || latestBill?.amount,
                     date: formatDateDDMMYYYY(latestBill?.date || latestBill?.billDate),
-                    status: (isBilled || isPaid || isMatchApproved)
-                        ? 'completed'
-                        : (hasFinalPo || activeTimelineSlide === 'vendor_bill')
-                        ? 'current'
-                        : 'pending',
-                },
-                {
-                    label: 'Supplier Bill Matching',
-                    key: 'supplier_bill_matching',
-                    docNumber: isMatchApproved ? 'Verified 3-Way' : (isBilled ? 'Pending Match' : undefined),
-                    amount: latestBill?.total || latestBill?.amount,
                     status: (isMatchApproved || isPaid)
                         ? 'completed'
-                        : (isBilled || activeTimelineSlide === 'supplier_bill_matching')
+                        : (hasFinalPo || isBilled || activeTimelineSlide === 'agency_bill_match' || activeTimelineSlide === 'supplier_bill_matching')
                         ? 'current'
                         : 'pending',
                 },
@@ -725,15 +753,22 @@ export const PurchaseOrdersPage = () => {
     const getPoRelatedDocs = (po) => {
         const docs = [];
         const poStatusInfo = getPoBilledStatus(po.id);
-        (poStatusInfo.activeBills || []).forEach((linkedBill) => {
+        const lifecycleBills = poLifecycleData?.bills || [];
+        const allBills = [...(poStatusInfo.activeBills || [])];
+        lifecycleBills.forEach((lb) => {
+            if (!allBills.some((b) => b.id === lb.id || (b.billNumber && (b.billNumber === lb.billNumber || b.billNumber === lb.bill_number)))) {
+                allBills.push(lb);
+            }
+        });
+        allBills.forEach((linkedBill) => {
             docs.push({
                 type: 'Purchase Bill',
-                number: linkedBill.billNumber,
+                number: linkedBill.billNumber || linkedBill.bill_number,
                 amount: linkedBill.total || linkedBill.amount,
-                date: formatDateDDMMYYYY(linkedBill.date || linkedBill.billDate),
-                status: linkedBill.status,
+                date: formatDateDDMMYYYY(linkedBill.date || linkedBill.billDate || linkedBill.doc_date),
+                status: linkedBill.status || 'Active',
             });
-            const relatedPayments = paymentOuts.filter((p) => p.billId === linkedBill.id || p.billNumber === linkedBill.billNumber);
+            const relatedPayments = paymentOuts.filter((p) => p.billId === linkedBill.id || p.billNumber === (linkedBill.billNumber || linkedBill.bill_number));
             relatedPayments.forEach((p) => {
                 docs.push({
                     type: 'Payment',
@@ -752,26 +787,68 @@ export const PurchaseOrdersPage = () => {
     // even if one source is empty. Backend seeds both permanently.
     const fabricItems = useMemo(
       () => {
-        const fromItems = (inventoryItems || []).filter((i) => i.itemKind === 'Fabric');
-        const merged = [...fromItems];
-        const seen = new Set(fromItems.map((i) => (i.fabricQuality || i.name || '').toLowerCase()));
-        (Array.isArray(fabricMasters) ? fabricMasters : []).forEach((f) => {
-          const key = (f.name || '').toLowerCase();
-          if (!key || seen.has(key)) return;
-          seen.add(key);
-          merged.push({
-            id: f.id,
-            sku: f.code || `FAB-${key.toUpperCase()}`,
-            name: `${f.name} Grey Fabric`,
-            fabricQuality: f.name,
-            itemKind: 'Fabric',
-            uom: f.uom || 'Mtr',
-            _fromMaster: true,
+        const list = [];
+        const seenIds = new Set();
+        const seenNames = new Set();
+
+        // 1. From active FabricVariants (the Fabric Item / Variant Master)
+        (fabricVariantsList || []).filter((v) => v.isActive !== false).forEach((v) => {
+          const matchedItem = (inventoryItems || []).find((i) => i.id === v.itemId || (v.code && i.sku && i.sku.toUpperCase() === v.code.toUpperCase()));
+          // A deleted (archived) fabric item must not be offered for new POs.
+          if (matchedItem?.lifecycleStatus === 'Archived') return;
+          const id = matchedItem?.id || v.itemId || v.id;
+          if (seenIds.has(id)) return;
+          seenIds.add(id);
+          const name = v.name || matchedItem?.name || v.code;
+          seenNames.add(name.toLowerCase());
+          list.push({
+            id,
+            itemId: id,
+            variantId: v.id,
+            fabricQualityId: v.qualityId || matchedItem?.fabricQualityId,
+            designId: v.designId || matchedItem?.designId,
+            shadeId: v.shadeId || matchedItem?.shadeId,
+            sku: v.code || matchedItem?.sku || '',
+            name,
+            fabricQuality: v.qualityName || matchedItem?.fabricQuality || '',
+            fabricType: v.fabricTypeName || v.fabricType || '',
+            uom: v.uom || matchedItem?.uom || 'Mtr',
+            stockUom: v.uom || matchedItem?.uom || 'Mtr',
+            costPrice: v.rate || matchedItem?.costPrice || matchedItem?.sellingPrice || '',
+            rate: v.rate || matchedItem?.costPrice || matchedItem?.sellingPrice || '',
+            fabricGsm: v.gsm || matchedItem?.fabricGsm || '',
+            fabricWidth: v.width || matchedItem?.fabricWidth || '',
+            isActive: v.isActive !== false,
           });
         });
-        return merged;
+
+        // 2. From active inventoryItems with itemKind === 'Fabric'
+        (inventoryItems || []).filter((i) => i.itemKind === 'Fabric' && i.lifecycleStatus !== 'Inactive' && i.lifecycleStatus !== 'Archived' && i.isActive !== false).forEach((i) => {
+          if (seenIds.has(i.id)) return;
+          const nameKey = (i.name || '').toLowerCase();
+          if (seenNames.has(nameKey)) return;
+          seenIds.add(i.id);
+          seenNames.add(nameKey);
+          list.push({
+            id: i.id,
+            itemId: i.id,
+            sku: i.sku || '',
+            name: i.name,
+            fabricQuality: i.fabricQuality || '',
+            fabricType: i.fabricType || '',
+            uom: i.uom || 'Mtr',
+            stockUom: i.uom || 'Mtr',
+            costPrice: i.costPrice || i.sellingPrice || '',
+            rate: i.costPrice || i.sellingPrice || '',
+            fabricGsm: i.fabricGsm || '',
+            fabricWidth: i.fabricWidth || '',
+            isActive: true,
+          });
+        });
+
+        return list;
       },
-      [inventoryItems, fabricMasters],
+      [inventoryItems, fabricVariantsList],
     );
 
     const getPoLines = (po) => po.items || po.lineItems || [];
@@ -1327,11 +1404,21 @@ export const PurchaseOrdersPage = () => {
                         <tr key={it.id}>
                           <td className="px-3 py-2 text-center text-slate-400 font-mono">{idx + 1}</td>
                           <td className="px-3 py-2">
-                            <select value={it.itemId || ''} onChange={(e) => updateLineItem(idx, 'itemId', e.target.value)} className="w-full border border-slate-300 rounded-lg p-1.5 bg-white text-slate-800 font-medium">
-                              <option value="">Select fabric...</option>
-                              {fabricItems.map((f) => (
-                                <option key={f.id} value={f.id}>{f.name}{f.fabricQuality ? ` — ${f.fabricQuality}` : ''}{f.fabricGsm ? ` ${f.fabricGsm} GSM` : ''}</option>
-                              ))}
+                            <select value={it.itemId || ''} onChange={(e) => updateLineItem(idx, 'itemId', e.target.value)} className="w-full border border-slate-300 rounded-lg p-1.5 bg-white text-slate-800 font-medium" disabled={fabricLoading}>
+                              <option value="">{fabricLoading ? 'Loading fabric items...' : 'Select fabric...'}</option>
+                              {fabricItems.map((f) => {
+                                const qualPart = f.fabricQuality && !f.name.toLowerCase().includes(f.fabricQuality.toLowerCase())
+                                  ? ` — ${f.fabricQuality}`
+                                  : '';
+                                const gsmPart = f.fabricGsm ? ` • ${f.fabricGsm} GSM` : '';
+                                const uomPart = f.uom ? ` [${f.uom}]` : '';
+                                const skuPart = f.sku ? ` (${f.sku})` : '';
+                                return (
+                                  <option key={f.id} value={f.id}>
+                                    {f.name}{skuPart}{qualPart}{gsmPart}{uomPart}
+                                  </option>
+                                );
+                              })}
                             </select>
                           </td>
                           <td className="px-3 py-2"><input type="number" min="0" step="any" value={it.qty} onChange={(e) => updateLineItem(idx, 'qty', e.target.value)} placeholder="40000" className="w-full border border-slate-300 rounded-lg p-1.5 text-center font-mono"/></td>
@@ -1398,472 +1485,504 @@ export const PurchaseOrdersPage = () => {
               ? 'w-full h-full rounded-none p-4 sm:p-8'
               : 'rounded-2xl max-w-6xl xl:max-w-7xl 2xl:max-w-[1440px] w-full p-4 sm:p-6 max-h-[96vh] sm:max-h-[93vh]'
           }`}>
-            <div className="flex flex-wrap lg:flex-nowrap items-center justify-between gap-2 lg:gap-0 pb-3 border-b border-slate-200">
-              <div className="flex flex-wrap lg:flex-nowrap items-center gap-2 sm:gap-3 min-w-0 lg:min-w-auto">
-                <h3 className="font-extrabold text-xl text-[#1F2E4A]">{selectedPo.poNumber}</h3>
-                <span className="font-semibold text-slate-600 bg-slate-100 px-2.5 py-0.5 rounded">{selectedPo.vendor}</span>
+                        {/* ── Executive Modal Header ── */}
+            <div className="flex flex-wrap lg:flex-nowrap items-center justify-between gap-3 pb-3.5 border-b border-slate-200">
+              <div className="flex flex-wrap items-center gap-2 sm:gap-3 min-w-0">
+                <div className="w-8 h-8 rounded-xl bg-gradient-to-tr from-slate-900 to-[#1F2E4A] text-white flex items-center justify-center font-black text-xs shadow-xs">
+                  PO
+                </div>
+                <div className="flex items-center gap-2">
+                  <h3 className="font-extrabold text-lg sm:text-xl text-slate-900 tracking-tight">{selectedPo.poNumber}</h3>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      navigator.clipboard?.writeText(selectedPo.poNumber);
+                      showToast?.(`Copied ${selectedPo.poNumber} to clipboard!`);
+                    }}
+                    className="p-1 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-md transition cursor-pointer"
+                    title="Copy PO Number"
+                  >
+                    <Copy size={13} />
+                  </button>
+                </div>
+                <span className="font-semibold text-slate-700 bg-slate-100 border border-slate-200/90 px-2.5 py-0.5 rounded-lg text-xs flex items-center gap-1.5">
+                  <Building2 size={12} className="text-slate-500" />
+                  {selectedPo.vendor}
+                </span>
                 <StatusBadge status={getOscarStatus(selectedPo)}/>
               </div>
+
               <div className="flex items-center gap-2">
-                <button type="button" onClick={() => setPrintPoTarget(selectedPo)} className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg font-semibold flex items-center gap-1.5 shadow-xs">
+                <button
+                  type="button"
+                  onClick={() => setPrintPoTarget(selectedPo)}
+                  className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg font-semibold flex items-center gap-1.5 text-xs shadow-2xs transition cursor-pointer"
+                >
                   <Printer size={13}/> Print Official PO
                 </button>
                 <button
                   type="button"
                   onClick={() => setIsDetailFullscreen((prev) => !prev)}
-                  className="p-1.5 text-slate-400 hover:text-slate-700 rounded-lg hover:bg-slate-100 transition"
+                  className="p-1.5 text-slate-400 hover:text-slate-700 rounded-lg hover:bg-slate-100 transition cursor-pointer"
                   title={isDetailFullscreen ? 'Exit Fullscreen' : 'Expand Fullscreen'}
                   aria-label={isDetailFullscreen ? 'Exit Fullscreen' : 'Expand Fullscreen'}
                 >
                   {isDetailFullscreen ? <Minimize2 size={16} /> : <Maximize2 size={16} />}
                 </button>
-                <button onClick={() => setSelectedPo(null)} className="text-slate-400 hover:text-slate-600 p-1"><X size={18}/></button>
+                <button
+                  onClick={() => setSelectedPo(null)}
+                  className="text-slate-400 hover:text-slate-700 p-1.5 hover:bg-slate-100 rounded-lg transition cursor-pointer"
+                >
+                  <X size={18}/>
+                </button>
               </div>
             </div>
-            <div className="space-y-6 mt-4 overflow-y-auto pr-1 flex-1">
-              <div className="bg-slate-50 border border-slate-200 rounded-xl p-3.5 space-y-2">
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-[11px]">
-                  <div>
-                    <span className="text-slate-400 font-bold uppercase text-[10px] block mb-1">Supplier / Vendor</span>
-                    <strong className="text-slate-900 text-sm block">{selectedPo.vendor}</strong>
-                    <div className="text-slate-600 mt-1 flex items-start gap-1">
-                      <MapPin size={12} className="text-slate-400 shrink-0 mt-0.5" />
-                      <span>{[selectedPo.billingAddress?.line1, selectedPo.billingAddress?.city, selectedPo.billingAddress?.state, selectedPo.billingAddress?.pincode].filter(Boolean).join(', ') || '—'}</span>
+
+            {/* ── Scrollable Modal Content ── */}
+            <div className="space-y-4 mt-4 overflow-y-auto pr-1 flex-1">
+              {/* Executive Overview Tiles (3 Columns) */}
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                {/* 1. Supplier / Vendor Card */}
+                <div className="p-3.5 bg-slate-50/80 border border-slate-200/90 rounded-xl space-y-1.5 shadow-2xs">
+                  <div className="flex items-center justify-between">
+                    <span className="text-[10px] font-black uppercase tracking-wider text-slate-400 flex items-center gap-1">
+                      <Building2 size={12} className="text-slate-500" /> Supplier / Vendor
+                    </span>
+                    <span className="text-[10px] font-mono text-slate-400 font-semibold">ID: {selectedPo.vendorId || selectedPo.partyId || '—'}</span>
+                  </div>
+                  <strong className="text-slate-900 text-sm font-bold block truncate">{selectedPo.vendor}</strong>
+                  <div className="text-slate-600 text-[11px] flex items-start gap-1">
+                    <MapPin size={12} className="text-slate-400 shrink-0 mt-0.5" />
+                    <span className="line-clamp-2">
+                      {[selectedPo.billingAddress?.line1, selectedPo.billingAddress?.city, selectedPo.billingAddress?.state, selectedPo.billingAddress?.pincode].filter(Boolean).join(', ') || 'Maharashtra, India'}
+                    </span>
+                  </div>
+                </div>
+
+                {/* 2. Schedule & Project Terms */}
+                <div className="p-3.5 bg-slate-50/80 border border-slate-200/90 rounded-xl space-y-1.5 shadow-2xs">
+                  <span className="text-[10px] font-black uppercase tracking-wider text-slate-400 flex items-center gap-1">
+                    <Calendar size={12} className="text-slate-500" /> Shipment & Schedule Terms
+                  </span>
+                  <div className="grid grid-cols-2 gap-2 text-[11px]">
+                    <div>
+                      <span className="text-slate-400 text-[10px] block">PO Date</span>
+                      <strong className="text-slate-800 font-mono">{formatDateDDMMYYYY(selectedPo.date)}</strong>
+                    </div>
+                    <div>
+                      <span className="text-slate-400 text-[10px] block">Expected Delivery</span>
+                      <strong className="text-emerald-700 font-mono font-bold">{formatDateDDMMYYYY(selectedPo.expectedDate)}</strong>
                     </div>
                   </div>
-                  <div>
-                    <span className="text-slate-400 font-bold uppercase text-[10px] block mb-1">Shipment & Delivery Terms</span>
-                    <p className="text-slate-700">Expected Delivery: <strong>{formatDateDDMMYYYY(selectedPo.expectedDate)}</strong></p>
-                    <p className="text-slate-700">PO Date: <strong>{formatDateDDMMYYYY(selectedPo.date)}</strong></p>
-                    <p className="text-slate-700">Status: <strong className="text-slate-900">{getOscarStatus(selectedPo)}</strong></p>
-                    <p className="text-slate-700">Purchase Type: <strong className="text-slate-900">{purchaseTypeOf(selectedPo)}</strong></p>
-                    <p className="text-slate-700">Project: <strong className="text-slate-900">{selectedPo.projectCode ? `${selectedPo.projectCode}${selectedPo.projectName ? ` — ${selectedPo.projectName}` : ''}` : 'General Stock'}</strong></p>
+                  <div className="pt-1 border-t border-slate-200/70 flex items-center justify-between text-[11px]">
+                    <span className="text-slate-500">Project:</span>
+                    <span className="font-semibold text-slate-800 truncate max-w-[170px]">
+                      {selectedPo.projectCode ? `${selectedPo.projectCode}${selectedPo.projectName ? ` — ${selectedPo.projectName}` : ''}` : 'General Stock'}
+                    </span>
+                  </div>
+                </div>
+
+                {/* 3. Commercial Contract Snapshot */}
+                <div className="p-3.5 bg-gradient-to-br from-indigo-50/40 via-white to-white border border-indigo-100 rounded-xl space-y-1.5 shadow-2xs">
+                  <div className="flex items-center justify-between">
+                    <span className="text-[10px] font-black uppercase tracking-wider text-indigo-700 flex items-center gap-1">
+                      <Receipt size={12} className="text-indigo-600" /> Commercial Snapshot
+                    </span>
+                    <span className="px-2 py-0.5 rounded-full text-[9.5px] font-bold bg-indigo-100 text-indigo-800 border border-indigo-200">
+                      {purchaseTypeOf(selectedPo)}
+                    </span>
+                  </div>
+                  <div className="flex items-baseline justify-between pt-0.5">
+                    <div>
+                      <span className="text-[10px] text-slate-400 block font-semibold">Total Order Value</span>
+                      <div className="text-base sm:text-lg font-black font-mono text-slate-900">
+                        {formatCurrency(selectedPo.amount || selectedPo.total || 0)}
+                      </div>
+                    </div>
+                    <div className="text-right">
+                      <span className="text-[10px] text-slate-400 block font-semibold">Total Ordered Qty</span>
+                      <div className="text-xs font-bold font-mono text-slate-700">
+                        {Number(selectedPo.totalQuantity || (selectedPo.items || []).reduce((s, it) => s + (Number(it.qty) || 0), 0)).toLocaleString('en-IN')} Mtr
+                      </div>
+                    </div>
                   </div>
                 </div>
               </div>
+
+              {/* Document Lifecycle Stepper */}
               <DocumentTimeline
                 steps={getPoTimelineSteps(selectedPo)}
                 onStepClick={(step) => {
                   if (step.key) {
-                    setActiveTimelineSlide((prev) => (prev === step.key ? null : step.key));
-                    if (step.key === 'grey_fabric_qc') {
-                      setTimeout(() => {
-                        qcSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-                      }, 50);
-                    }
+                    setActiveTimelineSlide(step.key);
                     return;
                   }
                   const lbl = (step.label || '').toLowerCase();
-                  if (lbl.includes('delivery')) {
-                    setActiveTimelineSlide((prev) => (prev === 'supplier_delivery' ? null : 'supplier_delivery'));
-                  } else if (lbl.includes('grn') || lbl.includes('inward')) {
-                    setActiveTimelineSlide((prev) => (prev === 'grn_inward' ? null : 'grn_inward'));
-                  } else if (lbl.includes('lot') || lbl.includes('taka')) {
-                    setActiveTimelineSlide((prev) => (prev === 'lot_taka_creation' ? null : 'lot_taka_creation'));
-                  } else if (lbl.includes('qc') || lbl.includes('quality')) {
-                    setActiveTimelineSlide((prev) => (prev === 'grey_fabric_qc' ? null : 'grey_fabric_qc'));
-                  } else if (lbl.includes('completion') || lbl.includes('verification')) {
-                    setShowVerificationInline(true);
-                    setActiveTimelineSlide('completion_verification');
-                    setTimeout(() => {
-                      completionVerificationRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-                    }, 100);
-                  } else if (lbl.includes('final') || lbl.includes('job work')) {
-                    setActiveTimelineSlide('final_job_work_po');
-                    setTimeout(() => {
-                      finalJobWorkPoRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-                    }, 100);
-                  } else if (lbl.includes('stock')) {
-                    setActiveTimelineSlide((prev) => (prev === 'grey_stock_updated' ? null : 'grey_stock_updated'));
-                  } else if (lbl.includes('vendor bill')) {
-                    setActiveTimelineSlide((prev) => (prev === 'vendor_bill' ? null : 'vendor_bill'));
-                  } else if (lbl.includes('bill') || lbl.includes('match')) {
-                    setActiveTimelineSlide((prev) => (prev === 'supplier_bill_matching' ? null : 'supplier_bill_matching'));
-                  } else if (lbl.includes('payment') || lbl.includes('disbursement')) {
-                    setActiveTimelineSlide((prev) => (prev === 'disbursement_payment' ? null : 'disbursement_payment'));
-                  }
+                  if (lbl.includes('delivery')) setActiveTimelineSlide('supplier_delivery');
+                  else if (lbl.includes('grn') || lbl.includes('inward')) setActiveTimelineSlide('grn_inward');
+                  else if (lbl.includes('lot') || lbl.includes('taka')) setActiveTimelineSlide('lot_taka_creation');
+                  else if (lbl.includes('qc') || lbl.includes('quality')) setActiveTimelineSlide('grey_fabric_qc');
+                  else if (lbl.includes('completion') || lbl.includes('verification')) setActiveTimelineSlide('completion_verification');
+                  else if (lbl.includes('final') || lbl.includes('job work')) setActiveTimelineSlide('final_job_work_po');
+                  else if (lbl.includes('stock')) setActiveTimelineSlide('grey_stock_updated');
+                  else if (lbl.includes('agency')) setActiveTimelineSlide('agency_bill_match');
+                  else if (lbl.includes('vendor bill')) setActiveTimelineSlide(isVendorA ? 'agency_bill_match' : 'vendor_bill');
+                  else if (lbl.includes('bill') || lbl.includes('match')) setActiveTimelineSlide(isVendorA ? 'agency_bill_match' : 'supplier_bill_matching');
+                  else if (lbl.includes('payment') || lbl.includes('disbursement')) setActiveTimelineSlide('disbursement_payment');
                 }}
               />
-              {activeTimelineSlide === 'supplier_delivery' && (
-                <div className="mt-2 mb-3">
-                  <SupplierDeliveryInlineSlide
-                    po={selectedPo}
-                    onClose={() => {
-                      setSelectedDeliveryForGrn(null);
-                      setActiveTimelineSlide(null);
-                    }}
-                    onNextStep={(key, delivery) => {
-                      setSelectedDeliveryForGrn(delivery || null);
-                      setActiveTimelineSlide(key);
-                    }}
-                    onDeliverySaved={() => {
-                      loadPoLifecycle(selectedPo?.id, selectedPo?.poNumber);
-                      if (refreshCollections) refreshCollections(['purchaseOrders']);
-                    }}
-                  />
+
+              {/* ── Stage Execution Workspace Container ── */}
+              {(() => {
+                const isVendorA = purchaseTypeOf(selectedPo) === PURCHASE_TYPE_VENDOR_A;
+                const stageTabs = isVendorA ? [
+                  { key: 'production_instruction', label: 'Instruction', icon: FileText, num: 1 },
+                  { key: 'daily_production_entry', label: 'Daily Entry', icon: Factory, num: 2 },
+                  { key: 'grey_fabric_qc', label: 'QC Stage', icon: ShieldCheck, num: 3 },
+                  { key: 'completion_verification', label: 'Verification', icon: ClipboardCheck, num: 4 },
+                  { key: 'final_job_work_po', label: 'Final JW PO', icon: FileSpreadsheet, num: 5 },
+                  { key: 'agency_bill_match', label: 'Agency Bill Match', icon: FileCheck2, num: 6 },
+                  { key: 'disbursement_payment', label: 'Payment', icon: CreditCard, num: 7 },
+                ] : [
+                  { key: 'supplier_delivery', label: 'Delivery', icon: Truck, num: 1 },
+                  { key: 'grn_inward', label: 'GRN Inward', icon: Warehouse, num: 2 },
+                  { key: 'lot_taka_creation', label: 'Lot / Taka', icon: Layers, num: 3 },
+                  { key: 'grey_fabric_qc', label: 'QC Inspection', icon: ShieldCheck, num: 4 },
+                  { key: 'grey_stock_updated', label: 'Stock Update', icon: PackageCheck, num: 5 },
+                  { key: 'vendor_bill', label: 'Vendor Bill', icon: Receipt, num: 6 },
+                  { key: 'supplier_bill_matching', label: '3-Way Match', icon: FileCheck2, num: 7 },
+                  { key: 'disbursement_payment', label: 'Payment', icon: CreditCard, num: 8 },
+                ];
+
+                return (
+                  <div className="space-y-3 pt-1">
+                    {/* Segmented Stage Control Bar */}
+                    <div className="flex items-center justify-between border-b border-slate-200/70 pb-2">
+                      <div className="flex items-center gap-2">
+                        <span className="w-2 h-2 rounded-full bg-blue-600" />
+                        <h4 className="text-xs font-black uppercase tracking-wider text-slate-800">
+                          Active Stage Workspace
+                        </h4>
+                      </div>
+                      <span className="text-[11px] text-slate-500 font-medium">Select any stage tab below to switch active workflow</span>
+                    </div>
+
+                    <div className="bg-slate-100/90 p-1.5 rounded-xl border border-slate-200 flex flex-wrap items-center gap-1 shadow-2xs">
+                      {stageTabs.map((t) => {
+                        const Icon = t.icon;
+                        const isActive = activeTimelineSlide === t.key;
+                        return (
+                          <button
+                            key={t.key}
+                            type="button"
+                            onClick={() => setActiveTimelineSlide(t.key)}
+                            className={`px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer ${
+                              isActive
+                                ? 'bg-[#1F2E4A] text-white shadow-xs scale-102'
+                                : 'text-slate-600 hover:text-slate-900 hover:bg-white/80'
+                            }`}
+                          >
+                            <span className={`w-4 h-4 rounded-full text-[10px] flex items-center justify-center font-mono font-bold ${
+                              isActive ? 'bg-white/20 text-white' : 'bg-slate-200 text-slate-600'
+                            }`}>
+                              {t.num}
+                            </span>
+                            <Icon size={12} />
+                            <span>{t.label}</span>
+                          </button>
+                        );
+                      })}
+                    </div>
+
+                    {/* Dedicated Active Stage Content Container */}
+                    <div className="pt-1">
+                      {/* 1. Supplier Delivery */}
+                      {activeTimelineSlide === 'supplier_delivery' && (
+                        <SupplierDeliveryInlineSlide
+                          po={selectedPo}
+                          onClose={() => {
+                            setSelectedDeliveryForGrn(null);
+                            setActiveTimelineSlide(null);
+                          }}
+                          onNextStep={(key, delivery) => {
+                            setSelectedDeliveryForGrn(delivery || null);
+                            setActiveTimelineSlide(key);
+                          }}
+                          onDeliverySaved={() => {
+                            loadPoLifecycle(selectedPo?.id, selectedPo?.poNumber);
+                            if (refreshCollections) refreshCollections(['purchaseOrders']);
+                          }}
+                        />
+                      )}
+
+                      {/* 2. GRN Inward */}
+                      {activeTimelineSlide === 'grn_inward' && (
+                        <GoodsReceiptInlineSlide
+                          po={selectedPo}
+                          delivery={selectedDeliveryForGrn}
+                          onClose={() => {
+                            setSelectedDeliveryForGrn(null);
+                            setActiveTimelineSlide(null);
+                          }}
+                          onNextStep={(key) => {
+                            setSelectedDeliveryForGrn(null);
+                            setActiveTimelineSlide(key);
+                          }}
+                          onPrevStep={(key) => {
+                            setSelectedDeliveryForGrn(null);
+                            setActiveTimelineSlide(key);
+                          }}
+                          onReceiptSaved={() => {
+                            loadPoLifecycle(selectedPo?.id, selectedPo?.poNumber);
+                            if (refreshCollections) refreshCollections(['purchaseOrders', 'inventory']);
+                          }}
+                        />
+                      )}
+
+                      {/* 3. Lot / Taka Creation */}
+                      {activeTimelineSlide === 'lot_taka_creation' && (
+                        <LotTakaInlineSlide
+                          po={selectedPo}
+                          onClose={() => setActiveTimelineSlide(null)}
+                          onNextStep={(key) => setActiveTimelineSlide(key)}
+                          onPrevStep={(key) => setActiveTimelineSlide(key)}
+                          onSwitchToGrn={() => setActiveTimelineSlide('grn_inward')}
+                          onLotSaved={() => {
+                            loadPoLifecycle(selectedPo?.id, selectedPo?.poNumber);
+                            if (refreshCollections) refreshCollections(['purchaseOrders', 'inventory']);
+                          }}
+                        />
+                      )}
+
+                      {/* 4. Production Instruction (Vendor A) */}
+                      {activeTimelineSlide === 'production_instruction' && (
+                        <PoProductionInstructionSection
+                          po={selectedPo}
+                          navigate={navigate}
+                          defaultCollapsed={false}
+                          onOpenDailyProduction={() => setActiveTimelineSlide('daily_production_entry')}
+                          onUpdated={() => {
+                            loadPoLifecycle(selectedPo?.id, selectedPo?.poNumber);
+                            if (refreshCollections) refreshCollections(['purchaseOrders']);
+                          }}
+                        />
+                      )}
+
+                      {/* 5. Daily Production Entry (Vendor A) */}
+                      {activeTimelineSlide === 'daily_production_entry' && (
+                        <PoDailyProductionEntrySection
+                          po={selectedPo}
+                          navigate={navigate}
+                          onSwitchToInstruction={() => setActiveTimelineSlide('production_instruction')}
+                          onProceedToQc={() => setActiveTimelineSlide('grey_fabric_qc')}
+                          onUpdated={() => {
+                            loadPoLifecycle(selectedPo?.id, selectedPo?.poNumber);
+                            if (refreshCollections) refreshCollections(['purchaseOrders']);
+                          }}
+                        />
+                      )}
+
+                      {/* 6. QC Inspection Section */}
+                      {activeTimelineSlide === 'grey_fabric_qc' && (
+                        isVendorA ? (
+                          <div ref={qcSectionRef}>
+                            <PoQualityControlSection
+                              po={selectedPo}
+                              navigate={navigate}
+                              defaultExpanded={true}
+                              onProceedToVerification={() => setActiveTimelineSlide('completion_verification')}
+                              onUpdated={() => {
+                                loadPoLifecycle(selectedPo?.id, selectedPo?.poNumber);
+                                if (refreshCollections) refreshCollections(['purchaseOrders']);
+                              }}
+                            />
+                          </div>
+                        ) : (
+                          <GreyQcInlineSlide
+                            po={selectedPo}
+                            onClose={() => setActiveTimelineSlide(null)}
+                            onNextStep={(key) => setActiveTimelineSlide(key)}
+                            onPrevStep={(key) => setActiveTimelineSlide(key)}
+                            onQcSaved={() => {
+                              loadPoLifecycle(selectedPo?.id, selectedPo?.poNumber);
+                              if (refreshCollections) refreshCollections(['purchaseOrders', 'inventory']);
+                            }}
+                          />
+                        )
+                      )}
+
+                      {/* 7. Completion Verification (Vendor A) */}
+                      {activeTimelineSlide === 'completion_verification' && (
+                        <div ref={completionVerificationRef}>
+                          <CompletionVerificationInlineSlide
+                            po={selectedPo}
+                            instruction={poLifecycleData?.instruction}
+                            onClose={() => setActiveTimelineSlide('grey_fabric_qc')}
+                            onNextStep={(key) => setActiveTimelineSlide(key)}
+                            onPrevStep={() => setActiveTimelineSlide('grey_fabric_qc')}
+                            onUpdated={() => {
+                              loadPoLifecycle(selectedPo?.id, selectedPo?.poNumber);
+                              if (refreshCollections) refreshCollections(['purchaseOrders']);
+                            }}
+                          />
+                        </div>
+                      )}
+
+                      {/* 8. Final Job Work PO (Vendor A) */}
+                      {activeTimelineSlide === 'final_job_work_po' && (
+                        <div ref={finalJobWorkPoRef}>
+                          <FinalJobWorkPoInlineSlide
+                            po={selectedPo}
+                            instruction={poLifecycleData?.instruction}
+                            onClose={() => setActiveTimelineSlide('completion_verification')}
+                            onNextStep={(key) => setActiveTimelineSlide(key)}
+                            onPrevStep={() => setActiveTimelineSlide('completion_verification')}
+                            onUpdated={() => {
+                              loadPoLifecycle(selectedPo?.id, selectedPo?.poNumber);
+                              if (refreshCollections) refreshCollections(['purchaseOrders']);
+                            }}
+                          />
+                        </div>
+                      )}
+
+                      {/* 9. Grey Stock Position (Standard PO) */}
+                      {activeTimelineSlide === 'grey_stock_updated' && (
+                        <GreyStockUpdatedInlineSlide
+                          po={selectedPo}
+                          onClose={() => setActiveTimelineSlide(null)}
+                          onNextStep={(key) => setActiveTimelineSlide(key)}
+                          onPrevStep={(key) => setActiveTimelineSlide(key)}
+                        />
+                      )}
+
+                      {/* 10. Vendor Bill Intake (Standard PO) */}
+                      {activeTimelineSlide === 'vendor_bill' && (
+                        isVendorA ? (
+                          <AgencyBillMatchingInlineSlide
+                            po={selectedPo}
+                            instruction={poLifecycleData?.instruction}
+                            onClose={() => setActiveTimelineSlide(null)}
+                            onNextStep={(key) => setActiveTimelineSlide(key)}
+                            onPrevStep={(key) => setActiveTimelineSlide(key)}
+                            onBillMatched={() => {
+                              loadPoLifecycle(selectedPo?.id, selectedPo?.poNumber);
+                              if (refreshCollections) refreshCollections(['purchaseOrders', 'purchaseBills', 'vendorBills']);
+                            }}
+                          />
+                        ) : (
+                          <VendorBillInlineSlide
+                            po={selectedPo}
+                            instruction={poLifecycleData?.instruction}
+                            onClose={() => setActiveTimelineSlide(null)}
+                            onNextStep={(key) => setActiveTimelineSlide(key)}
+                            onPrevStep={(key) => setActiveTimelineSlide(key)}
+                            onBillSaved={() => {
+                              loadPoLifecycle(selectedPo?.id, selectedPo?.poNumber);
+                              if (refreshCollections) refreshCollections(['purchaseOrders', 'purchaseBills', 'vendorBills']);
+                            }}
+                          />
+                        )
+                      )}
+
+                      {/* 11. Agency Bill Match (Vendor A) or Supplier 3-Way Match (Ready Grey) */}
+                      {(activeTimelineSlide === 'agency_bill_match' || (isVendorA && activeTimelineSlide === 'supplier_bill_matching')) && (
+                        <AgencyBillMatchingInlineSlide
+                          po={selectedPo}
+                          instruction={poLifecycleData?.instruction}
+                          onClose={() => setActiveTimelineSlide(null)}
+                          onNextStep={(key) => setActiveTimelineSlide(key)}
+                          onPrevStep={(key) => setActiveTimelineSlide(key)}
+                          onBillMatched={() => {
+                            loadPoLifecycle(selectedPo?.id, selectedPo?.poNumber);
+                            if (refreshCollections) refreshCollections(['purchaseOrders', 'purchaseBills', 'vendorBills']);
+                          }}
+                        />
+                      )}
+
+                      {(!isVendorA && activeTimelineSlide === 'supplier_bill_matching') && (
+                        <SupplierBillMatchingInlineSlide
+                          po={selectedPo}
+                          instruction={poLifecycleData?.instruction}
+                          onClose={() => setActiveTimelineSlide(null)}
+                          onNextStep={(key) => setActiveTimelineSlide(key)}
+                          onPrevStep={(key) => setActiveTimelineSlide(key)}
+                          onBillMatched={() => {
+                            loadPoLifecycle(selectedPo?.id, selectedPo?.poNumber);
+                            if (refreshCollections) refreshCollections(['purchaseOrders', 'purchaseBills', 'vendorBills']);
+                          }}
+                        />
+                      )}
+
+                      {/* 12. Disbursement Payment */}
+                      {activeTimelineSlide === 'disbursement_payment' && (
+                        <SupplierPaymentInlineSlide
+                          po={selectedPo}
+                          instruction={poLifecycleData?.instruction}
+                          onClose={() => setActiveTimelineSlide(null)}
+                          onPrevStep={(key) => setActiveTimelineSlide(key)}
+                          onPaymentSaved={() => {
+                            loadPoLifecycle(selectedPo?.id, selectedPo?.poNumber);
+                            if (refreshCollections) refreshCollections(['purchaseOrders', 'purchaseBills', 'paymentOuts']);
+                          }}
+                        />
+                      )}
+                    </div>
+                  </div>
+                );
+              })()}
+
+              {/* ── Fabric Line Items Section ── */}
+              <div className="bg-white border border-slate-200/90 rounded-xl p-4 shadow-2xs space-y-3">
+                <div className="flex items-center justify-between">
+                  <h4 className="font-bold text-slate-800 uppercase tracking-wider text-xs flex items-center gap-2">
+                    <Package size={14} className="text-indigo-600" />
+                    Fabric Line Items ({selectedPo.items?.length || 0})
+                  </h4>
+                  <span className="font-mono text-xs font-semibold text-slate-500">
+                    Contract Total: {formatCurrency(selectedPo.amount || selectedPo.total || 0)}
+                  </span>
                 </div>
-              )}
-              {activeTimelineSlide === 'grn_inward' && (
-                <div className="mt-2 mb-3">
-                  <GoodsReceiptInlineSlide
-                    po={selectedPo}
-                    delivery={selectedDeliveryForGrn}
-                    onClose={() => {
-                      setSelectedDeliveryForGrn(null);
-                      setActiveTimelineSlide(null);
-                    }}
-                    onNextStep={(key) => {
-                      setSelectedDeliveryForGrn(null);
-                      setActiveTimelineSlide(key);
-                    }}
-                    onPrevStep={(key) => {
-                      setSelectedDeliveryForGrn(null);
-                      setActiveTimelineSlide(key);
-                    }}
-                    onReceiptSaved={() => {
-                      loadPoLifecycle(selectedPo?.id, selectedPo?.poNumber);
-                      if (refreshCollections) refreshCollections(['purchaseOrders', 'inventory']);
-                    }}
-                  />
-                </div>
-              )}
-              {activeTimelineSlide === 'lot_taka_creation' && (
-                <div className="mt-2 mb-3">
-                  <LotTakaInlineSlide
-                    po={selectedPo}
-                    onClose={() => setActiveTimelineSlide(null)}
-                    onNextStep={(key) => setActiveTimelineSlide(key)}
-                    onPrevStep={(key) => setActiveTimelineSlide(key)}
-                    onSwitchToGrn={() => setActiveTimelineSlide('grn_inward')}
-                    onLotSaved={() => {
-                      loadPoLifecycle(selectedPo?.id, selectedPo?.poNumber);
-                      if (refreshCollections) refreshCollections(['purchaseOrders', 'inventory']);
-                    }}
-                  />
-                </div>
-              )}
-              {activeTimelineSlide === 'grey_fabric_qc' && purchaseTypeOf(selectedPo) !== PURCHASE_TYPE_VENDOR_A && (
-                <div className="mt-2 mb-3">
-                  <GreyQcInlineSlide
-                    po={selectedPo}
-                    onClose={() => setActiveTimelineSlide(null)}
-                    onNextStep={(key) => setActiveTimelineSlide(key)}
-                    onPrevStep={(key) => setActiveTimelineSlide(key)}
-                    onQcSaved={() => {
-                      loadPoLifecycle(selectedPo?.id, selectedPo?.poNumber);
-                      if (refreshCollections) refreshCollections(['purchaseOrders', 'inventory']);
-                    }}
-                  />
-                </div>
-              )}
-              {activeTimelineSlide === 'grey_stock_updated' && (
-                <div className="mt-2 mb-3">
-                  <GreyStockUpdatedInlineSlide
-                    po={selectedPo}
-                    onClose={() => setActiveTimelineSlide(null)}
-                    onNextStep={(key) => setActiveTimelineSlide(key)}
-                    onPrevStep={(key) => setActiveTimelineSlide(key)}
-                  />
-                </div>
-              )}
-              {activeTimelineSlide === 'vendor_bill' && (
-                <div className="mt-2 mb-3">
-                  <VendorBillInlineSlide
-                    po={selectedPo}
-                    instruction={poLifecycleData?.instruction}
-                    onClose={() => setActiveTimelineSlide(null)}
-                    onNextStep={(key) => setActiveTimelineSlide(key)}
-                    onPrevStep={(key) => setActiveTimelineSlide(key)}
-                    onBillSaved={() => {
-                      loadPoLifecycle(selectedPo?.id, selectedPo?.poNumber);
-                      if (refreshCollections) refreshCollections(['purchaseOrders', 'purchaseBills', 'vendorBills']);
-                    }}
-                  />
-                </div>
-              )}
-              {activeTimelineSlide === 'supplier_bill_matching' && (
-                <div className="mt-2 mb-3">
-                  <SupplierBillMatchingInlineSlide
-                    po={selectedPo}
-                    instruction={poLifecycleData?.instruction}
-                    onClose={() => setActiveTimelineSlide(null)}
-                    onNextStep={(key) => setActiveTimelineSlide(key)}
-                    onPrevStep={(key) => setActiveTimelineSlide(key)}
-                    onBillMatched={() => {
-                      loadPoLifecycle(selectedPo?.id, selectedPo?.poNumber);
-                      if (refreshCollections) refreshCollections(['purchaseOrders', 'purchaseBills', 'vendorBills']);
-                    }}
-                  />
-                </div>
-              )}
-              {activeTimelineSlide === 'disbursement_payment' && (
-                <div className="mt-2 mb-3">
-                  <SupplierPaymentInlineSlide
-                    po={selectedPo}
-                    onClose={() => setActiveTimelineSlide(null)}
-                    onPrevStep={(key) => setActiveTimelineSlide(key)}
-                    onPaymentSaved={() => {
-                      loadPoLifecycle(selectedPo?.id, selectedPo?.poNumber);
-                      if (refreshCollections) refreshCollections(['purchaseOrders', 'purchaseBills', 'paymentOuts']);
-                    }}
-                  />
-                </div>
-              )}
-              <RelatedDocumentsCard documents={getPoRelatedDocs(selectedPo)}/>
-              <div className="space-y-2">
-                <h4 className="font-bold text-slate-700 uppercase tracking-wider text-xs">Fabric Line Items ({selectedPo.items?.length || 0})</h4>
                 <div className="border border-slate-200 rounded-xl overflow-x-auto">
                   <table className="w-full min-w-[560px] text-left text-[12px]">
                     <thead>
-                      <tr className="bg-slate-50 border-b border-slate-200 text-[10.5px] font-bold uppercase tracking-wide text-slate-400">
-                        <th className="px-3 py-2">Fabric</th>
-                        <th className="px-3 py-2 text-right">Qty</th>
-                        <th className="px-3 py-2 text-right">Rate (₹/Unit)</th>
-                        <th className="px-3 py-2 text-right">Amount (₹)</th>
+                      <tr className="bg-slate-50 border-b border-slate-200 text-[10.5px] font-bold uppercase tracking-wider text-slate-500">
+                        <th className="px-4 py-2.5">Fabric Quality / Description</th>
+                        <th className="px-4 py-2.5 text-right">Quantity</th>
+                        <th className="px-4 py-2.5 text-right">Agreed Rate</th>
+                        <th className="px-4 py-2.5 text-right">Line Total</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100">
                       {getPoLines(selectedPo).map((it, idx) => (
-                        <tr key={it.id || idx}>
-                          <td className="px-3 py-2 font-medium text-slate-700">{it.name || it.description}</td>
-                          <td className="px-3 py-2 text-right font-mono">{formatQty(it.qty || 0, lineUom(it), { units })}</td>
-                          <td className="px-3 py-2 text-right font-mono">₹{Number(it.rate || 0)}/{lineUom(it)}</td>
-                          <td className="px-3 py-2 text-right font-mono font-bold text-slate-800">{formatCurrency(it.amount ?? (Number(it.qty || 0) * Number(it.rate || 0)))}</td>
+                        <tr key={it.id || idx} className="hover:bg-slate-50/50 transition">
+                          <td className="px-4 py-2.5 font-semibold text-slate-900">{it.name || it.description}</td>
+                          <td className="px-4 py-2.5 text-right font-mono font-medium text-slate-800">{formatQty(it.qty || 0, lineUom(it), { units })}</td>
+                          <td className="px-4 py-2.5 text-right font-mono text-slate-700">₹{Number(it.rate || 0)}/{lineUom(it)}</td>
+                          <td className="px-4 py-2.5 text-right font-mono font-bold text-slate-900">{formatCurrency(it.amount ?? (Number(it.qty || 0) * Number(it.rate || 0)))}</td>
                         </tr>
                       ))}
                       {getPoLines(selectedPo).length === 0 && (
-                        <tr><td colSpan={4} className="px-3 py-6 text-center text-slate-400">No line items recorded.</td></tr>
+                        <tr><td colSpan={4} className="px-4 py-6 text-center text-slate-400">No line items recorded for this order.</td></tr>
                       )}
                     </tbody>
                   </table>
                 </div>
               </div>
 
-              {/* Vendor A Manufacturing Workflow Sections inside PO Modal */}
-              {purchaseTypeOf(selectedPo) === PURCHASE_TYPE_VENDOR_A && (
-                <div className="space-y-4 mt-4">
-                  {/* Stage Navigation Pills */}
-                  <div className="flex flex-wrap items-center gap-1.5 mb-1 bg-slate-50 p-1.5 rounded-xl border border-slate-200">
-                    <button
-                      type="button"
-                      onClick={() => setActiveTimelineSlide('production_instruction')}
-                      className={`px-2.5 py-1 text-xs font-bold rounded-lg border flex items-center gap-1.5 transition-all cursor-pointer ${
-                        activeTimelineSlide === 'production_instruction'
-                          ? 'bg-slate-900 text-white border-slate-900 shadow-2xs'
-                          : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-100'
-                      }`}
-                    >
-                      <FileText size={12} />
-                      Instruction
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setActiveTimelineSlide('daily_production_entry')}
-                      className={`px-2.5 py-1 text-xs font-bold rounded-lg border flex items-center gap-1.5 transition-all cursor-pointer ${
-                        activeTimelineSlide === 'daily_production_entry'
-                          ? 'bg-teal-600 text-white border-teal-600 shadow-2xs'
-                          : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-100'
-                      }`}
-                    >
-                      <Factory size={12} />
-                      Daily Entry
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setActiveTimelineSlide('grey_fabric_qc');
-                        setTimeout(() => {
-                          qcSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-                        }, 50);
-                      }}
-                      className={`px-2.5 py-1 text-xs font-bold rounded-lg border flex items-center gap-1.5 transition-all cursor-pointer ${
-                        activeTimelineSlide === 'grey_fabric_qc'
-                          ? 'bg-blue-600 text-white border-blue-600 shadow-2xs'
-                          : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-100'
-                      }`}
-                    >
-                      <ShieldCheck size={12} />
-                      QC Stage
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setShowVerificationInline(true);
-                        setActiveTimelineSlide('completion_verification');
-                        setTimeout(() => {
-                          completionVerificationRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-                        }, 100);
-                      }}
-                      className={`px-2.5 py-1 text-xs font-bold rounded-lg border flex items-center gap-1.5 transition-all cursor-pointer ${
-                        activeTimelineSlide === 'completion_verification' || showVerificationInline
-                          ? 'bg-emerald-600 text-white border-emerald-600 shadow-2xs'
-                          : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-100'
-                      }`}
-                    >
-                      <ClipboardCheck size={12} />
-                      Verification
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setActiveTimelineSlide('final_job_work_po');
-                        setTimeout(() => {
-                          finalJobWorkPoRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-                        }, 100);
-                      }}
-                      className={`px-2.5 py-1 text-xs font-bold rounded-lg border flex items-center gap-1.5 transition-all cursor-pointer ${
-                        activeTimelineSlide === 'final_job_work_po'
-                          ? 'bg-indigo-600 text-white border-indigo-600 shadow-2xs'
-                          : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-100'
-                      }`}
-                    >
-                      <FileSpreadsheet size={12} />
-                      Final JW PO
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setActiveTimelineSlide('vendor_bill')}
-                      className={`px-2.5 py-1 text-xs font-bold rounded-lg border flex items-center gap-1.5 transition-all cursor-pointer ${
-                        activeTimelineSlide === 'vendor_bill'
-                          ? 'bg-violet-600 text-white border-violet-600 shadow-2xs'
-                          : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-100'
-                      }`}
-                    >
-                      <Receipt size={12} />
-                      Vendor Bill
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setActiveTimelineSlide('supplier_bill_matching')}
-                      className={`px-2.5 py-1 text-xs font-bold rounded-lg border flex items-center gap-1.5 transition-all cursor-pointer ${
-                        activeTimelineSlide === 'supplier_bill_matching'
-                          ? 'bg-blue-600 text-white border-blue-600 shadow-2xs'
-                          : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-100'
-                      }`}
-                    >
-                      <FileCheck2 size={12} />
-                      3-Way Match
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setActiveTimelineSlide('disbursement_payment')}
-                      className={`px-2.5 py-1 text-xs font-bold rounded-lg border flex items-center gap-1.5 transition-all cursor-pointer ${
-                        activeTimelineSlide === 'disbursement_payment'
-                          ? 'bg-emerald-600 text-white border-emerald-600 shadow-2xs'
-                          : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-100'
-                      }`}
-                    >
-                      <CreditCard size={12} />
-                      Payment
-                    </button>
+              {/* ── Connected Transaction Documents ── */}
+              {getPoRelatedDocs(selectedPo).length > 0 ? (
+                <RelatedDocumentsCard documents={getPoRelatedDocs(selectedPo)}/>
+              ) : (
+                <div className="flex items-center justify-between px-4 py-2.5 rounded-xl border border-dashed border-slate-200 bg-slate-50/50 text-xs text-slate-500">
+                  <div className="flex items-center gap-2">
+                    <FileText size={14} className="text-slate-400" />
+                    <span>Connected Transaction Documents: <strong className="text-slate-700">0 linked records</strong></span>
                   </div>
-
-                  {/* 1. Production Instruction Card */}
-                  <PoProductionInstructionSection
-                    po={selectedPo}
-                    navigate={navigate}
-                    defaultCollapsed={activeTimelineSlide === 'grey_fabric_qc' || activeTimelineSlide === 'daily_production_entry' || activeTimelineSlide === 'completion_verification' || activeTimelineSlide === 'final_job_work_po' || activeTimelineSlide === 'vendor_bill'}
-                    onOpenDailyProduction={() => setActiveTimelineSlide('daily_production_entry')}
-                    onUpdated={() => {
-                      loadPoLifecycle(selectedPo?.id, selectedPo?.poNumber);
-                      if (refreshCollections) refreshCollections(['purchaseOrders']);
-                    }}
-                  />
-
-                  {/* 2. Daily Production Entry Section */}
-                  {activeTimelineSlide === 'daily_production_entry' && (
-                    <PoDailyProductionEntrySection
-                      po={selectedPo}
-                      navigate={navigate}
-                      onSwitchToInstruction={() => setActiveTimelineSlide('production_instruction')}
-                      onProceedToQc={() => {
-                        setActiveTimelineSlide('grey_fabric_qc');
-                        setTimeout(() => {
-                          qcSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-                        }, 50);
-                      }}
-                      onUpdated={() => {
-                        loadPoLifecycle(selectedPo?.id, selectedPo?.poNumber);
-                        if (refreshCollections) refreshCollections(['purchaseOrders']);
-                      }}
-                    />
-                  )}
-
-                  {/* 3. Quality Control (QC) Section */}
-                  {(activeTimelineSlide === 'grey_fabric_qc' || activeTimelineSlide === 'completion_verification' || showVerificationInline || !activeTimelineSlide) && (
-                    <div ref={qcSectionRef}>
-                      <PoQualityControlSection
-                        po={selectedPo}
-                        navigate={navigate}
-                        defaultExpanded={true}
-                        onProceedToVerification={() => {
-                          setShowVerificationInline(true);
-                          setActiveTimelineSlide('completion_verification');
-                          setTimeout(() => {
-                            completionVerificationRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-                          }, 100);
-                        }}
-                        onUpdated={() => {
-                          loadPoLifecycle(selectedPo?.id, selectedPo?.poNumber);
-                          if (refreshCollections) refreshCollections(['purchaseOrders']);
-                        }}
-                      />
-                    </div>
-                  )}
-
-                  {/* 4. Completion Verification Slide (Rendered seamlessly in this same slide view) */}
-                  {(activeTimelineSlide === 'completion_verification' || showVerificationInline) && (
-                    <div ref={completionVerificationRef} className="pt-2">
-                      <CompletionVerificationInlineSlide
-                        po={selectedPo}
-                        instruction={poLifecycleData?.instruction}
-                        onClose={() => {
-                          setShowVerificationInline(false);
-                          setActiveTimelineSlide('grey_fabric_qc');
-                          setTimeout(() => {
-                            qcSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-                          }, 100);
-                        }}
-                        onNextStep={(key) => setActiveTimelineSlide(key)}
-                        onPrevStep={() => {
-                          setActiveTimelineSlide('grey_fabric_qc');
-                          setTimeout(() => {
-                            qcSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-                          }, 100);
-                        }}
-                        onUpdated={() => {
-                          loadPoLifecycle(selectedPo?.id, selectedPo?.poNumber);
-                          if (refreshCollections) refreshCollections(['purchaseOrders']);
-                        }}
-                      />
-                    </div>
-                  )}
-
-                  {/* 5. Final Job Work PO Slide */}
-                  {activeTimelineSlide === 'final_job_work_po' && (
-                    <div ref={finalJobWorkPoRef} className="pt-2">
-                      <FinalJobWorkPoInlineSlide
-                        po={selectedPo}
-                        instruction={poLifecycleData?.instruction}
-                        onClose={() => setActiveTimelineSlide('completion_verification')}
-                        onNextStep={(key) => setActiveTimelineSlide(key)}
-                        onPrevStep={() => {
-                          setActiveTimelineSlide('completion_verification');
-                          setTimeout(() => {
-                            completionVerificationRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-                          }, 100);
-                        }}
-                        onUpdated={() => {
-                          loadPoLifecycle(selectedPo?.id, selectedPo?.poNumber);
-                          if (refreshCollections) refreshCollections(['purchaseOrders']);
-                        }}
-                      />
-                    </div>
-                  )}
+                  <span className="text-[11px] text-slate-400">Related GRNs, Vendor Bills, and Vouchers link automatically as lifecycle proceeds.</span>
                 </div>
               )}
             </div>
-            <div className={`flex flex-col sm:flex-row sm:items-center justify-between gap-3 lg:gap-0 pt-4 border-t border-slate-200 bg-slate-50 px-4 py-3 ${
+<div className={`flex flex-col sm:flex-row sm:items-center justify-between gap-3 lg:gap-0 pt-4 border-t border-slate-200 bg-slate-50 px-4 py-3 ${
               isDetailFullscreen ? '-mx-4 -mb-4 sm:-mx-8 sm:-mb-8 sm:px-8' : '-mx-4 -mb-4 sm:-mx-6 sm:-mb-6 sm:px-6'
             }`}>
               {(() => {
@@ -1952,32 +2071,50 @@ export const PurchaseOrdersPage = () => {
                           >
                             <Warehouse size={13} /> {activeTimelineSlide === 'grey_stock_updated' ? 'Hide Stock Slide' : 'Godown Stock Slide'}
                           </button>
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setActiveTimelineSlide((prev) => (prev === 'vendor_bill' ? null : 'vendor_bill'));
-                            }}
-                            className={`px-3 py-1.5 border rounded-lg font-bold flex items-center gap-1.5 text-xs shadow-2xs transition-colors cursor-pointer ${
-                              activeTimelineSlide === 'vendor_bill'
-                                ? 'bg-indigo-600 text-white border-indigo-600'
-                                : 'bg-indigo-50 border-indigo-200 text-indigo-700 hover:bg-indigo-100'
-                            }`}
-                          >
-                            <Receipt size={13} /> {activeTimelineSlide === 'vendor_bill' ? 'Hide Vendor Bill' : 'Vendor Bill Slide'}
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setActiveTimelineSlide((prev) => (prev === 'supplier_bill_matching' ? null : 'supplier_bill_matching'));
-                            }}
-                            className={`px-3 py-1.5 border rounded-lg font-bold flex items-center gap-1.5 text-xs shadow-2xs transition-colors cursor-pointer ${
-                              activeTimelineSlide === 'supplier_bill_matching'
-                                ? 'bg-blue-600 text-white border-blue-600'
-                                : 'bg-blue-50 border-blue-200 text-blue-700 hover:bg-blue-100'
-                            }`}
-                          >
-                            <FileCheck2 size={13} /> {activeTimelineSlide === 'supplier_bill_matching' ? 'Hide Matching' : 'Bill Matching Slide'}
-                          </button>
+                          {isVendorA ? (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setActiveTimelineSlide((prev) => (prev === 'agency_bill_match' ? null : 'agency_bill_match'));
+                              }}
+                              className={`px-3 py-1.5 border rounded-lg font-bold flex items-center gap-1.5 text-xs shadow-2xs transition-colors cursor-pointer ${
+                                activeTimelineSlide === 'agency_bill_match'
+                                  ? 'bg-blue-600 text-white border-blue-600'
+                                  : 'bg-blue-50 border-blue-200 text-blue-700 hover:bg-blue-100'
+                              }`}
+                            >
+                              <FileCheck2 size={13} /> {activeTimelineSlide === 'agency_bill_match' ? 'Hide Agency Matching' : 'Agency Bill Matching Slide'}
+                            </button>
+                          ) : (
+                            <>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setActiveTimelineSlide((prev) => (prev === 'vendor_bill' ? null : 'vendor_bill'));
+                                }}
+                                className={`px-3 py-1.5 border rounded-lg font-bold flex items-center gap-1.5 text-xs shadow-2xs transition-colors cursor-pointer ${
+                                  activeTimelineSlide === 'vendor_bill'
+                                    ? 'bg-indigo-600 text-white border-indigo-600'
+                                    : 'bg-indigo-50 border-indigo-200 text-indigo-700 hover:bg-indigo-100'
+                                }`}
+                              >
+                                <Receipt size={13} /> {activeTimelineSlide === 'vendor_bill' ? 'Hide Vendor Bill' : 'Vendor Bill Slide'}
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setActiveTimelineSlide((prev) => (prev === 'supplier_bill_matching' ? null : 'supplier_bill_matching'));
+                                }}
+                                className={`px-3 py-1.5 border rounded-lg font-bold flex items-center gap-1.5 text-xs shadow-2xs transition-colors cursor-pointer ${
+                                  activeTimelineSlide === 'supplier_bill_matching'
+                                    ? 'bg-blue-600 text-white border-blue-600'
+                                    : 'bg-blue-50 border-blue-200 text-blue-700 hover:bg-blue-100'
+                                }`}
+                              >
+                                <FileCheck2 size={13} /> {activeTimelineSlide === 'supplier_bill_matching' ? 'Hide Matching' : 'Bill Matching Slide'}
+                              </button>
+                            </>
+                          )}
                           <button
                             type="button"
                             onClick={() => {
@@ -2001,9 +2138,9 @@ export const PurchaseOrdersPage = () => {
                             </button>
                           )}
                           {poInfo.totalRemainingQty > 0 && (
-                            <Button onClick={() => setActiveTimelineSlide('vendor_bill')}>
+                            <Button onClick={() => setActiveTimelineSlide(isVendorA ? 'agency_bill_match' : 'vendor_bill')}>
                               <Receipt size={13} className="mr-1.5" />
-                              {poInfo.status === 'Partially Billed' ? `Bill Remaining (${poInfo.totalRemainingQty})` : 'Convert to Vendor Bill & Intake Goods'}
+                              {poInfo.status === 'Partially Billed' ? (isVendorA ? 'Match Agency Bill' : `Bill Remaining (${poInfo.totalRemainingQty})`) : (isVendorA ? 'Agency Bill Match' : 'Convert to Vendor Bill & Intake Goods')}
                             </Button>
                           )}
                         </>

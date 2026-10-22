@@ -363,8 +363,14 @@ export const BillMatchingPage = () => {
               <div className="bg-white border border-[#CED4DA] rounded-xl overflow-hidden">
                 <div className="px-5 py-3 border-b border-slate-100 flex items-center justify-between gap-2 flex-wrap">
                   <div>
-                    <h3 className="font-bold text-[15px] text-[#1F2E4A]">PO vs GRN vs Vendor Bill Matching</h3>
-                    <p className="text-[11px] text-slate-500 mt-0.5">System compares vendor bill with PO and GRN.</p>
+                    <h3 className="font-bold text-[15px] text-[#1F2E4A]">
+                      {matching?.isAgencyMatch ? 'Agency Bill Match (Original PO + Final JW PO + Invoice)' : 'PO vs GRN vs Vendor Bill Matching'}
+                    </h3>
+                    <p className="text-[11px] text-slate-500 mt-0.5">
+                      {matching?.isAgencyMatch
+                        ? `Agency reconciliation against Final JW PO (${matching?.finalPoNumber || 'Final PO'}) and Original PO (${matching?.originalPoNumber || 'PO'}).`
+                        : 'System compares vendor bill with PO and GRN.'}
+                    </p>
                   </div>
                   <Button icon={RefreshCw} onClick={handleRecheck} disabled={matchingLoading || !authed}>
                     Recheck Matching
@@ -374,18 +380,34 @@ export const BillMatchingPage = () => {
                   <div className="p-8 text-center text-slate-500 text-xs">Loading matching result...</div>
                 ) : matching ? (
                   <>
+                    {matching?.isAgencyMatch && matching?.productionVariance && (
+                      <div className="bg-blue-50/70 border-b border-blue-100 px-5 py-2.5 flex items-center justify-between text-xs text-blue-900 gap-3 flex-wrap">
+                        <div className="flex items-center gap-2">
+                          <span className="w-2 h-2 rounded-full bg-blue-600 shrink-0" />
+                          <span>
+                            <strong>Production Yield Audit:</strong> Original PO instructed <span className="font-mono font-bold">{matching.productionVariance.originalInstructedQty} M</span>, verified production yielded <span className="font-mono font-bold">{matching.productionVariance.finalVerifiedQty} M</span>
+                            {matching.productionVariance.shortageQty > 0.05 && (
+                              <span className="ml-1 text-slate-600">({matching.productionVariance.shortageQty.toFixed(2)} M legitimate shortage audited under Final JW PO)</span>
+                            )}.
+                          </span>
+                        </div>
+                        <span className="text-[11px] font-semibold text-blue-700 bg-blue-100/80 px-2 py-0.5 rounded">
+                          Agency Job Work
+                        </span>
+                      </div>
+                    )}
                     <div className="overflow-x-auto">
                       <table className="w-full min-w-[980px] text-left text-xs text-slate-600">
                         <thead className="bg-slate-50 font-semibold text-slate-500 tracking-wide border-b border-slate-200">
                           <tr>
                             <th className="py-2.5 px-2 text-center w-8">#</th>
                             <th className="py-2.5 px-2">Fabric</th>
-                            <th className="py-2.5 px-2 text-right">PO Qty (M)</th>
-                            <th className="py-2.5 px-2 text-right">GRN Qty (M)</th>
+                            <th className="py-2.5 px-2 text-right">{matching?.isAgencyMatch ? 'Final JW Qty' : 'PO Qty (M)'}</th>
+                            <th className="py-2.5 px-2 text-right">{matching?.isAgencyMatch ? 'Orig PO Qty' : 'GRN Qty (M)'}</th>
                             <th className="py-2.5 px-2 text-right">Bill Qty (M)</th>
-                            <th className="py-2.5 px-2 text-right">PO Rate (₹/M)</th>
+                            <th className="py-2.5 px-2 text-right">{matching?.isAgencyMatch ? 'Final Rate (₹/M)' : 'PO Rate (₹/M)'}</th>
                             <th className="py-2.5 px-2 text-right">Bill Rate (₹/M)</th>
-                            <th className="py-2.5 px-2 text-right">PO Amount (₹)</th>
+                            <th className="py-2.5 px-2 text-right">{matching?.isAgencyMatch ? 'Final Amount (₹)' : 'PO Amount (₹)'}</th>
                             <th className="py-2.5 px-2 text-right">Bill Amount (₹)</th>
                             <th className="py-2.5 px-2 text-center">Qty Match</th>
                             <th className="py-2.5 px-2 text-center">Rate Match</th>
@@ -502,8 +524,8 @@ export const BillMatchingPage = () => {
                     </div>
                     <div className="space-y-1.5">
                       <p className="flex justify-between gap-2"><span className="text-slate-400">Vendor</span><span className="font-semibold text-slate-800 text-right">{selected.vendor || selected.vendorName}</span></p>
-                      <p className="flex justify-between gap-2"><span className="text-slate-400">PO No.</span><span className="font-mono text-slate-800">{poNumber}</span></p>
-                      <p className="flex justify-between gap-2"><span className="text-slate-400">GRN No.</span><span className="font-mono text-slate-800">{grnNumber}</span></p>
+                      <p className="flex justify-between gap-2"><span className="text-slate-400">{matching?.isAgencyMatch ? 'Orig PO No.' : 'PO No.'}</span><span className="font-mono text-slate-800">{matching?.originalPoNumber || poNumber}</span></p>
+                      <p className="flex justify-between gap-2"><span className="text-slate-400">{matching?.isAgencyMatch ? 'Final JW PO' : 'GRN No.'}</span><span className="font-mono text-slate-800">{matching?.finalPoNumber || grnNumber}</span></p>
                       <p className="flex justify-between gap-2"><span className="text-slate-400">Bill Date</span><span className="font-mono text-slate-800">{formatDateDDMMYYYY(selected.billDate || selected.date)}</span></p>
                       <p className="flex justify-between gap-2"><span className="text-slate-400">Total Amount</span><span className="font-mono font-bold text-slate-900">{formatCurrency(Number(selected.total ?? selected.amount) || 0)}</span></p>
                       <p className="flex justify-between gap-2"><span className="text-slate-400">Remarks</span><span className="text-slate-700 text-right">{selected.remarks || selected.approvalRemarks || '—'}</span></p>

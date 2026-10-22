@@ -68,11 +68,20 @@ export function VendorBillInlineSlide({ po, instruction, onClose, onBillSaved, o
       const rawBills = Array.isArray(billsRes) ? billsRes : (billsRes?.results || billsRes?.rows || billsRes?.data || []);
       const finalPoNum = po?.finalPoNumber || po?.instruction?.finalPoNumber;
       const matchedBills = rawBills.filter(
-        (b) => String(b.purchase_order || b.purchaseOrderId || b.poId || '') === String(poId) ||
-               (poNumber && (b.poNumber === poNumber || b.po_number === poNumber)) ||
-               (finalPoNum && (b.poNumber === finalPoNum || b.po_number === finalPoNum))
+        (b) => String(b.purchase_order || b.purchaseOrderId || b.purchaseOrder || b.poId || '') === String(poId) ||
+               (poNumber && (b.poNumber === poNumber || b.po_number === poNumber || b.poRef === poNumber)) ||
+               (finalPoNum && (b.poNumber === finalPoNum || b.po_number === finalPoNum)) ||
+               (String(poId) && b.purchaseOrderId === poId)
       );
-      setBills(matchedBills);
+      setBills((prev) => {
+        const merged = [...matchedBills];
+        prev.forEach((pb) => {
+          if (!merged.some((m) => m.id === pb.id || (m.billNumber && (m.billNumber === pb.billNumber || m.billNumber === pb.bill_number)))) {
+            merged.push(pb);
+          }
+        });
+        return merged;
+      });
 
       const rawGrns = Array.isArray(grnRes) ? grnRes : (grnRes?.results || grnRes?.rows || grnRes?.data || []);
       const matchedGrns = rawGrns.filter(
@@ -193,19 +202,26 @@ export function VendorBillInlineSlide({ po, instruction, onClose, onBillSaved, o
       // 1. Try convert-to-bill or direct POST
       let createdBill = null;
       try {
+        const linePayload = formLines.map((l) => ({
+          itemId: l.itemId,
+          qty: Number(l.billingQty),
+          rate: Number(l.rate),
+          amount: Number(l.amount),
+        }));
         const payload = {
           vendorId: po?.vendorId || po?.partyId,
+          partyId: po?.vendorId || po?.partyId,
           purchaseOrderId: poId,
+          purchase_order: poId,
+          poId: poId,
+          poNumber: poNumber,
           vendorBillNumber: vendorBillNumber || `INV-${poNumber}-${Date.now().toString().slice(-4)}`,
           date: billDate,
           dueDate: dueDate,
+          due_date: dueDate,
           notes: remarks || `Vendor Bill recorded against PO ${poNumber}`,
-          items: formLines.map((l) => ({
-            itemId: l.itemId,
-            qty: Number(l.billingQty),
-            rate: Number(l.rate),
-            amount: Number(l.amount),
-          })),
+          lineItems: linePayload,
+          items: linePayload,
         };
         createdBill = await api.post('/purchase/bills/', payload);
       } catch (postErr) {
@@ -215,6 +231,10 @@ export function VendorBillInlineSlide({ po, instruction, onClose, onBillSaved, o
         } else {
           throw postErr;
         }
+      }
+
+      if (createdBill) {
+        setBills((prev) => [createdBill, ...prev]);
       }
 
       const billNo = createdBill?.billNumber || createdBill?.bill_number || 'New Bill';

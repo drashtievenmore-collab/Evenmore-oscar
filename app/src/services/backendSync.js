@@ -60,6 +60,9 @@ function lineToApi(line, index) {
   return compact({
     lineNo: line.lineNo ?? index + 1,
     itemId: line.itemId || line.inventoryItemId || undefined,
+    fabricQualityId: line.fabricQualityId || undefined,
+    designId: line.designId || undefined,
+    shadeId: line.shadeId || undefined,
     sku: line.sku || line.itemSku || undefined,
     itemName: line.itemName || line.name || undefined,
     description: line.description || line.name || line.itemName || '',
@@ -453,7 +456,9 @@ export const RESOURCES = {
     // `availableQty` / `status` come off the movement ledger, so the row the
     fromApi: (row) => ({
       ...row,
-      itemKind: 'Fabric',
+      // Fabric is the default kind, but machines must keep their kind or the
+      // Machines view is always empty.
+      itemKind: row.itemKind === 'Machine' ? 'Machine' : 'Fabric',
       vendor: row.vendor || '',
       fabricQuality: row.fabricQuality || row.fabric_quality || '',
       fabricDesign: row.fabricDesign || row.fabric_design || '',

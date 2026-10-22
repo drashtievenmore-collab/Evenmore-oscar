@@ -4937,9 +4937,13 @@ img { display: block; max-width: 100%; }
     print-color-adjust: exact !important;
   }
 
-  body * { visibility: hidden !important; }
+  /* When a modal or dedicated printable document exists, isolate and print only that element */
+  body:has(.printable-document) * {
+    visibility: hidden;
+  }
 
-  .printable-document, .printable-document * {
+  body:has(.printable-document) .printable-document,
+  body:has(.printable-document) .printable-document * {
     visibility: visible !important;
   }
 

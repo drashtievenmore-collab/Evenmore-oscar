@@ -12,6 +12,7 @@ import {
   statusPill, canMarkComplete, canVerify, canGeneratePo, errorText, fmtNum, listOf,
 } from './productionStatus';
 import GenerateFinalJobWorkPOModal from '../../purchase/GenerateFinalJobWorkPOModal';
+import { PrintProductionCompletionModal } from './PrintProductionCompletionModal';
 
 const fmtM = (n) => (n === null || n === undefined || n === '' ? '—' : `${fmtNum(n)} M`);
 const fmtDate = (d) => {
@@ -45,6 +46,7 @@ export default function ProductionCompletionVerificationPage() {
   const [rejectedQtyInput, setRejectedQtyInput] = useState('0');
   const [verifyReasonInput, setVerifyReasonInput] = useState('');
   const [menuOpen, setMenuOpen] = useState(false);
+  const [showPrintModal, setShowPrintModal] = useState(false);
 
   const piIdParam = searchParams.get('pi');
 
@@ -142,7 +144,7 @@ export default function ProductionCompletionVerificationPage() {
   const statusLabel = status || '—';
   const jobRateLabel = jobRate > 0 ? `₹ ${jobRate.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} / M` : '—';
 
-  const handlePrint = () => window.print();
+  const handlePrint = () => setShowPrintModal(true);
 
   const handleComplete = async () => {
     if (!activePiId) return;
@@ -530,6 +532,14 @@ export default function ProductionCompletionVerificationPage() {
           );
           if (activePiId) loadCompletionData(activePiId);
         }}
+      />
+
+      {/* Print Completion & Verification Certificate Modal */}
+      <PrintProductionCompletionModal
+        isOpen={showPrintModal}
+        onClose={() => setShowPrintModal(false)}
+        completionData={completionData}
+        detail={detail}
       />
     </div>
   );

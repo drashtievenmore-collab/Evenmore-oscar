@@ -434,8 +434,7 @@ export default function TakaTagPrintPage() {
       alert('Please select at least one taka to download printable PDF.');
       return;
     }
-    const pdfUrl = inventoryService.getTakaTagsPdfUrl(ids);
-    window.open(pdfUrl, '_blank');
+    inventoryService.openTakaTagsPdf(ids).catch((err) => alert(err?.message || 'Could not download PDF.'));
   };
 
   // Summary Metrics

@@ -1,8 +1,8 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import {
   X, FileText, Users, BarChart3, PackageCheck, Boxes, Plus, Trash2,
   UploadCloud, Calculator, CheckCircle2, XCircle, AlertTriangle, Package,
-  Info, Eye, ExternalLink, Download, FileSpreadsheet, Loader2,
+  Info, Eye, ExternalLink, Download, FileSpreadsheet, Loader2, Maximize2, Minimize2,
 } from 'lucide-react';
 import { api } from '../../services/api';
 import { useERP } from '../../context/ERPContext';
@@ -28,6 +28,40 @@ export default function GenerateFinalJobWorkPOModal({
   const [instructions, setInstructions] = useState([]);
   const [selectedPiId, setSelectedPiId] = useState(initialInstructionId || '');
   const [employees, setEmployees] = useState([]);
+
+  // Resizable & Fullscreen state
+  const [isFullscreen, setIsFullscreen] = useState(false);
+  const [modalWidth, setModalWidth] = useState(null);
+  const [modalHeight, setModalHeight] = useState(null);
+  const resizeRef = useRef(null);
+
+  const startResizing = (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const startX = e.clientX;
+    const startY = e.clientY;
+    const currentEl = resizeRef.current;
+    const rect = currentEl ? currentEl.getBoundingClientRect() : null;
+    const startWidth = rect ? rect.width : 1152;
+    const startHeight = rect ? rect.height : 700;
+
+    const onMouseMove = (moveEvent) => {
+      const deltaX = (moveEvent.clientX - startX) * 2;
+      const deltaY = moveEvent.clientY - startY;
+      const newWidth = Math.min(Math.max(startWidth + deltaX, 760), window.innerWidth - 20);
+      const newHeight = Math.min(Math.max(startHeight + deltaY, 450), window.innerHeight - 20);
+      setModalWidth(newWidth);
+      setModalHeight(newHeight);
+    };
+
+    const onMouseUp = () => {
+      window.removeEventListener('mousemove', onMouseMove);
+      window.removeEventListener('mouseup', onMouseUp);
+    };
+
+    window.addEventListener('mousemove', onMouseMove);
+    window.addEventListener('mouseup', onMouseUp);
+  };
 
   // Form Fields
   const [finalPoNo, setFinalPoNo] = useState('');
@@ -321,11 +355,30 @@ export default function GenerateFinalJobWorkPOModal({
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 p-2 sm:p-4 overflow-y-auto backdrop-blur-xs">
-      <div className="relative w-full max-w-6xl max-h-[94vh] flex flex-col rounded-2xl bg-white shadow-2xl border border-slate-200 overflow-hidden my-auto animate-in fade-in zoom-in-95 duration-150">
+    <div className={`fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 overflow-y-auto backdrop-blur-xs transition-all duration-150 ${isFullscreen ? 'p-0' : 'p-2 sm:p-4'}`}>
+      <div
+        ref={resizeRef}
+        style={
+          isFullscreen
+            ? { width: '100vw', height: '100vh', maxWidth: 'none', maxHeight: 'none' }
+            : {
+                width: modalWidth ? `${modalWidth}px` : undefined,
+                height: modalHeight ? `${modalHeight}px` : undefined,
+              }
+        }
+        className={`relative flex flex-col bg-white shadow-2xl border border-slate-200 overflow-hidden transition-all duration-150 ${
+          isFullscreen
+            ? 'w-full h-full rounded-none'
+            : `${modalWidth ? '' : 'w-full max-w-6xl'} ${modalHeight ? '' : 'max-h-[94vh]'} rounded-2xl my-auto`
+        } animate-in fade-in zoom-in-95 duration-150`}
+      >
         
         {/* Header */}
-        <div className="flex items-center justify-between border-b border-slate-100 px-6 py-4 bg-white sticky top-0 z-10">
+        <div
+          onDoubleClick={() => setIsFullscreen((prev) => !prev)}
+          className="flex items-center justify-between border-b border-slate-100 px-6 py-3.5 bg-white sticky top-0 z-10 select-none cursor-default"
+          title="Double-click header to toggle maximize"
+        >
           <div className="flex items-center gap-3">
             <div className="grid h-10 w-10 place-items-center rounded-xl bg-blue-50 text-blue-600 border border-blue-100">
               <FileSpreadsheet size={22} />
@@ -337,13 +390,24 @@ export default function GenerateFinalJobWorkPOModal({
               </p>
             </div>
           </div>
-          <button
-            type="button"
-            onClick={onClose}
-            className="grid h-8 w-8 place-items-center rounded-lg text-slate-400 hover:bg-slate-100 hover:text-slate-600 transition-colors"
-          >
-            <X size={19} />
-          </button>
+          <div className="flex items-center gap-1.5">
+            <button
+              type="button"
+              onClick={() => setIsFullscreen((prev) => !prev)}
+              className="grid h-8 w-8 place-items-center rounded-lg text-slate-400 hover:bg-slate-100 hover:text-slate-700 transition-colors"
+              title={isFullscreen ? 'Exit Fullscreen' : 'Maximize Fullscreen'}
+            >
+              {isFullscreen ? <Minimize2 size={17} /> : <Maximize2 size={17} />}
+            </button>
+            <button
+              type="button"
+              onClick={onClose}
+              className="grid h-8 w-8 place-items-center rounded-lg text-slate-400 hover:bg-slate-100 hover:text-slate-700 transition-colors"
+              title="Close"
+            >
+              <X size={19} />
+            </button>
+          </div>
         </div>
 
         {/* Modal Body */}
@@ -358,11 +422,11 @@ export default function GenerateFinalJobWorkPOModal({
           {/* Top 3 Columns: 1. Reference, 2. Vendor/Fabric, 3. Production Summary */}
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-5">
             
-            {/* 1. PO & Production Reference */}
+            {/* PO & Production Reference */}
             <div className="lg:col-span-4 rounded-xl border border-[#e2eaf5] bg-white p-4 shadow-[0_1px_2px_rgba(16,42,82,0.04)] space-y-3.5">
               <div className="flex items-center gap-2 border-b border-slate-100 pb-2.5">
                 <FileText size={16} className="text-blue-600" />
-                <h3 className="text-[13px] font-bold text-[#17294e]">1. PO & Production Reference</h3>
+                <h3 className="text-[13px] font-bold text-[#17294e]">PO & Production Reference</h3>
               </div>
 
               <div className="grid grid-cols-2 gap-3">
@@ -460,11 +524,11 @@ export default function GenerateFinalJobWorkPOModal({
               </div>
             </div>
 
-            {/* 2. Vendor & Fabric Details */}
+            {/* Vendor & Fabric Details */}
             <div className="lg:col-span-4 rounded-xl border border-[#e2eaf5] bg-white p-4 shadow-[0_1px_2px_rgba(16,42,82,0.04)] space-y-3.5">
               <div className="flex items-center gap-2 border-b border-slate-100 pb-2.5">
                 <Users size={16} className="text-blue-600" />
-                <h3 className="text-[13px] font-bold text-[#17294e]">2. Vendor & Fabric Details</h3>
+                <h3 className="text-[13px] font-bold text-[#17294e]">Vendor & Fabric Details</h3>
               </div>
 
               <div className="grid grid-cols-2 gap-3">
@@ -567,11 +631,11 @@ export default function GenerateFinalJobWorkPOModal({
               </div>
             </div>
 
-            {/* 3. Production Summary (Auto from Daily Production) */}
+            {/* Production Summary (Auto from Daily Production) */}
             <div className="lg:col-span-4 rounded-xl border border-[#e2eaf5] bg-white p-4 shadow-[0_1px_2px_rgba(16,42,82,0.04)] space-y-3.5">
               <div className="flex items-center gap-2 border-b border-slate-100 pb-2.5">
                 <BarChart3 size={16} className="text-blue-600" />
-                <h3 className="text-[13px] font-bold text-[#17294e]">3. Production Summary (Auto from Daily Production)</h3>
+                <h3 className="text-[13px] font-bold text-[#17294e]">Production Summary (Auto from Daily Production)</h3>
               </div>
 
               <div className="grid grid-cols-2 gap-2.5">
@@ -649,11 +713,11 @@ export default function GenerateFinalJobWorkPOModal({
 
           </div>
 
-          {/* 4. Verified Production Details Table */}
+          {/* Verified Production Details Table */}
           <div className="rounded-xl border border-[#e2eaf5] bg-white shadow-[0_1px_2px_rgba(16,42,82,0.04)] overflow-hidden">
             <div className="flex items-center gap-2 border-b border-slate-100 px-4 py-3 bg-white">
               <PackageCheck size={16} className="text-blue-600" />
-              <h3 className="text-[13px] font-bold text-[#17294e]">4. Verified Production Details</h3>
+              <h3 className="text-[13px] font-bold text-[#17294e]">Verified Production Details</h3>
             </div>
 
             <div className="overflow-x-auto">
@@ -702,12 +766,12 @@ export default function GenerateFinalJobWorkPOModal({
             </div>
           </div>
 
-          {/* 5. Final PO Item Details */}
+          {/* Final PO Item Details */}
           <div className="rounded-xl border border-[#e2eaf5] bg-white shadow-[0_1px_2px_rgba(16,42,82,0.04)] overflow-hidden">
             <div className="flex items-center justify-between border-b border-slate-100 px-4 py-3 bg-white">
               <div className="flex items-center gap-2">
                 <Boxes size={16} className="text-blue-600" />
-                <h3 className="text-[13px] font-bold text-[#17294e]">5. Final PO Item Details</h3>
+                <h3 className="text-[13px] font-bold text-[#17294e]">Final PO Item Details</h3>
               </div>
               <button
                 type="button"
@@ -813,14 +877,14 @@ export default function GenerateFinalJobWorkPOModal({
             </div>
           </div>
 
-          {/* Bottom Grid: 6. Remarks & Attachments, 7. Amount Summary */}
+          {/* Bottom Grid: Remarks & Attachments, Amount Summary */}
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-5">
             
-            {/* 6. Remarks & Attachments */}
+            {/* Remarks & Attachments */}
             <div className="lg:col-span-8 rounded-xl border border-[#e2eaf5] bg-white p-4 shadow-[0_1px_2px_rgba(16,42,82,0.04)] space-y-3.5">
               <div className="flex items-center gap-2 border-b border-slate-100 pb-2.5">
                 <FileText size={16} className="text-blue-600" />
-                <h3 className="text-[13px] font-bold text-[#17294e]">6. Remarks & Attachments</h3>
+                <h3 className="text-[13px] font-bold text-[#17294e]">Remarks & Attachments</h3>
               </div>
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -875,12 +939,12 @@ export default function GenerateFinalJobWorkPOModal({
               </div>
             </div>
 
-            {/* 7. Amount Summary */}
+            {/* Amount Summary */}
             <div className="lg:col-span-4 rounded-xl border border-[#e2eaf5] bg-white p-4 shadow-[0_1px_2px_rgba(16,42,82,0.04)] space-y-3 flex flex-col justify-between">
               <div>
                 <div className="flex items-center gap-2 border-b border-slate-100 pb-2.5 mb-3">
                   <Calculator size={16} className="text-blue-600" />
-                  <h3 className="text-[13px] font-bold text-[#17294e]">7. Amount Summary</h3>
+                  <h3 className="text-[13px] font-bold text-[#17294e]">Amount Summary</h3>
                 </div>
 
                 <div className="space-y-2 text-[12px]">
@@ -958,6 +1022,30 @@ export default function GenerateFinalJobWorkPOModal({
           </div>
 
         </form>
+
+        {/* Corner Resize Grip */}
+        {!isFullscreen && (
+          <div
+            onMouseDown={startResizing}
+            className="absolute bottom-1 right-1 w-5 h-5 cursor-se-resize flex items-center justify-center text-slate-400 hover:text-blue-600 select-none z-20 group"
+            title="Drag to resize dialog"
+          >
+            <div className="flex flex-col items-end gap-0.5 p-0.5 pointer-events-none">
+              <div className="flex gap-0.5">
+                <span className="w-1 h-1 rounded-full bg-slate-300 group-hover:bg-blue-500" />
+              </div>
+              <div className="flex gap-0.5">
+                <span className="w-1 h-1 rounded-full bg-slate-300 group-hover:bg-blue-500" />
+                <span className="w-1 h-1 rounded-full bg-slate-300 group-hover:bg-blue-500" />
+              </div>
+              <div className="flex gap-0.5">
+                <span className="w-1 h-1 rounded-full bg-slate-300 group-hover:bg-blue-500" />
+                <span className="w-1 h-1 rounded-full bg-slate-300 group-hover:bg-blue-500" />
+                <span className="w-1 h-1 rounded-full bg-slate-300 group-hover:bg-blue-500" />
+              </div>
+            </div>
+          </div>
+        )}
 
       </div>
     </div>

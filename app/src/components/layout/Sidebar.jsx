@@ -254,7 +254,7 @@ const NAV = [
     children: [
       { label: 'Purchase Orders', icon: ClipboardList, to: '/purchase/orders' },
       { label: 'Supplier Delivery', icon: Truck, to: '/purchase/deliveries' },
-      { label: 'Final Job Work POs', icon: FileSpreadsheet, to: '/purchase/final-job-work-pos', pill: 'New' },
+      { label: 'Final Job Work POs', icon: FileSpreadsheet, to: '/purchase/final-job-work-pos' },
       { label: 'Goods Receipt', icon: PackageCheck, to: '/purchase/receipts' },
       { label: 'Supplier Reconciliation', icon: GitCompare, to: '/purchase/reconciliation' },
       { label: 'Supplier Ledger', icon: BookOpen, to: '/purchase/supplier-ledger' },

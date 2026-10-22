@@ -44,14 +44,17 @@ const emptyForm = () => ({
   qualityId: '',
   designId: '',
   shadeId: '',
+  categoryId: '',
+  fabricTypeId: '',
   code: '',
   name: '',
   uom: 'Meter',
   uomId: '',
-  fabricType: 'Woven',
+  fabricType: '',
   construction: 'Plain',
   description: '',
   imageUrl: '',
+  rate: '',
   isActive: true,
 });
 
@@ -67,6 +70,8 @@ export default function FabricVariantMasterPage() {
   const [designs, setDesigns] = useState([]);
   const [shades, setShades] = useState([]);
   const [units, setUnits] = useState([]);
+  const [categories, setCategories] = useState([]);
+  const [fabricTypes, setFabricTypes] = useState([]);
   const [loading, setLoading] = useState(backendOn);
   const [loadError, setLoadError] = useState('');
 
@@ -106,12 +111,14 @@ export default function FabricVariantMasterPage() {
       return;
     }
     setLoading(true);
-    const [variantRes, qualityRes, designRes, shadeRes, unitRes] = await Promise.all([
+    const [variantRes, qualityRes, designRes, shadeRes, unitRes, categoryRes, fabricTypeRes] = await Promise.all([
       fabricMasterSync.pull('fabricVariants'),
       fabricMasterSync.pull('fabricQualities'),
       fabricMasterSync.pull('designs'),
       fabricMasterSync.pull('shades'),
       fabricMasterSync.pull('units'),
+      fabricMasterSync.pull('categories'),
+      fabricMasterSync.pull('fabricTypes'),
     ]);
     if (variantRes === null) {
       setLoadError('Could not load fabric items from the server.');
@@ -123,6 +130,8 @@ export default function FabricVariantMasterPage() {
     setDesigns(designRes || []);
     setShades(shadeRes || []);
     setUnits(unitRes || []);
+    setCategories(categoryRes || []);
+    setFabricTypes(fabricTypeRes || []);
     setLoading(false);
   }, [backendOn]);
 
@@ -154,6 +163,8 @@ export default function FabricVariantMasterPage() {
     const design = byId(designs, r.designId);
     const shade = byId(shades, r.shadeId);
     const unit = byId(units, r.uomId);
+    const category = byId(categories, r.categoryId);
+    const fabricTypeObj = byId(fabricTypes, r.fabricTypeId);
     return {
       ...r,
       qualityCode: r.qualityCode ?? quality?.code ?? null,
@@ -163,8 +174,12 @@ export default function FabricVariantMasterPage() {
       shadeCode: r.shadeCode ?? shade?.code ?? null,
       shadeName: r.shadeName ?? shade?.name ?? '—',
       shadeHex: r.shadeHex ?? shade?.hexColor ?? null,
+      categoryName: r.categoryName ?? category?.name ?? '—',
+      categoryCode: r.categoryCode ?? category?.code ?? null,
+      fabricTypeName: r.fabricTypeName ?? fabricTypeObj?.name ?? r.fabricType ?? '—',
+      fabricTypeCode: r.fabricTypeCode ?? fabricTypeObj?.code ?? null,
       uom: r.uom ?? unit?.code ?? quality?.uom ?? 'Meter',
-      fabricType: r.fabricType || quality?.fabricType || 'Woven',
+      fabricType: r.fabricType || fabricTypeObj?.name || quality?.fabricType || '',
       construction: r.construction || quality?.weave || 'Plain',
     };
   }, [qualities, designs, shades, units]);
@@ -213,7 +228,8 @@ export default function FabricVariantMasterPage() {
       name: nameParts.join(' - '),
       description: desc,
       uom: q?.uom || next.uom || 'Meter',
-      fabricType: q?.fabricType || next.fabricType || 'Woven',
+      fabricType: q?.fabricTypeName || q?.fabricType || next.fabricType || '',
+      fabricTypeId: q?.fabricTypeId || next.fabricTypeId || '',
       construction: q?.weave || next.construction || 'Plain',
     };
   };
@@ -229,7 +245,12 @@ export default function FabricVariantMasterPage() {
       if (key === 'qualityId') {
         if (s.uom) next.uom = s.uom;
         if (s.fabricType) next.fabricType = s.fabricType;
+        if (s.fabricTypeId) next.fabricTypeId = s.fabricTypeId;
         if (s.construction) next.construction = s.construction;
+        if (!next.categoryId && categories.length > 0) {
+          const defaultCat = categories.find((c) => c.code === 'CAT-FABRIC' || c.name.toLowerCase().includes('grey')) || categories[0];
+          if (defaultCat) next.categoryId = defaultCat.id;
+        }
       }
       return next;
     });
@@ -239,22 +260,29 @@ export default function FabricVariantMasterPage() {
   const openPanel = (mode, row = null) => {
     setActiveMenuId(null);
     setEditingRow(row);
+    const defaultCat = categories.find((c) => c.code === 'CAT-FABRIC' || c.name.toLowerCase().includes('grey')) || categories[0];
     setForm(row
       ? {
           qualityId: row.qualityId || '',
           designId: row.designId || '',
           shadeId: row.shadeId || '',
+          categoryId: row.categoryId || defaultCat?.id || '',
+          fabricTypeId: row.fabricTypeId || '',
           code: row.code || '',
           name: row.name || '',
           uom: row.uom || 'Meter',
           uomId: row.uomId || '',
-          fabricType: row.fabricType || 'Woven',
+          fabricType: row.fabricType || '',
           construction: row.construction || 'Plain',
+          rate: row.rate !== undefined && row.rate !== null ? row.rate : '',
           description: row.description || '',
           imageUrl: row.imageUrl || '',
           isActive: row.isActive !== false,
         }
-      : emptyForm());
+      : {
+          ...emptyForm(),
+          categoryId: defaultCat?.id || '',
+        });
     setCodeTouched(Boolean(row));
     setNameTouched(Boolean(row));
     setDescTouched(Boolean(row));
@@ -309,19 +337,20 @@ export default function FabricVariantMasterPage() {
     if (!form.code.trim()) return setFormError('Item Code is required.');
     if (!form.name.trim()) return setFormError('Item Name is required.');
     if (!form.qualityId) return setFormError('Fabric Quality is required.');
-    if (!form.designId) return setFormError('Design is required.');
-    if (!form.shadeId) return setFormError('Shade is required.');
 
     const clean = {
       qualityId: form.qualityId,
       designId: form.designId || null,
       shadeId: form.shadeId || null,
+      categoryId: form.categoryId || null,
+      fabricTypeId: form.fabricTypeId || null,
       code: form.code.trim().toUpperCase(),
       name: form.name.trim(),
       uom: form.uom || 'Meter',
       uomId: form.uomId || null,
-      fabricType: form.fabricType || 'Woven',
+      fabricType: form.fabricType || null,
       construction: form.construction || 'Plain',
+      rate: form.rate !== '' && form.rate !== null && form.rate !== undefined ? Number(form.rate) : null,
       description: form.description?.trim() || null,
       imageUrl: form.imageUrl || null,
       isActive: Boolean(form.isActive),
@@ -527,6 +556,8 @@ export default function FabricVariantMasterPage() {
                 <th className="px-3.5 py-3.5 font-semibold text-slate-800">Item Code</th>
                 <th className="px-3.5 py-3.5 font-semibold text-slate-800">Item Name</th>
                 <th className="px-3.5 py-3.5 font-semibold text-slate-800">Quality</th>
+                <th className="px-3.5 py-3.5 font-semibold text-slate-800">Category</th>
+                <th className="px-3.5 py-3.5 font-semibold text-slate-800">Type</th>
                 <th className="px-3.5 py-3.5 font-semibold text-slate-800">Design</th>
                 <th className="px-3.5 py-3.5 font-semibold text-slate-800">Shade</th>
                 <th className="px-3.5 py-3.5 font-semibold text-slate-800">UOM</th>
@@ -550,6 +581,12 @@ export default function FabricVariantMasterPage() {
                     </td>
                     <td className="px-3.5 py-3.5 text-slate-700">
                       {r.qualityCode || r.qualityName || '—'}
+                    </td>
+                    <td className="px-3.5 py-3.5 text-slate-700">
+                      {r.categoryName || '—'}
+                    </td>
+                    <td className="px-3.5 py-3.5 text-slate-700">
+                      {r.fabricTypeName || r.fabricType || '—'}
                     </td>
                     <td className="px-3.5 py-3.5 text-slate-700">
                       {r.designCode || r.designName || '—'}
@@ -817,7 +854,49 @@ export default function FabricVariantMasterPage() {
                     </div>
                   </div>
 
-                  {/* Row 2: Fabric Quality * | Design * */}
+                  {/* Row 2: Category | Fabric Type / Classification */}
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
+                    <div>
+                      <label className="block font-semibold text-slate-700 mb-1">Category</label>
+                      <select
+                        value={form.categoryId || ''}
+                        disabled={readOnly}
+                        onChange={(e) => setForm({ ...form, categoryId: e.target.value })}
+                        className={`${inputClass} cursor-pointer`}
+                      >
+                        <option value="">Select fabric category</option>
+                        {categories.filter((c) => c.isActive !== false).map((c) => (
+                          <option key={c.id} value={c.id}>{c.name} {c.code ? `(${c.code})` : ''}</option>
+                        ))}
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block font-semibold text-slate-700 mb-1">Fabric Type / Classification</label>
+                      <select
+                        value={form.fabricTypeId || ''}
+                        disabled={readOnly}
+                        onChange={(e) => {
+                          const val = e.target.value;
+                          const matched = fabricTypes.find((t) => t.id === val);
+                          setForm({
+                            ...form,
+                            fabricTypeId: val,
+                            fabricType: matched?.name || form.fabricType,
+                          });
+                        }}
+                        className={`${inputClass} cursor-pointer`}
+                      >
+                        <option value="">Select fabric type</option>
+                        {fabricTypes.map((t) => (
+                          <option key={t.id} value={t.id}>
+                            {t.name} {t.processStage ? `(${t.processStage})` : ''}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  </div>
+
+                  {/* Row 3: Fabric Quality * | Design */}
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
                     <div>
                       <label className="block font-semibold text-slate-700 mb-1">
@@ -837,7 +916,7 @@ export default function FabricVariantMasterPage() {
                     </div>
                     <div>
                       <label className="block font-semibold text-slate-700 mb-1">
-                        Design <span className="text-rose-500">*</span>
+                        Design <span className="text-slate-400 font-normal">(Optional for Grey)</span>
                       </label>
                       <select
                         value={form.designId}
@@ -845,7 +924,7 @@ export default function FabricVariantMasterPage() {
                         onChange={(e) => setPart('designId', e.target.value)}
                         className={`${inputClass} cursor-pointer`}
                       >
-                        <option value="">Select design</option>
+                        <option value="">Plain / None</option>
                         {options(designs, form.designId).map((d) => (
                           <option key={d.id} value={d.id}>{d.code ? `${d.code} (${d.name})` : d.name}</option>
                         ))}
@@ -853,11 +932,11 @@ export default function FabricVariantMasterPage() {
                     </div>
                   </div>
 
-                  {/* Row 3: Shade * | UOM * */}
+                  {/* Row 4: Shade | UOM * */}
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
                     <div>
                       <label className="block font-semibold text-slate-700 mb-1">
-                        Shade <span className="text-rose-500">*</span>
+                        Shade <span className="text-slate-400 font-normal">(Optional for Grey)</span>
                       </label>
                       <select
                         value={form.shadeId}
@@ -865,7 +944,7 @@ export default function FabricVariantMasterPage() {
                         onChange={(e) => setPart('shadeId', e.target.value)}
                         className={`${inputClass} cursor-pointer`}
                       >
-                        <option value="">Select shade</option>
+                        <option value="">Natural Grey / None</option>
                         {options(shades, form.shadeId).map((s) => (
                           <option key={s.id} value={s.id}>{s.code ? `${s.code} (${s.name})` : s.name}</option>
                         ))}
@@ -878,12 +957,14 @@ export default function FabricVariantMasterPage() {
                       <select
                         value={form.uom}
                         disabled={readOnly}
-                        onChange={(e) => setForm({ ...form, uom: e.target.value })}
+                        onChange={(e) => {
+                          const val = e.target.value;
+                          const uObj = units.find((u) => (u.label || u.code) === val);
+                          setForm({ ...form, uom: val, uomId: uObj?.id || form.uomId });
+                        }}
                         className={`${inputClass} cursor-pointer`}
                       >
                         <option value="">Select UOM</option>
-                        {/* Active units from the UOM master; a saved unit that was
-                            later inactivated stays visible so the record still reads right. */}
                         {form.uom && !units.some((u) => u.isActive !== false && (u.label === form.uom || u.code === form.uom)) && (
                           <option value={form.uom}>{form.uom}</option>
                         )}
@@ -896,23 +977,8 @@ export default function FabricVariantMasterPage() {
                     </div>
                   </div>
 
-                  {/* Row 4: Fabric Type | Construction */}
+                  {/* Row 5: Construction | Standard Rate */}
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
-                    <div>
-                      <label className="block font-semibold text-slate-700 mb-1">Fabric Type</label>
-                      <select
-                        value={form.fabricType}
-                        disabled={readOnly}
-                        onChange={(e) => setForm({ ...form, fabricType: e.target.value })}
-                        className={`${inputClass} cursor-pointer`}
-                      >
-                        <option value="Woven">Woven</option>
-                        <option value="Knitted">Knitted</option>
-                        <option value="Non-Woven">Non-Woven</option>
-                        <option value="Silk">Silk</option>
-                        <option value="Other">Other</option>
-                      </select>
-                    </div>
                     <div>
                       <label className="block font-semibold text-slate-700 mb-1">Construction</label>
                       <select
@@ -928,6 +994,19 @@ export default function FabricVariantMasterPage() {
                         <option value="Jacquard">Jacquard</option>
                         <option value="Other">Other</option>
                       </select>
+                    </div>
+                    <div>
+                      <label className="block font-semibold text-slate-700 mb-1">Standard Rate (₹)</label>
+                      <input
+                        type="number"
+                        min="0"
+                        step="0.01"
+                        value={form.rate}
+                        disabled={readOnly}
+                        onChange={(e) => setForm({ ...form, rate: e.target.value })}
+                        placeholder="e.g. 50.00"
+                        className={`${inputClass} font-mono`}
+                      />
                     </div>
                   </div>
 

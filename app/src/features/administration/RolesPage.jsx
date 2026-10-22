@@ -228,6 +228,65 @@ function text(value) {
   return String(value ?? '').toLowerCase();
 }
 
+const ROLE_PALETTES = [
+  { bg: 'bg-blue-50', text: 'text-blue-700', border: 'border-blue-200' },
+  { bg: 'bg-emerald-50', text: 'text-emerald-700', border: 'border-emerald-200' },
+  { bg: 'bg-purple-50', text: 'text-purple-700', border: 'border-purple-200' },
+  { bg: 'bg-amber-50', text: 'text-amber-700', border: 'border-amber-200' },
+  { bg: 'bg-rose-50', text: 'text-rose-700', border: 'border-rose-200' },
+  { bg: 'bg-indigo-50', text: 'text-indigo-700', border: 'border-indigo-200' },
+  { bg: 'bg-teal-50', text: 'text-teal-700', border: 'border-teal-200' },
+  { bg: 'bg-sky-50', text: 'text-sky-700', border: 'border-sky-200' },
+];
+
+function getRoleStyle(role) {
+  const code = String(role?.code || '').toUpperCase();
+  const name = String(role?.name || '').toUpperCase();
+
+  if (code.includes('OWNER') || name.includes('OWNER') || name.includes('SUPER')) {
+    return { bg: 'bg-purple-50', text: 'text-purple-700', border: 'border-purple-200', initials: 'SU' };
+  }
+  if (code === 'AD' || code.includes('ADMIN') || name.includes('ADMIN')) {
+    return { bg: 'bg-blue-50', text: 'text-blue-700', border: 'border-blue-200', initials: 'AD' };
+  }
+  if (code.includes('ACCOUNT') || name.includes('ACCOUNT') || name.includes('FINANCE')) {
+    return { bg: 'bg-emerald-50', text: 'text-emerald-700', border: 'border-emerald-200', initials: 'AC' };
+  }
+  if (code.includes('SALES') || name.includes('SALES')) {
+    return { bg: 'bg-amber-50', text: 'text-amber-700', border: 'border-amber-200', initials: 'SL' };
+  }
+  if (code.includes('PURCHASE') || name.includes('PURCHASE')) {
+    return { bg: 'bg-indigo-50', text: 'text-indigo-700', border: 'border-indigo-200', initials: 'PO' };
+  }
+  if (code.includes('PROD') || name.includes('PRODUCTION')) {
+    return { bg: 'bg-teal-50', text: 'text-teal-700', border: 'border-teal-200', initials: 'PR' };
+  }
+  if (code.includes('QC') || name.includes('QUALITY') || name.includes('QC')) {
+    return { bg: 'bg-rose-50', text: 'text-rose-700', border: 'border-rose-200', initials: 'QC' };
+  }
+  if (code.includes('INV') || code.includes('GODOWN') || name.includes('INVENTORY') || name.includes('GODOWN')) {
+    return { bg: 'bg-cyan-50', text: 'text-cyan-700', border: 'border-cyan-200', initials: 'IN' };
+  }
+  if (code.includes('LOGISTIC') || code.includes('DISPATCH') || name.includes('DISPATCH') || name.includes('LOGISTIC')) {
+    return { bg: 'bg-sky-50', text: 'text-sky-700', border: 'border-sky-200', initials: 'LG' };
+  }
+  if (code.includes('HR') || name.includes('HR') || name.includes('PAYROLL')) {
+    return { bg: 'bg-pink-50', text: 'text-pink-700', border: 'border-pink-200', initials: 'HR' };
+  }
+
+  const words = (role?.name || 'Role').trim().split(/\s+/);
+  const initials = words.length >= 2
+    ? (words[0][0] + words[1][0]).toUpperCase()
+    : words[0].slice(0, 2).toUpperCase();
+
+  let hash = 0;
+  for (let i = 0; i < (role?.name || '').length; i++) {
+    hash = (hash << 5) - hash + role.name.charCodeAt(i);
+  }
+  const palette = ROLE_PALETTES[Math.abs(hash) % ROLE_PALETTES.length];
+  return { ...palette, initials };
+}
+
 function getGroupIcon(type) {
   switch (type) {
     case 'dashboard':
@@ -261,14 +320,40 @@ export function RolesPage() {
   const [roles, setRoles] = useState([]);
   const [selectedRoleId, setSelectedRoleId] = useState(null);
 
+  const [userCounts, setUserCounts] = useState({});
+
   useEffect(() => {
     let cancelled = false;
-    adminSync.pull('roles').then((rows) => {
-      if (cancelled || !rows) return;
-      // The editor reads `selectedPermissions`; the API calls them `permissions`.
-      const mapped = rows.map((r) => ({ ...r, selectedPermissions: r.permissions || [] }));
-      setRoles(mapped);
-      setSelectedRoleId((current) => current || mapped[0]?.id || null);
+    Promise.all([
+      adminSync.pull('roles').catch(() => []),
+      adminSync.pull('users').catch(() => [])
+    ]).then(([rows, userRows]) => {
+      if (cancelled) return;
+      const counts = {};
+      if (Array.isArray(userRows)) {
+        for (const u of userRows) {
+          const rId = u.roleId || u.role_id || u.role;
+          const rCode = (u.roleCode || u.role_code || '').toLowerCase();
+          const rName = (u.role || u.roleName || '').toLowerCase();
+          if (rId) counts[rId] = (counts[rId] || 0) + 1;
+          if (rCode) counts[rCode] = (counts[rCode] || 0) + 1;
+          if (rName) counts[rName] = (counts[rName] || 0) + 1;
+        }
+      }
+      setUserCounts(counts);
+
+      if (Array.isArray(rows)) {
+        const mapped = rows.map((r) => {
+          const c = r.usersCount ?? counts[r.id] ?? counts[(r.code || '').toLowerCase()] ?? counts[(r.name || '').toLowerCase()] ?? 0;
+          return {
+            ...r,
+            usersCount: c,
+            selectedPermissions: r.permissions || [],
+          };
+        });
+        setRoles(mapped);
+        setSelectedRoleId((current) => current || mapped[0]?.id || null);
+      }
     });
     return () => { cancelled = true; };
   }, []);
@@ -599,6 +684,10 @@ export function RolesPage() {
             {paginatedRoles.map((r) => {
               const isSelected = r.id === selectedRoleId;
               const isMenuOpen = openMenuRoleId === r.id;
+              const style = getRoleStyle(r);
+              const count = r.usersCount ?? (userCounts[r.id] || userCounts[(r.code || '').toLowerCase()] || 0);
+              const permCount = (r.selectedPermissions || r.permissions || []).length;
+
               return (
                 <div
                   key={r.id}
@@ -606,32 +695,50 @@ export function RolesPage() {
                     setSelectedRoleId(r.id);
                     setOpenMenuRoleId(null);
                   }}
-                  className={`relative flex items-center justify-between p-3 rounded-2xl border transition-all cursor-pointer select-none ${
+                  className={`group relative flex items-start justify-between p-3.5 rounded-2xl border transition-all cursor-pointer select-none ${
                     isSelected
-                      ? 'border-[#1f6bff] bg-blue-50/20 ring-1 ring-[#1f6bff] shadow-xs'
-                      : 'border-slate-100 hover:border-slate-200 hover:bg-slate-50/70'
+                      ? 'border-[#1f6bff] bg-blue-50/30 ring-2 ring-[#1f6bff]/20 shadow-xs'
+                      : 'border-slate-200/80 bg-white hover:border-slate-300 hover:bg-slate-50/70 hover:shadow-2xs'
                   }`}
                 >
-                  <div className="flex items-center gap-3 min-w-0">
+                  <div className="flex items-start gap-3 min-w-0 flex-1 pr-2">
+                    {/* 2-Letter Initials in soft background pill - NEVER overflows */}
                     <div
-                      className={`w-10 h-10 rounded-full flex items-center justify-center font-bold text-xs flex-shrink-0 ${r.badgeColor}`}
+                      className={`w-10 h-10 rounded-xl flex items-center justify-center font-bold text-xs shrink-0 border ${style.bg} ${style.text} ${style.border} shadow-2xs`}
                     >
-                      {r.code}
+                      {style.initials}
                     </div>
-                    <div className="min-w-0">
-                      <h4
-                        className={`text-sm font-bold truncate leading-tight ${
-                          isSelected ? 'text-[#1f6bff]' : 'text-slate-800'
-                        }`}
-                      >
-                        {r.name}
-                      </h4>
-                      <p className="text-[11px] text-slate-400 truncate mt-0.5">
-                        {r.description}
-                      </p>
-                      <p className="text-[11px] text-slate-500 font-medium mt-0.5">
-                        {r.usersCount} users
-                      </p>
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center gap-1.5 flex-wrap">
+                        <h4
+                          className={`text-xs font-bold truncate leading-tight ${
+                            isSelected ? 'text-[#1f6bff]' : 'text-slate-800 group-hover:text-slate-900'
+                          }`}
+                        >
+                          {r.name}
+                        </h4>
+                        {r.code && (
+                          <span className="px-1.5 py-0.5 rounded text-[9px] font-mono font-bold uppercase bg-slate-100 text-slate-500 border border-slate-200/70 shrink-0">
+                            {r.code}
+                          </span>
+                        )}
+                      </div>
+                      {r.description && (
+                        <p className="text-[11px] text-slate-500 line-clamp-1 mt-1 leading-snug" title={r.description}>
+                          {r.description}
+                        </p>
+                      )}
+                      <div className="flex items-center gap-2 mt-1.5 text-[10.5px] text-slate-400 font-medium">
+                        <span className="inline-flex items-center gap-1">
+                          <Users size={11} className="text-slate-400" />
+                          <span>{count} {count === 1 ? 'user' : 'users'}</span>
+                        </span>
+                        <span className="text-slate-300">•</span>
+                        <span className="inline-flex items-center gap-1">
+                          <Shield size={11} className="text-slate-400" />
+                          <span>{permCount} perms</span>
+                        </span>
+                      </div>
                     </div>
                   </div>
 
@@ -773,50 +880,80 @@ export function RolesPage() {
             </p>
           </div>
 
-          <div className="flex flex-col md:flex-row items-stretch md:items-center justify-between border-b border-slate-200 gap-3 pb-2">
-            <div className="flex flex-nowrap items-center gap-1 overflow-x-auto no-scrollbar scrollbar-none py-1">
-              {MODULE_TABS.map((tab) => {
-                const isActive = activeTab === tab;
-                return (
-                  <button
-                    key={tab}
-                    onClick={() => {
-                      setActiveTab(tab);
-                      setPermissionSearchQuery('');
-                    }}
-                    className={`shrink-0 lg:shrink px-3 py-1.5 text-xs font-semibold rounded-lg transition-all whitespace-nowrap ${
-                      isActive
-                        ? 'text-[#1f6bff] border-b-2 border-[#1f6bff] rounded-b-none bg-blue-50/30'
-                        : 'text-slate-500 hover:text-slate-800 hover:bg-slate-50'
-                    }`}
-                  >
-                    {tab}
-                  </button>
-                );
-              })}
-            </div>
+          {/* Module Tabs Navigation Bar */}
+          <div className="space-y-3 border-b border-slate-200/80 pb-3">
+            <div className="flex items-center justify-between gap-3 flex-wrap">
+              {/* Horizontal Scrollable Tabs */}
+              <div className="flex items-center gap-1.5 overflow-x-auto pb-1 max-w-full scrollbar-thin">
+                {MODULE_TABS.map((tab) => {
+                  const isActive = activeTab === tab;
+                  const groups = DEFAULT_MODULE_PERMISSIONS[tab] || [];
+                  const totalPermsInTab = groups.reduce((s, g) => s + (g.permissions || []).length, 0);
+                  const selectedInTab = groups.reduce((s, g) => 
+                    s + (g.permissions || []).filter((p) => editingPermissions.includes(p.id)).length, 
+                  0);
 
-            <div className="flex flex-wrap lg:flex-nowrap items-center gap-3">
-              <div className="relative min-w-[180px] flex-1 md:flex-initial">
-                <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400" />
-                <input
-                  type="text"
-                  placeholder="Search permissions..."
-                  value={permissionSearchQuery}
-                  onChange={(e) => setPermissionSearchQuery(e.target.value)}
-                  className="w-full pl-8 pr-3 py-1.5 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-700 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                />
+                  return (
+                    <button
+                      key={tab}
+                      type="button"
+                      onClick={() => {
+                        setActiveTab(tab);
+                        setPermissionSearchQuery('');
+                      }}
+                      className={`px-3 py-1.5 text-xs font-bold rounded-xl transition-all whitespace-nowrap flex items-center gap-1.5 cursor-pointer ${
+                        isActive
+                          ? 'bg-[#1f6bff] text-white shadow-xs'
+                          : 'bg-slate-100/90 text-slate-600 hover:bg-slate-200/80 hover:text-slate-900'
+                      }`}
+                    >
+                      <span>{tab}</span>
+                      {totalPermsInTab > 0 && (
+                        <span
+                          className={`px-1.5 py-0.2 rounded-full text-[10px] font-mono font-bold ${
+                            isActive ? 'bg-white/20 text-white' : 'bg-slate-200 text-slate-500'
+                          }`}
+                        >
+                          {selectedInTab > 0 ? `${selectedInTab}/${totalPermsInTab}` : totalPermsInTab}
+                        </span>
+                      )}
+                    </button>
+                  );
+                })}
               </div>
 
-              <label className="flex items-center gap-1.5 text-xs font-semibold text-slate-700 cursor-pointer select-none whitespace-nowrap">
-                <input
-                  type="checkbox"
-                  checked={isAllCurrentTabSelected}
-                  onChange={toggleAllCurrentTab}
-                  className="w-4 h-4 rounded text-blue-600 focus:ring-blue-500 border-slate-300"
-                />
-                <span>Select All</span>
-              </label>
+              {/* Search & Select All */}
+              <div className="flex items-center gap-3 w-full sm:w-auto justify-between sm:justify-end">
+                <div className="relative min-w-[200px] flex-1 sm:flex-initial">
+                  <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400" />
+                  <input
+                    type="text"
+                    placeholder={`Search in ${activeTab}...`}
+                    value={permissionSearchQuery}
+                    onChange={(e) => setPermissionSearchQuery(e.target.value)}
+                    className="w-full pl-8 pr-3 py-1.5 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-700 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white"
+                  />
+                  {permissionSearchQuery && (
+                    <button
+                      type="button"
+                      onClick={() => setPermissionSearchQuery('')}
+                      className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
+                    >
+                      <X size={12} />
+                    </button>
+                  )}
+                </div>
+
+                <label className="flex items-center gap-1.5 text-xs font-semibold text-slate-700 cursor-pointer select-none whitespace-nowrap bg-slate-50 px-2.5 py-1.5 rounded-xl border border-slate-200/70 hover:bg-slate-100 transition-colors">
+                  <input
+                    type="checkbox"
+                    checked={isAllCurrentTabSelected}
+                    onChange={toggleAllCurrentTab}
+                    className="w-3.5 h-3.5 rounded text-blue-600 focus:ring-blue-500 border-slate-300 cursor-pointer"
+                  />
+                  <span>Select All</span>
+                </label>
+              </div>
             </div>
           </div>
 
@@ -894,7 +1031,7 @@ export function RolesPage() {
                     </div>
 
                     {!isCollapsed && (
-                      <div className="p-3.5 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2.5">
+                      <div className="p-3.5 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-2.5">
                         {group.permissions.map((perm) => {
                           const isChecked = editingPermissions.includes(perm.id);
                           return (
@@ -902,23 +1039,29 @@ export function RolesPage() {
                               key={perm.id}
                               className={`flex items-center gap-2.5 p-2.5 rounded-xl border transition-all cursor-pointer select-none ${
                                 isChecked
-                                  ? 'bg-[#1f6bff] border-[#1f6bff] text-white shadow-2xs font-medium'
-                                  : 'bg-slate-50/50 border-slate-200/80 text-slate-700 hover:bg-slate-100'
+                                  ? 'bg-blue-50/70 border-blue-300 text-blue-900 font-bold ring-1 ring-blue-500/15 shadow-2xs'
+                                  : 'bg-white border-slate-200/90 text-slate-700 hover:bg-slate-50 hover:border-slate-300'
                               }`}
                             >
+                              <div
+                                className={`w-4 h-4 rounded flex items-center justify-center shrink-0 border transition-all ${
+                                  isChecked
+                                    ? 'bg-[#1f6bff] border-[#1f6bff] text-white'
+                                    : 'border-slate-300 bg-white'
+                                }`}
+                              >
+                                {isChecked && <CheckCircle2 size={12} strokeWidth={3} className="text-white" />}
+                              </div>
                               <input
                                 type="checkbox"
                                 checked={isChecked}
                                 onChange={() => toggleSinglePermission(perm.id)}
-                                className={`w-4 h-4 rounded border-slate-300 focus:ring-0 ${
-                                  isChecked ? 'accent-white text-blue-600' : 'text-blue-600'
-                                }`}
+                                className="sr-only"
                               />
                               <span className="text-xs truncate">{perm.label}</span>
                             </label>
                           );
-                        })}
-                      </div>
+                        })}                      </div>
                     )}
                   </div>
                 );
@@ -926,19 +1069,31 @@ export function RolesPage() {
             )}
           </div>
 
-          <div className="flex flex-wrap lg:flex-nowrap items-center justify-end gap-3 pt-4 border-t border-slate-100">
-            <button
-              onClick={handleCancelChanges}
-              className="px-5 py-2.5 border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 rounded-xl text-xs font-semibold transition-colors"
-            >
-              Cancel
-            </button>
-            <button
-              onClick={handleUpdateRole}
-              className="px-6 py-2.5 bg-[#1f6bff] hover:bg-blue-700 text-white rounded-xl text-xs font-semibold shadow-sm hover:shadow transition-all"
-            >
-              Update Role
-            </button>
+          <div className="flex flex-wrap lg:flex-nowrap items-center justify-between gap-3 pt-4 border-t border-slate-100">
+            <div className="flex items-center gap-2 text-xs text-slate-500 font-medium">
+              <ShieldCheck size={16} className="text-emerald-600" />
+              <span>
+                <strong>{editingPermissions.length}</strong> total permissions active for <strong>{editingRoleName || activeRole?.name}</strong>
+              </span>
+            </div>
+
+            <div className="flex items-center gap-2.5">
+              <button
+                type="button"
+                onClick={handleCancelChanges}
+                className="px-5 py-2.5 border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 rounded-xl text-xs font-bold transition-colors cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleUpdateRole}
+                className="px-6 py-2.5 bg-[#1f6bff] hover:bg-blue-700 text-white rounded-xl text-xs font-bold shadow-sm hover:shadow transition-all cursor-pointer flex items-center gap-1.5"
+              >
+                <CheckCircle2 size={14} />
+                <span>Update Role</span>
+              </button>
+            </div>
           </div>
         </div>
       </div>
