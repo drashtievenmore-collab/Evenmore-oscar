@@ -372,7 +372,6 @@ const NAV = [
           { label: 'Flexibility', to: '/hrms/attendance/flexibility' },
         ],
       },
-      { label: 'Employee Portal', icon: UserCheck, to: '/employee/portal' },
       { label: 'Leave', icon: CalendarCheck, to: '/hrms/leave' },
       { label: 'Payroll', icon: Receipt, to: '/hrms/payroll' },
       // Recruitment commented out per Oscar letter pad scope (kept for reference, do not remove):
