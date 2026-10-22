@@ -148,6 +148,13 @@ const NAV = [
     to: '/dashboard',
   },
 
+  // Every employee: self-service portal to request leave, assets, attendance regularization, and punch in/out
+  {
+    label: 'Employee Portal',
+    icon: UserCheck,
+    to: '/employee/portal',
+  },
+
   {
     label: 'CRM',
     icon: LayoutGrid,
@@ -366,6 +373,7 @@ const NAV = [
           { label: 'Flexibility', to: '/hrms/attendance/flexibility' },
         ],
       },
+      { label: 'Employee Portal', icon: UserCheck, to: '/employee/portal' },
       { label: 'Leave', icon: CalendarCheck, to: '/hrms/leave' },
       { label: 'Payroll', icon: Receipt, to: '/hrms/payroll' },
       { label: 'Incentives', icon: Award, to: '/hrms/incentives' },

@@ -106,6 +106,9 @@ const CalendarPage = lazy(() => import('../features/hrms/organization/SimplePage
 const HrmsSetup = lazy(() => import('../features/hrms/organization/SimplePages').then(m => ({ default: m.HrmsSetup })));
 const HRAdminPage = lazy(() => import('../features/hrms/organization/SimplePages').then(m => ({ default: m.HRAdminPage })));
 
+// ── Employee Self-Service Portal (Lazy Loaded) ────────────────
+const EmployeePortal = lazy(() => import('../features/portal/EmployeePortal'));
+
 // ── ERP — Job Work / Processing (Lazy Loaded) ───────────────────
 const JobWorkSectionPage = lazy(() => import('../features/jobwork/JobWorkSectionPage'));
 const JobWorkOrdersPage = lazy(() => import('../features/jobwork/JobWorkOrdersPage'));
@@ -315,6 +318,9 @@ const router = createBrowserRouter([
 
       // ── Main Dashboard ─────────────────────────────────────
       { path: 'dashboard', element: <Page component={DashboardPage} /> },
+      { path: 'employee/portal', element: <Page component={EmployeePortal} /> },
+      { path: 'employee/requests', element: <Navigate to="/employee/portal" replace /> },
+      { path: 'portal/employee', element: <Navigate to="/employee/portal" replace /> },
 
       // ── CRM ───────────────────────────────────────────────
       { path: 'crm', element: <Navigate to="/crm/dashboard" replace /> },
@@ -489,6 +495,8 @@ const router = createBrowserRouter([
       { path: 'hrms/attendance/requests', element: <Page component={Requests} /> },
       { path: 'hrms/attendance/flexibility', element: <Page component={Flexibility} /> },
       { path: 'hrms/leave', element: <Page component={Leave} /> },
+      { path: 'hrms/employee-portal', element: <Navigate to="/employee/portal" replace /> },
+      { path: 'hrms/portal', element: <Navigate to="/employee/portal" replace /> },
       { path: 'hrms/payroll', element: <Page component={Payroll} /> },
       { path: 'hrms/incentives', element: <Page component={IncentivesPage} /> },
       { path: 'hrms/agency-monitoring', element: <Page component={AgencyMonitoringPage} /> },
