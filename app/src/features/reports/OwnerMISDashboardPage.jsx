@@ -65,7 +65,22 @@ export default function OwnerMISDashboardPage() {
         misService.getStockAgeingMis(query),
       ]);
 
-      setLeakageData(leakRes);
+      // The API returns `grossSales` / `items[]`; the cards and bars read
+      // `leakageKpis` / `leakageComponents`.
+      const leakItems = leakRes?.items || [];
+      setLeakageData({
+        ...leakRes,
+        leakageKpis: {
+          grossSales: leakRes?.grossSales,
+          totalLeakage: leakRes?.totalLeakage,
+          leakagePct: leakRes?.leakagePct,
+          netContribution: leakRes?.netContribution,
+          netContributionPct: leakRes?.netContributionPct,
+        },
+        leakageComponents: leakItems
+          .filter((it) => it.type === 'leakage' || it.type === 'cost')
+          .map((it) => ({ name: it.label, amount: it.amount, pctOfSales: it.pct })),
+      });
       setPartyData(partyRes.results || partyRes || []);
       setDesignData(desRes.results || desRes || []);
       setAgeingData(ageRes);

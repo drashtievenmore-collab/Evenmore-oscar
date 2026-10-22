@@ -68,9 +68,6 @@ const Requests = lazy(() => import('../features/hrms/attendance/Requests'));
 const Flexibility = lazy(() => import('../features/hrms/attendance/Flexibility'));
 const Leave = lazy(() => import('../features/hrms/leave/Leave'));
 const Payroll = lazy(() => import('../features/hrms/payroll/Payroll'));
-const IncentivesPage = lazy(() => import('../features/hrms/incentives/IncentivesPage'));
-const AgencyMonitoringPage = lazy(() => import('../features/hrms/agency/AgencyMonitoringPage'));
-const CommercialLeakagePage = lazy(() => import('../features/hrms/leakage/CommercialLeakagePage'));
 const RecruitmentDashboard = lazy(() => import('../features/hrms/recruitment/RecruitmentDashboard'));
 const Jobs = lazy(() => import('../features/hrms/recruitment/Jobs'));
 const JobDetails = lazy(() => import('../features/hrms/recruitment/JobDetails'));
@@ -319,6 +316,8 @@ const router = createBrowserRouter([
       // ── Main Dashboard ─────────────────────────────────────
       { path: 'dashboard', element: <Page component={DashboardPage} /> },
       { path: 'employee/portal', element: <Page component={EmployeePortal} /> },
+      { path: 'employee-portal', element: <Navigate to="/employee/portal" replace /> },
+      { path: 'portal', element: <Navigate to="/employee/portal" replace /> },
       { path: 'employee/requests', element: <Navigate to="/employee/portal" replace /> },
       { path: 'portal/employee', element: <Navigate to="/employee/portal" replace /> },
 
@@ -498,9 +497,6 @@ const router = createBrowserRouter([
       { path: 'hrms/employee-portal', element: <Navigate to="/employee/portal" replace /> },
       { path: 'hrms/portal', element: <Navigate to="/employee/portal" replace /> },
       { path: 'hrms/payroll', element: <Page component={Payroll} /> },
-      { path: 'hrms/incentives', element: <Page component={IncentivesPage} /> },
-      { path: 'hrms/agency-monitoring', element: <Page component={AgencyMonitoringPage} /> },
-      { path: 'hrms/commercial-leakage', element: <Page component={CommercialLeakagePage} /> },
       // Recruitment routes commented out per Oscar letter pad scope (kept for reference, do not remove):
       // { path: 'hrms/recruitment', element: <RecruitmentPage component={RecruitmentDashboard} /> },
       // { path: 'hrms/recruitment/jobs', element: <RecruitmentPage component={Jobs} /> },

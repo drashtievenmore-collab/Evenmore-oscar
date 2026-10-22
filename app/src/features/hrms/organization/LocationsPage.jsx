@@ -6,30 +6,30 @@ import { hrmsGuides } from '../../../data/hrms/hrmsGuides';
 import { hrmsSync, isBackendEnabled } from '../../../services/hrmsSync';
 import { Plus, MapPin, Search, Edit2, Trash2, Globe, Building } from 'lucide-react';
 
-const INITIAL_LOCATIONS = [
-  { id: 'LOC-01', name: 'Headquarters — New York', address: '350 5th Avenue, New York, NY 10118', timezone: 'EST • UTC-5', count: 342, type: 'Headquarters' },
-  { id: 'LOC-02', name: 'London Regional Office', address: '1 Canada Square, Canary Wharf, London E14 5AB', timezone: 'GMT • UTC+0', count: 128, type: 'Branch' },
-  { id: 'LOC-03', name: 'Dubai Operations Hub', address: 'DIFC Gate Precinct 4, Level 12, Dubai, UAE', timezone: 'GST • UTC+4', count: 84, type: 'Branch' },
-  { id: 'LOC-04', name: 'Distributed / Remote', address: 'Global remote workforce across 14 countries', timezone: 'Multiple Zones', count: 694, type: 'Remote' },
-];
+const EMPTY_LOCATION = { name: '', address: '', timezone: 'IST • UTC+5:30', type: 'Branch' };
 
 export function LocationsPage() {
   const showToast = useAppStore((s) => s.showToast);
-  const [locations, setLocations] = useState(INITIAL_LOCATIONS);
+  // Real offices only: the page used to fall back to sample New York / London
+  // rows, which looked like data and could not be edited or deleted.
+  const [locations, setLocations] = useState([]);
+  const [loaded, setLoaded] = useState(false);
   const [q, setQ] = useState('');
   const [isModalOpen, setIsModalOpen] = useState(false);
-  const [newLoc, setNewLoc] = useState({ name: '', address: '', timezone: 'EST • UTC-5', type: 'Branch' });
+  const [newLoc, setNewLoc] = useState(EMPTY_LOCATION);
 
   useEffect(() => {
     let active = true;
     (async () => {
       try {
         const rows = await hrmsSync.pull('locations');
-        if (active && Array.isArray(rows) && rows.length > 0) {
+        if (active && Array.isArray(rows)) {
           setLocations(rows);
         }
       } catch (err) {
         console.warn('[LocationsPage] Failed to pull locations:', err);
+      } finally {
+        if (active) setLoaded(true);
       }
     })();
     return () => { active = false; };
@@ -60,7 +60,7 @@ export function LocationsPage() {
     }
     showToast(`Location "${newLoc.name}" added successfully`);
     setIsModalOpen(false);
-    setNewLoc({ name: '', address: '', timezone: 'EST • UTC-5', type: 'Branch' });
+    setNewLoc(EMPTY_LOCATION);
   }
 
   async function handleDelete(id, name) {
@@ -105,6 +105,12 @@ export function LocationsPage() {
         </div>
       </div>
 
+      {loaded && filtered.length === 0 && (
+        <div className="bg-white border border-bdr rounded-xl p-8 text-center text-[13px] text-muted">
+          {locations.length === 0 ? 'No office locations yet. Use "Add Location" to create one.' : 'No location matches your search.'}
+        </div>
+      )}
+
       {/* Grid of Location Cards */}
       <div className="grid md:grid-cols-2 gap-5">
         {filtered.map((l) => (
@@ -148,14 +154,16 @@ export function LocationsPage() {
 
               <div className="text-[13px] text-muted flex items-start gap-1.5 mt-3.5">
                 <MapPin size={15} className="shrink-0 mt-0.5 text-navy" />
-                <span>{l.address}</span>
+                <span>{l.address || 'No address added'}</span>
               </div>
             </div>
 
             <div className="flex flex-wrap gap-2 mt-4 pt-3 border-t border-bdr/60 text-[11px]">
-              <span className="px-2.5 py-1 bg-off border border-bdr rounded-full text-slate-700 font-medium">
-                {l.timezone}
-              </span>
+              {l.timezone && (
+                <span className="px-2.5 py-1 bg-off border border-bdr rounded-full text-slate-700 font-medium">
+                  {l.timezone}
+                </span>
+              )}
               <span className="px-2.5 py-1 bg-off border border-bdr rounded-full text-slate-700 font-medium">
                 {l.count} staff members
               </span>

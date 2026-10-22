@@ -12,6 +12,7 @@ import { RelatedDocumentsCard } from '../../components/common/RelatedDocumentsCa
 import { AutoPOModal } from '../../components/common/AutoPOModal';
 import { PageHeader } from '../../components/common/PageHeader';
 import { PrintSalesOrderModal } from '../../components/common/PrintSalesOrderModal';
+import SalespersonSelect from '../../components/common/SalespersonSelect';
 import { usePmsStore } from '../../stores/pmsStore';
 import { CreateProjectModal } from '../pms/projects/components/CreateProjectModal';
 const salesOrderGuide = {
@@ -46,6 +47,7 @@ export const SalesOrdersPage = () => {
     const [selectedCustomerId, setSelectedCustomerId] = useState(customers[0]?.id || '');
     const [deliveryDate, setDeliveryDate] = useState(() => addDaysISO(getCurrentISODate(), 10));
     const [lineItems, setLineItems] = useState([]);
+    const [salesperson, setSalesperson] = useState({ id: '', name: '' });
     // Auto-PO Requisition Modal State
     const [autoPOState, setAutoPOState] = useState({ isOpen: false });
     const selectedCustomer = customers.find((c) => c.id === selectedCustomerId);
@@ -58,6 +60,7 @@ export const SalesOrdersPage = () => {
         setSelectedCustomerId(customers[0]?.id || '');
         setDeliveryDate(addDaysISO(getCurrentISODate(), 10));
         setLineItems([]);
+        setSalesperson({ id: '', name: '' });
         setIsFullscreen(false);
         setShowAddModal(true);
     };
@@ -67,12 +70,14 @@ export const SalesOrdersPage = () => {
         setSelectedCustomerId(customers[0]?.id || '');
         setDeliveryDate(addDaysISO(getCurrentISODate(), 10));
         setLineItems([]);
+        setSalesperson({ id: '', name: '' });
         setIsFullscreen(false);
     };
 
     const handleCloneOrder = (order) => {
         setSelectedCustomerId(order.customerId || customers[0]?.id || '');
         setDeliveryDate(order.deliveryDate || addDaysISO(getCurrentISODate(), 10));
+        setSalesperson({ id: order.salespersonId || '', name: order.salesperson || order.salesPerson || '' });
         setLineItems((order.items || []).map((it) => ({
             ...it,
             id: `li-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
@@ -93,6 +98,8 @@ export const SalesOrdersPage = () => {
             status: 'Draft',
             paymentStatus: 'Unpaid',
             items: lineItems,
+            salespersonId: salesperson.id,
+            salesperson: salesperson.name,
         });
         handleCloseCreateModal();
     };
@@ -478,6 +485,8 @@ export const SalesOrdersPage = () => {
                 <div>
                   <label className="font-semibold text-slate-700 block mb-1">Target Delivery Date</label>
                   <input type="date" value={deliveryDate} onChange={(e) => setDeliveryDate(e.target.value)} className="w-full p-2 border border-slate-300 rounded bg-white text-slate-800"/>
+                  <label className="font-semibold text-slate-700 block mb-1 mt-3">Salesperson</label>
+                  <SalespersonSelect value={salesperson.id} name={salesperson.name} onChange={setSalesperson} className="w-full p-2 border border-slate-300 rounded bg-white text-slate-800"/>
                 </div>
               </div>
 

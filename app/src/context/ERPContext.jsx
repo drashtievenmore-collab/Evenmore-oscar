@@ -1064,6 +1064,9 @@ export const ERPProvider = ({ children, }) => {
             balanceDue: isPaid ? 0 : Math.max(0, total - (newInvoice.paidAmount || 0)),
             notes: newInvoice.notes || 'Sales Invoice',
             dispatchedViaChallan: Boolean(newInvoice.dispatchedViaChallan),
+            // HRMS employee who owns the sale (incentive basis, PDF §12).
+            salespersonId: newInvoice.salespersonId || '',
+            salesperson: newInvoice.salesperson || newInvoice.salesPerson || '',
         };
 
         setInvoices((prev) => [invoice, ...prev]);
@@ -2421,6 +2424,9 @@ export const ERPProvider = ({ children, }) => {
             items: formattedItems,
             lineItems: formattedItems,
             notes: order.notes || '',
+            // HRMS employee who owns the sale (incentive basis, PDF §12).
+            salespersonId: order.salespersonId || '',
+            salesperson: order.salesperson || order.salesPerson || '',
         };
         setSalesOrders((prev) => [newOrder, ...prev]);
         showToast(`Sales Order ${newOrder.orderNumber} created.`);
