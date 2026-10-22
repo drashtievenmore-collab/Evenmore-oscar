@@ -146,12 +146,17 @@ export function PoDailyProductionEntrySection({ po, onUpdated, navigate, onSwitc
     try {
       const payload = {
         instructionId: instruction.id,
+        instruction_id: instruction.id,
         enteredByEmployeeId: instruction?.employeeId || instruction?.supervisorId || undefined,
         entry_date: entryDate,
+        entryDate: entryDate,
         meters: numProduced,
         reject_meter: numRejected,
+        rejectMeter: numRejected,
         reprocess_meter: numReprocess,
+        reprocessMeter: numReprocess,
         good_meter: liveAccepted,
+        goodMeter: liveAccepted,
         remarks: remarks.trim(),
         status: actionType, // 'Draft' or 'Submitted'
       };
@@ -737,8 +742,8 @@ export function PoDailyProductionEntrySection({ po, onUpdated, navigate, onSwitc
                             <td className="px-3 py-2 font-mono whitespace-nowrap text-slate-700">{row.date || '—'}</td>
                             <td className="px-3 py-2 text-right font-mono font-bold text-slate-900">{Number(row.produced || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</td>
                             <td className="px-3 py-2 text-right font-mono text-emerald-700 font-semibold">{Number(row.accepted || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</td>
-                            <td className="px-3 py-2 text-right font-mono text-rose-600">{Number(row.rejected || 0) > 0 ? Number(row.rejected).toLocaleString('en-IN', { minimumFractionDigits: 2 }) : '—'}</td>
-                            <td className="px-3 py-2 text-right font-mono text-purple-600">{Number(row.reprocess || 0) > 0 ? Number(row.reprocess).toLocaleString('en-IN', { minimumFractionDigits: 2 }) : '—'}</td>
+                            <td className="px-3 py-2 text-right font-mono text-rose-600">{Number(row.rejected ?? row.rejectMeter ?? row.reject_meter ?? 0) > 0 ? Number(row.rejected ?? row.rejectMeter ?? row.reject_meter).toLocaleString('en-IN', { minimumFractionDigits: 2 }) : '—'}</td>
+                            <td className="px-3 py-2 text-right font-mono text-purple-600">{Number(row.reprocess ?? row.reprocessMeter ?? row.reprocess_meter ?? 0) > 0 ? Number(row.reprocess ?? row.reprocessMeter ?? row.reprocess_meter).toLocaleString('en-IN', { minimumFractionDigits: 2 }) : '—'}</td>
                             <td className="px-3 py-2 text-right font-mono text-blue-700 font-semibold">{Number(row.cumulative || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</td>
                             <td className="px-3 py-2 text-right font-mono text-amber-800">{Number(row.balance || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</td>
                             <td className="px-3 py-2 text-slate-600 whitespace-nowrap">{row.enteredBy || '—'}</td>
@@ -1000,8 +1005,8 @@ export function PoDailyProductionEntrySection({ po, onUpdated, navigate, onSwitc
                         <td className="px-3 py-2 font-mono text-slate-800">{row.date || '—'}</td>
                         <td className="px-3 py-2 text-right font-mono font-bold text-slate-900">{Number(row.produced || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</td>
                         <td className="px-3 py-2 text-right font-mono text-emerald-700 font-semibold">{Number(row.accepted || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</td>
-                        <td className="px-3 py-2 text-right font-mono text-rose-600">{Number(row.rejected || 0) > 0 ? Number(row.rejected).toLocaleString('en-IN', { minimumFractionDigits: 2 }) : '—'}</td>
-                        <td className="px-3 py-2 text-right font-mono text-purple-600">{Number(row.reprocess || 0) > 0 ? Number(row.reprocess).toLocaleString('en-IN', { minimumFractionDigits: 2 }) : '—'}</td>
+                        <td className="px-3 py-2 text-right font-mono text-rose-600">{Number(row.rejected ?? row.rejectMeter ?? row.reject_meter ?? 0) > 0 ? Number(row.rejected ?? row.rejectMeter ?? row.reject_meter).toLocaleString('en-IN', { minimumFractionDigits: 2 }) : '—'}</td>
+                        <td className="px-3 py-2 text-right font-mono text-purple-600">{Number(row.reprocess ?? row.reprocessMeter ?? row.reprocess_meter ?? 0) > 0 ? Number(row.reprocess ?? row.reprocessMeter ?? row.reprocess_meter).toLocaleString('en-IN', { minimumFractionDigits: 2 }) : '—'}</td>
                         <td className="px-3 py-2 text-right font-mono text-blue-700 font-semibold">{Number(row.cumulative || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</td>
                         <td className="px-3 py-2 text-right font-mono text-amber-800">{Number(row.balance || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</td>
                         <td className="px-3 py-2 text-slate-600 whitespace-nowrap">{row.enteredBy || '—'}</td>

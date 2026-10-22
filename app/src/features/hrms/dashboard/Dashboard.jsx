@@ -334,7 +334,7 @@ export default function HRMSDashboard() {
         : "Workstation";
 
       const newReq = useAssetStore.getState().addRequest({
-        employeeName: currentUser?.name || "Adarsh Gupta",
+        employeeName: currentUser?.name || "",
         employeeId: "EMP-USR",
         dept: "Operations",
         category,

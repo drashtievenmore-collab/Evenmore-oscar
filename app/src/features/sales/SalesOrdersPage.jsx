@@ -322,8 +322,9 @@ export const SalesOrdersPage = () => {
                       stageVal === 'Partially Dispatched' ? 'bg-blue-50 text-blue-700 border-blue-200' :
                       stageVal === 'Confirmed' ? 'bg-amber-50 text-amber-700 border-amber-200' :
                       stageVal === 'Invoiced' ? 'bg-purple-50 text-purple-700 border-purple-200' :
+                      stageVal === 'Pending Approval' ? 'bg-orange-50 text-orange-700 border-orange-300' :
                       'bg-slate-50 text-slate-700 border-slate-200'
-                    }`}>
+                    }`} title={stageVal === 'Pending Approval' ? 'Discount or margin needs approval — see the approvals inbox' : undefined}>
                       {stageVal}
                     </span>
                   </div>
@@ -360,6 +361,11 @@ export const SalesOrdersPage = () => {
             {o.stage === 'Draft' && (<button onClick={() => advanceStage(o.id, 'Draft')} className="px-2.5 py-1 bg-primary text-white rounded-md text-xs font-semibold hover:bg-primary-hover cursor-pointer shadow-xs transition-colors whitespace-nowrap inline-flex items-center gap-1">
                 Confirm Order
               </button>)}
+            {o.stage === 'Pending Approval' && (
+              <span className="px-2 py-1 text-[11px] font-semibold text-orange-700 whitespace-nowrap" title="Dispatch and invoicing unlock once the discount is approved">
+                Awaiting approval
+              </span>
+            )}
             {o.stage === 'Confirmed' && (<>
                 {!pmsProjects.some((p) => p.crmOrderId === o.orderNumber) && (
                   <button
@@ -419,7 +425,7 @@ export const SalesOrdersPage = () => {
 
       {/* Filter Tabs */}
       <div className="flex flex-nowrap items-center gap-2 border-b border-[#CED4DA] pb-2 text-xs overflow-x-auto lg:overflow-visible whitespace-nowrap lg:whitespace-normal scrollbar-none">
-        {['All', 'Draft', 'Confirmed', 'Partially Dispatched', 'Fully Dispatched', 'Invoiced', 'Closed', 'Cancelled'].map((stg) => (<button key={stg} onClick={() => setStageFilter(stg)} className={`shrink-0 lg:shrink px-3 py-1.5 rounded-t font-semibold transition-colors ${stageFilter === stg
+        {['All', 'Draft', 'Pending Approval', 'Confirmed', 'Partially Dispatched', 'Fully Dispatched', 'Invoiced', 'Closed', 'Cancelled'].map((stg) => (<button key={stg} onClick={() => setStageFilter(stg)} className={`shrink-0 lg:shrink px-3 py-1.5 rounded-t font-semibold transition-colors ${stageFilter === stg
                 ? 'bg-white border-t-2 border-[#1F2E4A] text-[#1F2E4A] shadow-sm'
                 : 'text-slate-500 hover:text-slate-800'}`}>
             {stg}

@@ -509,7 +509,7 @@ export default function Appraisal() {
               <Button
                 onClick={() => {
                   setForm({
-                    employee: employees[0]?.name || "Priya Patel",
+                    employee: employees[0]?.name || "",
                     cycle: cycles.find((c) => c.status === "Active")?.name.replace("Performance Cycle", "").trim() || "Q4 2024",
                     reviewer: "David Park",
                     rating: 4.0,

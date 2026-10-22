@@ -54,7 +54,7 @@ export function Stage6GreyStockUpdatedWorkspace({
       const [poRes, allocRes, stockRes] = await Promise.allSettled([
         getProjectPurchaseOrders(projectId),
         getGreyStockAllocation(projectId),
-        api.get('/inventory/stock-position/summary/').catch(() => null),
+        api.get('/inventory/stock/summary/'),
       ]);
 
       if (poRes.status === 'fulfilled' && poRes.value) {

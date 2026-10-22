@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { fetchMe } from '../services/authService';
-import { getStoredToken } from '../utils/authUtils';
+import { hasStoredSession } from '../utils/authUtils';
 import { useAppStore } from '../stores/appStore';
 
 /**
@@ -18,13 +18,15 @@ import { useAppStore } from '../stores/appStore';
 export default function SessionGate({ children }) {
   const setCurrentUser = useAppStore((s) => s.setCurrentUser);
   const setPermissions = useAppStore((s) => s.setPermissions);
-  const [resolving, setResolving] = useState(() => Boolean(getStoredToken()));
+  // A refresh token alone still counts: `fetchMe()` will trigger the silent
+  // refresh on its first 401, so an expired access token must not look signed out.
+  const [resolving, setResolving] = useState(() => hasStoredSession());
 
   useEffect(() => {
     let cancelled = false;
 
     const resolve = async () => {
-      if (!getStoredToken()) {
+      if (!hasStoredSession()) {
         setCurrentUser(null);
         setPermissions([]);
         setResolving(false);
@@ -38,14 +40,24 @@ export default function SessionGate({ children }) {
       setResolving(false);
     };
 
+    // Only reached when the refresh token itself was rejected.
+    const handleUnauthorized = () => {
+      if (cancelled) return;
+      setCurrentUser(null);
+      setPermissions([]);
+      setResolving(false);
+    };
+
     resolve();
 
     // A sign-in elsewhere in the app (or in another tab) re-resolves the user.
     window.addEventListener('evenmore:authorized', resolve);
+    window.addEventListener('evenmore:unauthorized', handleUnauthorized);
     window.addEventListener('storage', resolve);
     return () => {
       cancelled = true;
       window.removeEventListener('evenmore:authorized', resolve);
+      window.removeEventListener('evenmore:unauthorized', handleUnauthorized);
       window.removeEventListener('storage', resolve);
     };
   }, [setCurrentUser, setPermissions]);

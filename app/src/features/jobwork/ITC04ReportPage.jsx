@@ -37,6 +37,7 @@ export default function ITC04ReportPage() {
   const [reportData, setReportData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [exporting, setExporting] = useState(false);
   const [tableSearch, setTableSearch] = useState('');
 
   const loadReport = async () => {
@@ -56,9 +57,16 @@ export default function ITC04ReportPage() {
     loadReport();
   }, [financialYear, quarter]);
 
-  const handleExport = (table = 'both') => {
-    const url = jobworkService.getITC04ExportUrl(financialYear, quarter, table);
-    window.open(url, '_blank');
+  const handleExport = async (table = 'both') => {
+    setError('');
+    setExporting(true);
+    try {
+      await jobworkService.downloadITC04Export(financialYear, quarter, table);
+    } catch (err) {
+      setError(err?.message || 'Failed to export ITC-04 statement');
+    } finally {
+      setExporting(false);
+    }
   };
 
   const summary = reportData?.summary || {};
@@ -111,10 +119,11 @@ export default function ITC04ReportPage() {
           </select>
           <button
             onClick={() => handleExport(activeTab)}
-            className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-white bg-indigo-600 hover:bg-indigo-700 rounded-lg shadow-sm transition"
+            disabled={exporting}
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-white bg-indigo-600 hover:bg-indigo-700 rounded-lg shadow-sm transition disabled:opacity-60"
           >
             <Download className="w-3.5 h-3.5" />
-            Export CSV
+            {exporting ? 'Exporting…' : 'Export CSV'}
           </button>
         </div>
       </PageHeader>

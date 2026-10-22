@@ -347,8 +347,14 @@ export const ERPProvider = ({ children, }) => {
         showToast(`System base currency updated to ${newCurr}`);
     };
 
-    const setCompanyProfile = (profile) => {
+    const setCompanyProfile = async (profile) => {
         setCompanyProfileState((prev) => ({ ...prev, ...profile }));
+        try {
+            await api.put('/settings/company-profile/', profile);
+        } catch (err) {
+            console.warn('[ERPContext] Failed to save company profile to server:', err);
+            throw err;
+        }
     };
 
     const formatCurrency = (amount, opts = {}) => {
@@ -560,8 +566,14 @@ export const ERPProvider = ({ children, }) => {
      * this data exists.
      */
     const resetDemoData = async () => {
-        await refreshFromBackend();
-        showToast('Reloaded from the server.');
+        try {
+            await api.post('/settings/reset-demo-data/', {});
+            await refreshFromBackend();
+            showToast('Demo data reset successfully from server.');
+        } catch (err) {
+            console.warn('[ERPContext] Failed to reset demo data:', err);
+            showToast(err?.message || 'Failed to reset demo data', 'error');
+        }
     };
 
     // ---------------- DOMAIN QUERIES ----------------
@@ -1235,8 +1247,11 @@ export const ERPProvider = ({ children, }) => {
         // double-count in the ledger views.
         runDocAction('invoices', finalized.id, 'finalize', {}, setInvoices, {
             refresh: ['invoices', 'journalEntries', 'inventoryMovements', 'parties', 'items', 'salesOrders'],
-        }).catch(() => refreshCollections(['invoices'])); // failed: restore the server's row
-        showToast(`Invoice ${finalized.invoiceNumber} finalized and posted to General Ledger.`);
+        })
+            .then(() => {
+                showToast(`Invoice ${finalized.invoiceNumber} finalized and posted to General Ledger.`);
+            })
+            .catch(() => refreshCollections(['invoices'])); // failed: restore the server's row
         return finalized;
     };
 
@@ -1298,8 +1313,13 @@ export const ERPProvider = ({ children, }) => {
         // Server-side cancel reverses postings; re-read what it touched.
         runDocAction('invoices', invoiceId, 'cancel', {}, setInvoices, {
             refresh: ['invoices', 'journalEntries', 'inventoryMovements', 'parties'],
-        }).catch(() => {});
-        showToast(`Invoice ${inv.invoiceNumber} cancelled.`);
+        })
+            .then(() => {
+                showToast(`Invoice ${inv.invoiceNumber} cancelled.`);
+            })
+            .catch(() => {
+                refreshCollections(['invoices']);
+            });
         return { success: true, message: `Invoice ${inv.invoiceNumber} cancelled.` };
     };
 
@@ -1914,12 +1934,20 @@ export const ERPProvider = ({ children, }) => {
                 quantity: diff,
                 isAbsolute: false,
                 reason,
-            }).then(() => {
+            }).then((res) => {
+                // Above the approval limit the server holds the adjustment
+                // (202) and posts it once approved in the approvals inbox.
+                if (res?.pendingApproval) {
+                    showToast(res.message || `Adjustment for ${targetItem.sku} sent for approval.`);
+                    return;
+                }
+                showToast(`Stock for ${targetItem.sku} adjusted by ${diff > 0 ? '+' : ''}${diff} units.`);
                 refreshCollections(['items', 'inventoryMovements']);
             }).catch((err) => {
                 console.warn('[ERP] stock adjustment not saved:', err);
                 showToast(`Adjustment not saved to server — ${describeError(err)}`);
             });
+            return;
         }
         showToast(`Stock for ${targetItem.sku} adjusted by ${diff > 0 ? '+' : ''}${diff} units.`);
     };
@@ -2452,8 +2480,13 @@ export const ERPProvider = ({ children, }) => {
         // Server-side cancel releases reservations; re-read afterwards.
         runDocAction('salesOrders', orderId, 'cancel', {}, setSalesOrders, {
             refresh: ['salesOrders', 'deliveryChallans'],
-        }).catch(() => {});
-        showToast(`Sales Order ${order.orderNumber} cancelled.`);
+        })
+            .then(() => {
+                showToast(`Sales Order ${order.orderNumber} cancelled.`);
+            })
+            .catch(() => {
+                refreshCollections(['salesOrders']);
+            });
         return { success: true, message: `Sales Order ${order.orderNumber} cancelled.` };
     };
     // Order conversions run on the server (partial quantities, QC gates,
@@ -2631,8 +2664,13 @@ export const ERPProvider = ({ children, }) => {
             setDeliveryChallans(prev => prev.map(c => c.id === challanId ? { ...c, status: 'Cancelled' } : c));
             runDocAction('deliveryChallans', challanId, 'cancel', {}, setDeliveryChallans, {
                 refresh: ['deliveryChallans', 'salesOrders'],
-            }).catch(() => {});
-            showToast('Draft challan cancelled.');
+            })
+                .then(() => {
+                    showToast('Draft challan cancelled.');
+                })
+                .catch(() => {
+                    refreshCollections(['deliveryChallans']);
+                });
             return { success: true, message: 'Draft challan cancelled.' };
         }
 
@@ -2713,7 +2751,13 @@ export const ERPProvider = ({ children, }) => {
         // (Local mirrors above keep the screen instant.)
         runDocAction('deliveryChallans', challanId, 'cancel', {}, setDeliveryChallans, {
             refresh: ['deliveryChallans', 'salesOrders', 'inventoryMovements'],
-        }).catch(() => {});
+        })
+            .then(() => {
+                showToast(`Delivery Challan ${challan.challanNumber} cancelled and stock reversed.`);
+            })
+            .catch(() => {
+                refreshCollections(['deliveryChallans']);
+            });
 
         // 4. Update linked Warranty Cards to Cancelled
         setWarranties((prev) => prev.map((w) => {
@@ -2729,8 +2773,6 @@ export const ERPProvider = ({ children, }) => {
         warranties
             .filter((w) => w.deliveryChallanId === challanId || w.challanNumber === challan.challanNumber)
             .forEach((w) => persistUpdate('warranties', w.id, { documentStatus: 'Cancelled' }, setWarranties));
-
-        showToast(`Delivery Challan ${challan.challanNumber} cancelled and stock reversed.`);
         return { success: true, message: `Challan ${challan.challanNumber} cancelled.` };
     };
     const addPaymentIn = (pay) => {
@@ -2921,8 +2963,13 @@ export const ERPProvider = ({ children, }) => {
         setSalesReturns((prev) => prev.map((r) => r.id === returnId ? { ...r, status: 'Cancelled' } : r));
         runDocAction('salesReturns', returnId, 'cancel', {}, setSalesReturns, {
             refresh: ['salesReturns', 'invoices', 'journalEntries', 'inventoryMovements', 'parties', 'items'],
-        }).catch(() => {});
-        showToast(`Sales Return ${sr.returnNumber} cancelled.`);
+        })
+            .then(() => {
+                showToast(`Sales Return ${sr.returnNumber} cancelled.`);
+            })
+            .catch(() => {
+                refreshCollections(['salesReturns']);
+            });
         return { success: true, message: `Sales Return ${sr.returnNumber} cancelled.` };
     };
     // Server-first: the PO number, totals and id come from the server
@@ -3035,8 +3082,13 @@ export const ERPProvider = ({ children, }) => {
         setPurchaseOrders((prev) => prev.map((p) => p.id === poId ? { ...p, status: 'Cancelled' } : p));
         runDocAction('purchaseOrders', poId, 'cancel', {}, setPurchaseOrders, {
             refresh: ['purchaseOrders', 'purchaseBills'],
-        }).catch(() => {});
-        showToast(`Purchase Order ${po.poNumber} cancelled.`);
+        })
+            .then(() => {
+                showToast(`Purchase Order ${po.poNumber} cancelled.`);
+            })
+            .catch(() => {
+                refreshCollections(['purchaseOrders']);
+            });
         return { success: true, message: `Purchase Order ${po.poNumber} cancelled.` };
     };
     const deletePurchaseOrder = (id) => {
@@ -3179,8 +3231,13 @@ export const ERPProvider = ({ children, }) => {
         setPurchaseBills((prev) => prev.map((b) => b.id === billId ? { ...b, status: 'Cancelled' } : b));
         runDocAction('purchaseBills', billId, 'cancel', {}, setPurchaseBills, {
             refresh: ['purchaseBills', 'purchaseOrders', 'journalEntries', 'inventoryMovements', 'parties', 'items'],
-        }).catch(() => {});
-        showToast(`Purchase Bill ${bill.billNumber} cancelled.`);
+        })
+            .then(() => {
+                showToast(`Purchase Bill ${bill.billNumber} cancelled.`);
+            })
+            .catch(() => {
+                refreshCollections(['purchaseBills']);
+            });
         return { success: true, message: `Purchase Bill ${bill.billNumber} cancelled.` };
     };
     const receivePurchaseBillGoods = (billId, receivedOverrides = null, qcStatus = 'Approved') => {
@@ -3808,8 +3865,13 @@ export const ERPProvider = ({ children, }) => {
         setPurchaseReturns((prev) => prev.map((r) => r.id === returnId ? { ...r, status: 'Cancelled' } : r));
         runDocAction('purchaseReturns', returnId, 'cancel', {}, setPurchaseReturns, {
             refresh: ['purchaseReturns', 'purchaseBills', 'journalEntries', 'inventoryMovements', 'parties', 'items'],
-        }).catch(() => {});
-        showToast(`Debit Note ${pr.debitNoteNumber} cancelled.`);
+        })
+            .then(() => {
+                showToast(`Debit Note ${pr.debitNoteNumber} cancelled.`);
+            })
+            .catch(() => {
+                refreshCollections(['purchaseReturns']);
+            });
         return { success: true, message: `Debit Note ${pr.debitNoteNumber} cancelled.` };
     };
     const updatePurchaseReturnStatus = (id, status) => {

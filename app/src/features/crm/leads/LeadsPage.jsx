@@ -32,8 +32,8 @@ import { exportToCSV } from '../../../services/exportUtils';
 import { runLeadStageAutomation } from '../../../services/leadStageAutomation';
 import { emitCrmEvent, CRM_EVENT_TYPES } from '../../../services/crmEventNotifications';
 
-const INITIAL_FILTERS = { statuses: [], sources: [], systemDefined: [], search: '' };
-const INITIAL_SORT = { field: '', direction: 'ascending' };
+const DEFAULT_FILTERS = { statuses: [], sources: [], systemDefined: [], search: '' };
+const DEFAULT_SORT = { field: '', direction: 'ascending' };
 
 const SORT_OPTIONS = [
   { value: 'leadNumber', label: 'Lead No.' },
@@ -274,10 +274,10 @@ export default function LeadsPage() {
     }
   }
   const [leadView, setLeadView] = useState('list');
-  const [appliedFilters, setAppliedFilters] = useState(INITIAL_FILTERS);
-  const [draftFilters, setDraftFilters] = useState(INITIAL_FILTERS);
-  const [appliedSort, setAppliedSort] = useState(INITIAL_SORT);
-  const [draftSort, setDraftSort] = useState(INITIAL_SORT);
+  const [appliedFilters, setAppliedFilters] = useState(DEFAULT_FILTERS);
+  const [draftFilters, setDraftFilters] = useState(DEFAULT_FILTERS);
+  const [appliedSort, setAppliedSort] = useState(DEFAULT_SORT);
+  const [draftSort, setDraftSort] = useState(DEFAULT_SORT);
   const [noteTarget, setNoteTarget] = useState(null);
   const [editTarget, setEditTarget] = useState(null);
   const [lostTarget, setLostTarget] = useState(null);
@@ -685,7 +685,7 @@ export default function LeadsPage() {
   }
 
   function clearDraftFilters() {
-    setDraftFilters(INITIAL_FILTERS);
+    setDraftFilters(DEFAULT_FILTERS);
   }
 
   function applyFilters() {
@@ -694,13 +694,13 @@ export default function LeadsPage() {
   }
 
   function applySort() {
-    setAppliedSort(draftSort.field ? draftSort : INITIAL_SORT);
+    setAppliedSort(draftSort.field ? draftSort : DEFAULT_SORT);
     setIsSortOpen(false);
   }
 
   function clearSort() {
-    setAppliedSort(INITIAL_SORT);
-    setDraftSort(INITIAL_SORT);
+    setAppliedSort(DEFAULT_SORT);
+    setDraftSort(DEFAULT_SORT);
     setIsSortOpen(false);
   }
 
@@ -817,10 +817,10 @@ export default function LeadsPage() {
     setCreateError('');
     if (created) showToast?.(`Lead ${created.leadNumber || created.name || ''} created.`.trim());
     setActiveTab('All Leads');
-    setAppliedFilters(INITIAL_FILTERS);
-    setDraftFilters(INITIAL_FILTERS);
-    setAppliedSort(INITIAL_SORT);
-    setDraftSort(INITIAL_SORT);
+    setAppliedFilters(DEFAULT_FILTERS);
+    setDraftFilters(DEFAULT_FILTERS);
+    setAppliedSort(DEFAULT_SORT);
+    setDraftSort(DEFAULT_SORT);
     setLeadView('list');
     setPage(1);
   }
@@ -886,8 +886,8 @@ export default function LeadsPage() {
       }
     }
     setActiveTab('All Leads');
-    setAppliedFilters(INITIAL_FILTERS);
-    setDraftFilters(INITIAL_FILTERS);
+    setAppliedFilters(DEFAULT_FILTERS);
+    setDraftFilters(DEFAULT_FILTERS);
     setPage(1);
     showToast?.(
       failed > 0

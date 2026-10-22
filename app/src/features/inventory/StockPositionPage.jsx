@@ -44,14 +44,15 @@ function formatINR(val) {
 
 // Quantity Helper
 function formatQty(val, uom = 'Mtr') {
-  if (val === null) return 'Mixed';
-  if (val === undefined || isNaN(val)) return '0.00' + (uom ? ` ${uom}` : '');
+  if (val === null || val === undefined) return '0.00 Mtr';
   const num = Number(val);
+  if (isNaN(num)) return '0.00 Mtr';
+  const displayUom = !uom || uom === 'Mixed' ? 'Mtr' : uom;
   const formatted = num.toLocaleString('en-IN', {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
   });
-  return uom ? `${formatted} ${uom}` : formatted;
+  return `${formatted} ${displayUom}`;
 }
 
 // Convert dataset to CSV and trigger browser download
@@ -534,12 +535,15 @@ export function StockPositionPage() {
   // ── Metrics for the 8 KPI Cards ──────────────────────────────────────────
   const summaryCards = useMemo(() => {
     const sc = data?.summaryCards || {};
+    const resolveQty = (c) => Number(c?.qty ?? c?.byUom?.[0]?.qty ?? 0);
+    const resolveUom = (c) => (c?.uom && c?.uom !== 'Mixed' ? c?.uom : (c?.byUom?.[0]?.uom || 'Mtr'));
+
     return [
       {
         id: 'overview',
         label: 'Total Fabric Stock',
-        qty: sc.totalStock?.qty ?? 0,
-        uom: sc.totalStock?.uom || 'Mtr',
+        qty: resolveQty(sc.totalStock),
+        uom: resolveUom(sc.totalStock),
         val: sc.totalStock?.value ?? 0,
         pct: sc.totalStock?.pct ?? 100,
         icon: Layers,
@@ -551,8 +555,8 @@ export function StockPositionPage() {
       {
         id: 'good',
         label: 'Good Fabric Stock',
-        qty: sc.goodStock?.qty ?? 0,
-        uom: sc.goodStock?.uom || 'Mtr',
+        qty: resolveQty(sc.goodStock),
+        uom: resolveUom(sc.goodStock),
         val: sc.goodStock?.value ?? 0,
         pct: sc.goodStock?.pct ?? 0,
         icon: CheckCircle2,
@@ -564,8 +568,8 @@ export function StockPositionPage() {
       {
         id: 'sample',
         label: 'Sample Stock',
-        qty: sc.sampleStock?.qty ?? 0,
-        uom: sc.sampleStock?.uom || 'Mtr',
+        qty: resolveQty(sc.sampleStock),
+        uom: resolveUom(sc.sampleStock),
         val: sc.sampleStock?.value ?? 0,
         pct: sc.sampleStock?.pct ?? 0,
         icon: FlaskConical,
@@ -577,8 +581,8 @@ export function StockPositionPage() {
       {
         id: 'wastage',
         label: 'Wastage Stock',
-        qty: sc.wastageStock?.qty ?? 0,
-        uom: sc.wastageStock?.uom || 'Mtr',
+        qty: resolveQty(sc.wastageStock),
+        uom: resolveUom(sc.wastageStock),
         val: sc.wastageStock?.value ?? 0,
         pct: sc.wastageStock?.pct ?? 0,
         icon: Trash2,
@@ -590,8 +594,8 @@ export function StockPositionPage() {
       {
         id: 'reprocess',
         label: 'Reprocessing Stock',
-        qty: sc.reprocessingStock?.qty ?? 0,
-        uom: sc.reprocessingStock?.uom || 'Mtr',
+        qty: resolveQty(sc.reprocessingStock),
+        uom: resolveUom(sc.reprocessingStock),
         val: sc.reprocessingStock?.value ?? 0,
         pct: sc.reprocessingStock?.pct ?? 0,
         icon: RefreshCw,
@@ -603,8 +607,8 @@ export function StockPositionPage() {
       {
         id: 'customerReturn',
         label: 'Customer Return Stock',
-        qty: sc.customerReturnStock?.qty ?? 0,
-        uom: sc.customerReturnStock?.uom || 'Mtr',
+        qty: resolveQty(sc.customerReturnStock),
+        uom: resolveUom(sc.customerReturnStock),
         val: sc.customerReturnStock?.value ?? 0,
         pct: sc.customerReturnStock?.pct ?? 0,
         icon: Undo2,
@@ -616,8 +620,8 @@ export function StockPositionPage() {
       {
         id: 'qcHold',
         label: 'QC Held Stock',
-        qty: sc.qcHoldStock?.qty ?? 0,
-        uom: sc.qcHoldStock?.uom || 'Mtr',
+        qty: resolveQty(sc.qcHoldStock),
+        uom: resolveUom(sc.qcHoldStock),
         val: sc.qcHoldStock?.value ?? 0,
         pct: sc.qcHoldStock?.pct ?? 0,
         icon: ShieldCheck,
@@ -629,8 +633,8 @@ export function StockPositionPage() {
       {
         id: 'rejected',
         label: 'Rejected Stock',
-        qty: sc.rejectedStock?.qty ?? 0,
-        uom: sc.rejectedStock?.uom || 'Mtr',
+        qty: resolveQty(sc.rejectedStock),
+        uom: resolveUom(sc.rejectedStock),
         val: sc.rejectedStock?.value ?? 0,
         pct: sc.rejectedStock?.pct ?? 0,
         icon: XCircle,
@@ -897,146 +901,135 @@ export function StockPositionPage() {
     exportToCsv(filename, currentDataset);
   };
 
+  // Dynamic Page Header Metadata per active tab
+  const tabHeaderInfo = useMemo(() => {
+    switch (activeTab) {
+      case 'sample':
+        return {
+          title: 'Sample Stock',
+          badge: 'Sample Inventory',
+          badgeStyle: 'bg-teal-50 text-teal-700 border-teal-200',
+          subtitle: 'Track fabric issued as samples and their return status.',
+          icon: FlaskConical,
+          iconBg: 'bg-teal-50 border-teal-200',
+          iconColor: 'text-teal-600',
+        };
+      case 'wastage':
+        return {
+          title: 'Wastage Stock',
+          badge: 'Scrap & Waste',
+          badgeStyle: 'bg-rose-50 text-rose-700 border-rose-200',
+          subtitle: 'Track damaged rolls, scraps, and recorded fabric wastage.',
+          icon: Trash2,
+          iconBg: 'bg-rose-50 border-rose-200',
+          iconColor: 'text-rose-600',
+        };
+      case 'good':
+        return {
+          title: 'Good Fabric Stock',
+          badge: 'Usable Fabric',
+          badgeStyle: 'bg-emerald-50 text-emerald-700 border-emerald-200',
+          subtitle: 'Commercially usable fabric stock ready for production and dispatch.',
+          icon: CheckCircle2,
+          iconBg: 'bg-emerald-50 border-emerald-200',
+          iconColor: 'text-emerald-600',
+        };
+      case 'reprocess':
+        return {
+          title: 'Reprocessing Stock',
+          badge: 'Reprocessing',
+          badgeStyle: 'bg-amber-50 text-amber-700 border-amber-200',
+          subtitle: 'Fabric held or undergoing re-processing and finishing rework.',
+          icon: RefreshCw,
+          iconBg: 'bg-amber-50 border-amber-200',
+          iconColor: 'text-amber-600',
+        };
+      case 'customer-return':
+        return {
+          title: 'Customer Return Stock',
+          badge: 'Returns',
+          badgeStyle: 'bg-purple-50 text-purple-700 border-purple-200',
+          subtitle: 'Fabric returned from customers awaiting inspection and disposition.',
+          icon: Undo2,
+          iconBg: 'bg-purple-50 border-purple-200',
+          iconColor: 'text-purple-600',
+        };
+      default:
+        return {
+          title: 'Fabric Stock Overview',
+          badge: 'Stock Position',
+          badgeStyle: 'bg-blue-50 text-blue-700 border-blue-200',
+          subtitle: 'Live fabric inventory across all godowns, qualities, and stock statuses.',
+          icon: Layers,
+          iconBg: 'bg-blue-50 border-blue-200',
+          iconColor: 'text-blue-600',
+        };
+    }
+  }, [activeTab]);
+
+  const TabHeaderIcon = tabHeaderInfo.icon;
+
   return (
     <div className="min-h-screen bg-[#f8fafc] text-slate-800 p-4 sm:p-6 space-y-5">
-      {/* ── TOP HEADER WITH USER MENU & NOTIFICATIONS (#1, #2, #3) ────────── */}
+      {/* ── TOP PAGE HEADER ────────────────────────────────────────────────── */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 bg-white p-4 rounded-xl border border-slate-200/90 shadow-xs">
         <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-xl bg-teal-50 border border-teal-200 grid place-items-center shrink-0">
-            <FlaskConical size={20} className="text-teal-600" />
+          <div className={`w-10 h-10 rounded-xl border grid place-items-center shrink-0 ${tabHeaderInfo.iconBg}`}>
+            <TabHeaderIcon size={20} className={tabHeaderInfo.iconColor} />
           </div>
           <div>
             <div className="flex items-center gap-2">
-              <h1 className="text-xl font-extrabold text-slate-900 tracking-tight">Sample Stock</h1>
-              <PageInfoButton title="Sample Stock" />
-              <span className="px-2 py-0.5 text-[10.5px] font-bold bg-teal-50 text-teal-700 rounded border border-teal-200">
-                Sample Inventory
+              <h1 className="text-xl font-extrabold text-slate-900 tracking-tight">{tabHeaderInfo.title}</h1>
+              <PageInfoButton title={tabHeaderInfo.title} />
+              <span className={`px-2 py-0.5 text-[10.5px] font-bold rounded border ${tabHeaderInfo.badgeStyle}`}>
+                {tabHeaderInfo.badge}
               </span>
             </div>
             <p className="text-xs text-slate-500 mt-0.5">
-              Track fabric issued as samples and their return status.
+              {tabHeaderInfo.subtitle}
             </p>
           </div>
         </div>
 
-        {/* Global Action / Search / Notif / User Profile Header */}
+        {/* Global Action / Search / Refresh Header */}
         <div className="flex items-center gap-2.5">
-          {/* Universal Search Input (#1 Search Icon in header) */}
-          <div className="relative w-48 sm:w-60">
+          <div className="relative w-48 sm:w-64">
             <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400" />
             <input
               type="text"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="Search COT-001, lot, customer..."
+              placeholder="Search quality, item, lot, customer..."
               className="w-full h-8 pl-8 pr-7 text-xs bg-slate-50 border border-slate-200 rounded-lg text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-1 focus:ring-blue-500"
             />
             {searchQuery && (
               <button
                 onClick={() => setSearchQuery('')}
-                className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 text-xs"
+                className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 text-xs cursor-pointer"
               >
                 ✕
               </button>
             )}
           </div>
 
-          {/* Notifications Popover (#2) */}
-          <div className="relative" ref={notifRef}>
+          <button
+            onClick={() => fetchData(false)}
+            disabled={refreshing || loading}
+            title="Refresh Stock Data"
+            className="h-8 w-8 grid place-items-center bg-white border border-slate-200 rounded-lg text-slate-600 hover:text-blue-600 hover:border-slate-300 shadow-xs transition cursor-pointer disabled:opacity-50"
+          >
+            <RefreshCw size={13} className={refreshing || loading ? 'animate-spin text-blue-600' : ''} />
+          </button>
+
+          {activeTab === 'sample' && (
             <button
-              onClick={() => setIsNotifOpen(!isNotifOpen)}
-              className="h-8 w-8 grid place-items-center bg-white border border-slate-200 rounded-lg text-slate-600 hover:text-blue-600 hover:border-slate-300 shadow-xs transition cursor-pointer relative"
-              title="Notifications"
+              onClick={() => setIsSampleModalOpen(true)}
+              className="inline-flex items-center gap-1.5 h-8 px-3 bg-teal-600 hover:bg-teal-700 text-white rounded-lg text-xs font-semibold shadow-xs transition cursor-pointer"
             >
-              <Bell size={14} />
-              <span className="absolute top-1 right-1 w-2 h-2 bg-blue-600 rounded-full" />
+              <Plus size={13} />
+              <span>Issue Sample</span>
             </button>
-
-            {isNotifOpen && (
-              <div className="absolute right-0 mt-2 w-72 bg-white border border-slate-200 rounded-xl shadow-xl z-50 p-3 text-xs space-y-2 animate-in fade-in zoom-in-95 duration-100">
-                <div className="flex items-center justify-between border-b border-slate-100 pb-2">
-                  <span className="font-bold text-slate-900">Notifications</span>
-                  <button className="text-[10px] text-blue-600 hover:underline">Mark all read</button>
-                </div>
-                <div className="space-y-2 max-h-56 overflow-y-auto pt-1">
-                  <div className="flex items-start gap-2 p-1.5 rounded-lg hover:bg-slate-50">
-                    <div className="w-2 h-2 rounded-full bg-blue-600 mt-1 shrink-0" />
-                    <div>
-                      <p className="font-bold text-slate-800 text-[11px]">Sample return pending</p>
-                      <p className="text-slate-500 text-[10px]">POLY-002 • Fashion Ltd</p>
-                      <span className="text-slate-400 text-[9px]">10 minutes ago</span>
-                    </div>
-                  </div>
-                  <div className="flex items-start gap-2 p-1.5 rounded-lg hover:bg-slate-50">
-                    <div className="w-2 h-2 rounded-full bg-rose-500 mt-1 shrink-0" />
-                    <div>
-                      <p className="font-bold text-slate-800 text-[11px]">Sample issued</p>
-                      <p className="text-slate-500 text-[10px]">COT-004 • Sample Room</p>
-                      <span className="text-slate-400 text-[9px]">2 hours ago</span>
-                    </div>
-                  </div>
-                  <div className="flex items-start gap-2 p-1.5 rounded-lg hover:bg-slate-50">
-                    <div className="w-2 h-2 rounded-full bg-emerald-600 mt-1 shrink-0" />
-                    <div>
-                      <p className="font-bold text-slate-800 text-[11px]">Sample returned</p>
-                      <p className="text-slate-500 text-[10px]">VSS-003 • Trend Fab</p>
-                      <span className="text-slate-400 text-[9px]">5 hours ago</span>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            )}
-          </div>
-
-          {/* User Menu Dropdown (#3) */}
-          <div className="relative" ref={userMenuRef}>
-            <button
-              onClick={() => setIsUserMenuOpen(!isUserMenuOpen)}
-              className="inline-flex items-center gap-1.5 h-8 px-2.5 bg-white border border-slate-200 rounded-lg text-slate-700 hover:border-slate-300 shadow-xs transition cursor-pointer"
-            >
-              <div className="w-5 h-5 rounded-full bg-blue-600 text-white font-bold text-[10px] grid place-items-center">
-                A
-              </div>
-              <span className="font-bold text-xs">Admin</span>
-              <ChevronDown size={12} className="text-slate-400" />
-            </button>
-
-            {isUserMenuOpen && (
-              <div className="absolute right-0 mt-2 w-44 bg-white border border-slate-200 rounded-xl shadow-xl z-50 p-1.5 text-xs space-y-1 animate-in fade-in zoom-in-95 duration-100">
-                <button
-                  onClick={() => {
-                    setIsUserMenuOpen(false);
-                    navigate('/settings/profile');
-                  }}
-                  className="w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg hover:bg-slate-50 text-slate-700 text-left cursor-pointer"
-                >
-                  <User size={13} className="text-slate-400" />
-                  <span>My Profile</span>
-                </button>
-                <button
-                  onClick={() => {
-                    setIsUserMenuOpen(false);
-                    navigate('/settings');
-                  }}
-                  className="w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg hover:bg-slate-50 text-slate-700 text-left cursor-pointer"
-                >
-                  <Settings size={13} className="text-slate-400" />
-                  <span>Settings</span>
-                </button>
-                <div className="border-t border-slate-100 my-1" />
-                <button
-                  onClick={() => {
-                    setIsUserMenuOpen(false);
-                    navigate('/login');
-                  }}
-                  className="w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg hover:bg-rose-50 text-rose-600 text-left cursor-pointer"
-                >
-                  <LogOut size={13} />
-                  <span>Logout</span>
-                </button>
-              </div>
-            )}
-          </div>
+          )}
         </div>
       </div>
 
@@ -1045,8 +1038,7 @@ export function StockPositionPage() {
         {summaryCards.map((card) => {
           const Icon = card.icon;
           const isActive =
-            (card.tabKey === 'overview' && activeTab === 'overview') ||
-            (card.tabKey !== 'overview' && activeTab === card.tabKey);
+            card.tabKey === activeTab && (card.tabKey !== 'overview' || card.id === 'overview');
 
           return (
             <button
@@ -1287,178 +1279,42 @@ export function StockPositionPage() {
             <Download size={13} />
             Export CSV
           </button>
+
+          {/* Configure Threshold trigger */}
+          {data?.combinedGreyStock && (
+            <button
+              type="button"
+              onClick={() => {
+                setThresholdInput(data.combinedGreyStock.threshold > 0 ? String(data.combinedGreyStock.threshold) : '');
+                setThresholdEnabled(data.combinedGreyStock.isEnabled ?? true);
+                setThresholdError(null);
+                setIsThresholdModalOpen(true);
+              }}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-white border border-slate-200 hover:bg-slate-50 text-slate-700 rounded-lg text-xs font-semibold shadow-xs transition cursor-pointer"
+            >
+              <Settings size={13} />
+              <span>Threshold Settings</span>
+            </button>
+          )}
         </div>
       </div>
 
-      {/* ── COMBINED GREY FABRIC STOCK & LOW-STOCK ALERT BANNER (Overview Tab) ── */}
-      {activeTab === 'overview' && data?.combinedGreyStock && (
-        <div className="bg-white rounded-xl border border-slate-200/90 shadow-xs p-4">
-          <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 pb-3 border-b border-slate-100">
-            <div className="flex items-center gap-3">
-              <div
-                className={`w-10 h-10 rounded-xl grid place-items-center shrink-0 ${
-                  data.combinedGreyStock.status === 'Critical'
-                    ? 'bg-rose-50 border border-rose-200 text-rose-600'
-                    : data.combinedGreyStock.status === 'Low Stock'
-                    ? 'bg-amber-50 border border-amber-200 text-amber-600'
-                    : data.combinedGreyStock.status === 'Sufficient'
-                    ? 'bg-emerald-50 border border-emerald-200 text-emerald-600'
-                    : 'bg-slate-50 border border-slate-200 text-slate-500'
-                }`}
-              >
-                {data.combinedGreyStock.status === 'Critical' || data.combinedGreyStock.status === 'Low Stock' ? (
-                  <AlertCircle size={20} />
-                ) : (
-                  <Layers size={20} />
-                )}
-              </div>
-              <div>
-                <div className="flex items-center gap-2">
-                  <h3 className="text-sm font-bold text-slate-900">Combined Grey Fabric Inventory</h3>
-                  <span
-                    className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider ${
-                      data.combinedGreyStock.status === 'Critical'
-                        ? 'bg-rose-100 text-rose-800 border border-rose-200'
-                        : data.combinedGreyStock.status === 'Low Stock'
-                        ? 'bg-amber-100 text-amber-800 border border-amber-200'
-                        : data.combinedGreyStock.status === 'Sufficient'
-                        ? 'bg-emerald-100 text-emerald-800 border border-emerald-200'
-                        : 'bg-slate-100 text-slate-600 border border-slate-200'
-                    }`}
-                  >
-                    {data.combinedGreyStock.status === 'Unconfigured'
-                      ? 'Minimum stock level not configured'
-                      : data.combinedGreyStock.status}
-                  </span>
-                </div>
-                <p className="text-[11px] text-slate-500 mt-0.5">
-                  Authoritative aggregate across {data.combinedGreyStock.qualitiesCount || 0} fabric qualities ({data.combinedGreyStock.takasCount || 0} active takas). Single company-wide safety threshold.
-                </p>
-              </div>
-            </div>
-
-            <div className="flex items-center gap-2">
-              <button
-                type="button"
-                onClick={() => {
-                  setThresholdInput(data.combinedGreyStock.threshold > 0 ? String(data.combinedGreyStock.threshold) : '');
-                  setThresholdEnabled(data.combinedGreyStock.isEnabled ?? true);
-                  setThresholdError(null);
-                  setIsThresholdModalOpen(true);
-                }}
-                className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-xs font-semibold shadow-xs transition cursor-pointer"
-              >
-                <Settings size={13} />
-                Configure Threshold
-              </button>
-            </div>
+      {/* Compact Grey Fabric Shortage Alert (Only shown if shortage exists) */}
+      {data?.combinedGreyStock?.shortage > 0 && data?.combinedGreyStock?.isEnabled && (
+        <div className="p-3 bg-rose-50 border border-rose-200 rounded-xl flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs text-rose-800 shadow-xs">
+          <div className="flex items-center gap-2">
+            <AlertCircle size={16} className="shrink-0 text-rose-600" />
+            <span>
+              <strong>Combined Grey Stock Alert:</strong> Available grey fabric ({formatQty(data.combinedGreyStock.availableGrey, data.combinedGreyStock.uom)}) has fallen below safety threshold ({formatQty(data.combinedGreyStock.threshold, data.combinedGreyStock.uom)}) by {formatQty(data.combinedGreyStock.shortage, data.combinedGreyStock.uom)}.
+            </span>
           </div>
-
-          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 pt-3">
-            <div className="p-2.5 rounded-lg bg-slate-50 border border-slate-100">
-              <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block">Physical Grey</span>
-              <div className="text-base font-extrabold text-slate-900 font-mono mt-0.5">
-                {formatQty(data.combinedGreyStock.physicalGrey, data.combinedGreyStock.uom)}
-              </div>
-              <span className="text-[9.5px] text-slate-400">At company godowns</span>
-            </div>
-
-            <div className="p-2.5 rounded-lg bg-slate-50 border border-slate-100">
-              <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block">Reserved Grey</span>
-              <div className="text-base font-extrabold text-amber-700 font-mono mt-0.5">
-                {formatQty(data.combinedGreyStock.reservedGrey, data.combinedGreyStock.uom)}
-              </div>
-              <span className="text-[9.5px] text-slate-400">Sales order commits</span>
-            </div>
-
-            <div className="p-2.5 rounded-lg bg-blue-50/60 border border-blue-100">
-              <span className="text-[10px] font-bold text-blue-800 uppercase tracking-wider block">Available Grey</span>
-              <div className="text-base font-extrabold text-blue-900 font-mono mt-0.5">
-                {formatQty(data.combinedGreyStock.availableGrey, data.combinedGreyStock.uom)}
-              </div>
-              <span className="text-[9.5px] text-blue-600 font-medium">Physical - Reserved</span>
-            </div>
-
-            <div className="p-2.5 rounded-lg bg-slate-50 border border-slate-100">
-              <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block">Safety Threshold</span>
-              <div className="text-base font-extrabold text-slate-800 font-mono mt-0.5">
-                {data.combinedGreyStock.isConfigured
-                  ? formatQty(data.combinedGreyStock.threshold, data.combinedGreyStock.uom)
-                  : 'Not Set'}
-              </div>
-              <span className="text-[9.5px] text-slate-400">Combined minimum</span>
-            </div>
-
-            <div
-              className={`p-2.5 rounded-lg border ${
-                data.combinedGreyStock.shortage > 0
-                  ? 'bg-rose-50/70 border-rose-200 text-rose-800'
-                  : 'bg-slate-50 border-slate-100 text-slate-700'
-              }`}
-            >
-              <span className="text-[10px] font-bold uppercase tracking-wider block">Shortage</span>
-              <div
-                className={`text-base font-extrabold font-mono mt-0.5 ${
-                  data.combinedGreyStock.shortage > 0 ? 'text-rose-700' : 'text-slate-600'
-                }`}
-              >
-                {data.combinedGreyStock.shortage > 0
-                  ? formatQty(data.combinedGreyStock.shortage, data.combinedGreyStock.uom)
-                  : '0.00 Mtr'}
-              </div>
-              <span className="text-[9.5px] opacity-75">
-                {data.combinedGreyStock.shortage > 0 ? 'Below safety level' : 'No shortage'}
-              </span>
-            </div>
-
-            <div className="p-2.5 rounded-lg bg-purple-50/60 border border-purple-100">
-              <span className="text-[10px] font-bold text-purple-800 uppercase tracking-wider block">External WIP</span>
-              <div className="text-base font-extrabold text-purple-900 font-mono mt-0.5">
-                {formatQty(data.combinedGreyStock.externalWip, data.combinedGreyStock.uom)}
-              </div>
-              <span
-                className="text-[9.5px] text-purple-600 truncate block"
-                title={
-                  data.combinedGreyStock.wipByParty?.length
-                    ? data.combinedGreyStock.wipByParty.map((p) => `${p.party}: ${p.quantity} Mtr`).join(', ')
-                    : 'At processors'
-                }
-              >
-                {data.combinedGreyStock.wipByParty?.length
-                  ? `${data.combinedGreyStock.wipByParty.length} processor(s)`
-                  : 'At processors'}
-              </span>
-            </div>
-          </div>
-
-          {/* Alert Callout when shortage > 0 and enabled */}
-          {data.combinedGreyStock.shortage > 0 && data.combinedGreyStock.isEnabled && (
-            <div className="mt-3 p-2.5 bg-rose-50 border border-rose-200 rounded-lg flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs text-rose-800">
-              <div className="flex items-center gap-2">
-                <AlertCircle size={15} className="shrink-0 text-rose-600" />
-                <span>
-                  <strong>Combined Grey Stock Alert:</strong> Available grey fabric ({formatQty(data.combinedGreyStock.availableGrey, data.combinedGreyStock.uom)}) has fallen below the configured minimum threshold ({formatQty(data.combinedGreyStock.threshold, data.combinedGreyStock.uom)}) by {formatQty(data.combinedGreyStock.shortage, data.combinedGreyStock.uom)}.
-                </span>
-              </div>
-              <button
-                type="button"
-                onClick={() => navigate('/administration/alerts')}
-                className="text-[11px] font-semibold text-rose-700 hover:text-rose-900 underline shrink-0 cursor-pointer text-left"
-              >
-                View in Alert Center &rarr;
-              </button>
-            </div>
-          )}
-
-          {/* Unconfigured notice */}
-          {!data.combinedGreyStock.isConfigured && (
-            <div className="mt-3 p-2.5 bg-slate-50 border border-slate-200 rounded-lg flex items-center justify-between text-xs text-slate-600">
-              <div className="flex items-center gap-2">
-                <Info size={15} className="shrink-0 text-slate-500" />
-                <span>Minimum stock level not configured. Click &ldquo;Configure Threshold&rdquo; to set a company-wide safety threshold for grey fabric.</span>
-              </div>
-            </div>
-          )}
+          <button
+            type="button"
+            onClick={() => navigate('/administration/alerts')}
+            className="text-[11px] font-semibold text-rose-700 hover:text-rose-900 underline shrink-0 cursor-pointer text-left"
+          >
+            View Alert Center &rarr;
+          </button>
         </div>
       )}
 

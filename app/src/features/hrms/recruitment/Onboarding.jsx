@@ -40,7 +40,7 @@ export default function Onboarding() {
     "Onboarding Complete",
   ];
 
-  function handleCompleteOnboarding(c) {
+  async function handleCompleteOnboarding(c) {
     const isAlreadyEmployee = employees.some(
       (e) =>
         e.email?.toLowerCase() === c.email?.toLowerCase() ||
@@ -50,16 +50,19 @@ export default function Onboarding() {
     // The server converts the candidate to a real employee row
     // (`POST /hrms/onboarding/{id}/complete/`) — no fabricated directory
     // entries. Afterwards both lists re-read from the backend.
-    completeOnboarding(c.id).then(() =>
-      Promise.all([
+    try {
+      await completeOnboarding(c.id);
+      await Promise.all([
         useRecruitmentStore.getState().hydrate().catch(() => {}),
         useAppStore.getState().refreshHrms("employees").catch(() => {}),
-      ])
-    ).catch(() => {});
-    if (!isAlreadyEmployee) {
-      showToast(`Onboarding completed & ${c.name} added to Employee Directory!`);
-    } else {
-      showToast(`Onboarding completed for ${c.name}!`);
+      ]);
+      if (!isAlreadyEmployee) {
+        showToast(`Onboarding completed & ${c.name} added to Employee Directory!`);
+      } else {
+        showToast(`Onboarding completed for ${c.name}!`);
+      }
+    } catch (err) {
+      showToast(`Could not complete onboarding for ${c.name}: ${err?.message || 'Server error'}`);
     }
   }
 

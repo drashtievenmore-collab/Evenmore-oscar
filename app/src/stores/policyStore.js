@@ -1,17 +1,21 @@
 import { create } from "zustand";
 import { lazyStore } from "../services/lazyModules";
+import { useAppStore } from "./appStore";
 import {
   writeThrough,
   pullTracked,
   acknowledgePolicy as acknowledgePolicyOnServer,
+  approvePolicy as approvePolicyOnServer,
+  archivePolicy as archivePolicyOnServer,
   isBackendEnabled,
   isServerId,
 } from "../services/hrmsSync";
 
-const POLICIES_STORAGE_KEY = "hrms_company_policies_v1";
-const CATEGORIES_STORAGE_KEY = "hrms_policy_categories_v1";
-const ACKS_STORAGE_KEY = "hrms_policy_acknowledgements_v1";
-
+function getDefaultActor(actor) {
+  if (actor && typeof actor === 'string' && actor.trim()) return actor.trim();
+  const user = useAppStore.getState().currentUser;
+  return user?.name || "System";
+}
 
 const usePolicyStoreBase = create((set, get) => ({
   /** Load this module's collections from the API. */
@@ -54,6 +58,7 @@ const usePolicyStoreBase = create((set, get) => ({
     const status = submitForApproval
       ? (data.approvalRequired ? "Pending Approval" : "Active")
       : (data.status || "Draft");
+    const author = getDefaultActor(data.author);
 
     const newPolicy = {
       id: newId,
@@ -73,7 +78,7 @@ const usePolicyStoreBase = create((set, get) => ({
         {
           version: data.version || "v1.0",
           effectiveDate: data.effectiveDate || today,
-          updatedBy: data.author || "Adarsh Gupta",
+          updatedBy: author,
           summary: data.summary || "Initial policy creation.",
           status,
         },
@@ -81,7 +86,7 @@ const usePolicyStoreBase = create((set, get) => ({
       activityLog: [
         {
           date: `${today} ${new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`,
-          actor: data.author || "Adarsh Gupta",
+          actor: author,
           action: submitForApproval ? "Created and submitted policy for approval" : "Created policy draft",
         },
       ],
@@ -97,6 +102,7 @@ const usePolicyStoreBase = create((set, get) => ({
   updatePolicy: (id, updates) => {
     const state = get();
     const today = new Date().toISOString().slice(0, 10);
+    const actor = getDefaultActor(updates.actor);
     const updated = state.policies.map((p) => {
       if (p.id !== id) return p;
       return {
@@ -106,7 +112,7 @@ const usePolicyStoreBase = create((set, get) => ({
         activityLog: [
           {
             date: `${today} ${new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`,
-            actor: updates.actor || "Adarsh Gupta",
+            actor,
             action: updates.actionLogText || `Updated policy details (${Object.keys(updates).filter(k => k !== 'activityLog' && k !== 'versionHistory').join(', ')})`,
           },
           ...(p.activityLog || []),
@@ -117,9 +123,10 @@ const usePolicyStoreBase = create((set, get) => ({
     get().persistPolicies(updated);
   },
 
-  approvePolicy: (id, actor = "Adarsh Gupta") => {
+  approvePolicy: async (id, actor) => {
     const state = get();
     const today = new Date().toISOString().slice(0, 10);
+    const resolvedActor = getDefaultActor(actor);
     const updated = state.policies.map((p) => {
       if (p.id !== id) return p;
       const newStatus = "Active";
@@ -134,7 +141,7 @@ const usePolicyStoreBase = create((set, get) => ({
         activityLog: [
           {
             date: `${today} ${new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`,
-            actor,
+            actor: resolvedActor,
             action: `Approved policy ${p.version} and published to Active`,
           },
           ...(p.activityLog || []),
@@ -142,12 +149,22 @@ const usePolicyStoreBase = create((set, get) => ({
       };
     });
     set({ policies: updated });
-    get().persistPolicies(updated);
+    if (isBackendEnabled() && isServerId(id)) {
+      try {
+        await approvePolicyOnServer(id);
+      } catch (err) {
+        console.warn("[HRMS] approvePolicy on backend failed, falling back to persist:", err?.message || err);
+        get().persistPolicies(updated);
+      }
+    } else {
+      get().persistPolicies(updated);
+    }
   },
 
-  rejectPolicy: (id, reason = "", actor = "Adarsh Gupta") => {
+  rejectPolicy: (id, reason = "", actor) => {
     const state = get();
     const today = new Date().toISOString().slice(0, 10);
+    const resolvedActor = getDefaultActor(actor);
     const updated = state.policies.map((p) => {
       if (p.id !== id) return p;
       return {
@@ -157,7 +174,7 @@ const usePolicyStoreBase = create((set, get) => ({
         activityLog: [
           {
             date: `${today} ${new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`,
-            actor,
+            actor: resolvedActor,
             action: `Returned policy to Draft. Reason: ${reason || "Revisions requested"}`,
           },
           ...(p.activityLog || []),
@@ -168,9 +185,10 @@ const usePolicyStoreBase = create((set, get) => ({
     get().persistPolicies(updated);
   },
 
-  publishPolicy: (id, actor = "Adarsh Gupta") => {
+  publishPolicy: (id, actor) => {
     const state = get();
     const today = new Date().toISOString().slice(0, 10);
+    const resolvedActor = getDefaultActor(actor);
     const updated = state.policies.map((p) => {
       if (p.id !== id) return p;
       return {
@@ -180,7 +198,7 @@ const usePolicyStoreBase = create((set, get) => ({
         activityLog: [
           {
             date: `${today} ${new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`,
-            actor,
+            actor: resolvedActor,
             action: `Published policy (${p.version}) as Active`,
           },
           ...(p.activityLog || []),
@@ -191,9 +209,10 @@ const usePolicyStoreBase = create((set, get) => ({
     get().persistPolicies(updated);
   },
 
-  archivePolicy: (id, actor = "Adarsh Gupta") => {
+  archivePolicy: async (id, actor) => {
     const state = get();
     const today = new Date().toISOString().slice(0, 10);
+    const resolvedActor = getDefaultActor(actor);
     const updated = state.policies.map((p) => {
       if (p.id !== id) return p;
       return {
@@ -203,7 +222,7 @@ const usePolicyStoreBase = create((set, get) => ({
         activityLog: [
           {
             date: `${today} ${new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`,
-            actor,
+            actor: resolvedActor,
             action: `Archived policy (${p.version})`,
           },
           ...(p.activityLog || []),
@@ -211,12 +230,22 @@ const usePolicyStoreBase = create((set, get) => ({
       };
     });
     set({ policies: updated });
-    get().persistPolicies(updated);
+    if (isBackendEnabled() && isServerId(id)) {
+      try {
+        await archivePolicyOnServer(id);
+      } catch (err) {
+        console.warn("[HRMS] archivePolicy on backend failed, falling back to persist:", err?.message || err);
+        get().persistPolicies(updated);
+      }
+    } else {
+      get().persistPolicies(updated);
+    }
   },
 
-  restorePolicy: (id, actor = "Adarsh Gupta") => {
+  restorePolicy: (id, actor) => {
     const state = get();
     const today = new Date().toISOString().slice(0, 10);
+    const resolvedActor = getDefaultActor(actor);
     const updated = state.policies.map((p) => {
       if (p.id !== id) return p;
       return {
@@ -226,7 +255,7 @@ const usePolicyStoreBase = create((set, get) => ({
         activityLog: [
           {
             date: `${today} ${new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`,
-            actor,
+            actor: resolvedActor,
             action: `Restored policy from archive to Active`,
           },
           ...(p.activityLog || []),
@@ -247,6 +276,7 @@ const usePolicyStoreBase = create((set, get) => ({
   createNewVersion: (id, newVersionData) => {
     const state = get();
     const today = new Date().toISOString().slice(0, 10);
+    const author = getDefaultActor(newVersionData.author);
     const updated = state.policies.map((p) => {
       if (p.id !== id) return p;
 
@@ -254,7 +284,7 @@ const usePolicyStoreBase = create((set, get) => ({
         {
           version: newVersionData.version || `v${(parseFloat(p.version.replace("v", "")) + 0.1).toFixed(1)}`,
           effectiveDate: newVersionData.effectiveDate || today,
-          updatedBy: newVersionData.author || "Adarsh Gupta",
+          updatedBy: author,
           summary: newVersionData.summary || "New version release",
           status: newVersionData.approvalRequired ? "Pending Approval" : "Active",
         },
@@ -274,7 +304,7 @@ const usePolicyStoreBase = create((set, get) => ({
         activityLog: [
           {
             date: `${today} ${new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`,
-            actor: newVersionData.author || "Adarsh Gupta",
+            actor: author,
             action: `Created new version ${newVersionData.version || "update"} (${newVersionData.approvalRequired ? "Submitted for approval" : "Directly activated"})`,
           },
           ...(p.activityLog || []),
@@ -320,14 +350,17 @@ const usePolicyStoreBase = create((set, get) => ({
   // Compliance-critical: the tick is recorded in Postgres
   // (`POST /hrms/policies/{id}/acknowledge/`, stamped for the signed-in
   // employee) as well as locally for instant display.
-  acknowledgePolicy: (policyId, employeeName = "Adarsh Gupta", employeeId = "EMP-USR", dept = "Operations") => {
+  acknowledgePolicy: (policyId, employeeName, employeeId, dept = "Operations") => {
     const state = get();
+    const user = useAppStore.getState().currentUser;
+    const resolvedName = employeeName || user?.name || "Employee";
+    const resolvedEmpId = employeeId || user?.employeeId || user?.id || "EMP-USR";
     const policy = state.policies.find((p) => p.id === policyId);
     const now = new Date();
     const nowStr = `${now.toISOString().slice(0, 10)} ${now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`;
 
     const existingIndex = state.acknowledgements.findIndex(
-      (a) => a.policyId === policyId && (a.employeeId === employeeId || a.employeeName === employeeName)
+      (a) => a.policyId === policyId && (a.employeeId === resolvedEmpId || a.employeeName === resolvedName)
     );
 
     let updatedAcks;
@@ -343,8 +376,8 @@ const usePolicyStoreBase = create((set, get) => ({
         policyId,
         policyName: policy?.name || "Company Policy",
         version: policy?.version || "v1.0",
-        employeeName,
-        employeeId,
+        employeeName: resolvedName,
+        employeeId: resolvedEmpId,
         dept,
         status: "Acknowledged",
         ackDate: nowStr,
@@ -368,8 +401,6 @@ const usePolicyStoreBase = create((set, get) => ({
       categories: [],
       acknowledgements: [],
     });
-    // The server holds the policy library; re-read it rather than restoring
-    // a shipped set that no longer exists.
     usePolicyStore.getState().hydrate();
   },
 }));
