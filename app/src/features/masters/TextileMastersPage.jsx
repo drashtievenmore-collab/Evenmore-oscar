@@ -19,6 +19,8 @@ import {
   RefreshCw,
   X,
   FileSpreadsheet,
+  Truck,
+  UserCheck,
 } from 'lucide-react';
 import api from '../../services/api';
 import PageHeader from '../../components/ui/PageHeader';
@@ -34,6 +36,8 @@ const TABS = [
   { id: 'defects', label: 'Defect Master', icon: AlertOctagon, desc: 'Quality defect taxonomy & severity' },
   { id: 'loss-reasons', label: 'Loss Reasons', icon: ArrowDownLeft, desc: 'Standard process & shrinkage loss codes' },
   { id: 'return-reasons', label: 'Return Reasons', icon: RotateCcw, desc: 'Supplier & customer return dispute reasons' },
+  { id: 'vehicles', label: 'Vehicles', icon: Truck, desc: 'Transport tempo & vehicle registry' },
+  { id: 'drivers', label: 'Drivers', icon: UserCheck, desc: 'Driver profiles, mobile numbers & licenses' },
 ];
 
 export default function TextileMastersPage() {
@@ -54,6 +58,7 @@ export default function TextileMastersPage() {
   const [processorsList, setProcessorsList] = useState([]);
   const [processesList, setProcessesList] = useState([]);
   const [qualitiesList, setQualitiesList] = useState([]);
+  const [transportersList, setTransportersList] = useState([]);
 
   // Fetch list based on active tab
   const fetchData = useCallback(async () => {
@@ -69,6 +74,8 @@ export default function TextileMastersPage() {
       else if (activeTab === 'defects') endpoint = '/masters/defects/';
       else if (activeTab === 'loss-reasons') endpoint = '/masters/loss-reasons/';
       else if (activeTab === 'return-reasons') endpoint = '/masters/return-reasons/';
+      else if (activeTab === 'vehicles') endpoint = '/masters/vehicles/';
+      else if (activeTab === 'drivers') endpoint = '/masters/drivers/';
 
       const res = await api.get(endpoint);
       const rows = Array.isArray(res) ? res : (res?.results || res?.rows || []);
@@ -84,6 +91,9 @@ export default function TextileMastersPage() {
 
   // Load auxiliary data for composite forms
   useEffect(() => {
+    if (activeTab === 'vehicles' || activeTab === 'drivers') {
+      api.get('/masters/transporters/').then(r => setTransportersList(Array.isArray(r) ? r : (r?.results || []))).catch(() => {});
+    }
     if (activeTab === 'jobwork-rates') {
       api.get('/masters/parties/processors/').then(r => setProcessorsList(Array.isArray(r) ? r : (r?.results || []))).catch(() => {});
       api.get('/masters/processes/').then(r => setProcessesList(Array.isArray(r) ? r : (r?.results || []))).catch(() => {});
@@ -100,9 +110,9 @@ export default function TextileMastersPage() {
     if (!search.trim()) return data;
     const q = search.toLowerCase();
     return data.filter((item) => {
-      const name = (item.name || item.partyName || item.code || '').toLowerCase();
+      const name = (item.name || item.partyName || item.code || item.vehicleNumber || item.vehicle_number || '').toLowerCase();
       const code = (item.code || '').toLowerCase();
-      const contact = (item.contactPerson || item.contact || item.phone || '').toLowerCase();
+      const contact = (item.contactPerson || item.contact || item.phone || item.mobile || item.licence || item.transporterName || '').toLowerCase();
       return name.includes(q) || code.includes(q) || contact.includes(q);
     });
   }, [data, search]);
@@ -124,6 +134,10 @@ export default function TextileMastersPage() {
       setFormData({ name: '', code: '', category: 'shade', severity: 'minor', isActive: true });
     } else if (activeTab === 'loss-reasons' || activeTab === 'return-reasons') {
       setFormData({ name: '', code: '', description: '', isActive: true });
+    } else if (activeTab === 'vehicles') {
+      setFormData({ vehicleNumber: '', vehicleType: 'Truck', capacity: '', transporterId: '', remarks: '', isActive: true });
+    } else if (activeTab === 'drivers') {
+      setFormData({ name: '', mobile: '', licence: '', transporterId: '', remarks: '', isActive: true });
     }
     setModalOpen(true);
   };
@@ -143,6 +157,12 @@ export default function TextileMastersPage() {
       commissionType: item.commissionType || item.commission_type || 'percent',
       defaultRate: item.defaultRate ?? item.default_rate ?? '',
       rateUom: item.rateUom || item.rate_uom || 'MTR',
+      vehicleNumber: item.vehicleNumber || item.vehicle_number || '',
+      vehicleType: item.vehicleType || item.vehicle_type || 'Truck',
+      capacity: item.capacity || '',
+      licence: item.licence || item.license || '',
+      mobile: item.mobile || item.phone || '',
+      transporterId: item.transporterId || item.transporter || '',
       isActive: item.isActive ?? item.is_active ?? true,
     });
     setModalOpen(true);
@@ -163,6 +183,8 @@ export default function TextileMastersPage() {
       else if (activeTab === 'defects') endpoint = '/masters/defects/';
       else if (activeTab === 'loss-reasons') endpoint = '/masters/loss-reasons/';
       else if (activeTab === 'return-reasons') endpoint = '/masters/return-reasons/';
+      else if (activeTab === 'vehicles') endpoint = '/masters/vehicles/';
+      else if (activeTab === 'drivers') endpoint = '/masters/drivers/';
 
       const payload = { ...formData };
       if (editingItem) {
@@ -196,6 +218,8 @@ export default function TextileMastersPage() {
       else if (activeTab === 'defects') endpoint = '/masters/defects/';
       else if (activeTab === 'loss-reasons') endpoint = '/masters/loss-reasons/';
       else if (activeTab === 'return-reasons') endpoint = '/masters/return-reasons/';
+      else if (activeTab === 'vehicles') endpoint = '/masters/vehicles/';
+      else if (activeTab === 'drivers') endpoint = '/masters/drivers/';
 
       await api.delete(`${endpoint}${id}/`);
       fetchData();
@@ -291,8 +315,8 @@ export default function TextileMastersPage() {
             <table className="w-full text-left text-xs">
               <thead className="bg-slate-50 text-slate-500 font-semibold border-b border-slate-200 uppercase tracking-wider text-[11px]">
                 <tr>
-                  <th className="px-4 py-3">Code / ID</th>
-                  <th className="px-4 py-3">Name / Label</th>
+                  <th className="px-4 py-3">{activeTab === 'vehicles' ? 'Vehicle No' : activeTab === 'drivers' ? 'Driver Name' : 'Code / ID'}</th>
+                  <th className="px-4 py-3">{activeTab === 'vehicles' ? 'Vehicle Type' : activeTab === 'drivers' ? 'Mobile' : 'Name / Label'}</th>
                   {activeTab === 'agencies' && (
                     <>
                       <th className="px-4 py-3">Contact Person</th>
@@ -342,6 +366,20 @@ export default function TextileMastersPage() {
                   {(activeTab === 'loss-reasons' || activeTab === 'return-reasons') && (
                     <th className="px-4 py-3">Description</th>
                   )}
+                  {activeTab === 'vehicles' && (
+                    <>
+                      <th className="px-4 py-3">Capacity</th>
+                      <th className="px-4 py-3">Transporter</th>
+                      <th className="px-4 py-3">Remarks</th>
+                    </>
+                  )}
+                  {activeTab === 'drivers' && (
+                    <>
+                      <th className="px-4 py-3">License No</th>
+                      <th className="px-4 py-3">Transporter</th>
+                      <th className="px-4 py-3">Remarks</th>
+                    </>
+                  )}
                   <th className="px-4 py-3 text-center">Status</th>
                   <th className="px-4 py-3 text-right">Actions</th>
                 </tr>
@@ -350,10 +388,18 @@ export default function TextileMastersPage() {
                 {filteredData.map((row) => (
                   <tr key={row.id} className="hover:bg-slate-50/70 transition-colors">
                     <td className="px-4 py-3 font-mono font-medium text-slate-700">
-                      {row.code || row.id?.slice(0, 8)}
+                      {activeTab === 'vehicles'
+                        ? (row.vehicleNumber || row.vehicle_number || '—')
+                        : activeTab === 'drivers'
+                        ? (row.name || '—')
+                        : (row.code || row.id?.slice(0, 8))}
                     </td>
                     <td className="px-4 py-3 font-semibold text-slate-900">
-                      {row.name || row.partyName || row.party?.name || '—'}
+                      {activeTab === 'vehicles'
+                        ? (row.vehicleType || row.vehicle_type || 'Truck')
+                        : activeTab === 'drivers'
+                        ? (row.mobile || '—')
+                        : (row.name || row.partyName || row.party?.name || '—')}
                     </td>
                     {activeTab === 'agencies' && (
                       <>
@@ -424,6 +470,20 @@ export default function TextileMastersPage() {
                     {(activeTab === 'loss-reasons' || activeTab === 'return-reasons') && (
                       <td className="px-4 py-3 text-slate-600">{row.description || '—'}</td>
                     )}
+                    {activeTab === 'vehicles' && (
+                      <>
+                        <td className="px-4 py-3 text-slate-600">{row.capacity || '—'}</td>
+                        <td className="px-4 py-3 text-slate-700 font-medium">{row.transporterName || row.transporter?.name || 'Self / Own Fleet'}</td>
+                        <td className="px-4 py-3 text-slate-500">{row.remarks || '—'}</td>
+                      </>
+                    )}
+                    {activeTab === 'drivers' && (
+                      <>
+                        <td className="px-4 py-3 font-mono text-slate-600">{row.licence || row.license || '—'}</td>
+                        <td className="px-4 py-3 text-slate-700 font-medium">{row.transporterName || row.transporter?.name || 'Self / Direct'}</td>
+                        <td className="px-4 py-3 text-slate-500">{row.remarks || '—'}</td>
+                      </>
+                    )}
                     <td className="px-4 py-3 text-center">
                       <span className={`inline-flex items-center gap-1 text-[11px] font-semibold px-2 py-0.5 rounded-full ${
                         (row.isActive ?? row.is_active ?? true) ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' : 'bg-slate-100 text-slate-500 border border-slate-200'
@@ -478,32 +538,34 @@ export default function TextileMastersPage() {
 
             <form onSubmit={handleSave} className="p-5 space-y-4 max-h-[75vh] overflow-y-auto text-xs">
               {/* Common Code and Name */}
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block font-semibold text-slate-700 mb-1">Code *</label>
-                  <input
-                    type="text"
-                    required
-                    value={formData.code || ''}
-                    onChange={(e) => setFormData({ ...formData, code: e.target.value.toUpperCase() })}
-                    placeholder="e.g. DYE-01"
-                    className="w-full px-3 py-1.5 border border-slate-200 rounded-lg uppercase font-mono focus:border-blue-500 focus:outline-none"
-                  />
-                  {formErrors.code && <p className="text-rose-500 text-[10px] mt-0.5">{formErrors.code[0]}</p>}
+              {activeTab !== 'vehicles' && activeTab !== 'drivers' && (
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block font-semibold text-slate-700 mb-1">Code *</label>
+                    <input
+                      type="text"
+                      required
+                      value={formData.code || ''}
+                      onChange={(e) => setFormData({ ...formData, code: e.target.value.toUpperCase() })}
+                      placeholder="e.g. DYE-01"
+                      className="w-full px-3 py-1.5 border border-slate-200 rounded-lg uppercase font-mono focus:border-blue-500 focus:outline-none"
+                    />
+                    {formErrors.code && <p className="text-rose-500 text-[10px] mt-0.5">{formErrors.code[0]}</p>}
+                  </div>
+                  <div>
+                    <label className="block font-semibold text-slate-700 mb-1">Name *</label>
+                    <input
+                      type="text"
+                      required
+                      value={formData.name || ''}
+                      onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+                      placeholder="e.g. Dyeing Process"
+                      className="w-full px-3 py-1.5 border border-slate-200 rounded-lg focus:border-blue-500 focus:outline-none"
+                    />
+                    {formErrors.name && <p className="text-rose-500 text-[10px] mt-0.5">{formErrors.name[0]}</p>}
+                  </div>
                 </div>
-                <div>
-                  <label className="block font-semibold text-slate-700 mb-1">Name *</label>
-                  <input
-                    type="text"
-                    required
-                    value={formData.name || ''}
-                    onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-                    placeholder="e.g. Dyeing Process"
-                    className="w-full px-3 py-1.5 border border-slate-200 rounded-lg focus:border-blue-500 focus:outline-none"
-                  />
-                  {formErrors.name && <p className="text-rose-500 text-[10px] mt-0.5">{formErrors.name[0]}</p>}
-                </div>
-              </div>
+              )}
 
               {/* Agencies Form */}
               {activeTab === 'agencies' && (
@@ -771,6 +833,141 @@ export default function TextileMastersPage() {
                     </select>
                   </div>
                 </div>
+              )}
+
+              {/* Vehicles Form */}
+              {activeTab === 'vehicles' && (
+                <>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="block font-semibold text-slate-700 mb-1">Vehicle Number *</label>
+                      <input
+                        type="text"
+                        required
+                        value={formData.vehicleNumber || ''}
+                        onChange={(e) => setFormData({ ...formData, vehicleNumber: e.target.value.toUpperCase() })}
+                        placeholder="e.g. GJ05AB1234"
+                        className="w-full px-3 py-1.5 border border-slate-200 rounded-lg uppercase font-mono focus:border-blue-500 focus:outline-none"
+                      />
+                    </div>
+                    <div>
+                      <label className="block font-semibold text-slate-700 mb-1">Vehicle Type</label>
+                      <select
+                        value={formData.vehicleType || 'Truck'}
+                        onChange={(e) => setFormData({ ...formData, vehicleType: e.target.value })}
+                        className="w-full px-3 py-1.5 border border-slate-200 rounded-lg focus:border-blue-500 focus:outline-none bg-white"
+                      >
+                        <option value="Truck">Truck</option>
+                        <option value="Mini Truck / LCV">Mini Truck / LCV</option>
+                        <option value="Trailer">Trailer</option>
+                        <option value="Container">Container</option>
+                        <option value="Tanker">Tanker</option>
+                        <option value="Tempo">Tempo</option>
+                        <option value="Other">Other</option>
+                      </select>
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="block font-semibold text-slate-700 mb-1">Capacity</label>
+                      <input
+                        type="text"
+                        value={formData.capacity || ''}
+                        onChange={(e) => setFormData({ ...formData, capacity: e.target.value })}
+                        placeholder="e.g. 5 Tons / 5000 Kg"
+                        className="w-full px-3 py-1.5 border border-slate-200 rounded-lg focus:border-blue-500 focus:outline-none"
+                      />
+                    </div>
+                    <div>
+                      <label className="block font-semibold text-slate-700 mb-1">Transporter</label>
+                      <select
+                        value={formData.transporterId || ''}
+                        onChange={(e) => setFormData({ ...formData, transporterId: e.target.value })}
+                        className="w-full px-3 py-1.5 border border-slate-200 rounded-lg focus:border-blue-500 focus:outline-none bg-white"
+                      >
+                        <option value="">Self / Own Fleet (None)</option>
+                        {transportersList.map((tr) => (
+                          <option key={tr.id} value={tr.id}>{tr.name}</option>
+                        ))}
+                      </select>
+                    </div>
+                  </div>
+                  <div>
+                    <label className="block font-semibold text-slate-700 mb-1">Remarks</label>
+                    <textarea
+                      rows={2}
+                      value={formData.remarks || ''}
+                      onChange={(e) => setFormData({ ...formData, remarks: e.target.value })}
+                      placeholder="Optional notes or permit details..."
+                      className="w-full px-3 py-1.5 border border-slate-200 rounded-lg focus:border-blue-500 focus:outline-none"
+                    />
+                  </div>
+                </>
+              )}
+
+              {/* Drivers Form */}
+              {activeTab === 'drivers' && (
+                <>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="block font-semibold text-slate-700 mb-1">Driver Name *</label>
+                      <input
+                        type="text"
+                        required
+                        value={formData.name || ''}
+                        onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+                        placeholder="e.g. Ramesh Bhai"
+                        className="w-full px-3 py-1.5 border border-slate-200 rounded-lg focus:border-blue-500 focus:outline-none"
+                      />
+                    </div>
+                    <div>
+                      <label className="block font-semibold text-slate-700 mb-1">Mobile Number *</label>
+                      <input
+                        type="tel"
+                        required
+                        value={formData.mobile || ''}
+                        onChange={(e) => setFormData({ ...formData, mobile: e.target.value })}
+                        placeholder="9876543210"
+                        className="w-full px-3 py-1.5 border border-slate-200 rounded-lg focus:border-blue-500 focus:outline-none"
+                      />
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="block font-semibold text-slate-700 mb-1">Driving Licence No</label>
+                      <input
+                        type="text"
+                        value={formData.licence || ''}
+                        onChange={(e) => setFormData({ ...formData, licence: e.target.value.toUpperCase() })}
+                        placeholder="e.g. GJ05-20150001234"
+                        className="w-full px-3 py-1.5 border border-slate-200 rounded-lg font-mono uppercase focus:border-blue-500 focus:outline-none"
+                      />
+                    </div>
+                    <div>
+                      <label className="block font-semibold text-slate-700 mb-1">Transporter</label>
+                      <select
+                        value={formData.transporterId || ''}
+                        onChange={(e) => setFormData({ ...formData, transporterId: e.target.value })}
+                        className="w-full px-3 py-1.5 border border-slate-200 rounded-lg focus:border-blue-500 focus:outline-none bg-white"
+                      >
+                        <option value="">Direct / Independent (None)</option>
+                        {transportersList.map((tr) => (
+                          <option key={tr.id} value={tr.id}>{tr.name}</option>
+                        ))}
+                      </select>
+                    </div>
+                  </div>
+                  <div>
+                    <label className="block font-semibold text-slate-700 mb-1">Remarks</label>
+                    <textarea
+                      rows={2}
+                      value={formData.remarks || ''}
+                      onChange={(e) => setFormData({ ...formData, remarks: e.target.value })}
+                      placeholder="Optional notes or badge number..."
+                      className="w-full px-3 py-1.5 border border-slate-200 rounded-lg focus:border-blue-500 focus:outline-none"
+                    />
+                  </div>
+                </>
               )}
 
               {/* Description for Loss / Return reasons */}

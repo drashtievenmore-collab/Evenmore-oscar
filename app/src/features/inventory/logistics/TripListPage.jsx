@@ -16,7 +16,10 @@ import {
   Layers,
   ArrowUpRight,
   TrendingUp,
+  UploadCloud,
+  ExternalLink,
 } from 'lucide-react';
+import { uploadFileToBackend } from '../../../services/fileUploadService';
 import { inventoryService } from '../../../services/domainServices';
 import PageInfoButton from '../../../components/ui/PageInfoButton';
 
@@ -26,6 +29,28 @@ export default function TripListPage() {
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
+  const [vehicles, setVehicles] = useState([]);
+  const [drivers, setDrivers] = useState([]);
+
+  // Create Transporter Modal
+  const [showTransporterModal, setShowTransporterModal] = useState(false);
+  const [transporterSubmitting, setTransporterSubmitting] = useState(false);
+  const [newTransporter, setNewTransporter] = useState({
+    name: '',
+    code: '',
+    contactPerson: '',
+    phone: '',
+    gstin: '',
+    address: '',
+  });
+
+  // Confirm Delivery Modal
+  const [deliveryModalTrip, setDeliveryModalTrip] = useState(null);
+  const [deliveryTime, setDeliveryTime] = useState('');
+  const [deliveryRemarks, setDeliveryRemarks] = useState('');
+  const [proofFile, setProofFile] = useState(null);
+  const [confirmingDelivery, setConfirmingDelivery] = useState(false);
+  const [deliveryError, setDeliveryError] = useState(null);
 
   // Modal
   const [showCreateModal, setShowCreateModal] = useState(false);
@@ -38,6 +63,8 @@ export default function TripListPage() {
     tripType: 'OUTWARD',
     tripDate: new Date().toISOString().slice(0, 10),
     transporterId: '',
+    vehicleId: '',
+    driverId: '',
     vehicleNumber: '',
     driverName: '',
     driverMobile: '',
@@ -66,14 +93,20 @@ export default function TripListPage() {
   const fetchTrips = useCallback(async () => {
     try {
       setLoading(true);
-      const [tripsRes, transpRes] = await Promise.all([
+      const [tripsRes, transpRes, vehRes, drivRes] = await Promise.all([
         inventoryService.getTrips({ status: statusFilter || undefined }),
         inventoryService.getTransporters(),
+        inventoryService.getVehicles().catch(() => []),
+        inventoryService.getDrivers().catch(() => []),
       ]);
       const data = tripsRes?.data || tripsRes?.results || tripsRes || [];
       const transpData = transpRes?.data || transpRes?.results || transpRes || [];
+      const vehData = vehRes?.data || vehRes?.results || vehRes || [];
+      const drivData = drivRes?.data || drivRes?.results || drivRes || [];
       setTrips(Array.isArray(data) ? data : []);
       setTransporters(Array.isArray(transpData) ? transpData : []);
+      setVehicles(Array.isArray(vehData) ? vehData : []);
+      setDrivers(Array.isArray(drivData) ? drivData : []);
     } catch (err) {
       console.error('Failed to load trips:', err);
     } finally {
@@ -84,6 +117,91 @@ export default function TripListPage() {
   useEffect(() => {
     fetchTrips();
   }, [fetchTrips]);
+
+  const handleVehicleSelect = (vehicleId) => {
+    if (!vehicleId) {
+      setTripForm((prev) => ({ ...prev, vehicleId: '' }));
+      return;
+    }
+    const selected = vehicles.find((v) => String(v.id) === String(vehicleId));
+    if (selected) {
+      setTripForm((prev) => ({
+        ...prev,
+        vehicleId: selected.id,
+        vehicleNumber: selected.vehicleNumber || selected.vehicle_number || prev.vehicleNumber,
+        transporterId: selected.transporterId || selected.transporter || prev.transporterId,
+      }));
+    }
+  };
+
+  const handleDriverSelect = (driverId) => {
+    if (!driverId) {
+      setTripForm((prev) => ({ ...prev, driverId: '' }));
+      return;
+    }
+    const selected = drivers.find((d) => String(d.id) === String(driverId));
+    if (selected) {
+      setTripForm((prev) => ({
+        ...prev,
+        driverId: selected.id,
+        driverName: selected.name || prev.driverName,
+        driverMobile: selected.mobile || selected.phone || prev.driverMobile,
+        transporterId: prev.transporterId || selected.transporterId || selected.transporter || '',
+      }));
+    }
+  };
+
+  const handleCreateTransporterSubmit = async (e) => {
+    e.preventDefault();
+    if (!newTransporter.name.trim()) return;
+    try {
+      setTransporterSubmitting(true);
+      const res = await inventoryService.createTransporter(newTransporter);
+      const created = res?.data || res;
+      if (created?.id) {
+        setTransporters((prev) => [...prev, created]);
+        setTripForm((prev) => ({ ...prev, transporterId: created.id }));
+      }
+      setShowTransporterModal(false);
+      setNewTransporter({ name: '', code: '', contactPerson: '', phone: '', gstin: '', address: '' });
+    } catch (err) {
+      alert(err?.response?.data?.message || err?.message || 'Failed to create transporter.');
+    } finally {
+      setTransporterSubmitting(false);
+    }
+  };
+
+  const handleOpenConfirmDelivery = (trip) => {
+    setDeliveryModalTrip(trip);
+    setDeliveryTime(new Date().toISOString().slice(0, 16));
+    setDeliveryRemarks('');
+    setProofFile(null);
+    setDeliveryError(null);
+  };
+
+  const handleConfirmDeliverySubmit = async (e) => {
+    e.preventDefault();
+    if (!deliveryModalTrip) return;
+    try {
+      setConfirmingDelivery(true);
+      setDeliveryError(null);
+      let proofFileId = null;
+      if (proofFile) {
+        proofFileId = await uploadFileToBackend(proofFile, proofFile.name, 'trip_delivery_proof');
+      }
+      await inventoryService.confirmTripDelivery(deliveryModalTrip.id, {
+        delivery_time: deliveryTime,
+        remarks: deliveryRemarks,
+        proof_file: proofFileId,
+      });
+      setDeliveryModalTrip(null);
+      fetchTrips();
+    } catch (err) {
+      setDeliveryError(err?.response?.data?.message || err?.message || 'Failed to confirm delivery.');
+    } finally {
+      setConfirmingDelivery(false);
+    }
+  };
 
   const handleAddMaterial = () => {
     if (!materialDraft.lotNumber || !materialDraft.meters) return;
@@ -112,6 +230,8 @@ export default function TripListPage() {
         tripType: 'OUTWARD',
         tripDate: new Date().toISOString().slice(0, 10),
         transporterId: '',
+        vehicleId: '',
+        driverId: '',
         vehicleNumber: '',
         driverName: '',
         driverMobile: '',
@@ -220,17 +340,18 @@ export default function TripListPage() {
                 <th className="py-3 px-4">LR / Transporter</th>
                 <th className="py-3 px-4 text-right">Total Charges</th>
                 <th className="py-3 px-4">Cost Allocation</th>
+                <th className="py-3 px-4">Delivery Status</th>
                 <th className="py-3 px-4 text-right">Actions</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
               {loading ? (
                 <tr>
-                  <td colSpan="7" className="text-center py-10 text-slate-400">Loading trips...</td>
+                  <td colSpan="8" className="text-center py-10 text-slate-400">Loading trips...</td>
                 </tr>
               ) : filteredTrips.length === 0 ? (
                 <tr>
-                  <td colSpan="7" className="text-center py-10 text-slate-400">No transport trips recorded.</td>
+                  <td colSpan="8" className="text-center py-10 text-slate-400">No transport trips recorded.</td>
                 </tr>
               ) : (
                 filteredTrips.map((t) => (
@@ -263,9 +384,9 @@ export default function TripListPage() {
                       <div className="text-xs text-slate-400">Paid by: {t.paid_by}</div>
                     </td>
                     <td className="py-3 px-4 text-xs">
-                      {t.freight_allocated ? (
+                      {t.freight_allocated || t.freightAllocated || t.is_cost_allocated ? (
                         <span className="inline-flex items-center gap-1 text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded font-medium border border-emerald-200">
-                          <CheckCircle2 className="w-3 h-3" /> Allocated to Lots
+                          <CheckCircle2 className="w-3 h-3" /> Allocated ({t.cost_allocation_target || t.costAllocationTarget || 'LOT'})
                         </span>
                       ) : (
                         <span className="inline-flex items-center gap-1 text-amber-700 bg-amber-50 px-2 py-0.5 rounded font-medium border border-amber-200">
@@ -273,8 +394,44 @@ export default function TripListPage() {
                         </span>
                       )}
                     </td>
-                    <td className="py-3 px-4 text-right">
-                      {!t.freight_allocated && (
+                    <td className="py-3 px-4 text-xs">
+                      {t.status === 'Delivered' || t.status === 'Completed' ? (
+                        <div>
+                          <span className="inline-flex items-center gap-1 text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded font-medium border border-emerald-200">
+                            <CheckCircle2 className="w-3 h-3" /> Delivered
+                          </span>
+                          {(t.delivery_time || t.deliveryTime) && (
+                            <div className="text-[11px] text-slate-400 mt-0.5">
+                              {new Date(t.delivery_time || t.deliveryTime).toLocaleString([], { dateStyle: 'short', timeStyle: 'short' })}
+                            </div>
+                          )}
+                          {(t.proof_file_url || t.proofFileUrl || t.proof_file) && (
+                            <a
+                              href={t.proof_file_url || t.proofFileUrl || `/api/v1/files/${t.proof_file}/`}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="inline-flex items-center gap-1 text-[11px] text-indigo-600 hover:text-indigo-800 font-medium underline mt-0.5"
+                            >
+                              <FileText className="w-3 h-3" /> Proof File
+                            </a>
+                          )}
+                        </div>
+                      ) : (
+                        <span className="inline-flex items-center gap-1 text-slate-700 bg-slate-100 px-2 py-0.5 rounded font-medium">
+                          <Truck className="w-3 h-3 text-slate-500" /> {t.status || 'In Transit'}
+                        </span>
+                      )}
+                    </td>
+                    <td className="py-3 px-4 text-right space-x-1.5 whitespace-nowrap">
+                      {t.status !== 'Delivered' && t.status !== 'Completed' && (
+                        <button
+                          onClick={() => handleOpenConfirmDelivery(t)}
+                          className="px-2.5 py-1 text-xs font-medium text-emerald-700 bg-emerald-50 hover:bg-emerald-100 rounded border border-emerald-200 transition-colors inline-flex items-center gap-1"
+                        >
+                          <CheckCircle2 className="w-3 h-3" /> Confirm Delivery
+                        </button>
+                      )}
+                      {!t.freight_allocated && !t.is_cost_allocated && (
                         <button
                           onClick={() => handleAllocateFreight(t.id)}
                           className="px-2.5 py-1 text-xs font-medium text-indigo-700 bg-indigo-50 hover:bg-indigo-100 rounded border border-indigo-200 transition-colors"
@@ -336,7 +493,16 @@ export default function TripListPage() {
                   </select>
                 </div>
                 <div>
-                  <label className="block text-xs font-medium text-slate-700 mb-1">Transporter</label>
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="block text-xs font-medium text-slate-700">Transporter</label>
+                    <button
+                      type="button"
+                      onClick={() => setShowTransporterModal(true)}
+                      className="text-[11px] text-indigo-600 hover:text-indigo-800 font-semibold"
+                    >
+                      + New
+                    </button>
+                  </div>
                   <select
                     value={tripForm.transporterId}
                     onChange={(e) => setTripForm({ ...tripForm, transporterId: e.target.value })}
@@ -350,6 +516,39 @@ export default function TripListPage() {
                 </div>
               </div>
 
+              <div className="grid grid-cols-2 gap-3 p-3 bg-slate-50 border border-slate-200 rounded-lg">
+                <div>
+                  <label className="block text-xs font-medium text-slate-700 mb-1">Select Registered Vehicle</label>
+                  <select
+                    value={tripForm.vehicleId || ''}
+                    onChange={(e) => handleVehicleSelect(e.target.value)}
+                    className="w-full text-sm border border-slate-200 rounded-md p-2 bg-white"
+                  >
+                    <option value="">-- Choose registered vehicle or type manual --</option>
+                    {vehicles.map((v) => (
+                      <option key={v.id} value={v.id}>
+                        {v.vehicleNumber || v.vehicle_number} ({v.vehicleType || v.vehicle_type || 'Truck'}{v.transporterName ? ` - ${v.transporterName}` : ''})
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-slate-700 mb-1">Select Registered Driver</label>
+                  <select
+                    value={tripForm.driverId || ''}
+                    onChange={(e) => handleDriverSelect(e.target.value)}
+                    className="w-full text-sm border border-slate-200 rounded-md p-2 bg-white"
+                  >
+                    <option value="">-- Choose registered driver or type manual --</option>
+                    {drivers.map((d) => (
+                      <option key={d.id} value={d.id}>
+                        {d.name} ({d.mobile || 'No Mobile'}{d.transporterName ? ` - ${d.transporterName}` : ''})
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+
               <div className="grid grid-cols-3 gap-3">
                 <div>
                   <label className="block text-xs font-medium text-slate-700 mb-1">Vehicle Number *</label>
@@ -358,7 +557,7 @@ export default function TripListPage() {
                     required
                     placeholder="e.g. GJ05AB1234"
                     value={tripForm.vehicleNumber}
-                    onChange={(e) => setTripForm({ ...tripForm, vehicleNumber: e.target.value })}
+                    onChange={(e) => setTripForm({ ...tripForm, vehicleNumber: e.target.value.toUpperCase() })}
                     className="w-full text-sm border border-slate-200 rounded-md p-2 uppercase"
                   />
                 </div>
@@ -455,6 +654,31 @@ export default function TripListPage() {
                       <option value="Party">Party</option>
                       <option value="Transporter">Transporter</option>
                     </select>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-2 pt-2 border-t border-slate-200">
+                  <div>
+                    <label className="block text-xs text-slate-600 mb-1">Cost Allocation Target</label>
+                    <select
+                      value={tripForm.costAllocationTarget}
+                      onChange={(e) => setTripForm({ ...tripForm, costAllocationTarget: e.target.value })}
+                      className="w-full text-sm border border-slate-200 rounded p-1.5 bg-white"
+                    >
+                      <option value="LOT">LOT (Landed Cost to Fabric Lots)</option>
+                      <option value="SALES_ORDER">SALES_ORDER (Party Profitability / Transport Support)</option>
+                      <option value="EXPENSE">EXPENSE (Freight Expense Journal)</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-xs text-slate-600 mb-1">Remarks</label>
+                    <input
+                      type="text"
+                      placeholder="Optional remarks or notes"
+                      value={tripForm.remarks || ''}
+                      onChange={(e) => setTripForm({ ...tripForm, remarks: e.target.value })}
+                      className="w-full text-sm border border-slate-200 rounded p-1.5 bg-white"
+                    />
                   </div>
                 </div>
               </div>
@@ -566,6 +790,205 @@ export default function TripListPage() {
                   className="px-4 py-2 text-sm bg-indigo-600 hover:bg-indigo-700 text-white font-medium rounded-lg"
                 >
                   {submitting ? 'Recording...' : 'Save Trip'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Create Transporter Modal */}
+      {showTransporterModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4 overflow-y-auto">
+          <div className="bg-white rounded-xl shadow-xl w-full max-w-md overflow-hidden border border-slate-200">
+            <div className="flex items-center justify-between p-4 border-b border-slate-100 bg-slate-50">
+              <h2 className="font-semibold text-slate-900 flex items-center gap-2">
+                <Truck className="w-5 h-5 text-indigo-600" />
+                Register New Transporter
+              </h2>
+              <button onClick={() => setShowTransporterModal(false)} className="text-slate-400 hover:text-slate-600">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            <form onSubmit={handleCreateTransporterSubmit} className="p-4 space-y-3">
+              <div>
+                <label className="block text-xs font-medium text-slate-700 mb-1">Transporter Name *</label>
+                <input
+                  type="text"
+                  required
+                  placeholder="e.g. Navkar Cargo"
+                  value={newTransporter.name}
+                  onChange={(e) => setNewTransporter({ ...newTransporter, name: e.target.value })}
+                  className="w-full text-sm border border-slate-200 rounded-md p-2"
+                />
+              </div>
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <label className="block text-xs font-medium text-slate-700 mb-1">Transporter Code</label>
+                  <input
+                    type="text"
+                    placeholder="TRP-001"
+                    value={newTransporter.code}
+                    onChange={(e) => setNewTransporter({ ...newTransporter, code: e.target.value.toUpperCase() })}
+                    className="w-full text-sm border border-slate-200 rounded-md p-2 font-mono uppercase"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-slate-700 mb-1">Contact Person</label>
+                  <input
+                    type="text"
+                    placeholder="Ramesh"
+                    value={newTransporter.contactPerson}
+                    onChange={(e) => setNewTransporter({ ...newTransporter, contactPerson: e.target.value })}
+                    className="w-full text-sm border border-slate-200 rounded-md p-2"
+                  />
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <label className="block text-xs font-medium text-slate-700 mb-1">Phone</label>
+                  <input
+                    type="tel"
+                    placeholder="9876543210"
+                    value={newTransporter.phone}
+                    onChange={(e) => setNewTransporter({ ...newTransporter, phone: e.target.value })}
+                    className="w-full text-sm border border-slate-200 rounded-md p-2"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-slate-700 mb-1">GSTIN</label>
+                  <input
+                    type="text"
+                    placeholder="24AAAAA0000A1Z5"
+                    value={newTransporter.gstin}
+                    onChange={(e) => setNewTransporter({ ...newTransporter, gstin: e.target.value.toUpperCase() })}
+                    className="w-full text-sm border border-slate-200 rounded-md p-2 font-mono uppercase"
+                  />
+                </div>
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-slate-700 mb-1">Office Address</label>
+                <textarea
+                  rows={2}
+                  placeholder="Ring Road, Surat"
+                  value={newTransporter.address}
+                  onChange={(e) => setNewTransporter({ ...newTransporter, address: e.target.value })}
+                  className="w-full text-sm border border-slate-200 rounded-md p-2"
+                />
+              </div>
+              <div className="flex justify-end gap-2 pt-2 border-t border-slate-100">
+                <button
+                  type="button"
+                  onClick={() => setShowTransporterModal(false)}
+                  className="px-4 py-2 text-sm text-slate-600"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={transporterSubmitting}
+                  className="px-4 py-2 text-sm bg-indigo-600 hover:bg-indigo-700 text-white font-medium rounded-lg disabled:opacity-50"
+                >
+                  {transporterSubmitting ? 'Saving...' : 'Save Transporter'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Confirm Delivery Modal */}
+      {deliveryModalTrip && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4 overflow-y-auto">
+          <div className="bg-white rounded-xl shadow-xl w-full max-w-lg overflow-hidden border border-slate-200">
+            <div className="flex items-center justify-between p-4 border-b border-slate-100 bg-emerald-50/50">
+              <h2 className="font-semibold text-slate-900 flex items-center gap-2">
+                <CheckCircle2 className="w-5 h-5 text-emerald-600" />
+                Confirm Trip Delivery — {deliveryModalTrip.trip_number}
+              </h2>
+              <button onClick={() => setDeliveryModalTrip(null)} className="text-slate-400 hover:text-slate-600">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            <form onSubmit={handleConfirmDeliverySubmit} className="p-4 space-y-4">
+              {deliveryError && (
+                <div className="p-2.5 bg-rose-50 border border-rose-200 rounded text-rose-700 text-xs flex items-center gap-2">
+                  <AlertCircle className="w-4 h-4 shrink-0" />
+                  {deliveryError}
+                </div>
+              )}
+
+              <div className="p-3 bg-slate-50 border border-slate-200 rounded-lg text-xs space-y-1">
+                <div className="font-medium text-slate-800">
+                  Vehicle: <span className="font-semibold text-slate-900">{deliveryModalTrip.vehicle_number}</span>
+                </div>
+                <div className="text-slate-600">
+                  Route: {deliveryModalTrip.from_location || 'Mill'} → {deliveryModalTrip.to_location || 'Destination'}
+                </div>
+                <div className="text-slate-500">
+                  Driver: {deliveryModalTrip.driver_name || 'Unassigned'} ({deliveryModalTrip.driver_mobile || '—'})
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-medium text-slate-700 mb-1">Actual Delivery Date & Time *</label>
+                <input
+                  type="datetime-local"
+                  required
+                  value={deliveryTime}
+                  onChange={(e) => setDeliveryTime(e.target.value)}
+                  className="w-full text-sm border border-slate-200 rounded-md p-2"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-medium text-slate-700 mb-1">
+                  Delivery Proof Document / Signed LR (Optional)
+                </label>
+                <div className="border-2 border-dashed border-slate-200 rounded-lg p-3 text-center hover:border-indigo-300 transition-colors">
+                  <input
+                    type="file"
+                    id="proof-upload"
+                    accept="image/*,application/pdf"
+                    onChange={(e) => setProofFile(e.target.files?.[0] || null)}
+                    className="hidden"
+                  />
+                  <label htmlFor="proof-upload" className="cursor-pointer flex flex-col items-center justify-center">
+                    <UploadCloud className="w-6 h-6 text-indigo-500 mb-1" />
+                    <span className="text-xs text-slate-600">
+                      {proofFile ? proofFile.name : 'Click to select signed challan, LR, or receiver photo'}
+                    </span>
+                    <span className="text-[11px] text-slate-400 mt-0.5">PDF, PNG, JPG accepted</span>
+                  </label>
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-medium text-slate-700 mb-1">Delivery Remarks / Receiver Details</label>
+                <textarea
+                  rows={2}
+                  placeholder="e.g. Received in good condition by godown manager Mr. Sharma"
+                  value={deliveryRemarks}
+                  onChange={(e) => setDeliveryRemarks(e.target.value)}
+                  className="w-full text-sm border border-slate-200 rounded-md p-2"
+                />
+              </div>
+
+              <div className="flex justify-end gap-2 pt-2 border-t border-slate-100">
+                <button
+                  type="button"
+                  onClick={() => setDeliveryModalTrip(null)}
+                  className="px-4 py-2 text-sm text-slate-600"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={confirmingDelivery}
+                  className="px-4 py-2 text-sm bg-emerald-600 hover:bg-emerald-700 text-white font-medium rounded-lg disabled:opacity-50 inline-flex items-center gap-1.5"
+                >
+                  <CheckCircle2 className="w-4 h-4" />
+                  {confirmingDelivery ? 'Confirming...' : 'Confirm Delivery'}
                 </button>
               </div>
             </form>
