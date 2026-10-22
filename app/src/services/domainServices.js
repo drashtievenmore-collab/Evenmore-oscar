@@ -138,6 +138,17 @@ export const purchaseService = {
   createExpense: (data) => api.post('/purchase/expenses/', data),
   getVendorLedger: (vendorId) => api.get(`/purchase/vendors/${vendorId}/ledger/`),
   getBillOutstanding: (billId) => api.get(`/purchase/bills/${billId}/outstanding/`),
+  getPoProductionInstruction: (poId, query) => api.get(`/purchase/orders/${poId}/production-instruction/`, { query }),
+  savePoProductionInstruction: (poId, data) => api.post(`/purchase/orders/${poId}/production-instruction/`, data),
+  getDailyProductionEntries: (query) => api.get('/production/daily-entries/', { query }),
+  createDailyProductionEntry: (data) => api.post('/production/daily-entries/', data),
+  updateDailyProductionEntry: (id, data) => api.patch(`/production/daily-entries/${id}/`, data),
+  deleteDailyProductionEntry: (id) => api.delete(`/production/daily-entries/${id}/`),
+  submitDailyProductionEntry: (id) => api.post(`/production/daily-entries/${id}/submit/`),
+  getPoQcInspection: (poId, query) => api.get(`/purchase/orders/${poId}/qc-inspection/`, { query }),
+  savePoQcInspection: (poId, data) => api.post(`/purchase/orders/${poId}/qc-inspection/`, data),
+  deletePoQcInspection: (poId, entryId) => api.delete(`/purchase/orders/${poId}/qc-inspection/`, { data: { entryId }, query: { entryId } }),
+  submitDraftPoQcInspection: (poId, entryId) => api.post(`/purchase/orders/${poId}/qc-inspection/`, { action: 'submitDraft', entryId }),
 };
 
 // ── Parties ──────────────────────────────────────────────────────────────
