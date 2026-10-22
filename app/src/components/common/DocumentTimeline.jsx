@@ -1,5 +1,5 @@
 import React from 'react';
-import { CheckCircle2, Circle, Clock } from 'lucide-react';
+import { CheckCircle2, Circle, Clock, ShieldCheck } from 'lucide-react';
 
 function TimelineConnector({ isCompleted, isCurrent, isNextCurrent, isPartial }) {
   if ((isCompleted || isPartial) && isNextCurrent) {
@@ -124,56 +124,86 @@ export const DocumentTimeline = ({ steps, onStepClick, className = '' }) => {
                 role={onStepClick ? 'button' : undefined}
                 tabIndex={onStepClick ? 0 : undefined}
                 onClick={() => onStepClick && onStepClick(step, idx)}
-                className={`group flex items-start sm:flex-col sm:items-center gap-2.5 sm:gap-1.5 flex-1 min-w-[95px] max-w-[130px] p-1.5 rounded-xl transition-all ${
+                className={`group flex items-start sm:flex-col sm:items-center gap-2.5 sm:gap-1.5 flex-1 min-w-[95px] sm:min-w-[105px] max-w-[145px] p-2 rounded-xl transition-all ${
                   onStepClick ? 'hover:bg-amber-50/60 cursor-pointer hover:shadow-2xs active:scale-95' : ''
                 }`}
                 title={onStepClick ? `Click to open Stage: ${step.label}` : undefined}
               >
-                <div className="relative flex items-center justify-center">
-                  {isCompleted ? (
-                    <div className="w-8 h-8 rounded-full bg-gradient-to-tr from-emerald-500 to-teal-500 border-2 border-emerald-600 text-white flex items-center justify-center shadow-xs group-hover:scale-105 transition-transform">
-                      <CheckCircle2 className="w-4 h-4" />
-                    </div>
-                  ) : isPartial ? (
-                    <div className="w-8 h-8 rounded-full bg-gradient-to-tr from-amber-500 to-amber-600 border-2 border-amber-600 text-white flex items-center justify-center shadow-xs ring-4 ring-amber-200/80 group-hover:scale-105 transition-transform">
+                {step.key === 'completion_verification' && (step.highlightCard || isCurrent) ? (
+                  <div className="w-full px-2 py-2 rounded-xl bg-amber-50/90 border-2 border-amber-400 shadow-xs flex flex-col items-center">
+                    <div className="w-7 h-7 rounded-full bg-amber-500 text-white flex items-center justify-center shadow-2xs mb-1">
                       <Clock className="w-4 h-4" />
                     </div>
-                  ) : isCurrent ? (
-                    <div className="w-8 h-8 rounded-full bg-amber-50 border-2 border-amber-500 text-amber-600 flex items-center justify-center animate-pulse ring-4 ring-amber-200/80 group-hover:scale-105 transition-transform">
-                      <Clock className="w-4 h-4" />
-                    </div>
-                  ) : (
-                    <div className="w-8 h-8 rounded-full bg-slate-100 border-2 border-slate-300 text-slate-400 flex items-center justify-center group-hover:scale-105 transition-transform">
-                      <Circle className="w-3.5 h-3.5" />
-                    </div>
-                  )}
-                </div>
-
-                <div className="text-left sm:text-center min-w-0 w-full">
-                  <p
-                    className={`text-[11px] font-bold leading-tight line-clamp-2 transition-colors ${
-                      isCompleted ? 'text-emerald-800' : isPartial ? 'text-amber-800 font-bold' : isCurrent ? 'text-amber-800 font-black' : 'text-slate-500'
-                    } ${onStepClick ? 'group-hover:text-amber-700' : ''}`}
-                  >
-                    {step.label}
-                  </p>
-                  {step.statusLabel && (
-                    <span className="inline-block mt-0.5 px-1.5 py-0.5 rounded-full text-[9px] font-extrabold uppercase bg-amber-50 text-amber-700 border border-amber-200 truncate max-w-full">
-                      {step.statusLabel}
+                    <span className="text-[10.5px] font-extrabold text-amber-900 text-center leading-tight">
+                      {step.label}
                     </span>
-                  )}
-                  {step.docNumber && (
-                    <p className="text-[10.5px] font-mono text-slate-700 font-semibold truncate mt-0.5">
-                      {step.docNumber}
-                    </p>
-                  )}
-                  {step.amount !== undefined && step.amount !== null && (
-                    <p className="text-[10.5px] font-mono font-bold text-slate-800 mt-0.5">
-                      ₹{Number(step.amount).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                    </p>
-                  )}
-                  {step.date && <p className="text-[9.5px] text-slate-400 mt-0.5">{step.date}</p>}
-                </div>
+                    <span className="inline-block mt-0.5 text-[10px] font-black text-amber-700 truncate max-w-full">
+                      {step.statusLabel || 'In Progress'}
+                    </span>
+                  </div>
+                ) : step.highlightCard || (step.key === 'grey_fabric_qc' && (isCurrent || step.isHighlighted)) ? (
+                  <div className="w-full px-2 py-2 rounded-xl bg-blue-50/90 border-2 border-blue-500 shadow-xs flex flex-col items-center">
+                    <div className="w-7 h-7 rounded-full bg-blue-600 text-white flex items-center justify-center shadow-2xs mb-1">
+                      <ShieldCheck className="w-4 h-4" />
+                    </div>
+                    <span className="text-[10.5px] font-extrabold text-blue-900 text-center leading-tight">
+                      {step.label}
+                    </span>
+                    {step.statusLabel && (
+                      <span className="inline-block mt-0.5 px-1.5 py-0.5 rounded-full text-[9px] font-extrabold uppercase bg-blue-100 text-blue-800 border border-blue-200 truncate max-w-full">
+                        {step.statusLabel}
+                      </span>
+                    )}
+                  </div>
+                ) : (
+                  <>
+                    <div className="relative flex items-center justify-center">
+                      {isCompleted ? (
+                        <div className="w-8 h-8 rounded-full bg-gradient-to-tr from-emerald-500 to-teal-500 border-2 border-emerald-600 text-white flex items-center justify-center shadow-xs group-hover:scale-105 transition-transform">
+                          <CheckCircle2 className="w-4 h-4" />
+                        </div>
+                      ) : isPartial ? (
+                        <div className="w-8 h-8 rounded-full bg-gradient-to-tr from-amber-500 to-amber-600 border-2 border-amber-600 text-white flex items-center justify-center shadow-xs ring-4 ring-amber-200/80 group-hover:scale-105 transition-transform">
+                          <Clock className="w-4 h-4" />
+                        </div>
+                      ) : isCurrent ? (
+                        <div className="w-8 h-8 rounded-full bg-amber-50 border-2 border-amber-500 text-amber-600 flex items-center justify-center animate-pulse ring-4 ring-amber-200/80 group-hover:scale-105 transition-transform">
+                          <Clock className="w-4 h-4" />
+                        </div>
+                      ) : (
+                        <div className="w-8 h-8 rounded-full bg-slate-100 border-2 border-slate-300 text-slate-400 flex items-center justify-center group-hover:scale-105 transition-transform">
+                          <Circle className="w-3.5 h-3.5" />
+                        </div>
+                      )}
+                    </div>
+
+                    <div className="text-left sm:text-center min-w-0 w-full">
+                      <p
+                        className={`text-[11px] font-bold leading-tight line-clamp-2 transition-colors ${
+                          isCompleted ? 'text-emerald-800' : isPartial ? 'text-amber-800 font-bold' : isCurrent ? 'text-amber-800 font-black' : 'text-slate-500'
+                        } ${onStepClick ? 'group-hover:text-amber-700' : ''}`}
+                      >
+                        {step.label}
+                      </p>
+                      {step.statusLabel && (
+                        <span className="inline-block mt-0.5 px-1.5 py-0.5 rounded-full text-[9px] font-extrabold uppercase bg-amber-50 text-amber-700 border border-amber-200 truncate max-w-full">
+                          {step.statusLabel}
+                        </span>
+                      )}
+                      {step.docNumber && (
+                        <p className="text-[10.5px] font-mono text-slate-700 font-semibold truncate mt-0.5">
+                          {step.docNumber}
+                        </p>
+                      )}
+                      {step.amount !== undefined && step.amount !== null && (
+                        <p className="text-[10.5px] font-mono font-bold text-slate-800 mt-0.5">
+                          ₹{Number(step.amount).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                        </p>
+                      )}
+                      {step.date && <p className="text-[9.5px] text-slate-400 mt-0.5">{step.date}</p>}
+                    </div>
+                  </>
+                )}
               </div>
 
               {!isLast && (

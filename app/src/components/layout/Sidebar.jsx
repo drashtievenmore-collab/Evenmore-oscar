@@ -693,47 +693,70 @@ function SubList({ items, depth = 1, badges }) {
 
 // ── Oscar fabric footer (sidebar bottom, Tailwind) ──
 // Photo comes from `public/fabric.png` (`public/febric.png` also tried).
-// If neither file exists yet, the teal gradient alone still shows.
+// ── Oscar Vector Textile Brand Card & Footer (Pure SVG/CSS — No Raster Images) ──
 function FabricFooter() {
-  const [src, setSrc] = useState('/guide/febric.png');
-  const fallbacks = ['/guide/febric.png', '/fabric.png', '/febric.png'];
   return (
-    <div className="relative -ml-[14px] -mr-3 mt-auto h-64 shrink-0 select-none overflow-hidden" aria-hidden="true">
-      {src ? (
-        <img
-          src={src}
-          alt=""
-          className="absolute inset-0 h-full w-full object-cover"
-          style={{
-            WebkitMaskImage: 'linear-gradient(to bottom, transparent 0, black 28%)',
-            maskImage: 'linear-gradient(to bottom, transparent 0, black 28%)',
-          }}
-          onError={() => {
-            const next = fallbacks[fallbacks.indexOf(src) + 1] || null;
-            setSrc(next);
-          }}
+    <div className="relative mx-0.5 mb-2 p-2.5 rounded-xl border border-teal-500/25 bg-gradient-to-r from-teal-950/60 via-[#071f2b]/90 to-teal-950/40 overflow-hidden select-none shadow-xs group">
+      {/* Dynamic Vector Textile Weave Waves */}
+      <svg
+        viewBox="0 0 260 65"
+        fill="none"
+        preserveAspectRatio="none"
+        className="absolute inset-0 w-full h-full pointer-events-none opacity-40 transition-opacity duration-300 group-hover:opacity-60"
+      >
+        <defs>
+          <linearGradient id="weaveGrad1" x1="0%" y1="0%" x2="100%" y2="0%">
+            <stop offset="0%" stopColor="#2dd4bf" stopOpacity="0.8" />
+            <stop offset="50%" stopColor="#0d9488" stopOpacity="0.4" />
+            <stop offset="100%" stopColor="#14b8a6" stopOpacity="0.9" />
+          </linearGradient>
+          <linearGradient id="weaveGrad2" x1="0%" y1="0%" x2="100%" y2="0%">
+            <stop offset="0%" stopColor="#5eead4" stopOpacity="0.7" />
+            <stop offset="60%" stopColor="#0f766e" stopOpacity="0.3" />
+            <stop offset="100%" stopColor="#2dd4bf" stopOpacity="0.6" />
+          </linearGradient>
+        </defs>
+        <path
+          d="M0 24 C 45 6, 85 46, 130 26 S 210 6, 260 26"
+          stroke="url(#weaveGrad1)"
+          strokeWidth="1.6"
         />
-      ) : (
-        <svg viewBox="0 0 200 160" className="absolute inset-0 h-full w-full text-teal-300/40" fill="none" preserveAspectRatio="none">
-          <path d="M0 70 C 30 50, 55 90, 85 70 S 145 40, 200 62" stroke="currentColor" strokeWidth="1.4" opacity="0.9" />
-          <path d="M0 90 C 35 70, 60 110, 95 90 S 150 60, 200 82" stroke="currentColor" strokeWidth="1.2" opacity="0.55" />
-          <path d="M0 110 C 40 90, 70 125, 105 108 S 160 80, 200 100" stroke="currentColor" strokeWidth="1" opacity="0.3" />
-          <path d="M0 130 C 40 112, 70 140, 105 128 S 160 102, 200 118" stroke="currentColor" strokeWidth="1" opacity="0.18" />
-        </svg>
-      )}
-      <div className="absolute inset-0 bg-gradient-to-b from-transparent via-[#071f2b]/20 to-[#071f2b]/85" />
-      <div className="absolute left-4 bottom-24 border-l-2 border-teal-300/80 pl-2.5">
-        <p className="text-[11px] font-bold tracking-[0.24em] text-white/95 leading-[1.75]">
-          WEAVE<br />PROCESS<br />GROW
-        </p>
+        <path
+          d="M0 38 C 55 18, 95 54, 145 32 S 210 16, 260 36"
+          stroke="url(#weaveGrad2)"
+          strokeWidth="1.2"
+          strokeDasharray="4 2"
+        />
+        <path
+          d="M0 50 C 65 28, 115 60, 170 38 S 220 26, 260 46"
+          stroke="#2dd4bf"
+          strokeWidth="0.8"
+          strokeOpacity="0.35"
+        />
+      </svg>
+
+      {/* Decorative ambient radial glow */}
+      <div className="absolute -right-6 -bottom-6 w-20 h-20 rounded-full bg-teal-400/10 blur-xl pointer-events-none" />
+
+      {/* Oscar ERP Textile Tagline & Icon */}
+      <div className="relative z-10 flex items-center justify-between min-w-0">
+        <div className="flex items-center gap-2 min-w-0">
+          <div className="w-1 h-6 rounded-full bg-gradient-to-b from-teal-300 to-teal-500 shadow-sm shadow-teal-400/50 shrink-0" />
+          <div className="min-w-0">
+            <p className="text-[10px] font-black tracking-[0.22em] text-white/95 uppercase truncate leading-tight font-mono">
+              WEAVE • PROCESS • GROW
+            </p>
+            <p className="text-[9px] font-semibold text-teal-300/80 tracking-wider truncate mt-0.5">
+              OSCAR TEXTILE ERP
+            </p>
+          </div>
+        </div>
+        <Waves size={15} className="text-teal-400/70 shrink-0 ml-1.5" />
       </div>
     </div>
   );
 }
 
-// ── Inline module toggle (sidebar ">" position) ──
-// Uses a hidden checkbox + label so clicks are fully isolated from any parent
-// button. The label's onChange fires the store setter directly.
 function ModuleToggle({ enabled, onToggle, label }) {
   const id = `mod-toggle-${label.toLowerCase().replace(/\s+/g, '-')}`;
   return (
@@ -771,7 +794,13 @@ function ModuleToggle({ enabled, onToggle, label }) {
 function ExpandableRow({ item, depth = 0, badges = {} }) {
   const location = useLocation();
   const navigate = useNavigate();
-  const [open, setOpen] = useState(Boolean(item.defaultOpen));
+  const [open, setOpen] = useState(Boolean(item.defaultOpen || item.forceOpen));
+
+  useEffect(() => {
+    if (item.forceOpen) {
+      setOpen(true);
+    }
+  }, [item.forceOpen]);
   const Icon = item.icon;
   const recruitmentEnabled = useAppStore((s) => s.recruitmentEnabled ?? true);
   const setRecruitmentEnabled = useAppStore((s) => s.setRecruitmentEnabled);
@@ -929,7 +958,7 @@ export default function Sidebar() {
   const [isProfileOpen, setIsProfileOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const profileRef = useRef(null);
-  const dragRef = useRef({ dragging: false, startX: 0, startWidth: sidebarWidth });
+  const isDraggingRef = useRef(false);
 
   const permittedNav = useMemo(() => {
     return filterNavByPermissions(NAV, currentUser, permissions, hasPermission);
@@ -973,56 +1002,32 @@ export default function Sidebar() {
     }
   } catch { }
 
-  useEffect(() => {
-    function handleMove(e) {
-      if (!dragRef.current.dragging) return;
-      const dx = e.clientX - dragRef.current.startX;
-      const nextWidth = Math.min(380, Math.max(240, dragRef.current.startWidth + dx));
-      setSidebarWidth(nextWidth);
-    }
-
-    function handleUp() {
-      dragRef.current.dragging = false;
-      document.body.style.cursor = '';
-      document.body.style.userSelect = '';
-      window.removeEventListener('mousemove', handleMove);
-      window.removeEventListener('mouseup', handleUp);
-    }
-
-    if (dragRef.current.dragging) {
-      window.addEventListener('mousemove', handleMove);
-      window.addEventListener('mouseup', handleUp);
-    }
-
-    return () => {
-      window.removeEventListener('mousemove', handleMove);
-      window.removeEventListener('mouseup', handleUp);
-    };
-  }, [setSidebarWidth]);
-
-  function handleResizeStart(e) {
+  const handleResizeStart = (e) => {
     e.preventDefault();
-    dragRef.current = { dragging: true, startX: e.clientX, startWidth: sidebarWidth };
+    isDraggingRef.current = true;
+    const startX = e.clientX;
+    const startWidth = sidebarWidth;
     document.body.style.cursor = 'col-resize';
     document.body.style.userSelect = 'none';
 
-    function handleMove(ev) {
-      const dx = ev.clientX - dragRef.current.startX;
-      const nextWidth = Math.min(380, Math.max(240, dragRef.current.startWidth + dx));
+    const onMouseMove = (ev) => {
+      if (!isDraggingRef.current) return;
+      const dx = ev.clientX - startX;
+      const nextWidth = Math.min(380, Math.max(220, startWidth + dx));
       setSidebarWidth(nextWidth);
-    }
+    };
 
-    function handleUp() {
-      dragRef.current.dragging = false;
+    const onMouseUp = () => {
+      isDraggingRef.current = false;
       document.body.style.cursor = '';
       document.body.style.userSelect = '';
-      window.removeEventListener('mousemove', handleMove);
-      window.removeEventListener('mouseup', handleUp);
-    }
+      window.removeEventListener('mousemove', onMouseMove);
+      window.removeEventListener('mouseup', onMouseUp);
+    };
 
-    window.addEventListener('mousemove', handleMove);
-    window.addEventListener('mouseup', handleUp);
-  }
+    window.addEventListener('mousemove', onMouseMove, { passive: true });
+    window.addEventListener('mouseup', onMouseUp, { once: true });
+  };
 
   // Mobile drawer: any link inside the sidebar dismisses it (including a
   // re-click on the current route, which does not change the pathname).
@@ -1102,24 +1107,28 @@ export default function Sidebar() {
         </nav>
       </div>
 
-      {/* Oscar fabric footer — photo from public/fabric.png with tagline */}
-      {theme === 'oscar' && (
-        <FabricFooter />
-      )}
-
-      {/* Sticky Bottom User Profile Widget (overlaid on fabric in Oscar theme) */}
+            {/* Sticky Bottom User Profile & Oscar Footer Section */}
       <div
         className={
           theme === 'oscar'
-            ? 'relative z-10 -mt-24 -mb-[14px] border-0 bg-transparent px-4 pb-5'
-            : 'pt-2 px-1 pb-1 mt-auto border-t border-white/10 relative'
+            ? 'mt-auto pt-2 px-2 pb-2 border-t border-teal-500/20 bg-gradient-to-b from-transparent via-[#071f2b]/40 to-[#071f2b]/90 relative'
+            : 'mt-auto pt-2 px-1 pb-1 border-t border-white/10 relative'
         }
         ref={profileRef}
       >
+        {/* Oscar textile brand card — 100% Vector SVG & CSS, zero raster photo dependency */}
+        {theme === 'oscar' && (
+          <FabricFooter />
+        )}
+
         <button
           type="button"
           onClick={() => setIsProfileOpen(!isProfileOpen)}
-          className="w-full flex items-center justify-between p-2 rounded-xl hover:bg-white/10 transition cursor-pointer text-left group"
+          className={
+            theme === 'oscar'
+              ? 'w-full flex items-center justify-between p-2 rounded-xl bg-white/[0.04] hover:bg-white/10 border border-white/10 backdrop-blur-md transition cursor-pointer text-left group shadow-xs'
+              : 'w-full flex items-center justify-between p-2 rounded-xl hover:bg-white/10 transition cursor-pointer text-left group'
+          }
         >
           <div className="flex items-center gap-2.5 min-w-0">
             <div className="w-8 h-8 rounded-full bg-gradient-to-tr from-blue-600 to-indigo-500 text-white font-bold text-xs flex items-center justify-center shrink-0 shadow-xs ring-1 ring-white/20">

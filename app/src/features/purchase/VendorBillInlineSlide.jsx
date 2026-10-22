@@ -25,7 +25,7 @@ function numIN(val) {
   return n.toLocaleString('en-IN', { maximumFractionDigits: 2 });
 }
 
-export function VendorBillInlineSlide({ po, onClose, onBillSaved, onNextStep, onPrevStep }) {
+export function VendorBillInlineSlide({ po, instruction, onClose, onBillSaved, onNextStep, onPrevStep }) {
   const {
     formatCurrency,
     formatDateDDMMYYYY,
@@ -66,9 +66,11 @@ export function VendorBillInlineSlide({ po, onClose, onBillSaved, onNextStep, on
       ]);
 
       const rawBills = Array.isArray(billsRes) ? billsRes : (billsRes?.results || billsRes?.rows || billsRes?.data || []);
+      const finalPoNum = po?.finalPoNumber || po?.instruction?.finalPoNumber;
       const matchedBills = rawBills.filter(
         (b) => String(b.purchase_order || b.purchaseOrderId || b.poId || '') === String(poId) ||
-               (poNumber && (b.poNumber === poNumber || b.po_number === poNumber))
+               (poNumber && (b.poNumber === poNumber || b.po_number === poNumber)) ||
+               (finalPoNum && (b.poNumber === finalPoNum || b.po_number === finalPoNum))
       );
       setBills(matchedBills);
 
@@ -109,6 +111,22 @@ export function VendorBillInlineSlide({ po, onClose, onBillSaved, onNextStep, on
 
   const defaultLines = useMemo(() => {
     const rawItems = po?.items || po?.lineItems || [];
+    const isJobWork = Boolean(instruction?.finalPoNumber || instruction?.agreed_job_rate || po?.purchase_type === 'Final Job Work');
+    const jwRate = Number(instruction?.agreed_job_rate || instruction?.agreed_rate || 0);
+    const jwQty = Number(instruction?.completion?.acceptedQty || instruction?.acceptedQty || 0);
+
+    if (isJobWork && jwRate > 0) {
+      const lineQty = jwQty > 0 ? jwQty : (totalReceivedMeters || 100);
+      return [{
+        itemId: rawItems[0]?.itemId || '',
+        itemName: instruction?.fabric || rawItems[0]?.name || 'Processing Job Work Fabric',
+        orderedQty: lineQty,
+        billingQty: lineQty,
+        rate: jwRate,
+        amount: lineQty * jwRate,
+      }];
+    }
+
     if (!rawItems.length) {
       return [{
         itemId: '',
@@ -132,7 +150,7 @@ export function VendorBillInlineSlide({ po, onClose, onBillSaved, onNextStep, on
         amount: lineQty * lineRate,
       };
     });
-  }, [po, totalReceivedMeters]);
+  }, [po, totalReceivedMeters, instruction]);
 
   const [formLines, setFormLines] = useState(defaultLines);
 

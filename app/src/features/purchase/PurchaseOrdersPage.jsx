@@ -4,7 +4,7 @@ import { useERP } from '../../context/ERPContext';
 import { StatusBadge } from '../../components/ui/StatusBadge';
 import { Button } from '../../components/ui/Button';
 import {
-  Plus, ClipboardList, Send, ArrowRight, X, Copy, Printer, DollarSign,
+  Plus, ClipboardList, ClipboardCheck, Send, ArrowRight, X, Copy, Printer, DollarSign,
   Clock, CheckCircle2, Package, Maximize2, Minimize2, Trash2, Ban, MapPin,
   ShoppingCart, FileText, Search, Filter, MoreVertical, ChevronDown, FileSpreadsheet,
   Truck, Factory, Info, PackageCheck, Layers, ShieldCheck, Warehouse, FileCheck2, CreditCard, Receipt,
@@ -20,6 +20,11 @@ import { GreyStockUpdatedInlineSlide } from './GreyStockUpdatedInlineSlide';
 import { VendorBillInlineSlide } from './VendorBillInlineSlide';
 import { SupplierBillMatchingInlineSlide } from './SupplierBillMatchingInlineSlide';
 import { SupplierPaymentInlineSlide } from './SupplierPaymentInlineSlide';
+import { PoProductionInstructionSection } from './PoProductionInstructionSection';
+import { PoDailyProductionEntrySection } from './PoDailyProductionEntrySection';
+import { PoQualityControlSection } from './PoQualityControlSection';
+import { CompletionVerificationInlineSlide } from './CompletionVerificationInlineSlide';
+import { FinalJobWorkPoInlineSlide } from './FinalJobWorkPoInlineSlide';
 import { RelatedDocumentsCard } from '../../components/common/RelatedDocumentsCard';
 import { PrintPurchaseOrderModal } from '../../components/common/PrintPurchaseOrderModal';
 import PageHeader from '../../components/ui/PageHeader';
@@ -117,7 +122,7 @@ const PURCHASE_TYPE_OPTIONS = [
     label: 'Vendor A Production (Daily Entry)',
     hint: 'Produce fabric through Vendor A and record daily output',
     icon: Factory,
-    flow: 'PO → Production Instruction → Daily Entry → Completion Verification → Final Job Work PO → Bill Matching',
+    flow: 'PO → Production Instruction → Daily Entry → Quality Control (QC) → Completion Verification → Final Job Work PO → Vendor Bill → Bill Matching',
   },
 ];
 const purchaseTypeOf = (po) => po?.purchaseType || PURCHASE_TYPE_GREY;
@@ -150,7 +155,11 @@ export const PurchaseOrdersPage = () => {
     const [isFullscreen, setIsFullscreen] = useState(false);
     const [selectedPo, setSelectedPo] = useState(null);
     const [isDetailFullscreen, setIsDetailFullscreen] = useState(false);
-    const [activeTimelineSlide, setActiveTimelineSlide] = useState(null);
+    const [activeTimelineSlide, setActiveTimelineSlide] = useState('grey_fabric_qc');
+    const qcSectionRef = React.useRef(null);
+    const completionVerificationRef = React.useRef(null);
+    const finalJobWorkPoRef = React.useRef(null);
+    const [showVerificationInline, setShowVerificationInline] = useState(false);
     const [selectedDeliveryForGrn, setSelectedDeliveryForGrn] = useState(null);
     const [poLifecycleData, setPoLifecycleData] = useState({
         deliveries: [],
@@ -163,12 +172,13 @@ export const PurchaseOrdersPage = () => {
     const loadPoLifecycle = async (poId, poNumber) => {
         if (!poId) return;
         try {
-            const [delRes, grnRes, lotRes, poDetailRes, billRes] = await Promise.all([
+            const [delRes, grnRes, lotRes, poDetailRes, billRes, piRes] = await Promise.all([
                 api.get('/purchase/deliveries/', { params: { purchaseOrderId: poId } }).catch(() => []),
                 api.get('/purchase/receipts/', { params: { purchaseOrderId: poId } }).catch(() => []),
                 api.get('/inventory/lot-register/', { params: { po: poId } }).catch(() => ({ records: [] })),
                 api.get(`/purchase/orders/${poId}/`).catch(() => null),
                 api.get('/purchase/bills/', { params: { purchaseOrderId: poId } }).catch(() => []),
+                api.get(`/purchase/orders/${poId}/production-instruction/`).catch(() => null),
             ]);
 
             const rawDeliveries = Array.isArray(delRes) ? delRes : (delRes?.results || delRes?.rows || delRes?.data || []);
@@ -200,7 +210,15 @@ export const PurchaseOrdersPage = () => {
                 (poNumber && (b.poNumber === poNumber || b.po_number === poNumber || b.poRef === poNumber || b.linkedPo === poNumber))
             );
 
-            setPoLifecycleData({ deliveries, grns, takas, bills, loading: false });
+            setPoLifecycleData({
+                deliveries,
+                grns,
+                takas,
+                bills,
+                instruction: piRes?.instruction || null,
+                instructions: piRes?.instructions || [],
+                loading: false,
+            });
 
             // If the PO status from backend is more up-to-date (e.g. Fully Received), mirror it
             if (poDetailRes && poDetailRes.status) {
@@ -430,6 +448,9 @@ export const PurchaseOrdersPage = () => {
             // The server moved the PO to In Production; mirror it, never guess.
             if (res?.po) updatePurchaseOrderStatus(id, res.po.status || 'In Production');
             showToast?.(res?.message || 'Production started. Instruction registered in Production Dashboard.');
+            setSelectedPo((prev) => (prev && prev.id === id ? { ...prev, status: res?.po?.status || 'In Production' } : prev));
+            loadPoLifecycle(id, selectedPo?.poNumber);
+            setActiveTimelineSlide('daily_production_entry');
         } catch (err) {
             showToast?.(`Production not started — ${err?.message || 'server error'}`);
         }
@@ -457,9 +478,23 @@ export const PurchaseOrdersPage = () => {
         const hasReceived = receivedQty > 0;
 
         if (purchaseTypeOf(po) === PURCHASE_TYPE_VENDOR_A) {
+            const piObj = poLifecycleData?.instruction;
+            const isPiApproved = piObj?.status && piObj?.status !== 'Draft';
+            const isPiVerified = piObj?.isVerified || ['Verified', 'PO Pending', 'PO Created', 'Closed'].includes(piObj?.status);
+            const totalProd = Number(piObj?.completion?.totalProduced || 0);
+            const balQty = Number(piObj?.completion?.balanceQty ?? (piObj?.orderMeter ? Number(piObj?.orderMeter) - totalProd : 0));
+            const isProdComplete = totalProd > 0 && balQty <= 0;
+            const hasFinalPo = Boolean(piObj?.finalPoNumber);
+            const takas = poLifecycleData?.takas || [];
+            const grns = poLifecycleData?.grns || [];
+            const hasQcPassed = (takas.length > 0 && takas.some((t) => t.qcStatus === 'Passed')) || grns.some((g) => g.qc_status === 'Approved' || g.qc_status === 'Passed' || g.qcStatus === 'Passed');
+            const isQcComplete = (takas.length > 0 && takas.every((t) => t.qcStatus === 'Passed')) || isPiVerified;
+            const isQcPartial = hasQcPassed && !isQcComplete;
+
             return [
                 {
                     label: 'Purchase Order',
+                    key: 'purchase_order',
                     docNumber: po.poNumber,
                     date: formatDateDDMMYYYY(po.date),
                     amount: po.amount,
@@ -467,29 +502,73 @@ export const PurchaseOrdersPage = () => {
                 },
                 {
                     label: 'Production Instruction',
-                    status: po.status === 'In Production' || hasReceived ? 'completed' : isApproved ? 'current' : 'pending',
+                    key: 'production_instruction',
+                    docNumber: piObj?.instructionNumber,
+                    status: (isPiApproved || po.status === 'In Production' || hasReceived) ? 'completed' : (isApproved ? 'current' : 'pending'),
                 },
                 {
                     label: 'Daily Production Entry',
-                    status: hasReceived || po.status === 'In Production' ? 'completed' : 'pending',
+                    key: 'daily_production_entry',
+                    status: (isProdComplete || hasReceived || isPiVerified || isQcComplete)
+                      ? 'completed'
+                      : (isPiApproved || po.status === 'In Production' ? 'current' : 'pending'),
+                },
+                {
+                    label: 'Quality Control (QC)',
+                    key: 'grey_fabric_qc',
+                    highlightCard: activeTimelineSlide === 'grey_fabric_qc',
+                    status: (isQcComplete || isPiVerified)
+                      ? 'completed'
+                      : isQcPartial
+                      ? 'partial'
+                      : (activeTimelineSlide === 'grey_fabric_qc' || totalProd > 0 || hasReceived)
+                      ? 'current'
+                      : 'pending',
                 },
                 {
                     label: 'Completion Verification',
-                    status: hasReceived ? 'completed' : (po.status === 'In Production' ? 'current' : 'pending'),
+                    key: 'completion_verification',
+                    highlightCard: activeTimelineSlide === 'completion_verification',
+                    status: isPiVerified
+                      ? 'completed'
+                      : (activeTimelineSlide === 'completion_verification' ? 'current' : (isQcComplete || isProdComplete ? 'partial' : 'pending')),
+                    statusLabel: isPiVerified
+                      ? 'Verified'
+                      : (activeTimelineSlide === 'completion_verification' ? 'In Progress' : (isQcComplete ? 'Pending Verification' : undefined)),
                 },
                 {
                     label: 'Final Job Work PO',
-                    status: hasReceived ? 'completed' : 'pending',
+                    key: 'final_job_work_po',
+                    docNumber: piObj?.finalPoNumber,
+                    status: hasFinalPo ? 'completed' : (isPiVerified ? 'current' : 'pending'),
                 },
                 {
-                    label: 'Agency Bill Match',
-                    docNumber: latestBill?.billNumber,
+                    label: 'Vendor Bill',
+                    key: 'vendor_bill',
+                    docNumber: latestBill?.billNumber || latestBill?.vendorBillNumber || (isBilled ? 'Bill Recorded' : undefined),
                     amount: latestBill?.total || latestBill?.amount,
-                    status: isBilled ? 'completed' : (hasReceived ? 'current' : 'pending'),
+                    date: formatDateDDMMYYYY(latestBill?.date || latestBill?.billDate),
+                    status: (isBilled || isPaid || isMatchApproved)
+                        ? 'completed'
+                        : (hasFinalPo || activeTimelineSlide === 'vendor_bill')
+                        ? 'current'
+                        : 'pending',
+                },
+                {
+                    label: 'Supplier Bill Matching',
+                    key: 'supplier_bill_matching',
+                    docNumber: isMatchApproved ? 'Verified 3-Way' : (isBilled ? 'Pending Match' : undefined),
+                    amount: latestBill?.total || latestBill?.amount,
+                    status: (isMatchApproved || isPaid)
+                        ? 'completed'
+                        : (isBilled || activeTimelineSlide === 'supplier_bill_matching')
+                        ? 'current'
+                        : 'pending',
                 },
                 {
                     label: 'Disbursement Payment',
-                    status: isPaid ? 'completed' : (isBilled ? 'current' : 'pending'),
+                    key: 'disbursement_payment',
+                    status: isPaid ? 'completed' : (isMatchApproved || isBilled ? 'current' : 'pending'),
                 },
             ];
         }
@@ -1317,11 +1396,11 @@ export const PurchaseOrdersPage = () => {
           <div className={`bg-white border border-slate-200 shadow-2xl text-xs flex flex-col overflow-hidden transition-all duration-200 ${
             isDetailFullscreen
               ? 'w-full h-full rounded-none p-4 sm:p-8'
-              : 'rounded-2xl max-w-4xl w-full p-4 sm:p-6 max-h-[95vh] sm:max-h-[90vh]'
+              : 'rounded-2xl max-w-6xl xl:max-w-7xl 2xl:max-w-[1440px] w-full p-4 sm:p-6 max-h-[96vh] sm:max-h-[93vh]'
           }`}>
             <div className="flex flex-wrap lg:flex-nowrap items-center justify-between gap-2 lg:gap-0 pb-3 border-b border-slate-200">
               <div className="flex flex-wrap lg:flex-nowrap items-center gap-2 sm:gap-3 min-w-0 lg:min-w-auto">
-                <h3 className="font-bold text-lg text-[#1F2E4A]">{selectedPo.poNumber}</h3>
+                <h3 className="font-extrabold text-xl text-[#1F2E4A]">{selectedPo.poNumber}</h3>
                 <span className="font-semibold text-slate-600 bg-slate-100 px-2.5 py-0.5 rounded">{selectedPo.vendor}</span>
                 <StatusBadge status={getOscarStatus(selectedPo)}/>
               </div>
@@ -1367,6 +1446,11 @@ export const PurchaseOrdersPage = () => {
                 onStepClick={(step) => {
                   if (step.key) {
                     setActiveTimelineSlide((prev) => (prev === step.key ? null : step.key));
+                    if (step.key === 'grey_fabric_qc') {
+                      setTimeout(() => {
+                        qcSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                      }, 50);
+                    }
                     return;
                   }
                   const lbl = (step.label || '').toLowerCase();
@@ -1378,6 +1462,17 @@ export const PurchaseOrdersPage = () => {
                     setActiveTimelineSlide((prev) => (prev === 'lot_taka_creation' ? null : 'lot_taka_creation'));
                   } else if (lbl.includes('qc') || lbl.includes('quality')) {
                     setActiveTimelineSlide((prev) => (prev === 'grey_fabric_qc' ? null : 'grey_fabric_qc'));
+                  } else if (lbl.includes('completion') || lbl.includes('verification')) {
+                    setShowVerificationInline(true);
+                    setActiveTimelineSlide('completion_verification');
+                    setTimeout(() => {
+                      completionVerificationRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                    }, 100);
+                  } else if (lbl.includes('final') || lbl.includes('job work')) {
+                    setActiveTimelineSlide('final_job_work_po');
+                    setTimeout(() => {
+                      finalJobWorkPoRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                    }, 100);
                   } else if (lbl.includes('stock')) {
                     setActiveTimelineSlide((prev) => (prev === 'grey_stock_updated' ? null : 'grey_stock_updated'));
                   } else if (lbl.includes('vendor bill')) {
@@ -1447,7 +1542,7 @@ export const PurchaseOrdersPage = () => {
                   />
                 </div>
               )}
-              {activeTimelineSlide === 'grey_fabric_qc' && (
+              {activeTimelineSlide === 'grey_fabric_qc' && purchaseTypeOf(selectedPo) !== PURCHASE_TYPE_VENDOR_A && (
                 <div className="mt-2 mb-3">
                   <GreyQcInlineSlide
                     po={selectedPo}
@@ -1475,6 +1570,7 @@ export const PurchaseOrdersPage = () => {
                 <div className="mt-2 mb-3">
                   <VendorBillInlineSlide
                     po={selectedPo}
+                    instruction={poLifecycleData?.instruction}
                     onClose={() => setActiveTimelineSlide(null)}
                     onNextStep={(key) => setActiveTimelineSlide(key)}
                     onPrevStep={(key) => setActiveTimelineSlide(key)}
@@ -1489,6 +1585,7 @@ export const PurchaseOrdersPage = () => {
                 <div className="mt-2 mb-3">
                   <SupplierBillMatchingInlineSlide
                     po={selectedPo}
+                    instruction={poLifecycleData?.instruction}
                     onClose={() => setActiveTimelineSlide(null)}
                     onNextStep={(key) => setActiveTimelineSlide(key)}
                     onPrevStep={(key) => setActiveTimelineSlide(key)}
@@ -1541,6 +1638,230 @@ export const PurchaseOrdersPage = () => {
                   </table>
                 </div>
               </div>
+
+              {/* Vendor A Manufacturing Workflow Sections inside PO Modal */}
+              {purchaseTypeOf(selectedPo) === PURCHASE_TYPE_VENDOR_A && (
+                <div className="space-y-4 mt-4">
+                  {/* Stage Navigation Pills */}
+                  <div className="flex flex-wrap items-center gap-1.5 mb-1 bg-slate-50 p-1.5 rounded-xl border border-slate-200">
+                    <button
+                      type="button"
+                      onClick={() => setActiveTimelineSlide('production_instruction')}
+                      className={`px-2.5 py-1 text-xs font-bold rounded-lg border flex items-center gap-1.5 transition-all cursor-pointer ${
+                        activeTimelineSlide === 'production_instruction'
+                          ? 'bg-slate-900 text-white border-slate-900 shadow-2xs'
+                          : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-100'
+                      }`}
+                    >
+                      <FileText size={12} />
+                      Instruction
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setActiveTimelineSlide('daily_production_entry')}
+                      className={`px-2.5 py-1 text-xs font-bold rounded-lg border flex items-center gap-1.5 transition-all cursor-pointer ${
+                        activeTimelineSlide === 'daily_production_entry'
+                          ? 'bg-teal-600 text-white border-teal-600 shadow-2xs'
+                          : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-100'
+                      }`}
+                    >
+                      <Factory size={12} />
+                      Daily Entry
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setActiveTimelineSlide('grey_fabric_qc');
+                        setTimeout(() => {
+                          qcSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                        }, 50);
+                      }}
+                      className={`px-2.5 py-1 text-xs font-bold rounded-lg border flex items-center gap-1.5 transition-all cursor-pointer ${
+                        activeTimelineSlide === 'grey_fabric_qc'
+                          ? 'bg-blue-600 text-white border-blue-600 shadow-2xs'
+                          : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-100'
+                      }`}
+                    >
+                      <ShieldCheck size={12} />
+                      QC Stage
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setShowVerificationInline(true);
+                        setActiveTimelineSlide('completion_verification');
+                        setTimeout(() => {
+                          completionVerificationRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                        }, 100);
+                      }}
+                      className={`px-2.5 py-1 text-xs font-bold rounded-lg border flex items-center gap-1.5 transition-all cursor-pointer ${
+                        activeTimelineSlide === 'completion_verification' || showVerificationInline
+                          ? 'bg-emerald-600 text-white border-emerald-600 shadow-2xs'
+                          : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-100'
+                      }`}
+                    >
+                      <ClipboardCheck size={12} />
+                      Verification
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setActiveTimelineSlide('final_job_work_po');
+                        setTimeout(() => {
+                          finalJobWorkPoRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                        }, 100);
+                      }}
+                      className={`px-2.5 py-1 text-xs font-bold rounded-lg border flex items-center gap-1.5 transition-all cursor-pointer ${
+                        activeTimelineSlide === 'final_job_work_po'
+                          ? 'bg-indigo-600 text-white border-indigo-600 shadow-2xs'
+                          : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-100'
+                      }`}
+                    >
+                      <FileSpreadsheet size={12} />
+                      Final JW PO
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setActiveTimelineSlide('vendor_bill')}
+                      className={`px-2.5 py-1 text-xs font-bold rounded-lg border flex items-center gap-1.5 transition-all cursor-pointer ${
+                        activeTimelineSlide === 'vendor_bill'
+                          ? 'bg-violet-600 text-white border-violet-600 shadow-2xs'
+                          : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-100'
+                      }`}
+                    >
+                      <Receipt size={12} />
+                      Vendor Bill
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setActiveTimelineSlide('supplier_bill_matching')}
+                      className={`px-2.5 py-1 text-xs font-bold rounded-lg border flex items-center gap-1.5 transition-all cursor-pointer ${
+                        activeTimelineSlide === 'supplier_bill_matching'
+                          ? 'bg-blue-600 text-white border-blue-600 shadow-2xs'
+                          : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-100'
+                      }`}
+                    >
+                      <FileCheck2 size={12} />
+                      3-Way Match
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setActiveTimelineSlide('disbursement_payment')}
+                      className={`px-2.5 py-1 text-xs font-bold rounded-lg border flex items-center gap-1.5 transition-all cursor-pointer ${
+                        activeTimelineSlide === 'disbursement_payment'
+                          ? 'bg-emerald-600 text-white border-emerald-600 shadow-2xs'
+                          : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-100'
+                      }`}
+                    >
+                      <CreditCard size={12} />
+                      Payment
+                    </button>
+                  </div>
+
+                  {/* 1. Production Instruction Card */}
+                  <PoProductionInstructionSection
+                    po={selectedPo}
+                    navigate={navigate}
+                    defaultCollapsed={activeTimelineSlide === 'grey_fabric_qc' || activeTimelineSlide === 'daily_production_entry' || activeTimelineSlide === 'completion_verification' || activeTimelineSlide === 'final_job_work_po' || activeTimelineSlide === 'vendor_bill'}
+                    onOpenDailyProduction={() => setActiveTimelineSlide('daily_production_entry')}
+                    onUpdated={() => {
+                      loadPoLifecycle(selectedPo?.id, selectedPo?.poNumber);
+                      if (refreshCollections) refreshCollections(['purchaseOrders']);
+                    }}
+                  />
+
+                  {/* 2. Daily Production Entry Section */}
+                  {activeTimelineSlide === 'daily_production_entry' && (
+                    <PoDailyProductionEntrySection
+                      po={selectedPo}
+                      navigate={navigate}
+                      onSwitchToInstruction={() => setActiveTimelineSlide('production_instruction')}
+                      onProceedToQc={() => {
+                        setActiveTimelineSlide('grey_fabric_qc');
+                        setTimeout(() => {
+                          qcSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                        }, 50);
+                      }}
+                      onUpdated={() => {
+                        loadPoLifecycle(selectedPo?.id, selectedPo?.poNumber);
+                        if (refreshCollections) refreshCollections(['purchaseOrders']);
+                      }}
+                    />
+                  )}
+
+                  {/* 3. Quality Control (QC) Section */}
+                  {(activeTimelineSlide === 'grey_fabric_qc' || activeTimelineSlide === 'completion_verification' || showVerificationInline || !activeTimelineSlide) && (
+                    <div ref={qcSectionRef}>
+                      <PoQualityControlSection
+                        po={selectedPo}
+                        navigate={navigate}
+                        defaultExpanded={true}
+                        onProceedToVerification={() => {
+                          setShowVerificationInline(true);
+                          setActiveTimelineSlide('completion_verification');
+                          setTimeout(() => {
+                            completionVerificationRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                          }, 100);
+                        }}
+                        onUpdated={() => {
+                          loadPoLifecycle(selectedPo?.id, selectedPo?.poNumber);
+                          if (refreshCollections) refreshCollections(['purchaseOrders']);
+                        }}
+                      />
+                    </div>
+                  )}
+
+                  {/* 4. Completion Verification Slide (Rendered seamlessly in this same slide view) */}
+                  {(activeTimelineSlide === 'completion_verification' || showVerificationInline) && (
+                    <div ref={completionVerificationRef} className="pt-2">
+                      <CompletionVerificationInlineSlide
+                        po={selectedPo}
+                        instruction={poLifecycleData?.instruction}
+                        onClose={() => {
+                          setShowVerificationInline(false);
+                          setActiveTimelineSlide('grey_fabric_qc');
+                          setTimeout(() => {
+                            qcSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                          }, 100);
+                        }}
+                        onNextStep={(key) => setActiveTimelineSlide(key)}
+                        onPrevStep={() => {
+                          setActiveTimelineSlide('grey_fabric_qc');
+                          setTimeout(() => {
+                            qcSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                          }, 100);
+                        }}
+                        onUpdated={() => {
+                          loadPoLifecycle(selectedPo?.id, selectedPo?.poNumber);
+                          if (refreshCollections) refreshCollections(['purchaseOrders']);
+                        }}
+                      />
+                    </div>
+                  )}
+
+                  {/* 5. Final Job Work PO Slide */}
+                  {activeTimelineSlide === 'final_job_work_po' && (
+                    <div ref={finalJobWorkPoRef} className="pt-2">
+                      <FinalJobWorkPoInlineSlide
+                        po={selectedPo}
+                        instruction={poLifecycleData?.instruction}
+                        onClose={() => setActiveTimelineSlide('completion_verification')}
+                        onNextStep={(key) => setActiveTimelineSlide(key)}
+                        onPrevStep={() => {
+                          setActiveTimelineSlide('completion_verification');
+                          setTimeout(() => {
+                            completionVerificationRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                          }, 100);
+                        }}
+                        onUpdated={() => {
+                          loadPoLifecycle(selectedPo?.id, selectedPo?.poNumber);
+                          if (refreshCollections) refreshCollections(['purchaseOrders']);
+                        }}
+                      />
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
             <div className={`flex flex-col sm:flex-row sm:items-center justify-between gap-3 lg:gap-0 pt-4 border-t border-slate-200 bg-slate-50 px-4 py-3 ${
               isDetailFullscreen ? '-mx-4 -mb-4 sm:-mx-8 sm:-mb-8 sm:px-8' : '-mx-4 -mb-4 sm:-mx-6 sm:-mb-6 sm:px-6'
@@ -1563,7 +1884,7 @@ export const PurchaseOrdersPage = () => {
                       )}
                       {getOscarStatus(selectedPo) === 'Draft' && (<Button onClick={() => { issuePo(selectedPo.id); setSelectedPo(null); }}>Submit for Approval</Button>)}
                       {getOscarStatus(selectedPo) === 'Pending Approval' && (<Button onClick={() => { approvePo(selectedPo.id); setSelectedPo(null); }}>Approve PO</Button>)}
-                      {getOscarStatus(selectedPo) === 'Approved' && purchaseTypeOf(selectedPo) === PURCHASE_TYPE_VENDOR_A && (<Button onClick={() => { startProductionPo(selectedPo.id); setSelectedPo(null); }}>Start Production</Button>)}
+                      {getOscarStatus(selectedPo) === 'Approved' && purchaseTypeOf(selectedPo) === PURCHASE_TYPE_VENDOR_A && (<Button onClick={() => startProductionPo(selectedPo.id)}>Start Production</Button>)}
                       {RECEIVABLE_STATUSES.includes(getOscarStatus(selectedPo)) && purchaseTypeOf(selectedPo) === PURCHASE_TYPE_GREY && (
                         <>
                           <button
@@ -1680,7 +2001,8 @@ export const PurchaseOrdersPage = () => {
                             </button>
                           )}
                           {poInfo.totalRemainingQty > 0 && (
-                            <Button onClick={() => { handleConvertToBill(selectedPo.id); setSelectedPo(null); }}>
+                            <Button onClick={() => setActiveTimelineSlide('vendor_bill')}>
+                              <Receipt size={13} className="mr-1.5" />
                               {poInfo.status === 'Partially Billed' ? `Bill Remaining (${poInfo.totalRemainingQty})` : 'Convert to Vendor Bill & Intake Goods'}
                             </Button>
                           )}

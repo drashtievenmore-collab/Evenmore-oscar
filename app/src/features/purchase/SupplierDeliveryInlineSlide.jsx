@@ -249,11 +249,13 @@ export function SupplierDeliveryInlineSlide({ po, onClose, onDeliverySaved, onNe
         <div className="flex items-center gap-2 self-end sm:self-auto">
           <button
             type="button"
-            onClick={() => navigate(`/purchase/deliveries?po=${poId}`)}
-            className="inline-flex items-center gap-1 px-2.5 py-1 text-[11px] font-bold text-blue-700 bg-white border border-blue-200 hover:bg-blue-50 rounded-lg shadow-2xs"
-            title="Open in full screen page"
+            onClick={() => {
+              if (onNextStep) onNextStep('grn_inward');
+            }}
+            className="inline-flex items-center gap-1 px-2.5 py-1 text-[11px] font-bold text-blue-700 bg-white border border-blue-200 hover:bg-blue-50 rounded-lg shadow-2xs cursor-pointer"
+            title="Advance to GRN Inward Slide"
           >
-            <ExternalLink size={12} /> Full Screen
+            <PackageCheck size={12} /> Advance to GRN
           </button>
 
           <button
