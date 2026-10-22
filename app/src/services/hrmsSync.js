@@ -26,6 +26,24 @@ function displayIn(value) {
   return value ? formatDateDDMMYYYY(value) : value;
 }
 
+function formatBytes(bytes) {
+  const n = Number(bytes) || 0;
+  if (n >= 1024 * 1024) return `${(n / (1024 * 1024)).toFixed(1)} MB`;
+  if (n >= 1024) return `${Math.round(n / 1024)} KB`;
+  return `${n} B`;
+}
+
+/** Short label for a stored file ("PDF", "Image", "Word", …). */
+function fileTypeLabel(contentType, fileName) {
+  const type = String(contentType || '').toLowerCase();
+  const ext = String(fileName || '').split('.').pop().toLowerCase();
+  if (type === 'application/pdf' || ext === 'pdf') return 'PDF';
+  if (type.startsWith('image/')) return 'Image';
+  if (type.includes('word') || ['doc', 'docx'].includes(ext)) return 'Word';
+  if (type.includes('sheet') || type.includes('excel') || ['xls', 'xlsx', 'csv'].includes(ext)) return 'Excel';
+  return contentType ? (ext || 'File').toUpperCase() : '';
+}
+
 /** Weekday name for a wire date (`2024-11-01` → `Friday`). Empty when unparseable. */
 function weekdayName(value) {
   if (!value) return '';
@@ -362,7 +380,42 @@ export const HRMS_RESOURCES = {
   },
   terminations: dated('/hrms/terminations/', ['terminationDate']),
   complaints: dated('/hrms/complaints/', ['raisedDate']),
-  documents: dated('/hrms/documents/', ['uploadedDate', 'expiryDate']),
+  // The file itself is uploaded through /files/ (see stores/documentStore);
+  // the document row only carries its `fileId`. Status is derived on the
+  // server from the expiry date, so it is never sent.
+  documents: {
+    path: '/hrms/documents/',
+    toApi: (doc) => {
+      const version = parseInt(String(doc.version ?? '').replace(/^v/i, ''), 10);
+      const expiry = doc.expiry && doc.expiry !== '—' ? isoOut(doc.expiry) : null;
+      return compact({
+        title: doc.title,
+        category: doc.category,
+        // "All Staff" (company-wide) is a document with no employee.
+        employeeId: doc.employeeId === undefined ? undefined : (isServerId(doc.employeeId) ? doc.employeeId : null),
+        version: Number.isFinite(version) ? version : undefined,
+        expiry: doc.expiry === undefined ? undefined : expiry,
+        fileId: isServerId(doc.fileId) ? doc.fileId : undefined,
+        tags: Array.isArray(doc.tags) ? doc.tags : undefined,
+        description: doc.description,
+      });
+    },
+    fromApi: (row) => ({
+      ...row,
+      employee: row.employee || 'All Staff',
+      employeeId: row.employeeId || null,
+      version: `v${row.version || 1}.0`,
+      expiry: row.expiry ? displayIn(row.expiry) : '—',
+      expiryIso: row.expiry || '',
+      contentType: row.fileType || '',
+      fileType: fileTypeLabel(row.fileType, row.fileName),
+      fileSize: row.fileSize ? formatBytes(row.fileSize) : '',
+      fileSizeBytes: row.fileSize || 0,
+      hasFile: Boolean(row.fileId),
+      updatedOn: row.updatedOn ? displayIn(String(row.updatedOn).slice(0, 10)) : '',
+      _synced: true,
+    }),
+  },
   approvalChains: plain('/hrms/approval-chains/'),
   calendarEvents: dated('/hrms/calendar/events/', ['startDate', 'endDate', 'date']),
 
