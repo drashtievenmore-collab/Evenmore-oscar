@@ -291,10 +291,12 @@ export function Stage3GRNInwardWorkspace({
 
     setSubmitting(true);
     try {
-      // Auto-approve PO if still in Draft
+      // Auto-approve PO if still in Draft -- through the approve action, so the
+      // approve permission and separation-of-duties checks still apply.
       if (activePo.status === 'Draft') {
         try {
-          await api.patch(`/purchase/orders/${activePo.id}/`, { status: 'Approved' });
+          await api.post(`/purchase/orders/${activePo.id}/submit-for-approval/`, {});
+          await api.post(`/purchase/orders/${activePo.id}/approve/`, {});
           activePo.status = 'Approved';
         } catch (err) {
           console.warn('Auto approval notice:', err);

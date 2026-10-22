@@ -12,6 +12,7 @@ import { Link, useNavigate, useLocation } from 'react-router-dom';
 import { BarcodeLabelModal } from '../../components/common/BarcodeLabelModal';
 import { ImportModal } from '../../components/common/ImportModal';
 import { inventoryService } from '../../services/domainServices';
+import { describeError, isServerId } from '../../services/backendSync';
 
 /** Map a fabric colour name to a display hex for the swatch dot. */
 const FABRIC_COLOR_HEX = {
@@ -41,6 +42,7 @@ export const ItemsMasterPage = () => {
     itemParts = [],
     addInventoryItem,
     deleteInventoryItem,
+    refreshCollections,
     vendors = [],
     addPurchaseOrder,
     formatCurrency,
@@ -168,11 +170,13 @@ export const ItemsMasterPage = () => {
 
   // Base list of items
   const baseItems = useMemo(() => {
+    // Deleting an item archives it on the server (history is kept), so hide archived rows.
+    const live = items.filter((i) => i.lifecycleStatus !== 'Archived');
     if (isMachineView) {
-      return items.filter((i) => i.itemKind === 'Machine');
+      return live.filter((i) => i.itemKind === 'Machine');
     }
     // Default to fabric inventory for Total Inventory / Fabric views
-    return items.filter((i) => i.itemKind === 'Fabric' || (!isMachineView && (i.fabricQuality || i.category?.includes('Fabric'))));
+    return live.filter((i) => i.itemKind === 'Fabric' || (!isMachineView && (i.fabricQuality || i.category?.includes('Fabric'))));
   }, [items, isMachineView]);
 
   // Distinct filter options
@@ -311,21 +315,31 @@ export const ItemsMasterPage = () => {
     setDeleteModalConfig((prev) => ({ ...prev, loading: true }));
     try {
       const toDelete = deleteModalConfig.items;
+      const deleted = [];
+      const failed = [];
+      // Wait for the server so a refused delete (e.g. item used on an open PO)
+      // is reported instead of the row silently coming back on next refresh.
       for (const it of toDelete) {
-        if (typeof deleteInventoryItem === 'function') {
-          deleteInventoryItem(it.id);
-        } else {
-          try {
-            await inventoryService.deleteItem(it.id);
-          } catch (e) {
-            console.warn('delete item error:', e);
-          }
+        if (!isServerId(it.id)) {
+          deleteInventoryItem?.(it.id);
+          deleted.push(it);
+          continue;
+        }
+        try {
+          await inventoryService.deleteItem(it.id);
+          deleted.push(it);
+        } catch (e) {
+          failed.push(`${it.sku || it.name}: ${describeError(e)}`);
         }
       }
-      showToast?.(`Deleted ${toDelete.length} item(s) successfully.`);
+      if (deleted.length && typeof refreshCollections === 'function') {
+        await refreshCollections(['items']);
+      }
+      if (deleted.length) showToast?.(`Deleted ${deleted.length} item(s) successfully.`);
+      if (failed.length) showToast?.(`Could not delete ${failed.length} item(s) — ${failed.join('; ')}`);
       setSelectedIds((prev) => {
         const next = new Set(prev);
-        toDelete.forEach((it) => next.delete(String(it.id)));
+        deleted.forEach((it) => next.delete(String(it.id)));
         return next;
       });
       setDeleteModalConfig({ isOpen: false, items: [], loading: false });

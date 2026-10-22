@@ -2824,16 +2824,15 @@ export default function LotTakaRegisterPage({
                 )}
 
                 <div className="flex items-center gap-2 ml-auto">
-                  <a
-                    href={inventoryService.getTakaTagsPdfUrl([tagModalRecord.id])}
-                    target="_blank"
-                    rel="noreferrer"
+                  <button
+                    type="button"
+                    onClick={() => inventoryService.openTakaTagsPdf([tagModalRecord.id]).catch((err) => alert(err?.message || 'Could not download PDF.'))}
                     className="inline-flex items-center gap-1 px-3 py-1.5 bg-white border border-slate-200 hover:bg-slate-50 text-slate-700 rounded-lg text-xs font-semibold shadow-xs cursor-pointer"
                     title="Download 60x40mm thermal label PDF"
                   >
                     <Download size={12} />
                     PDF Label
-                  </a>
+                  </button>
                   <button
                     type="button"
                     onClick={handlePrintTagAndRecord}

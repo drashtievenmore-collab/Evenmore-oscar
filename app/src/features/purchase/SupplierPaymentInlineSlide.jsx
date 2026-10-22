@@ -22,7 +22,7 @@ function numIN(val) {
   return n.toLocaleString('en-IN', { maximumFractionDigits: 2 });
 }
 
-export function SupplierPaymentInlineSlide({ po, onClose, onPaymentSaved, onPrevStep }) {
+export function SupplierPaymentInlineSlide({ po, instruction, onClose, onPaymentSaved, onPrevStep }) {
   const {
     formatCurrency,
     formatDateDDMMYYYY,
@@ -41,6 +41,7 @@ export function SupplierPaymentInlineSlide({ po, onClose, onPaymentSaved, onPrev
   const [payMode, setPayMode] = useState('Bank Transfer');
   const [bankAccountId, setBankAccountId] = useState('');
   const [fetchedBanks, setFetchedBanks] = useState([]);
+  const [fetchedBill, setFetchedBill] = useState(null);
   const [reference, setReference] = useState('');
   const [remarks, setRemarks] = useState('');
   const [errorMsg, setErrorMsg] = useState('');
@@ -48,11 +49,43 @@ export function SupplierPaymentInlineSlide({ po, onClose, onPaymentSaved, onPrev
 
   const poId = po?.id;
   const poNumber = po?.poNumber || poId;
+  const finalPoId = instruction?.finalPoId || instruction?.final_po_id;
+  const finalPoNumber = instruction?.finalPoNumber || instruction?.final_po_number;
 
   const poInfo = getPoBilledStatus ? getPoBilledStatus(poId) : { activeBills: [] };
-  const linkedBill = poInfo.activeBills?.[0] || purchaseBills.find((b) => b.purchaseOrderId === poId || b.poNumber === poNumber);
+  const linkedBill = fetchedBill || poInfo.activeBills?.[0] || purchaseBills.find((b) => 
+    b.purchaseOrderId === poId || 
+    b.poNumber === poNumber ||
+    (finalPoId && (b.purchaseOrderId === finalPoId || b.poId === finalPoId)) ||
+    (finalPoNumber && (b.poNumber === finalPoNumber || b.purchase_order_number === finalPoNumber))
+  );
 
   const billTotal = Number(linkedBill?.total || linkedBill?.amount || po?.amount || 0);
+
+  // Fetch purchase bills linked to this PO or Final Job Work PO if not already loaded in context
+  useEffect(() => {
+    let active = true;
+    if (poId) {
+      const targetPoIds = [poId];
+      if (finalPoId && finalPoId !== poId) targetPoIds.push(finalPoId);
+
+      Promise.all(
+        targetPoIds.map((tid) =>
+          api.get(`/accounts/purchase-bills/?purchase_order=${tid}`).catch(() => ({ results: [] }))
+        )
+      ).then((responses) => {
+        if (!active) return;
+        for (const res of responses) {
+          const list = Array.isArray(res) ? res : res?.results || [];
+          if (list.length > 0) {
+            setFetchedBill(list[0]);
+            return;
+          }
+        }
+      });
+    }
+    return () => { active = false; };
+  }, [poId, finalPoId]);
 
   // Actively fetch backend bank accounts and trigger ERP context pull
   useEffect(() => {

@@ -19,6 +19,7 @@ import { CustomerReturnTab } from './components/CustomerReturnTab';
 import { AssignStageModal } from './components/AssignStageModal';
 import { StageHandoffModal } from '../components/StageHandoffModal';
 import { CompleteProjectModal } from './components/CompleteProjectModal';
+import { PrintProjectModal } from './components/PrintProjectModal';
 import { PmsToast } from '../components/PmsToast';
 
 /**
@@ -57,6 +58,7 @@ export default function ProjectDetailPage() {
   const [confirmComplete, setConfirmComplete] = useState(false);
   const [assignStageId, setAssignStageId] = useState(null); // null = closed
   const [handoffStageId, setHandoffStageId] = useState(null);
+  const [showPrintModal, setShowPrintModal] = useState(false);
 
   const project = useMemo(() => projects.find((p) => p.id === id || p.code === id) ?? null, [projects, id]);
   const meta = useMemo(() => (project ? getProjectRowMeta(project) : null), [project]);
@@ -116,6 +118,7 @@ export default function ProjectDetailPage() {
         onAssignStage={() => setAssignStageId(currentStage?.id ?? '')}
         onLogDelay={() => navigate(`/pms/delays?project=${project.id}`)}
         onCompleteProject={() => setConfirmComplete(true)}
+        onPrintProject={() => setShowPrintModal(true)}
       />
 
       {/* Tabs */}
@@ -207,6 +210,12 @@ export default function ProjectDetailPage() {
         isOpen={confirmComplete}
         project={project}
         onClose={() => setConfirmComplete(false)}
+      />
+
+      <PrintProjectModal
+        isOpen={showPrintModal}
+        onClose={() => setShowPrintModal(false)}
+        project={project}
       />
 
       <PmsToast />

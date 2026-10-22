@@ -4,8 +4,10 @@ import { formatQty } from '../../utils/uom';
 import { useLocation, useNavigate } from 'react-router-dom';
 import {
   ArrowLeft, CheckCircle2, FileText, Plus, Search,
-  Send, Trash2, Package, RefreshCw, User,
+  Send, Trash2, Package, RefreshCw, User, AlertTriangle, ShieldAlert,
 } from 'lucide-react';
+import { useDiscountPolicy } from '../../hooks/useDiscountPolicy';
+import { approvalService } from '../../services/domainServices';
 import { useERP } from '../../context/ERPContext';
 import { useCrmStore } from '../../stores/crmStore';
 import { withSampleTeam } from '../crm/common/sampleTeam';
@@ -235,6 +237,9 @@ export default function QuotationComposerPage({ embedded = null } = {}) {
   const savingRef = useRef(false);
   const [saving, setSaving] = useState(false);
   const [pendingId, setPendingId] = useState(() => editQuote?.id || null);
+  const { maxDiscountPct } = useDiscountPolicy();
+  const [discountReason, setDiscountReason] = useState('');
+  const [showDiscountWarning, setShowDiscountWarning] = useState(false);
 
   // One list for the picker: existing customers first, then the open leads.
   // `key` namespaces the two id spaces — a customer and a lead are different
@@ -318,6 +323,13 @@ export default function QuotationComposerPage({ embedded = null } = {}) {
       hasCost, costSum, profit, marginPct,
     };
   }, [lines, docDiscPct, freightType, freightAmount, loading, otherCharges, withTax]);
+
+  // Effective max discount across all lines and global discount
+  const effectiveMaxDiscount = Math.max(
+    num(docDiscPct),
+    ...lines.map((l) => num(l.discPct))
+  );
+  const isDiscountExceedsPolicy = effectiveMaxDiscount > maxDiscountPct;
 
   const creditLimit = num(customer?.creditLimit);
   const outstanding = num(customer?.balance ?? customer?.outstanding);
@@ -446,10 +458,13 @@ export default function QuotationComposerPage({ embedded = null } = {}) {
     }
     if (lines.length === 0) return 'Add at least one item.';
     if (!lines.some((line) => line.fabric && num(line.qty) > 0)) return 'Add at least one item with a name and quantity.';
+    if (isDiscountExceedsPolicy && !discountReason.trim()) {
+      return `Discount of ${effectiveMaxDiscount}% exceeds the policy limit of ${maxDiscountPct}%. Please provide a justification reason above.`;
+    }
     return '';
   }
 
-  function handleSave(status, { stay = false } = {}) {
+  async function handleSave(status, { stay = false } = {}) {
     if (savingRef.current) return null;
     const error = validate();
     if (error) {
@@ -472,6 +487,22 @@ export default function QuotationComposerPage({ embedded = null } = {}) {
         if (!stay && serverRecord?.id) navigate(`/sales/quotations/${serverRecord.id}`, { replace: true });
       },
     });
+    // Submit approval request if discount exceeds policy
+    if (isDiscountExceedsPolicy && discountReason.trim()) {
+      try {
+        await approvalService.createRequest({
+          document_type: 'discount_limit',
+          document_number: saved?.quotationNumber || saved?.id || 'QT-PENDING',
+          document_id: saved?.id,
+          reason: discountReason.trim(),
+          variance_pct: effectiveMaxDiscount,
+          variance_amount: Math.round(totals.docDisc * 100) / 100,
+          urgency: effectiveMaxDiscount > maxDiscountPct * 1.5 ? 'High' : 'Normal',
+        });
+      } catch (err) {
+        console.warn('Approval request could not be submitted:', err);
+      }
+    }
     if (!stay) {
       if (isBackendEnabled() && saved?.id && !isServerId(saved.id)) {
         navigate('/sales/quotations');
@@ -502,16 +533,48 @@ export default function QuotationComposerPage({ embedded = null } = {}) {
         const updated = await updateQuotation(id, buildPayload(keepStatus));
         const number = updated?.quoteNumber || updated?.quotationNumber || editQuote?.quoteNumber || '';
         showToast?.(`Quotation ${number} updated.`);
+        // Submit approval request if discount exceeds policy
+        if (isDiscountExceedsPolicy && discountReason.trim()) {
+          try {
+            await approvalService.createRequest({
+              document_type: 'discount_limit',
+              document_number: updated?.quotationNumber || updated?.id || 'QT-PENDING',
+              document_id: updated?.id,
+              reason: discountReason.trim(),
+              variance_pct: effectiveMaxDiscount,
+              variance_amount: Math.round(totals.docDisc * 100) / 100,
+              urgency: effectiveMaxDiscount > maxDiscountPct * 1.5 ? 'High' : 'Normal',
+            });
+          } catch (err) {
+            console.warn('Approval request could not be submitted:', err);
+          }
+        }
         finish();
         embedded.onDone(updated || null);
       } else {
         let resolved = false;
         const saved = addQuotation(buildPayload(status), {
           silent: true,
-          onServer: (serverRecord) => {
+          onServer: async (serverRecord) => {
             resolved = true;
             const number = serverRecord?.quoteNumber || serverRecord?.quotationNumber || saved?.quoteNumber || '';
             showToast?.(`Quotation ${number} generated.`);
+            // Submit approval request if discount exceeds policy
+            if (isDiscountExceedsPolicy && discountReason.trim()) {
+              try {
+                await approvalService.createRequest({
+                  document_type: 'discount_limit',
+                  document_number: serverRecord?.quotationNumber || serverRecord?.id || 'QT-PENDING',
+                  document_id: serverRecord?.id,
+                  reason: discountReason.trim(),
+                  variance_pct: effectiveMaxDiscount,
+                  variance_amount: Math.round(totals.docDisc * 100) / 100,
+                  urgency: effectiveMaxDiscount > maxDiscountPct * 1.5 ? 'High' : 'Normal',
+                });
+              } catch (err) {
+                console.warn('Approval request could not be submitted:', err);
+              }
+            }
             finish();
             embedded.onDone(serverRecord || null);
           },
@@ -977,6 +1040,36 @@ export default function QuotationComposerPage({ embedded = null } = {}) {
           )}
         </div>
       </div>
+
+      {/* Discount Approval Warning */}
+      {isDiscountExceedsPolicy && (
+        <div className="rounded-xl border border-amber-300 bg-amber-50 p-4 space-y-3">
+          <div className="flex items-start gap-2">
+            <AlertTriangle className="w-4 h-4 text-amber-600 mt-0.5 shrink-0" />
+            <div>
+              <p className="text-xs font-bold text-amber-800">
+                Discount Exceeds Approved Limit ({maxDiscountPct}%)
+              </p>
+              <p className="text-[11px] text-amber-700 mt-0.5">
+                The discount on this quotation ({effectiveMaxDiscount}%) exceeds the policy limit. An approval request
+                will be sent to the Sales Manager when you submit. Please provide a justification below.
+              </p>
+            </div>
+          </div>
+          <div>
+            <label className="block text-[11px] font-semibold text-amber-800 mb-1">
+              Reason / Justification for Excess Discount *
+            </label>
+            <textarea
+              rows={2}
+              value={discountReason}
+              onChange={(e) => setDiscountReason(e.target.value)}
+              placeholder="e.g. Long-term customer, bulk order, competitive market pressure..."
+              className="w-full text-xs border border-amber-300 rounded-lg p-2 bg-white outline-none focus:ring-1 focus:ring-amber-400"
+            />
+          </div>
+        </div>
+      )}
 
       {formError && <p role="alert" className="text-xs font-semibold text-rose-600">{formError}</p>}
 

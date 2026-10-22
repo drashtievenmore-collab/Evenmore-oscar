@@ -3,7 +3,8 @@ import { useERP } from '../../context/ERPContext';
 import { inventoryService } from '../../services/domainServices';
 import { Button } from '../../components/ui/Button';
 import PageHeader from '../../components/ui/PageHeader';
-import { Building, Bell, Database, Save, Check, RotateCcw, AlertTriangle, Cog, LayoutGrid, Briefcase, UserCheck } from 'lucide-react';
+import { Building, Bell, Database, Save, Check, RotateCcw, AlertTriangle, Cog, LayoutGrid, Briefcase, UserCheck, Percent, ShieldCheck } from 'lucide-react';
+import { useDiscountPolicy } from '../../hooks/useDiscountPolicy';
 
 // Module settings pages, loaded on demand so the Settings bundle stays light.
 const CRMSystemSetupPage = lazy(() => import('../crm/setup/CRMSystemSetupPage'));
@@ -40,6 +41,16 @@ function GeneralSettings() {
     const [greyThreshold, setGreyThreshold] = useState('');
     const [greyAlertEnabled, setGreyAlertEnabled] = useState(true);
     const [showConfirmReset, setShowConfirmReset] = useState(false);
+
+    const { maxDiscountPct, approverRole, savePolicy: saveDiscountPolicy } = useDiscountPolicy();
+    const [discThreshold, setDiscThreshold] = useState('');
+    const [discApproverRole, setDiscApproverRole] = useState('sales_manager');
+    const [discSaved, setDiscSaved] = useState(false);
+    // Sync from loaded policy
+    useEffect(() => {
+      setDiscThreshold(String(maxDiscountPct));
+      setDiscApproverRole(approverRole);
+    }, [maxDiscountPct, approverRole]);
 
     useEffect(() => {
         let active = true;
@@ -87,6 +98,12 @@ function GeneralSettings() {
     const handleResetData = () => {
         resetDemoData();
         setShowConfirmReset(false);
+    };
+    const handleSaveDiscountPolicy = async (e) => {
+      e.preventDefault();
+      await saveDiscountPolicy(discThreshold, discApproverRole);
+      setDiscSaved(true);
+      setTimeout(() => setDiscSaved(false), 3000);
     };
     return (<div className="space-y-6 max-w-4xl">
       <form onSubmit={handleSave} className="space-y-6">
@@ -201,6 +218,65 @@ function GeneralSettings() {
           </Button>
         </div>
       </form>
+
+      {/* Discount Approval Policy */}
+      <div className="bg-white border border-[#CED4DA] rounded-lg p-5">
+        <div className="flex items-center gap-2 pb-3 border-b border-[#CED4DA] mb-4">
+          <ShieldCheck className="text-[#1F2E4A]" size={18}/>
+          <h3 className="font-bold text-sm text-[#1F2E4A]">Sales Discount Approval Policy</h3>
+        </div>
+        <form onSubmit={handleSaveDiscountPolicy} className="space-y-4 text-xs">
+          <p className="text-slate-500 text-[11px] leading-relaxed">
+            Set the maximum discount % a salesperson can give without approval. Any quotation with a higher
+            discount will require explicit approval from the selected authority before it can be sent.
+          </p>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div>
+              <label className="font-semibold text-slate-700 block mb-1 flex items-center gap-1">
+                <Percent size={12} /> Max Discount Without Approval (%)
+              </label>
+              <input
+                type="number"
+                min="0"
+                max="100"
+                step="0.5"
+                value={discThreshold}
+                onChange={(e) => setDiscThreshold(e.target.value)}
+                className="w-full p-2 border border-[#CED4DA] rounded bg-[#F8F9FA] font-mono font-semibold text-slate-900"
+                placeholder="e.g. 15"
+              />
+              <p className="text-[11px] text-slate-400 mt-1">Discounts above this % will be flagged for approval.</p>
+            </div>
+            <div>
+              <label className="font-semibold text-slate-700 block mb-1">Approver Role</label>
+              <select
+                value={discApproverRole}
+                onChange={(e) => setDiscApproverRole(e.target.value)}
+                className="w-full p-2 border border-[#CED4DA] rounded bg-[#F8F9FA]"
+              >
+                <option value="owner">Owner / Super Admin</option>
+                <option value="admin">Admin</option>
+                <option value="sales_manager">Sales Manager</option>
+                <option value="accounts">Accounts</option>
+              </select>
+              <p className="text-[11px] text-slate-400 mt-1">Who must approve above-threshold discounts.</p>
+            </div>
+          </div>
+          <div className="flex items-center gap-3 pt-1">
+            <button
+              type="submit"
+              className="px-4 py-1.5 text-xs font-bold text-white bg-[#1F2E4A] hover:bg-[#2a3f65] rounded-lg shadow-sm flex items-center gap-1.5 transition-colors"
+            >
+              <ShieldCheck size={13} /> Save Discount Policy
+            </button>
+            {discSaved && (
+              <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-emerald-700 bg-emerald-50 border border-emerald-200 px-3 py-1.5 rounded">
+                <Check size={14}/> Discount policy saved
+              </span>
+            )}
+          </div>
+        </form>
+      </div>
 
       {/* ERP Snapshot Backup & Recovery Section */}
       <div className="bg-white border border-slate-200 rounded-xl p-5 shadow-xs space-y-4">

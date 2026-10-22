@@ -361,7 +361,7 @@ export function FinalJobWorkPoInlineSlide({
       } else if (actionType === 'approve_complete' || actionType === 'approve_generate') {
         setStatus('Approved');
         const genNum = res?.finalPoNumber || poNumber;
-        setSuccessMsg(`Final Job Work PO ${genNum} approved & generated successfully! Ready for Vendor Bill matching.`);
+        setSuccessMsg(`Final Job Work PO ${genNum} approved & generated successfully! Ready for Agency Bill matching.`);
         if (showToast) showToast(`PO Approved & Generated: ${genNum}`, 'success');
       }
 
@@ -477,10 +477,10 @@ export function FinalJobWorkPoInlineSlide({
           {onNextStep && status === 'Approved' && (
             <button
               type="button"
-              onClick={() => onNextStep('vendor_bill')}
+              onClick={() => onNextStep('agency_bill_match')}
               className="px-3 py-1 bg-emerald-700 hover:bg-emerald-800 text-white font-bold rounded-lg text-xs inline-flex items-center gap-1 cursor-pointer shadow-2xs"
             >
-              <Receipt size={13} /> Proceed to Vendor Bill <ArrowRight size={13} />
+              <Receipt size={13} /> Proceed to Agency Bill Match <ArrowRight size={13} />
             </button>
           )}
         </div>
@@ -1045,7 +1045,7 @@ export function FinalJobWorkPoInlineSlide({
             </div>
 
             {/* Document Content */}
-            <div className="flex-1 overflow-y-auto p-6 space-y-6 bg-white text-slate-800 text-xs">
+            <div className="flex-1 overflow-y-auto p-6 space-y-6 bg-white text-slate-800 text-xs printable-document">
               
               {/* Document Letterhead */}
               <div className="flex items-start justify-between border-b border-slate-200 pb-4">
