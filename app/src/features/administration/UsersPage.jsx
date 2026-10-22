@@ -2,6 +2,7 @@ import InfoBanner from '../../components/ui/InfoBanner';
 import PageHeader from '../../components/ui/PageHeader';
 import AdministrationGuideButton from './AdministrationGuideButton';
 import KpiCard from '../../components/ui/KpiCard';
+import { useAppStore } from '../../stores/appStore';
 import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { Link } from 'react-router-dom';
 import {
@@ -285,6 +286,7 @@ export function UsersPage() {
     setSelectedUserId(newUser.id);
     setIsCreateModalOpen(false);
     showNotification(`User "${newUser.name}" successfully created!`);
+    useAppStore.getState().refreshHrms?.('employees');
   };
 
   const openEditModal = (user) => {
@@ -330,6 +332,7 @@ export function UsersPage() {
       .catch((err) => showNotification(`Change not saved — ${describeError(err)}`));
     setIsEditModalOpen(false);
     showNotification(`User details updated for "${userForm.name}"!`);
+    useAppStore.getState().refreshHrms?.('employees');
   };
 
   const handleToggleStatus = (user) => {
@@ -343,6 +346,7 @@ export function UsersPage() {
     (newStatus === 'Active' ? activateUser(target.id) : deactivateUser(target.id))
       .catch((err) => showNotification(`Status not saved — ${describeError(err)}`));
     showNotification(`User "${target.name}" is now marked as ${newStatus}.`);
+    useAppStore.getState().refreshHrms?.('employees');
   };
 
   const openDeleteModal = (user) => {
@@ -358,6 +362,7 @@ export function UsersPage() {
     adminSync.remove('users', userToModify.id)
       .catch((err) => showNotification(`User not deleted — ${describeError(err)}`));
     setIsDeleteModalOpen(false);
+    useAppStore.getState().refreshHrms?.('employees');
     if (selectedUserId === userToModify.id) {
       const remaining = users.filter((u) => u.id !== userToModify.id);
       if (remaining.length > 0) setSelectedUserId(remaining[0].id);
