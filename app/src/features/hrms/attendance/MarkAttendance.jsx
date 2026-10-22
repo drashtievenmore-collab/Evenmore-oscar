@@ -5,6 +5,7 @@ import { useAttendanceStore } from "../../../stores/attendanceStore";
 import { ConfirmModal } from "../../../components/hrms/Shared";
 import PageHeader from "../../../components/ui/PageHeader";
 import { hrmsGuides } from "../../../data/hrms/hrmsGuides";
+import { Avatar } from "../../../components/hrms/Avatar";
 
 const INITIAL_EMPLOYEES = [];
 
@@ -28,7 +29,7 @@ export default function MarkAttendance() {
     if (storeRecords && storeRecords.length > 0) {
       return storeRecords.map((r) => ({
         ...r,
-        avatar: r.avatar || r.img || `https://i.pravatar.cc/100?u=${r.id || r.name}`,
+        avatar: r.avatar || r.img || null,
         remarks: r.remarks || "",
         checked: false,
       }));
@@ -48,7 +49,7 @@ export default function MarkAttendance() {
           const existing = prev.find((p) => p.id === r.id);
           return {
             ...r,
-            avatar: r.avatar || r.img || `https://i.pravatar.cc/100?u=${r.id || r.name}`,
+            avatar: r.avatar || r.img || null,
             remarks: existing ? existing.remarks : r.remarks || "",
             checked: existing ? existing.checked : false,
           };
@@ -68,7 +69,7 @@ export default function MarkAttendance() {
             status: 'Present',
             remarks: existing ? existing.remarks : '',
             checked: existing ? existing.checked : false,
-            avatar: emp.avatar || `https://i.pravatar.cc/100?u=${empId}`,
+            avatar: emp.avatar || null,
           };
         });
       });
@@ -201,7 +202,7 @@ export default function MarkAttendance() {
                   </td>
                   <td>
                     <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                      <img src={r.avatar} alt={r.name} className="mark-avatar" loading="lazy" />
+                      <Avatar name={r.name} size="sm" />
                       <span style={{ fontWeight: 600, color: "#111827", whiteSpace: "nowrap" }}>{r.name}</span>
                     </div>
                   </td>

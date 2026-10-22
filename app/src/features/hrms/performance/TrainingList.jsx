@@ -1,4 +1,5 @@
 import { useState, useMemo } from "react";
+import { Avatar } from "../../../components/hrms/Avatar";
 import { DataTable } from "../../../components/hrms/DataTable";
 import { FilterBar } from "../../../components/hrms/FilterBar";
 import { StatusBadge } from "../../../components/hrms/StatusBadge";
@@ -74,7 +75,7 @@ export default function TrainingList({ embedded = false, onBack }) {
 
   const cols = [
     { key: "name", header: "Training Name", sortable: true, render: (r) => <span className="font-medium text-slate-900">{r.name}</span> },
-    { key: "trainer", header: "Trainer", render: (r) => <div className="flex items-center gap-2">{r.avatar ? <img src={r.avatar} alt="" className="w-6 h-6 rounded-full" /> : <div className="w-6 h-6 rounded-full bg-slate-200 grid place-items-center text-[10px]">{r.trainer ? r.trainer[0] : "U"}</div>}<span>{r.trainer}</span></div> },
+    { key: "trainer", header: "Trainer", render: (r) => <div className="flex items-center gap-2"><Avatar name={r.trainer} size="xs" /><span>{r.trainer}</span></div> },
     { key: "department", header: "Department" },
     { key: "participants", header: "Participants", sortable: true },
     { key: "cost", header: "Cost", render: (r) => <span className="font-semibold">₹ {Number(r.cost || 0).toLocaleString("en-IN")}</span> },

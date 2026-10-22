@@ -15,10 +15,10 @@ function loadModuleFlags() {
     const saved = JSON.parse(localStorage.getItem(HRMS_MODULES_KEY) || "{}");
     return {
       recruitmentEnabled: saved.recruitmentEnabled !== false,
-      trainingEnabled: saved.trainingEnabled !== false,
+      trainingEnabled: false, // Training feature commented out
     };
   } catch {}
-  return { recruitmentEnabled: true, trainingEnabled: true };
+  return { recruitmentEnabled: true, trainingEnabled: false };
 }
 
 function saveModuleFlags(recruitmentEnabled, trainingEnabled) {

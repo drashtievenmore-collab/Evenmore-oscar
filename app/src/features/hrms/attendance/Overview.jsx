@@ -5,6 +5,7 @@ import Modal from "../../../components/ui/Modal";
 import { useAppStore } from "../../../stores/appStore";
 import { useAttendanceStore } from "../../../stores/attendanceStore";
 import { hrmsGuides } from "../../../data/hrms/hrmsGuides";
+import { Avatar } from "../../../components/hrms/Avatar";
 
 const LIVE_ATTENDANCE_FALLBACK = [];
 
@@ -49,7 +50,7 @@ export default function AttendanceOverview() {
     if (storeRecords && storeRecords.length > 0) {
       return storeRecords.map((r) => ({
         ...r,
-        img: r.avatar || r.img || `https://i.pravatar.cc/100?u=${r.id || r.name}`,
+        img: r.avatar || r.img || null,
         workHours: r.workHours || (r.checkIn && r.checkOut && r.checkIn !== "—" ? "08:30" : "—"),
         shift: r.shift || "General",
         location: r.location || (r.status === "WFH" ? "Remote" : "On-Site"),
@@ -66,7 +67,7 @@ export default function AttendanceOverview() {
         workHours: "—",
         shift: "General",
         status: "Present",
-        img: e.avatar || `https://i.pravatar.cc/100?u=${e.id || e.name}`,
+        img: e.avatar || null,
         location: "On-Site",
         role: e.role || e.jobType || "Full-Time",
       }));
@@ -347,7 +348,7 @@ export default function AttendanceOverview() {
                 <tr key={row.id}>
                   <td>
                     <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                      <img src={row.img} alt={row.name} className="att-avatar" loading="lazy" />
+                      <Avatar name={row.name} size="sm" />
                       <span style={{ fontWeight: 600, color: "#111827", whiteSpace: "nowrap" }}>{row.name}</span>
                     </div>
                   </td>

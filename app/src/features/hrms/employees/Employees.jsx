@@ -3,6 +3,7 @@ import { Download, ChevronRight, ChevronLeft, ChevronDown, Trash2 } from "lucide
 import Modal from "../../../components/ui/Modal";
 import { useAppStore } from "../../../stores/appStore";
 import PageHeader from "../../../components/ui/PageHeader";
+import { Avatar } from "../../../components/hrms/Avatar";
 import { hrmsGuides } from "../../../data/hrms/hrmsGuides";
 
 const DEPARTMENTS = ["All", "Engineering", "Design", "Marketing", "Finance", "HR", "Operations", "Sales"];
@@ -30,7 +31,7 @@ export default function Employees() {
   const employees = useMemo(() => {
     return storeEmployees.map((e) => ({
       ...e,
-      img: e.img || e.avatar || `https://i.pravatar.cc/100?u=${e.id || e.name}`,
+      img: e.img || e.avatar || null,
     }));
   }, [storeEmployees]);
 
@@ -72,7 +73,7 @@ export default function Employees() {
       reportingManagerId: form.managerId || undefined,
       joiningDate: new Date().toISOString().slice(0, 10),
       status: "Active",
-      avatar: `https://randomuser.me/api/portraits/${employees.length % 2 === 0 ? "women" : "men"}/${(employees.length * 7) % 90}.jpg`,
+      avatar: null,
     };
     addStoreEmployee(next).then((saved) => {
       if (saved) setToast("Employee added successfully.");
@@ -229,7 +230,7 @@ export default function Employees() {
                   <tr key={row.id}>
                     <td>
                       <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-                        <img src={row.img} alt={row.name} className="emp-avatar" loading="lazy" />
+                        <Avatar name={row.name} size="sm" />
                         <div>
                           <span style={{ fontWeight: 600, color: "#111827", display: "inline-block", marginRight: 8 }}>
                             {row.name}
@@ -274,7 +275,7 @@ export default function Employees() {
             {paginatedEmployees.map((row) => (
               <div key={row.id} className="emp-grid-item">
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
-                  <img src={row.img} alt={row.name} className="emp-avatar-large" />
+                  <Avatar name={row.name} size="xl" />
                   <button
                     type="button"
                     onClick={() => handleDelete(row.id, row.name)}

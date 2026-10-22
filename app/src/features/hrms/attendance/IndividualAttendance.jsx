@@ -5,6 +5,7 @@ import { useAttendanceStore } from "../../../stores/attendanceStore";
 import Modal from "../../../components/ui/Modal";
 import PageHeader from "../../../components/ui/PageHeader";
 import { hrmsGuides } from "../../../data/hrms/hrmsGuides";
+import { Avatar } from "../../../components/hrms/Avatar";
 
 const DEFAULT_EMPLOYEES = [];
 
@@ -37,7 +38,7 @@ export default function IndividualAttendance() {
         dept: e.department || e.dept || "General",
         manager: e.manager || "HR Manager",
         status: e.status || "Active",
-        avatar: e.avatar || `https://i.pravatar.cc/100?u=${e.id || e.name}`,
+        avatar: e.avatar || null,
       }));
     }
     return DEFAULT_EMPLOYEES;
@@ -157,7 +158,7 @@ export default function IndividualAttendance() {
       {currentEmp ? (
       <div className="ind-card ind-hero-card">
         <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
-          <img src={currentEmp.avatar} alt={currentEmp.name} className="ind-hero-avatar" />
+          <Avatar name={currentEmp.name} size="lg" />
           <div>
             <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
               <h3 style={{ margin: 0, fontSize: "16px", fontWeight: 700, color: "#111827" }}>
@@ -371,7 +372,7 @@ export default function IndividualAttendance() {
         {currentEmp && (
         <>
         <div style={{ display: "flex", gap: 16, alignItems: "center", marginBottom: 16 }}>
-          <img src={currentEmp.avatar} alt={currentEmp.name} style={{ width: 60, height: 60, borderRadius: 999 }} />
+          <Avatar name={currentEmp.name} size="xl" />
           <div>
             <h3 style={{ margin: 0, fontSize: 17, fontWeight: 700 }}>{currentEmp.name}</h3>
             <p style={{ margin: "2px 0 0", fontSize: 13, color: "#64748b" }}>{currentEmp.id} • {currentEmp.designation}</p>

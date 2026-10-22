@@ -1,4 +1,5 @@
 import { useState, useMemo, useCallback } from 'react';
+import { Avatar } from "../../../components/hrms/Avatar";
 import { useNavigate } from 'react-router-dom';
 import { useAppStore } from '../../../stores/appStore';
 import {
@@ -406,11 +407,7 @@ export function OrgChartPage() {
               rootMatches && q ? 'ring-2 ring-blue-500/40' : ''
             }`}
           >
-            <img
-              src={INITIAL_TREE.avatar}
-              alt={INITIAL_TREE.name}
-              className="w-8 h-8 rounded-full ring-2 ring-navy object-cover"
-            />
+            <Avatar name={INITIAL_TREE.name} size="lg" />
             <div className="text-[13px] font-semibold text-slate-900 mt-2 group-hover:text-navy transition-colors text-center">
               {INITIAL_TREE.name}
             </div>
@@ -447,11 +444,7 @@ export function OrgChartPage() {
                           isMatch && q ? 'ring-2 ring-blue-500/40 border-blue-400' : ''
                         }`}
                       >
-                        <img
-                          src={child.avatar}
-                          alt={child.name}
-                          className="w-8 h-8 rounded-full object-cover"
-                        />
+                        <Avatar name={child.name} size="md" />
                         <div className="text-[13px] font-semibold text-slate-900 mt-2 group-hover:text-navy transition-colors text-center">
                           {child.name}
                         </div>
@@ -500,11 +493,7 @@ export function OrgChartPage() {
                                       isSubMatch && q ? 'ring-2 ring-blue-500/40 border-blue-400' : ''
                                     }`}
                                   >
-                                    <img
-                                      src={sub.avatar}
-                                      alt={sub.name}
-                                      className="w-7 h-7 rounded-full object-cover"
-                                    />
+                                    <Avatar name={sub.name} size="sm" />
                                     <div className="text-[12px] font-semibold text-slate-900 mt-1.5 group-hover:text-navy transition-colors text-center truncate w-full">
                                       {sub.name}
                                     </div>
@@ -650,11 +639,7 @@ export function OrgChartPage() {
           <div className="flex flex-col gap-5">
             {/* Top Employee Card */}
             <div className="flex items-center gap-4 p-4 bg-off border border-bdr rounded-xl">
-              <img
-                src={selectedEmployee.avatar}
-                alt={selectedEmployee.name}
-                className="w-14 h-14 rounded-full ring-2 ring-navy/20 object-cover"
-              />
+              <Avatar name={selectedEmployee.name} size="lg" />
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-2">
                   <h3 className="text-[16px] font-bold text-slate-900 truncate">
@@ -731,7 +716,7 @@ export function OrgChartPage() {
                       onClick={() => setSelectedEmployee(rep)}
                       className="px-2.5 py-1 bg-white border border-bdr rounded-lg text-[12px] flex items-center gap-2 hover:border-navy cursor-pointer transition-colors"
                     >
-                      <img src={rep.avatar} alt={rep.name} className="w-4 h-4 rounded-full" />
+                      <Avatar name={rep.name} size="xs" />
                       <span className="font-medium text-slate-800">{rep.name}</span>
                       <span className="text-[11px] text-muted">({rep.role})</span>
                     </div>

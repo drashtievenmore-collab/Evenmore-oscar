@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { Avatar } from "../../../components/hrms/Avatar";
 import { useAppStore } from "../../../stores/appStore";
 import { Badge } from "../../../components/hrms/Badge";
 import PageHeader from "../../../components/ui/PageHeader";

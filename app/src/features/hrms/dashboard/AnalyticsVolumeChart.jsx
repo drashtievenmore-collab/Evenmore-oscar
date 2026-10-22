@@ -9,7 +9,7 @@ const TABS = [
   "Payroll",
   "Performance",
   "Recruitment",
-  "Training",
+  // "Training", // Hidden: Training module commented out
   "Asset",
   "Department",
 ];

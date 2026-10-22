@@ -11,6 +11,7 @@ import { useNavigate } from "react-router-dom";
 import { Eye, Pencil, Trash2, ArrowLeft } from "lucide-react";
 import PageHeader from "../../../components/ui/PageHeader";
 import { hrmsGuides } from "../../../data/hrms/hrmsGuides";
+import { Avatar } from "../../../components/hrms/Avatar";
 
 export default function Trainers({ embedded = false, onBack }) {
   const showToast = useAppStore((s) => s.showToast);
@@ -50,7 +51,7 @@ export default function Trainers({ embedded = false, onBack }) {
   }
 
   const cols = [
-    { key: "name", header: "Trainer Name", sortable: true, render: (r) => <div className="flex items-center gap-2"><img src={r.avatar} alt="" className="w-7 h-7 rounded-full" />{r.name}</div> },
+    { key: "name", header: "Trainer Name", sortable: true, render: (r) => <div className="flex items-center gap-2"><Avatar name={r.name} size="xs" />{r.name}</div> },
     { key: "specialization", header: "Specialization", sortable: true },
     { key: "email", header: "Email" },
     { key: "phone", header: "Phone" },
@@ -141,7 +142,7 @@ export default function Trainers({ embedded = false, onBack }) {
         {viewRow && (
           <div className="space-y-4 text-[13px]">
             <div className="flex items-center gap-3 pb-3 border-b border-bdr">
-              <img src={viewRow.avatar} alt="" className="w-12 h-12 rounded-full" />
+              <Avatar name={viewRow.name} size="lg" />
               <div>
                 <div className="font-bold text-[15px]">{viewRow.name}</div>
                 <div className="text-muted">{viewRow.specialization} Specialist</div>

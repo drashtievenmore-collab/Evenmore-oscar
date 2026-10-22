@@ -42,6 +42,7 @@ import {
 import { Badge } from "../../../components/hrms/Badge";
 import PageHeader from "../../../components/ui/PageHeader";
 import { hrmsGuides } from "../../../data/hrms/hrmsGuides";
+import { Avatar } from "../../../components/hrms/Avatar";
 
 // Clean browser PDF payslip generator with full formula breakdown
 function downloadPayslipPdf(p) {
@@ -1293,11 +1294,7 @@ export default function Payroll() {
                         {/* Employee Details */}
                         <td className="py-3.5 px-4">
                           <div className="flex items-center gap-3">
-                            <img
-                              src={p.avatar}
-                              alt={p.name}
-                              className="w-8 h-8 rounded-full object-cover border border-slate-200"
-                            />
+                            <Avatar name={p.name} size="sm" />
                             <div>
                               <div className="font-semibold text-slate-900 flex items-center gap-1.5">
                                 <span>{p.name}</span>
@@ -1847,11 +1844,7 @@ export default function Payroll() {
           <div className="bg-white rounded-2xl border border-bdr shadow-xl w-full max-w-md p-4 sm:p-6 flex flex-col gap-4 animate-in fade-in zoom-in-95 max-h-[95vh] overflow-y-auto">
             <div className="flex items-center justify-between border-b border-bdr/60 pb-3">
               <div className="flex items-center gap-3">
-                <img
-                  src={selectedPayslip.avatar}
-                  alt={selectedPayslip.name}
-                  className="w-10 h-10 rounded-full object-cover border border-slate-200"
-                />
+                <Avatar name={selectedPayslip.name} size="lg" />
                 <div>
                   <h3 className="font-bold text-[16px] text-slate-900 leading-tight">
                     {selectedPayslip.name}
@@ -2512,11 +2505,7 @@ export default function Payroll() {
                   className="w-full flex items-center justify-between p-2.5 bg-slate-50/90 hover:bg-slate-100/80 border border-slate-300 rounded-xl transition cursor-pointer text-left focus:outline-none focus:border-navy"
                 >
                   <div className="flex items-center gap-2.5 min-w-0 pr-2">
-                    <img
-                      src={slipSelectedEmp?.avatar}
-                      alt={slipSelectedEmp?.name}
-                      className="w-8 h-8 rounded-full object-cover border border-slate-200 shrink-0"
-                    />
+                    <Avatar name={slipSelectedEmp?.name} size="sm" />
                     <div className="min-w-0">
                       <div className="font-bold text-[13px] text-slate-900 truncate">
                         {slipSelectedEmp?.name}
@@ -2598,11 +2587,7 @@ export default function Payroll() {
                                 }`}
                               >
                                 <div className="flex items-center gap-2.5 min-w-0 pr-2">
-                                  <img
-                                    src={emp.avatar}
-                                    alt={emp.name}
-                                    className="w-7 h-7 rounded-full object-cover border border-slate-200 shrink-0"
-                                  />
+                                  <Avatar name={emp.name} size="xs" />
                                   <div className="min-w-0 truncate">
                                     <div className="text-[12.5px] font-medium text-slate-900 truncate">
                                       {emp.name}
@@ -2637,11 +2622,7 @@ export default function Payroll() {
               <div className="border border-slate-200 rounded-xl p-4 bg-slate-50/70 space-y-3">
                 <div className="flex items-center justify-between border-b border-slate-200 pb-2.5">
                   <div className="flex items-center gap-3">
-                    <img
-                      src={slipSelectedEmp.avatar}
-                      alt={slipSelectedEmp.name}
-                      className="w-10 h-10 rounded-full object-cover border border-slate-200"
-                    />
+                    <Avatar name={slipSelectedEmp.name} size="md" />
                     <div>
                       <h4 className="font-bold text-[14.5px] text-slate-900">
                         {slipSelectedEmp.name}
