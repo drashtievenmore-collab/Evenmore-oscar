@@ -11,6 +11,7 @@ import { StatusBadge } from '../../components/ui/StatusBadge';
 import { Button } from '../../components/ui/Button';
 import { PageHeader } from '../../components/common/PageHeader';
 import { Pagination } from '../../components/ui/Pagination';
+import SalespersonSelect from '../../components/common/SalespersonSelect';
 
 const invoiceGuide = {
     title: 'Sales Invoices & Receivables',
@@ -81,6 +82,7 @@ export const SalesInvoicesView = ({ invoices = [], onCreateInvoice, searchTerm: 
     const [dueDate, setDueDate] = useState(() => addDaysISO(getCurrentISODate(), 30));
     const [notes, setNotes] = useState('');
     const [lineItems, setLineItems] = useState([]);
+    const [salesperson, setSalesperson] = useState({ id: '', name: '' });
     const [billingAddress, setBillingAddress] = useState({ line1: '', line2: '', city: '', state: '', pincode: '', country: 'India' });
     const [shippingAddress, setShippingAddress] = useState({ line1: '', line2: '', city: '', state: '', pincode: '', country: 'India' });
     const [sameAsBilling, setSameAsBilling] = useState(true);
@@ -119,6 +121,9 @@ export const SalesInvoicesView = ({ invoices = [], onCreateInvoice, searchTerm: 
                 }
                 if (order.items && order.items.length > 0) {
                     setLineItems(order.items);
+                }
+                if (order.salespersonId || order.salesperson) {
+                    setSalesperson({ id: order.salespersonId || '', name: order.salesperson || '' });
                 }
                 if (order.billingAddress) setBillingAddress(order.billingAddress);
                 if (order.shippingAddress) setShippingAddress(order.shippingAddress);
@@ -159,6 +164,7 @@ export const SalesInvoicesView = ({ invoices = [], onCreateInvoice, searchTerm: 
         setDueDate(new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]);
         setNotes('');
         setLineItems([]);
+        setSalesperson({ id: '', name: '' });
         setSameAsBilling(true);
         setErrorMessage('');
         setShowCreateModal(true);
@@ -175,6 +181,7 @@ export const SalesInvoicesView = ({ invoices = [], onCreateInvoice, searchTerm: 
         setDueDate(inv.dueDate || '30 Days');
         setNotes(inv.notes || '');
         setLineItems(inv.items || []);
+        setSalesperson({ id: inv.salespersonId || '', name: inv.salesperson || '' });
         setSameAsBilling(false);
         setErrorMessage('');
         setShowCreateModal(true);
@@ -255,6 +262,8 @@ export const SalesInvoicesView = ({ invoices = [], onCreateInvoice, searchTerm: 
                 total: grandTotal,
                 grandTotal,
                 notes,
+                salespersonId: salesperson.id,
+                salesperson: salesperson.name,
             });
             setShowCreateModal(false);
             setEditingDraftTarget(null);
@@ -293,6 +302,8 @@ export const SalesInvoicesView = ({ invoices = [], onCreateInvoice, searchTerm: 
             balanceDue: isPaid ? 0 : grandTotal,
             notes,
             dispatchedViaChallan: hasChallan,
+            salespersonId: salesperson.id,
+            salesperson: salesperson.name,
         };
 
         const created = onCreateInvoice(newInvoicePayload);
@@ -744,6 +755,11 @@ export const SalesInvoicesView = ({ invoices = [], onCreateInvoice, searchTerm: 
                                 <div className="flex flex-col gap-1">
                                     <label className="font-semibold text-slate-700">Payment Due Date</label>
                                     <input type="date" value={dueDate} onChange={(e) => setDueDate(e.target.value)} className="border border-slate-300 rounded-xl px-3 py-2 bg-white text-slate-800"/>
+                                </div>
+
+                                <div className="flex flex-col gap-1">
+                                    <label className="font-semibold text-slate-700">Salesperson</label>
+                                    <SalespersonSelect value={salesperson.id} name={salesperson.name} onChange={setSalesperson} className="border border-slate-300 rounded-xl px-3 py-2 bg-white text-slate-800"/>
                                 </div>
                             </div>
 

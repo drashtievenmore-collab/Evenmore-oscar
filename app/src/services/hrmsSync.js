@@ -139,7 +139,37 @@ export const HRMS_RESOURCES = {
 
   departments: plain('/hrms/departments/'),
   designations: plain('/hrms/designations/'),
-  locations: plain('/hrms/locations/'),
+  // The server keeps `address` as a JSON object ({line1, city, state, ...});
+  // the screens show and edit it as one line of text. Office type has no
+  // column, so it rides inside the address object.
+  locations: plain('/hrms/locations/', {
+    toApi: (loc) => {
+      const detail = loc.addressDetail && typeof loc.addressDetail === 'object' ? loc.addressDetail : {};
+      const address = typeof loc.address === 'object' && loc.address !== null
+        ? { ...detail, ...loc.address }
+        : { ...detail, line1: loc.address || undefined };
+      if (loc.type) address.type = loc.type;
+      return compact({ name: loc.name, timezone: loc.timezone || undefined, address });
+    },
+    fromApi: (row) => {
+      const detail = row.address && typeof row.address === 'object' ? row.address : {};
+      const text = typeof row.address === 'string'
+        ? row.address
+        : ['line1', 'line2', 'city', 'state', 'pincode', 'country']
+          .map((k) => detail[k])
+          .filter(Boolean)
+          .join(', ');
+      return {
+        ...row,
+        address: text,
+        addressDetail: detail,
+        type: detail.type || 'Branch',
+        timezone: row.timezone || '',
+        count: num(row.employeeCount),
+        _synced: true,
+      };
+    },
+  }),
   teams: plain('/hrms/teams/'),
   holidays: {
     ...dated('/hrms/holidays/', ['date']),
@@ -337,70 +367,6 @@ export const HRMS_RESOURCES = {
   calendarEvents: dated('/hrms/calendar/events/', ['startDate', 'endDate', 'date']),
 
   // ── textile HR operational resources (Oscar Scope) ───────────────────────
-  incentives: {
-    path: '/hrms/incentives/',
-    toApi: (inc) => compact({
-      employeeId: inc.employeeId || inc.employee || undefined,
-      scheme: inc.scheme || inc.schemeId || undefined,
-      periodType: inc.periodType || inc.period_type || undefined,
-      periodName: inc.periodName || inc.period_name || undefined,
-      startDate: isoOut(inc.startDate || inc.start_date),
-      endDate: isoOut(inc.endDate || inc.end_date),
-      grossSales: inc.grossSales !== undefined ? num(inc.grossSales) : undefined,
-      returnsDeduction: inc.returnsDeduction !== undefined ? num(inc.returnsDeduction) : undefined,
-      netEligibleSales: inc.netEligibleSales !== undefined ? num(inc.netEligibleSales) : undefined,
-      applicableRate: inc.applicableRate !== undefined ? num(inc.applicableRate) : undefined,
-      calculatedIncentive: inc.calculatedIncentive !== undefined ? num(inc.calculatedIncentive) : undefined,
-      status: inc.status || undefined,
-      holdReason: inc.holdReason || inc.hold_reason || undefined,
-      notes: inc.notes || undefined,
-    }),
-    fromApi: (row) => ({
-      ...row,
-      startDate: displayIn(row.startDate || row.start_date),
-      endDate: displayIn(row.endDate || row.end_date),
-      grossSales: num(row.grossSales ?? row.gross_sales),
-      returnsDeduction: num(row.returnsDeduction ?? row.returns_deduction),
-      netEligibleSales: num(row.netEligibleSales ?? row.net_eligible_sales),
-      applicableRate: num(row.applicableRate ?? row.applicable_rate),
-      calculatedIncentive: num(row.calculatedIncentive ?? row.calculated_incentive),
-      _synced: true,
-    }),
-  },
-  incentiveSchemes: plain('/hrms/incentive-schemes/'),
-  agencyMonitoring: {
-    path: '/hrms/agency-monitoring/',
-    toApi: (m) => compact({
-      employeeId: m.employeeId || m.employee || undefined,
-      agencyId: m.agencyId || m.agency || undefined,
-      jobWorkOrderId: m.jobWorkOrderId || m.job_work_order || undefined,
-      workInstructionNo: m.workInstructionNo || m.work_instruction_no || undefined,
-      entryDate: isoOut(m.entryDate || m.entry_date),
-      openingPendingQuantity: m.openingPendingQuantity !== undefined ? num(m.openingPendingQuantity) : undefined,
-      producedQuantity: m.producedQuantity !== undefined ? num(m.producedQuantity) : undefined,
-      goodQuantity: m.goodQuantity !== undefined ? num(m.goodQuantity) : undefined,
-      rejectQuantity: m.rejectQuantity !== undefined ? num(m.rejectQuantity) : undefined,
-      reprocessQuantity: m.reprocessQuantity !== undefined ? num(m.reprocessQuantity) : undefined,
-      cumulativeProduced: m.cumulativeProduced !== undefined ? num(m.cumulativeProduced) : undefined,
-      remainingBalance: m.remainingBalance !== undefined ? num(m.remainingBalance) : undefined,
-      uom: m.uom || undefined,
-      photoUrl: m.photoUrl || m.photo_url || undefined,
-      remarks: m.remarks || undefined,
-    }),
-    fromApi: (row) => ({
-      ...row,
-      entryDate: displayIn(row.entryDate || row.entry_date),
-      openingPendingQuantity: num(row.openingPendingQuantity ?? row.opening_pending_quantity),
-      producedQuantity: num(row.producedQuantity ?? row.produced_quantity),
-      goodQuantity: num(row.goodQuantity ?? row.good_quantity),
-      rejectQuantity: num(row.rejectQuantity ?? row.reject_quantity),
-      reprocessQuantity: num(row.reprocessQuantity ?? row.reprocess_quantity),
-      cumulativeProduced: num(row.cumulativeProduced ?? row.cumulative_produced),
-      remainingBalance: num(row.remainingBalance ?? row.remaining_balance),
-      _synced: true,
-    }),
-  },
-  agencyStaffAssignments: plain('/hrms/agency-monitoring/assignments/'),
   brokerCommissions: {
     path: '/hrms/broker-commissions/',
     toApi: (bc) => compact({
@@ -427,7 +393,6 @@ export const HRMS_RESOURCES = {
       _synced: true,
     }),
   },
-  commercialLeakage: plain('/hrms/commercial-leakage/'),
 };
 
 export const hrmsSync = createSync(HRMS_RESOURCES, { label: 'hrmsSync' });
@@ -586,24 +551,10 @@ export async function processPayroll(payload) {
 
 
 // ── Textile Operational HR Actions & Data Fetchers (Oscar Scope) ────────────
-export const calculateQuarterlyIncentive = (payload) => api.post('/hrms/incentives/calculate-quarterly/', payload);
-export const holdIncentivePayout = (id, reason) => api.post(`/hrms/incentives/${id}/hold/`, { reason });
-export const releaseIncentivePayout = (id) => api.post(`/hrms/incentives/${id}/release/`, {});
-export const approveIncentivePayout = (id) => api.post(`/hrms/incentives/${id}/approve/`, {});
-export const markIncentivePaid = (id) => api.post(`/hrms/incentives/${id}/mark-paid/`, {});
-
-export const submitAgencyDailyEntry = (payload) => api.post('/hrms/agency-monitoring/submit-daily-entry/', payload);
-export const pullTodayAgencyEntries = (employeeId) => read('/hrms/agency-monitoring/today-entries/', employeeId ? { employee: employeeId } : undefined, 'today agency entries');
-export const pullAgencySummary = () => read('/hrms/agency-monitoring/agency-summary/', null, 'agency summary');
-export const pullAgencyAssignments = () => read('/hrms/agency-monitoring/assignments/', null, 'agency assignments');
-export const createAgencyAssignment = (payload) => api.post('/hrms/agency-monitoring/assignments/', payload);
-
 export const approveBrokerCommission = (id) => api.post(`/hrms/broker-commissions/${id}/approve/`, {});
 export const markBrokerCommissionPayable = (id) => api.post(`/hrms/broker-commissions/${id}/mark-payable/`, {});
 export const markBrokerCommissionPaid = (id) => api.post(`/hrms/broker-commissions/${id}/mark-paid/`, {});
 export const holdBrokerCommission = (id) => api.post(`/hrms/broker-commissions/${id}/hold/`, {});
-
-export const pullCommercialLeakageAnnual = (year) => read('/hrms/commercial-leakage/annual-summary/', year ? { year } : undefined, 'commercial leakage summary');
 
 // =============================================================================
 // COMMENTED OUT PER OSCAR SCOPE (Kept for reference, do not delete):

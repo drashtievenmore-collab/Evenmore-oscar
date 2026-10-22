@@ -307,15 +307,15 @@ export const productionService = {
   getInstructions: (query) => api.get('/production/instructions/', { query }),
   getDailyEntries: (query) => api.get('/production/daily-entries/', { query }),
   // Salesperson Incentives (Phase 3.4)
-  getIncentiveSchemes: (query) => api.get('/pms/incentive-schemes/', { query }),
-  createIncentiveScheme: (data) => api.post('/pms/incentive-schemes/', data),
-  updateIncentiveScheme: (id, data) => api.patch(`/pms/incentive-schemes/${id}/`, data),
-  calculateIncentive: (id, data) => api.post(`/pms/incentive-schemes/${id}/calculate/`, data),
-  getIncentiveCalculations: (query) => api.get('/pms/incentive-calcs/', { query }),
-  approveIncentiveCalculation: (id) => api.post(`/pms/incentive-calcs/${id}/approve/`),
-  postIncentiveCalculation: (id) => api.post(`/pms/incentive-calcs/${id}/post-to-ledger/`),
-  payIncentiveCalculation: (id, data) => api.post(`/pms/incentive-calcs/${id}/pay/`, data),
-  reverseIncentiveCalculation: (id, data) => api.post(`/pms/incentive-calcs/${id}/reverse/`, data),
+  getIncentiveSchemes: (query) => api.get('/production/incentive-schemes/', { query }),
+  createIncentiveScheme: (data) => api.post('/production/incentive-schemes/', data),
+  updateIncentiveScheme: (id, data) => api.patch(`/production/incentive-schemes/${id}/`, data),
+  calculateIncentive: (id, data) => api.post(`/production/incentive-schemes/${id}/calculate/`, data),
+  getIncentiveCalculations: (query) => api.get('/production/incentive-calcs/', { query }),
+  approveIncentiveCalculation: (id) => api.post(`/production/incentive-calcs/${id}/approve/`),
+  postIncentiveCalculation: (id) => api.post(`/production/incentive-calcs/${id}/post-to-ledger/`),
+  payIncentiveCalculation: (id, data) => api.post(`/production/incentive-calcs/${id}/pay/`, data),
+  reverseIncentiveCalculation: (id, data) => api.post(`/production/incentive-calcs/${id}/reverse/`, data),
 };
 
 export const accountingService = {

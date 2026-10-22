@@ -258,7 +258,7 @@ export default function EmployeePortal() {
         setAssetForm((prev) => ({ ...prev, categoryId: cats[0].id, categoryName: cats[0].name }));
       }
     }).catch(() => {});
-  }, [fetchTodayPunch, hydrateAssets]);
+  }, []); // Run on initial mount
 
   // Live timer for active punch
   useEffect(() => {
@@ -293,8 +293,9 @@ export default function EmployeePortal() {
   const [myWarnings, setMyWarnings] = useState([]);
   const [myAwards, setMyAwards] = useState([]);
 
+  const empTarget = currentEmployee?.id || currentEmployee?.employeeCode || employeeCode || employeeName;
+
   useEffect(() => {
-    const empTarget = currentEmployee?.id || currentEmployee?.employeeCode || employeeCode || employeeName;
     if (!empTarget) return;
 
     let cancelled = false;
@@ -319,7 +320,7 @@ export default function EmployeePortal() {
       cancelled = true;
       window.removeEventListener(NOTIFICATION_EVENT, loadCareer);
     };
-  }, [currentEmployee?.id, currentEmployee?.employeeCode, employeeCode, employeeName]);
+  }, [empTarget]);
 
   // Map of policyId -> current employee acknowledged record
   const employeeAckMap = useMemo(() => {
