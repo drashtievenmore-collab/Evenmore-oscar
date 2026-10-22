@@ -32,6 +32,7 @@ import {
 import { api } from '../../services/api';
 import { useERP } from '../../context/ERPContext';
 import { useAppStore } from '../../stores/appStore';
+import { PrintProductionCompletionModal } from '../pms/production/PrintProductionCompletionModal';
 
 function fmtM(n) {
   if (n === null || n === undefined || n === '') return '0.00';
@@ -58,6 +59,7 @@ export function CompletionVerificationInlineSlide({
 
   const [loading, setLoading] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  const [showPrintModal, setShowPrintModal] = useState(false);
   const [error, setError] = useState(null);
   const [successMsg, setSuccessMsg] = useState(null);
 
@@ -349,9 +351,7 @@ export function CompletionVerificationInlineSlide({
       {/* CARD 1: PRODUCTION & QC SUMMARY (AUTO PULLED) */}
       <div className="bg-white border border-slate-200 rounded-xl p-3.5 shadow-2xs space-y-2.5">
         <div className="flex items-center gap-2 pb-1 border-b border-slate-100">
-          <div className="w-5 h-5 rounded-full bg-blue-600 text-white text-[11px] font-black flex items-center justify-center shadow-xs">
-            1
-          </div>
+          <Layers size={15} className="text-blue-600 shrink-0" />
           <h4 className="font-extrabold text-xs uppercase tracking-wide text-slate-800">
             Production & QC Summary (Auto Pulled)
           </h4>
@@ -466,9 +466,7 @@ export function CompletionVerificationInlineSlide({
           {/* CARD 2: COMPLETION VERIFICATION (Form Card) */}
           <div className="bg-white border border-slate-200 rounded-xl p-4 shadow-2xs space-y-4">
             <div className="flex items-center gap-2 pb-2 border-b border-slate-100">
-              <div className="w-5 h-5 rounded-full bg-blue-600 text-white text-[11px] font-black flex items-center justify-center shadow-xs">
-                2
-              </div>
+              <ClipboardCheck size={15} className="text-blue-600 shrink-0" />
               <h4 className="font-extrabold text-xs uppercase tracking-wide text-slate-800">
                 Completion Verification
               </h4>
@@ -612,9 +610,7 @@ export function CompletionVerificationInlineSlide({
           {/* CARD 3: PRODUCTION & QC DETAILS (Comparison Table) */}
           <div className="bg-white border border-slate-200 rounded-xl p-4 shadow-2xs space-y-3">
             <div className="flex items-center gap-2 pb-2 border-b border-slate-100">
-              <div className="w-5 h-5 rounded-full bg-blue-600 text-white text-[11px] font-black flex items-center justify-center shadow-xs">
-                3
-              </div>
+              <FileSpreadsheet size={15} className="text-blue-600 shrink-0" />
               <h4 className="font-extrabold text-xs uppercase tracking-wide text-slate-800">
                 Production & QC Details
               </h4>
@@ -675,10 +671,7 @@ export function CompletionVerificationInlineSlide({
           {/* CARD 4: RECONCILIATION SUMMARY */}
           <div className="bg-white border border-slate-200 rounded-xl p-4 shadow-2xs space-y-3">
             <div className="flex items-center gap-2 pb-2 border-b border-slate-100">
-              <div className="w-5 h-5 rounded-full bg-blue-600 text-white text-[11px] font-black flex items-center justify-center shadow-xs">
-                4
-              </div>
-              <BarChart2 size={14} className="text-blue-600" />
+              <BarChart2 size={15} className="text-blue-600 shrink-0" />
               <h4 className="font-extrabold text-xs uppercase tracking-wide text-slate-800">
                 Reconciliation Summary
               </h4>
@@ -730,10 +723,7 @@ export function CompletionVerificationInlineSlide({
           {/* CARD 5: ATTACHMENTS (OPTIONAL) */}
           <div className="bg-white border border-slate-200 rounded-xl p-4 shadow-2xs space-y-3">
             <div className="flex items-center gap-2 pb-2 border-b border-slate-100">
-              <div className="w-5 h-5 rounded-full bg-blue-600 text-white text-[11px] font-black flex items-center justify-center shadow-xs">
-                5
-              </div>
-              <Paperclip size={14} className="text-blue-600" />
+              <Paperclip size={15} className="text-blue-600 shrink-0" />
               <h4 className="font-extrabold text-xs uppercase tracking-wide text-slate-800">
                 Attachments (Optional)
               </h4>
@@ -786,10 +776,7 @@ export function CompletionVerificationInlineSlide({
           {/* CARD 6: APPROVAL STATUS */}
           <div className="bg-white border border-slate-200 rounded-xl p-4 shadow-2xs space-y-3">
             <div className="flex items-center gap-2 pb-2 border-b border-slate-100">
-              <div className="w-5 h-5 rounded-full bg-blue-600 text-white text-[11px] font-black flex items-center justify-center shadow-xs">
-                6
-              </div>
-              <CheckCircle2 size={14} className="text-blue-600" />
+              <CheckCircle2 size={15} className="text-blue-600 shrink-0" />
               <h4 className="font-extrabold text-xs uppercase tracking-wide text-slate-800">
                 Approval Status
               </h4>
@@ -904,6 +891,16 @@ export function CompletionVerificationInlineSlide({
             <Check size={14} /> Submit for Approval
           </button>
 
+          {/* Print Certificate */}
+          <button
+            type="button"
+            onClick={() => setShowPrintModal(true)}
+            className="px-4 py-2 border border-slate-300 text-slate-700 hover:bg-slate-50 text-xs font-bold rounded-xl inline-flex items-center gap-1.5 transition cursor-pointer shadow-2xs"
+            title="Download clean PDF or Print"
+          >
+            <Printer size={14} className="text-slate-500" /> Print Certificate
+          </button>
+
           {/* Approve & Complete */}
           <button
             type="button"
@@ -937,6 +934,34 @@ export function CompletionVerificationInlineSlide({
         </div>
 
       </div>
+
+      {/* Print Completion & Verification Certificate Modal */}
+      <PrintProductionCompletionModal
+        isOpen={showPrintModal}
+        onClose={() => setShowPrintModal(false)}
+        completionData={{
+          piNo: piNumber,
+          piDate: piDate,
+          agency: vendorName,
+          fabric: fabricQuality,
+          processType: instructionData?.processType || 'Processing',
+          assignedEmployee: assignedSupervisor || '-',
+          orderQty: poQty,
+          totalProduced: totalProduced,
+          rejectedQty: qcRejected,
+          acceptedQty: qcAccepted,
+          shortageQty: shortageDifference,
+          jobRate: agreedRate,
+          finalAmount: finalCommercialAmount,
+          status: isApproved ? 'Approved & Completed' : isPendingApproval ? 'Pending Approval' : 'In Progress',
+          dailySummary: dailyEntries || [],
+        }}
+        detail={{
+          instructionNumber: piNumber,
+          greyLotNo: instructionData?.greyLotNo,
+          finalPoNumber: instructionData?.finalPoNumber,
+        }}
+      />
 
     </div>
   );

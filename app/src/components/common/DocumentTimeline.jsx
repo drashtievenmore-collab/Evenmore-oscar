@@ -1,36 +1,13 @@
 import React from 'react';
-import { CheckCircle2, Circle, Clock, ShieldCheck } from 'lucide-react';
+import { Check, Circle, Clock, ShieldCheck, ArrowRight } from 'lucide-react';
 
 function TimelineConnector({ isCompleted, isCurrent, isNextCurrent, isPartial }) {
   if ((isCompleted || isPartial) && isNextCurrent) {
     return (
-      <div className="hidden sm:flex items-center justify-center -mt-6 px-1 select-none shrink-0 w-10 sm:w-14">
-        <svg className="w-10 sm:w-14 h-7 overflow-visible" viewBox="0 0 54 28">
-          <line x1="2" y1="14" x2="44" y2="14" stroke="#fef3c7" strokeWidth="4" strokeLinecap="round" opacity="0.8" />
-          <line x1="2" y1="14" x2="44" y2="14" stroke="#d97706" strokeWidth="2.5" strokeLinecap="round" />
-          <line
-            x1="2"
-            y1="14"
-            x2="44"
-            y2="14"
-            stroke="#f59e0b"
-            strokeWidth="3"
-            strokeLinecap="round"
-            strokeDasharray="6 6"
-            className="animate-flow-dash"
-          />
-          <circle r="3" fill="#b45309">
-            <animate attributeName="cx" values="4;44;4" dur="2s" repeatCount="indefinite" />
-            <animate attributeName="opacity" values="0.3;1;0.3" dur="2s" repeatCount="indefinite" />
-          </circle>
-          <path
-            d="M 36 8 L 46 14 L 36 20"
-            fill="none"
-            stroke="#d97706"
-            strokeWidth="3"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-          />
+      <div className="hidden sm:flex items-center justify-center shrink-0 -mt-6 sm:-mt-7 px-0.5 select-none w-5 sm:w-8">
+        <svg className="w-5 sm:w-8 h-4 overflow-visible" viewBox="0 0 32 16" fill="none">
+          <line x1="2" y1="8" x2="24" y2="8" stroke="#f59e0b" strokeWidth="2.5" strokeLinecap="round" strokeDasharray="4 3" className="animate-flow-dash" />
+          <path d="M19 4 L26 8 L19 12" fill="none" stroke="#d97706" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
         </svg>
       </div>
     );
@@ -38,18 +15,10 @@ function TimelineConnector({ isCompleted, isCurrent, isNextCurrent, isPartial })
 
   if (isCurrent || isPartial) {
     return (
-      <div className="hidden sm:flex items-center justify-center -mt-6 px-1 select-none shrink-0 w-10 sm:w-14">
-        <svg className="w-10 sm:w-14 h-7 overflow-visible" viewBox="0 0 54 28">
-          <line x1="2" y1="14" x2="44" y2="14" stroke="#fef3c7" strokeWidth="3" strokeLinecap="round" opacity="0.8" />
-          <line x1="2" y1="14" x2="44" y2="14" stroke="#f59e0b" strokeWidth="2" strokeLinecap="round" strokeDasharray="4 4" />
-          <path
-            d="M 36 8 L 46 14 L 36 20"
-            fill="none"
-            stroke="#f59e0b"
-            strokeWidth="2.5"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-          />
+      <div className="hidden sm:flex items-center justify-center shrink-0 -mt-6 sm:-mt-7 px-0.5 select-none w-5 sm:w-8">
+        <svg className="w-5 sm:w-8 h-4 overflow-visible" viewBox="0 0 32 16" fill="none">
+          <line x1="2" y1="8" x2="24" y2="8" stroke="#f59e0b" strokeWidth="2" strokeLinecap="round" strokeDasharray="3 3" />
+          <path d="M19 4 L26 8 L19 12" fill="none" stroke="#f59e0b" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
         </svg>
       </div>
     );
@@ -57,34 +26,20 @@ function TimelineConnector({ isCompleted, isCurrent, isNextCurrent, isPartial })
 
   if (isCompleted) {
     return (
-      <div className="hidden sm:flex items-center justify-center -mt-6 px-1 select-none shrink-0 w-10 sm:w-14">
-        <svg className="w-10 sm:w-14 h-7 overflow-visible" viewBox="0 0 54 28">
-          <line x1="2" y1="14" x2="44" y2="14" stroke="#10b981" strokeWidth="3" strokeLinecap="round" />
-          <path
-            d="M 36 8 L 46 14 L 36 20"
-            fill="none"
-            stroke="#10b981"
-            strokeWidth="3"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-          />
+      <div className="hidden sm:flex items-center justify-center shrink-0 -mt-6 sm:-mt-7 px-0.5 select-none w-5 sm:w-8">
+        <svg className="w-5 sm:w-8 h-4 overflow-visible" viewBox="0 0 32 16" fill="none">
+          <line x1="2" y1="8" x2="24" y2="8" stroke="#10b981" strokeWidth="2.5" strokeLinecap="round" />
+          <path d="M19 4 L26 8 L19 12" fill="none" stroke="#10b981" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
         </svg>
       </div>
     );
   }
 
   return (
-    <div className="hidden sm:flex items-center justify-center -mt-6 px-1 select-none shrink-0 w-10 sm:w-14">
-      <svg className="w-10 sm:w-14 h-7 overflow-visible" viewBox="0 0 54 28">
-        <line x1="2" y1="14" x2="44" y2="14" stroke="#cbd5e1" strokeWidth="2" strokeLinecap="round" strokeDasharray="4 4" />
-        <path
-          d="M 36 8 L 46 14 L 36 20"
-          fill="none"
-          stroke="#cbd5e1"
-          strokeWidth="2"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-        />
+    <div className="hidden sm:flex items-center justify-center shrink-0 -mt-6 sm:-mt-7 px-0.5 select-none w-5 sm:w-8">
+      <svg className="w-5 sm:w-8 h-4 overflow-visible" viewBox="0 0 32 16" fill="none">
+        <line x1="2" y1="8" x2="24" y2="8" stroke="#cbd5e1" strokeWidth="1.5" strokeLinecap="round" strokeDasharray="3 3" />
+        <path d="M19 5 L25 8 L19 11" fill="none" stroke="#cbd5e1" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
       </svg>
     </div>
   );
@@ -92,131 +47,155 @@ function TimelineConnector({ isCompleted, isCurrent, isNextCurrent, isPartial })
 
 export const DocumentTimeline = ({ steps, onStepClick, className = '' }) => {
   return (
-    <div className={`bg-white rounded-xl border border-slate-200 p-4 shadow-sm overflow-x-auto ${className}`}>
+    <div className={`bg-white rounded-2xl border border-slate-200/90 p-4 sm:p-5 shadow-xs ${className}`}>
       <style>{`
         @keyframes flowDash {
-          to { stroke-dashoffset: -24; }
+          to { stroke-dashoffset: -14; }
         }
         .animate-flow-dash {
-          animation: flowDash 1.2s linear infinite;
+          animation: flowDash 0.9s linear infinite;
+        }
+        .timeline-scroll::-webkit-scrollbar {
+          height: 4px;
+        }
+        .timeline-scroll::-webkit-scrollbar-track {
+          background: #f8fafc;
+          border-radius: 9999px;
+        }
+        .timeline-scroll::-webkit-scrollbar-thumb {
+          background: #cbd5e1;
+          border-radius: 9999px;
+        }
+        .timeline-scroll::-webkit-scrollbar-thumb:hover {
+          background: #94a3b8;
         }
       `}</style>
-      <div className="flex items-center justify-between mb-4">
-        <h4 className="text-xs font-bold text-slate-700 uppercase tracking-wider">
-          Document Lifecycle Timeline
-        </h4>
-        <span className="text-[11px] font-semibold text-slate-500 bg-slate-100 px-2 py-0.5 rounded-md">
-          {steps.length} Stages
-        </span>
-      </div>
-      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 min-w-max">
-        {steps.map((step, idx) => {
-          const isCompleted = step.status === 'completed';
-          const isPartial = step.status === 'partial' || step.isPartial;
-          const isCurrent = step.status === 'current';
-          const isLast = idx === steps.length - 1;
-          const nextStep = steps[idx + 1];
-          const isNextCurrent = nextStep?.status === 'current' || nextStep?.status === 'partial';
 
-          return (
-            <React.Fragment key={idx}>
-              <div
-                role={onStepClick ? 'button' : undefined}
-                tabIndex={onStepClick ? 0 : undefined}
-                onClick={() => onStepClick && onStepClick(step, idx)}
-                className={`group flex items-start sm:flex-col sm:items-center gap-2.5 sm:gap-1.5 flex-1 min-w-[95px] sm:min-w-[105px] max-w-[145px] p-2 rounded-xl transition-all ${
-                  onStepClick ? 'hover:bg-amber-50/60 cursor-pointer hover:shadow-2xs active:scale-95' : ''
-                }`}
-                title={onStepClick ? `Click to open Stage: ${step.label}` : undefined}
-              >
-                {step.key === 'completion_verification' && (step.highlightCard || isCurrent) ? (
-                  <div className="w-full px-2 py-2 rounded-xl bg-amber-50/90 border-2 border-amber-400 shadow-xs flex flex-col items-center">
-                    <div className="w-7 h-7 rounded-full bg-amber-500 text-white flex items-center justify-center shadow-2xs mb-1">
-                      <Clock className="w-4 h-4" />
-                    </div>
-                    <span className="text-[10.5px] font-extrabold text-amber-900 text-center leading-tight">
-                      {step.label}
-                    </span>
-                    <span className="inline-block mt-0.5 text-[10px] font-black text-amber-700 truncate max-w-full">
-                      {step.statusLabel || 'In Progress'}
-                    </span>
-                  </div>
-                ) : step.highlightCard || (step.key === 'grey_fabric_qc' && (isCurrent || step.isHighlighted)) ? (
-                  <div className="w-full px-2 py-2 rounded-xl bg-blue-50/90 border-2 border-blue-500 shadow-xs flex flex-col items-center">
-                    <div className="w-7 h-7 rounded-full bg-blue-600 text-white flex items-center justify-center shadow-2xs mb-1">
-                      <ShieldCheck className="w-4 h-4" />
-                    </div>
-                    <span className="text-[10.5px] font-extrabold text-blue-900 text-center leading-tight">
-                      {step.label}
-                    </span>
-                    {step.statusLabel && (
-                      <span className="inline-block mt-0.5 px-1.5 py-0.5 rounded-full text-[9px] font-extrabold uppercase bg-blue-100 text-blue-800 border border-blue-200 truncate max-w-full">
-                        {step.statusLabel}
-                      </span>
+      <div className="flex items-center justify-between mb-3.5 pb-2 border-b border-slate-100">
+        <div className="flex items-center gap-2">
+          <span className="w-2 h-2 rounded-full bg-indigo-600 animate-pulse" />
+          <h4 className="text-xs font-black text-slate-800 uppercase tracking-wider">
+            Document Lifecycle Progression
+          </h4>
+        </div>
+        <div className="flex items-center gap-2">
+          <span className="text-[10px] text-slate-400 font-medium">Click any node to navigate stage</span>
+          <span className="text-[10px] font-black text-indigo-700 bg-indigo-50 border border-indigo-100 px-2 py-0.5 rounded-full">
+            {steps.length} Stages
+          </span>
+        </div>
+      </div>
+
+      <div className="timeline-scroll overflow-x-auto pb-1.5">
+        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-1 sm:gap-0 min-w-max px-1">
+          {steps.map((step, idx) => {
+            const isCompleted = step.status === 'completed';
+            const isPartial = step.status === 'partial' || step.isPartial;
+            const isCurrent = step.status === 'current';
+            const isHighlighted = step.highlightCard || (step.key === 'grey_fabric_qc' && step.isHighlighted);
+            const isLast = idx === steps.length - 1;
+            const nextStep = steps[idx + 1];
+            const isNextCurrent = nextStep?.status === 'current' || nextStep?.status === 'partial';
+
+            return (
+              <React.Fragment key={idx}>
+                <div
+                  role={onStepClick ? 'button' : undefined}
+                  tabIndex={onStepClick ? 0 : undefined}
+                  onClick={() => onStepClick && onStepClick(step, idx)}
+                  className={`group flex items-start sm:flex-col sm:items-center gap-2.5 sm:gap-1.5 flex-1 min-w-[90px] sm:min-w-[100px] max-w-[130px] p-1.5 sm:p-2 rounded-xl transition-all select-none ${
+                    isCurrent || isHighlighted
+                      ? 'bg-blue-50/70 ring-1 ring-blue-300 shadow-2xs'
+                      : onStepClick
+                      ? 'hover:bg-slate-50 cursor-pointer active:scale-95'
+                      : ''
+                  }`}
+                  title={onStepClick ? `Navigate to: ${step.label}` : undefined}
+                >
+                  {/* Clean Uniform Circular Node */}
+                  <div className="relative flex items-center justify-center shrink-0">
+                    {isCurrent || isHighlighted ? (
+                      <div className="w-8 h-8 rounded-full bg-gradient-to-tr from-blue-600 to-indigo-600 border-2 border-white text-white flex items-center justify-center shadow-md ring-4 ring-blue-100 group-hover:scale-105 transition-transform">
+                        {step.key?.includes('qc') ? (
+                          <ShieldCheck className="w-4 h-4" />
+                        ) : (
+                          <Clock className="w-4 h-4 animate-spin-slow" />
+                        )}
+                      </div>
+                    ) : isCompleted ? (
+                      <div className="w-7 h-7 rounded-full bg-emerald-500 text-white flex items-center justify-center shadow-xs group-hover:scale-105 transition-transform">
+                        <Check className="w-4 h-4 stroke-[2.5]" />
+                      </div>
+                    ) : isPartial ? (
+                      <div className="w-7 h-7 rounded-full bg-amber-500 text-white flex items-center justify-center shadow-xs ring-3 ring-amber-100 group-hover:scale-105 transition-transform">
+                        <Clock className="w-3.5 h-3.5" />
+                      </div>
+                    ) : (
+                      <div className="w-7 h-7 rounded-full bg-slate-100 border border-slate-300 text-slate-400 flex items-center justify-center group-hover:scale-105 transition-transform">
+                        <span className="text-[10px] font-bold font-mono text-slate-400">{idx + 1}</span>
+                      </div>
                     )}
                   </div>
-                ) : (
-                  <>
-                    <div className="relative flex items-center justify-center">
-                      {isCompleted ? (
-                        <div className="w-8 h-8 rounded-full bg-gradient-to-tr from-emerald-500 to-teal-500 border-2 border-emerald-600 text-white flex items-center justify-center shadow-xs group-hover:scale-105 transition-transform">
-                          <CheckCircle2 className="w-4 h-4" />
-                        </div>
-                      ) : isPartial ? (
-                        <div className="w-8 h-8 rounded-full bg-gradient-to-tr from-amber-500 to-amber-600 border-2 border-amber-600 text-white flex items-center justify-center shadow-xs ring-4 ring-amber-200/80 group-hover:scale-105 transition-transform">
-                          <Clock className="w-4 h-4" />
-                        </div>
-                      ) : isCurrent ? (
-                        <div className="w-8 h-8 rounded-full bg-amber-50 border-2 border-amber-500 text-amber-600 flex items-center justify-center animate-pulse ring-4 ring-amber-200/80 group-hover:scale-105 transition-transform">
-                          <Clock className="w-4 h-4" />
-                        </div>
-                      ) : (
-                        <div className="w-8 h-8 rounded-full bg-slate-100 border-2 border-slate-300 text-slate-400 flex items-center justify-center group-hover:scale-105 transition-transform">
-                          <Circle className="w-3.5 h-3.5" />
-                        </div>
-                      )}
-                    </div>
 
-                    <div className="text-left sm:text-center min-w-0 w-full">
-                      <p
-                        className={`text-[11px] font-bold leading-tight line-clamp-2 transition-colors ${
-                          isCompleted ? 'text-emerald-800' : isPartial ? 'text-amber-800 font-bold' : isCurrent ? 'text-amber-800 font-black' : 'text-slate-500'
-                        } ${onStepClick ? 'group-hover:text-amber-700' : ''}`}
+                  {/* Text Details with Consistent Sizing */}
+                  <div className="text-left sm:text-center min-w-0 w-full">
+                    <p
+                      className={`text-[11px] font-bold leading-tight line-clamp-2 transition-colors ${
+                        isCurrent || isHighlighted
+                          ? 'text-blue-950 font-black'
+                          : isCompleted
+                          ? 'text-slate-800'
+                          : isPartial
+                          ? 'text-amber-900 font-bold'
+                          : 'text-slate-500'
+                      }`}
+                    >
+                      {step.label}
+                    </p>
+
+                    {/* Stage status indicator pill */}
+                    {(step.statusLabel || isCurrent || isHighlighted) && (
+                      <span
+                        className={`inline-block mt-1 px-1.5 py-0.2 rounded-full text-[8.5px] font-black uppercase tracking-wider truncate max-w-full border ${
+                          isCurrent || isHighlighted
+                            ? 'bg-blue-100/90 text-blue-800 border-blue-200'
+                            : isCompleted
+                            ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                            : isPartial
+                            ? 'bg-amber-50 text-amber-700 border-amber-200'
+                            : 'bg-slate-100 text-slate-600 border-slate-200'
+                        }`}
                       >
-                        {step.label}
-                      </p>
-                      {step.statusLabel && (
-                        <span className="inline-block mt-0.5 px-1.5 py-0.5 rounded-full text-[9px] font-extrabold uppercase bg-amber-50 text-amber-700 border border-amber-200 truncate max-w-full">
-                          {step.statusLabel}
-                        </span>
-                      )}
-                      {step.docNumber && (
-                        <p className="text-[10.5px] font-mono text-slate-700 font-semibold truncate mt-0.5">
-                          {step.docNumber}
-                        </p>
-                      )}
-                      {step.amount !== undefined && step.amount !== null && (
-                        <p className="text-[10.5px] font-mono font-bold text-slate-800 mt-0.5">
-                          ₹{Number(step.amount).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                        </p>
-                      )}
-                      {step.date && <p className="text-[9.5px] text-slate-400 mt-0.5">{step.date}</p>}
-                    </div>
-                  </>
-                )}
-              </div>
+                        {step.statusLabel || (isCurrent || isHighlighted ? 'Active Stage' : 'Pending')}
+                      </span>
+                    )}
 
-              {!isLast && (
-                <TimelineConnector
-                  isCompleted={isCompleted}
-                  isPartial={isPartial}
-                  isCurrent={isCurrent}
-                  isNextCurrent={isNextCurrent}
-                />
-              )}
-            </React.Fragment>
-          );
-        })}
+                    {step.docNumber && (
+                      <p className="text-[10px] font-mono text-slate-600 font-semibold truncate mt-0.5">
+                        {step.docNumber}
+                      </p>
+                    )}
+
+                    {step.amount !== undefined && step.amount !== null && (
+                      <p className="text-[10px] font-mono font-bold text-slate-800 mt-0.5">
+                        ₹{Number(step.amount).toLocaleString('en-IN', { maximumFractionDigits: 0 })}
+                      </p>
+                    )}
+                  </div>
+                </div>
+
+                {!isLast && (
+                  <TimelineConnector
+                    isCompleted={isCompleted}
+                    isPartial={isPartial}
+                    isCurrent={isCurrent || isHighlighted}
+                    isNextCurrent={isNextCurrent}
+                  />
+                )}
+              </React.Fragment>
+            );
+          })}
+        </div>
       </div>
     </div>
   );

@@ -347,7 +347,7 @@ export function SupplierBillMatchingInlineSlide({ po, instruction, onClose, onBi
             <span className={`text-[10px] font-mono font-bold px-2 py-0.5 rounded ${
               hasBill ? 'text-indigo-800 bg-indigo-50' : 'text-slate-400 bg-slate-100'
             }`}>
-              {activeBill?.billNumber || activeBill?.vendorBillNumber || invoiceNumber || 'No Bill Recorded'}
+              {hasBill ? (activeBill?.billNumber || activeBill?.vendorBillNumber || invoiceNumber) : 'Not Recorded Yet'}
             </span>
           </div>
           <div className="space-y-1 text-xs">

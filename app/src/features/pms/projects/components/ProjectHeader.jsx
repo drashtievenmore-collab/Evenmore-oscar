@@ -1,6 +1,6 @@
 import React from 'react';
 import { Link } from 'react-router-dom';
-import { ChevronRight, UserPlus, AlertTriangle, CheckCircle2, Truck, Receipt, ShoppingCart, Boxes } from 'lucide-react';
+import { ChevronRight, UserPlus, AlertTriangle, CheckCircle2, Truck, Receipt, ShoppingCart, Boxes, Printer } from 'lucide-react';
 import { Button } from '../../../../components/ui/Button';
 import { StageStatusBadge } from '../../components/StageStatusBadge';
 import { formatCurrency } from '../../../../utils/currencyUtils';
@@ -64,6 +64,7 @@ export function ProjectHeader({
   onAssignStage,
   onLogDelay,
   onCompleteProject,
+  onPrintProject,
 }) {
   const priority = PRIORITY_TONES[project.priority] ?? PRIORITY_TONES.Low;
   const isClosed = project.status === 'Completed';
@@ -203,6 +204,9 @@ export function ProjectHeader({
 
         {/* Quick actions */}
         <div className="flex flex-wrap lg:flex-col gap-2 shrink-0">
+          <Button size="sm" variant="secondary" icon={Printer} onClick={onPrintProject} title="Print or save project report as PDF">
+            Print Project Report
+          </Button>
           <Button size="sm" variant="secondary" icon={UserPlus} onClick={onAssignStage} disabled={isClosed}>
             Assign Active Stage
           </Button>

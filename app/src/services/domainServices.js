@@ -1,4 +1,6 @@
-import { api } from './api';
+import { api, getAuthToken } from './api';
+
+const API_BASE = (import.meta.env.VITE_API_URL || import.meta.env.VITE_API_BASE_URL || '/api/v1').replace(/\/+$/, '');
 
 // ── CRM ──────────────────────────────────────────────────────────────────
 // Graph parity: Lead Data Operations, Notes & Discussions, Stage & Task
@@ -218,7 +220,24 @@ export const inventoryService = {
   recordTakaTagPrint: (data) => api.post('/inventory/taka-tags/print/', data),
   scanTakaTag: (code) => api.get('/inventory/taka-tags/scan/', { query: { code } }),
   getTakaTagHistory: (id) => api.get(`/inventory/taka-tags/${id}/history/`),
-  getTakaTagsPdfUrl: (ids) => `/api/inventory/taka-tags/pdf/?ids=${Array.isArray(ids) ? ids.join(',') : ids}`,
+  getTakaTagsPdfUrl: (ids) => `${API_BASE}/inventory/taka-tags/pdf/?ids=${Array.isArray(ids) ? ids.join(',') : ids}`,
+  // A plain link can't send the login token, so fetch the PDF and open it as a blob.
+  openTakaTagsPdf: async (ids) => {
+    const win = window.open('', '_blank');
+    try {
+      const token = getAuthToken();
+      const res = await fetch(inventoryService.getTakaTagsPdfUrl(ids), {
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      });
+      if (!res.ok) throw new Error(`Could not generate PDF (HTTP ${res.status}).`);
+      const url = URL.createObjectURL(await res.blob());
+      if (win) win.location.href = url; else window.open(url, '_blank');
+      setTimeout(() => URL.revokeObjectURL(url), 60000);
+    } catch (err) {
+      win?.close();
+      throw err;
+    }
+  },
   // Phase 2.3 Traceability & Ageing
   getLotTraceability: (target) => api.get('/inventory/traceability/', { query: { target } }),
   getStockAgeing: (query) => api.get('/inventory/stock/ageing/', { query }),
@@ -326,6 +345,11 @@ export const approvalService = {
   createRule: (data) => api.post('/approvals/rules/', data),
   updateRule: (id, data) => api.patch(`/approvals/rules/${id}/`, data),
   deleteRule: (id) => api.delete(`/approvals/rules/${id}/`),
+  // Discount policy: admin-configurable threshold stored via backend setting
+  getDiscountPolicy: () => api.get('/approvals/discount-policy/'),
+  updateDiscountPolicy: (data) => api.patch('/approvals/discount-policy/', data),
+  // Submit a new approval request (for discount exceeded)
+  createRequest: (data) => api.post('/approvals/requests/', data),
 };
 
 // ── Alerts & Exceptions Engine (Phase 4.3) ────────────────────────────────
