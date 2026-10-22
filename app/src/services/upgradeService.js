@@ -253,19 +253,7 @@ function matchesEmp(record, employeeId) {
 
 export async function fetchEmployeeTransfers(employeeId) {
   const localItems = readLocalLifecycle(LIFECYCLE_STORAGE_KEYS.transfers).filter((item) => matchesEmp(item, employeeId));
-  try {
-    const query = employeeId ? { employeeId } : {};
-    const res = await apiClient('/hrms/transfers/', { query });
-    const serverRows = Array.isArray(res?.data) ? res.data : Array.isArray(res) ? res : [];
-    if (serverRows.length > 0) {
-      const serverIds = new Set(serverRows.map((r) => String(r.id)));
-      const extraLocal = localItems.filter((l) => !serverIds.has(String(l.id)));
-      return [...serverRows, ...extraLocal];
-    }
-    return localItems;
-  } catch {
-    return localItems;
-  }
+  return localItems;
 }
 
 export async function createEmployeeTransfer(data) {
@@ -286,31 +274,12 @@ export async function createEmployeeTransfer(data) {
     createdAt: new Date().toISOString(),
   };
   saveLocalLifecycleItem(LIFECYCLE_STORAGE_KEYS.transfers, payload);
-  try {
-    const res = await apiClient('/hrms/transfers/', { method: 'POST', data: payload });
-    const saved = res?.data || res || payload;
-    saveLocalLifecycleItem(LIFECYCLE_STORAGE_KEYS.transfers, saved);
-    return saved;
-  } catch {
-    return payload;
-  }
+  return payload;
 }
 
 export async function fetchEmployeePromotions(employeeId) {
   const localItems = readLocalLifecycle(LIFECYCLE_STORAGE_KEYS.promotions).filter((item) => matchesEmp(item, employeeId));
-  try {
-    const query = employeeId ? { employeeId } : {};
-    const res = await apiClient('/hrms/promotions/', { query });
-    const serverRows = Array.isArray(res?.data) ? res.data : Array.isArray(res) ? res : [];
-    if (serverRows.length > 0) {
-      const serverIds = new Set(serverRows.map((r) => String(r.id)));
-      const extraLocal = localItems.filter((l) => !serverIds.has(String(l.id)));
-      return [...serverRows, ...extraLocal];
-    }
-    return localItems;
-  } catch {
-    return localItems;
-  }
+  return localItems;
 }
 
 export async function createEmployeePromotion(data) {
@@ -332,31 +301,12 @@ export async function createEmployeePromotion(data) {
     createdAt: new Date().toISOString(),
   };
   saveLocalLifecycleItem(LIFECYCLE_STORAGE_KEYS.promotions, payload);
-  try {
-    const res = await apiClient('/hrms/promotions/', { method: 'POST', data: payload });
-    const saved = res?.data || res || payload;
-    saveLocalLifecycleItem(LIFECYCLE_STORAGE_KEYS.promotions, saved);
-    return saved;
-  } catch {
-    return payload;
-  }
+  return payload;
 }
 
 export async function fetchEmployeeWarnings(employeeId) {
   const localItems = readLocalLifecycle(LIFECYCLE_STORAGE_KEYS.warnings).filter((item) => matchesEmp(item, employeeId));
-  try {
-    const query = employeeId ? { employeeId } : {};
-    const res = await apiClient('/hrms/warnings/', { query });
-    const serverRows = Array.isArray(res?.data) ? res.data : Array.isArray(res) ? res : [];
-    if (serverRows.length > 0) {
-      const serverIds = new Set(serverRows.map((r) => String(r.id)));
-      const extraLocal = localItems.filter((l) => !serverIds.has(String(l.id)));
-      return [...serverRows, ...extraLocal];
-    }
-    return localItems;
-  } catch {
-    return localItems;
-  }
+  return localItems;
 }
 
 export async function createEmployeeWarning(data) {
@@ -376,31 +326,12 @@ export async function createEmployeeWarning(data) {
     createdAt: new Date().toISOString(),
   };
   saveLocalLifecycleItem(LIFECYCLE_STORAGE_KEYS.warnings, payload);
-  try {
-    const res = await apiClient('/hrms/warnings/', { method: 'POST', data: payload });
-    const saved = res?.data || res || payload;
-    saveLocalLifecycleItem(LIFECYCLE_STORAGE_KEYS.warnings, saved);
-    return saved;
-  } catch {
-    return payload;
-  }
+  return payload;
 }
 
 export async function fetchEmployeeAwards(employeeId) {
   const localItems = readLocalLifecycle(LIFECYCLE_STORAGE_KEYS.awards).filter((item) => matchesEmp(item, employeeId));
-  try {
-    const query = employeeId ? { employeeId } : {};
-    const res = await apiClient('/hrms/awards/', { query });
-    const serverRows = Array.isArray(res?.data) ? res.data : Array.isArray(res) ? res : [];
-    if (serverRows.length > 0) {
-      const serverIds = new Set(serverRows.map((r) => String(r.id)));
-      const extraLocal = localItems.filter((l) => !serverIds.has(String(l.id)));
-      return [...serverRows, ...extraLocal];
-    }
-    return localItems;
-  } catch {
-    return localItems;
-  }
+  return localItems;
 }
 
 export async function createEmployeeAward(data) {
@@ -419,14 +350,7 @@ export async function createEmployeeAward(data) {
     createdAt: new Date().toISOString(),
   };
   saveLocalLifecycleItem(LIFECYCLE_STORAGE_KEYS.awards, payload);
-  try {
-    const res = await apiClient('/hrms/awards/', { method: 'POST', data: payload });
-    const saved = res?.data || res || payload;
-    saveLocalLifecycleItem(LIFECYCLE_STORAGE_KEYS.awards, saved);
-    return saved;
-  } catch {
-    return payload;
-  }
+  return payload;
 }
 
 export async function confirmEmployeeProbation(employeeId, data = {}) {

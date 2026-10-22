@@ -132,7 +132,7 @@ const useAppStoreBase = create((set) => ({
     set((s) => ({ hrmsStatus: { ...s.hrmsStatus, loading: true, error: null } }));
     try {
       const [core, balances, settings] = await Promise.all([
-        hrmsSync.pullMany(["employees", "leaves", "attendance", "candidates",
+        hrmsSync.pullMany(["employees", "leaves", "attendance",
           "leaveEncashments", "compOffs"]),
         hrmsApi.pullLeaveBalances(),
         hrmsApi.pullHrmsSettings(),

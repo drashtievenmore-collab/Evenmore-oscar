@@ -319,6 +319,8 @@ const router = createBrowserRouter([
       // ── Main Dashboard ─────────────────────────────────────
       { path: 'dashboard', element: <Page component={DashboardPage} /> },
       { path: 'employee/portal', element: <Page component={EmployeePortal} /> },
+      { path: 'employee-portal', element: <Navigate to="/employee/portal" replace /> },
+      { path: 'portal', element: <Navigate to="/employee/portal" replace /> },
       { path: 'employee/requests', element: <Navigate to="/employee/portal" replace /> },
       { path: 'portal/employee', element: <Navigate to="/employee/portal" replace /> },
 
