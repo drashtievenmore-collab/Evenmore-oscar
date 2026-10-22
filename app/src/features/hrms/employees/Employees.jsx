@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { Download, ChevronRight, ChevronLeft, ChevronDown, Trash2 } from "lucide-react";
 import Modal from "../../../components/ui/Modal";
 import { useAppStore } from "../../../stores/appStore";
@@ -26,6 +26,10 @@ export default function Employees() {
   const [showForm, setShowForm] = useState(false);
   const [currentPage, setCurrentPage] = useState(1);
   const pageSize = 5;
+
+  useEffect(() => {
+    useAppStore.getState().refreshHrms?.("employees");
+  }, []);
 
   // Use store employees, normalized with img/avatar
   const employees = useMemo(() => {
@@ -76,7 +80,10 @@ export default function Employees() {
       avatar: null,
     };
     addStoreEmployee(next).then((saved) => {
-      if (saved) setToast("Employee added successfully.");
+      if (saved) {
+        setToast("Employee added successfully.");
+        useAppStore.getState().refreshHrms?.("employees");
+      }
     }).catch(() => {});
     setShowForm(false);
     setForm({ name: "", email: "", designation: "Senior Engineer", dept: "Engineering", location: "Mumbai", managerId: "" });
@@ -87,6 +94,7 @@ export default function Employees() {
     if (typeof window !== "undefined" && !window.confirm(`Delete employee ${name}? This cannot be undone.`)) return;
     try {
       await deleteStoreEmployee(id);
+      useAppStore.getState().refreshHrms?.("employees");
       setToast(`Employee ${name} removed.`);
     } catch {
       // `deleteEmployee` already restored the row and toasted the reason.

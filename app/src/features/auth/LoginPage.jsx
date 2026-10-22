@@ -32,6 +32,7 @@ export function getRoleDefaultRoute(roleCode, permissions = []) {
   if (code.includes('SALES')) return '/sales/orders';
   if (code.includes('LOGISTICS')) return '/inventory/trips';
   if (code.includes('AUDITOR')) return '/reports';
+  if (code.includes('STAFF') || code.includes('EMPLOYEE') || code.includes('EMP')) return '/employee/portal';
   if (code.includes('OWNER') || code.includes('MANAGEMENT')) return '/dashboard';
   return '/dashboard';
 }
