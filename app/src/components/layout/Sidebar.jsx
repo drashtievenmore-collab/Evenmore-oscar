@@ -30,7 +30,6 @@ import {
   AlertTriangle,
   PieChart,
   CalendarCheck,
-  Award,
   ListChecks,
   ClipboardList,
   Factory,
@@ -376,9 +375,6 @@ const NAV = [
       { label: 'Employee Portal', icon: UserCheck, to: '/employee/portal' },
       { label: 'Leave', icon: CalendarCheck, to: '/hrms/leave' },
       { label: 'Payroll', icon: Receipt, to: '/hrms/payroll' },
-      { label: 'Incentives', icon: Award, to: '/hrms/incentives' },
-      { label: 'Agency Monitoring', icon: Factory, to: '/hrms/agency-monitoring' },
-      { label: 'Commercial Leakage', icon: PieChart, to: '/hrms/commercial-leakage' },
       // Recruitment commented out per Oscar letter pad scope (kept for reference, do not remove):
       // {
       //   label: 'Recruitment',
