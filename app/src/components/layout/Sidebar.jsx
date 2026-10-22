@@ -29,6 +29,7 @@ import {
   Wrench,
   AlertTriangle,
   PieChart,
+  Award,
   CalendarCheck,
   ListChecks,
   ClipboardList,
@@ -374,6 +375,7 @@ const NAV = [
       },
       { label: 'Leave', icon: CalendarCheck, to: '/hrms/leave' },
       { label: 'Payroll', icon: Receipt, to: '/hrms/payroll' },
+      { label: 'Incentives', icon: Award, to: '/hrms/incentives' },
       // Recruitment commented out per Oscar letter pad scope (kept for reference, do not remove):
       // {
       //   label: 'Recruitment',

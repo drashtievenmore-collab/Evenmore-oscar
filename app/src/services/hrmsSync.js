@@ -420,6 +420,37 @@ export const HRMS_RESOURCES = {
   calendarEvents: dated('/hrms/calendar/events/', ['startDate', 'endDate', 'date']),
 
   // ── textile HR operational resources (Oscar Scope) ───────────────────────
+  incentives: {
+    path: '/hrms/incentives/',
+    toApi: (inc) => compact({
+      employeeId: inc.employeeId || inc.employee || undefined,
+      scheme: inc.scheme || inc.schemeId || undefined,
+      periodType: inc.periodType || inc.period_type || undefined,
+      periodName: inc.periodName || inc.period_name || undefined,
+      startDate: isoOut(inc.startDate || inc.start_date),
+      endDate: isoOut(inc.endDate || inc.end_date),
+      grossSales: inc.grossSales !== undefined ? num(inc.grossSales) : undefined,
+      returnsDeduction: inc.returnsDeduction !== undefined ? num(inc.returnsDeduction) : undefined,
+      netEligibleSales: inc.netEligibleSales !== undefined ? num(inc.netEligibleSales) : undefined,
+      applicableRate: inc.applicableRate !== undefined ? num(inc.applicableRate) : undefined,
+      calculatedIncentive: inc.calculatedIncentive !== undefined ? num(inc.calculatedIncentive) : undefined,
+      status: inc.status || undefined,
+      holdReason: inc.holdReason || inc.hold_reason || undefined,
+      notes: inc.notes || undefined,
+    }),
+    fromApi: (row) => ({
+      ...row,
+      startDate: displayIn(row.startDate || row.start_date),
+      endDate: displayIn(row.endDate || row.end_date),
+      grossSales: num(row.grossSales ?? row.gross_sales),
+      returnsDeduction: num(row.returnsDeduction ?? row.returns_deduction),
+      netEligibleSales: num(row.netEligibleSales ?? row.net_eligible_sales),
+      applicableRate: num(row.applicableRate ?? row.applicable_rate),
+      calculatedIncentive: num(row.calculatedIncentive ?? row.calculated_incentive),
+      _synced: true,
+    }),
+  },
+  incentiveSchemes: plain('/hrms/incentive-schemes/'),
   brokerCommissions: {
     path: '/hrms/broker-commissions/',
     toApi: (bc) => compact({
@@ -604,6 +635,12 @@ export async function processPayroll(payload) {
 
 
 // ── Textile Operational HR Actions & Data Fetchers (Oscar Scope) ────────────
+export const calculateQuarterlyIncentive = (payload) => api.post('/hrms/incentives/calculate-quarterly/', payload);
+export const holdIncentivePayout = (id, reason) => api.post(`/hrms/incentives/${id}/hold/`, { reason });
+export const releaseIncentivePayout = (id) => api.post(`/hrms/incentives/${id}/release/`, {});
+export const approveIncentivePayout = (id) => api.post(`/hrms/incentives/${id}/approve/`, {});
+export const markIncentivePaid = (id) => api.post(`/hrms/incentives/${id}/mark-paid/`, {});
+
 export const approveBrokerCommission = (id) => api.post(`/hrms/broker-commissions/${id}/approve/`, {});
 export const markBrokerCommissionPayable = (id) => api.post(`/hrms/broker-commissions/${id}/mark-payable/`, {});
 export const markBrokerCommissionPaid = (id) => api.post(`/hrms/broker-commissions/${id}/mark-paid/`, {});
