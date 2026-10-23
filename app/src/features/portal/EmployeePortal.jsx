@@ -50,6 +50,7 @@ import { useAppStore } from '../../stores/appStore';
 import { useAttendanceStore } from '../../stores/attendanceStore';
 import { useAssetStore } from '../../stores/assetStore';
 import { useDocumentStore } from '../../stores/documentStore';
+import { useDocumentFileUrl, downloadDocumentFile } from '../../hooks/useDocumentFile';
 import { usePolicyStore } from '../../stores/policyStore';
 import { api } from '../../services/api';
 import { hrmsSync } from '../../services/hrmsSync';
@@ -389,9 +390,10 @@ export default function EmployeePortal() {
   }, [policies, policyScopeFilter, policyStatusFilter, policyCategoryFilter, searchQuery, department]);
 
   // Document Submission State & Helpers
-  const { documents, uploadDocument, addDocument } = useDocumentStore();
+  const { documents, addDocument } = useDocumentStore();
   const [isDocModalOpen, setIsDocModalOpen] = useState(false);
   const [previewDocModal, setPreviewDocModal] = useState(null);
+  const docPreview = useDocumentFileUrl(previewDocModal);
   const [docCategoryFilter, setDocCategoryFilter] = useState('All');
   const [docUploadForm, setDocUploadForm] = useState({
     title: '',
@@ -399,7 +401,7 @@ export default function EmployeePortal() {
     expiry: '',
     description: '',
     fileName: '',
-    fileData: '',
+    file: null,
     fileSize: '',
   });
 
@@ -480,28 +482,24 @@ export default function EmployeePortal() {
       return;
     }
 
-    const reader = new FileReader();
-    reader.onload = () => {
-      const base64Data = reader.result;
-      const cleanName = file.name.replace(/\.[^/.]+$/, '');
-      const defaultTitle = cleanName
-        .replace(/[_-]+/g, ' ')
-        .replace(/\b\w/g, (c) => c.toUpperCase());
+    // Keep the File itself: it is uploaded through /files/ on submit.
+    const cleanName = file.name.replace(/\.[^/.]+$/, '');
+    const defaultTitle = cleanName
+      .replace(/[_-]+/g, ' ')
+      .replace(/\b\w/g, (c) => c.toUpperCase());
 
-      setDocUploadForm((prev) => ({
-        ...prev,
-        fileName: file.name,
-        fileData: base64Data,
-        fileSize: `${sizeInMb} MB`,
-        title: prev.title.trim() ? prev.title : defaultTitle,
-      }));
-    };
-    reader.readAsDataURL(file);
+    setDocUploadForm((prev) => ({
+      ...prev,
+      fileName: file.name,
+      file,
+      fileSize: `${sizeInMb} MB`,
+      title: prev.title.trim() ? prev.title : defaultTitle,
+    }));
   };
 
   const handleSubmitDocument = async (e) => {
     e.preventDefault();
-    if (!docUploadForm.fileData) {
+    if (!docUploadForm.file) {
       showToast?.('Please select a PDF document from your device.', 'error');
       return;
     }
@@ -516,21 +514,19 @@ export default function EmployeePortal() {
 
     try {
       setIsSubmitting(true);
-      const payload = {
+      if (!currentEmployee?.id) {
+        showToast?.('Your login is not linked to an employee record. Ask HR to link it.', 'error');
+        return;
+      }
+      await addDocument({
+        file: docUploadForm.file,
         title: docUploadForm.title.trim(),
         category: docUploadForm.category,
         expiry: docUploadForm.expiry || null,
         description: docUploadForm.description.trim() || undefined,
-        fileName: docUploadForm.fileName,
-        fileData: docUploadForm.fileData,
-        fileType: 'PDF',
-        fileSize: docUploadForm.fileSize,
-        employee: employeeName,
-        employeeId: currentEmployee?.id || undefined,
+        employeeId: currentEmployee.id,
         tags: [docUploadForm.category, 'Employee Upload'],
-      };
-
-      await uploadDocument(payload);
+      });
       showToast?.(`Document "${docUploadForm.title.trim()}" uploaded successfully!`);
       setIsDocModalOpen(false);
       setDocUploadForm({
@@ -539,38 +535,24 @@ export default function EmployeePortal() {
         expiry: '',
         description: '',
         fileName: '',
-        fileData: '',
+        file: null,
         fileSize: '',
       });
       useDocumentStore.getState().hydrate();
     } catch (err) {
       console.error(err);
-      showToast?.('Failed to upload document. Please ensure it is a valid PDF.', 'error');
+      showToast?.(`Failed to upload document: ${err?.message || 'server error'}`, 'error');
     } finally {
       setIsSubmitting(false);
     }
   };
 
-  const handleDownloadDoc = (doc) => {
-    if (doc.fileUrl) {
-      const a = document.createElement('a');
-      a.href = doc.fileUrl;
-      a.download = doc.fileName || `${doc.title || 'document'}.pdf`;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      return;
+  const handleDownloadDoc = async (doc) => {
+    try {
+      await downloadDocumentFile(doc);
+    } catch (err) {
+      showToast?.(err?.message || 'Could not download the file', 'error');
     }
-    if (doc.fileData && doc.fileData.startsWith('data:')) {
-      const a = document.createElement('a');
-      a.href = doc.fileData;
-      a.download = doc.fileName || `${doc.title || 'document'}.pdf`;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      return;
-    }
-    showToast?.(`Downloading ${doc.title}.pdf`);
   };
 
   const activeResignation = useMemo(() => {
@@ -3401,7 +3383,7 @@ export default function EmployeePortal() {
             <button
               type="button"
               onClick={handleSubmitDocument}
-              disabled={isSubmitting || !docUploadForm.fileData || !docUploadForm.title.trim()}
+              disabled={isSubmitting || !docUploadForm.file || !docUploadForm.title.trim()}
               className="btn-primary h-9 px-5 rounded-xl text-xs font-bold flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
             >
               {isSubmitting ? <Loader2 size={14} className="animate-spin" /> : <UploadCloud size={14} />}
@@ -3557,17 +3539,19 @@ export default function EmployeePortal() {
                 {previewDocModal.status || 'Valid'}
               </Badge>
             </div>
-            {previewDocModal.fileUrl || (previewDocModal.fileData && previewDocModal.fileData.startsWith('data:')) ? (
+            {docPreview.url ? (
               <iframe
-                src={previewDocModal.fileUrl || previewDocModal.fileData}
+                src={docPreview.url}
                 title={previewDocModal.title}
                 className="w-full h-[450px] rounded-xl border border-bdr"
               />
             ) : (
               <div className="p-12 text-center text-muted bg-slate-50 rounded-xl border border-bdr">
                 <FileText size={42} className="mx-auto text-slate-300 mb-2" />
-                <p className="font-semibold text-slate-800">PDF Document Ready</p>
-                <p className="text-xs text-muted mt-1">This document is stored securely in the HRMS Vault.</p>
+                <p className="font-semibold text-slate-800">
+                  {docPreview.loading ? 'Loading file…' : previewDocModal.hasFile ? 'Preview unavailable' : 'No file attached'}
+                </p>
+                <p className="text-xs text-muted mt-1">{docPreview.error || 'This document is stored securely in the HRMS Vault.'}</p>
                 <button
                   type="button"
                   onClick={() => handleDownloadDoc(previewDocModal)}

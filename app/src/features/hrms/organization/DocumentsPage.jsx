@@ -3,6 +3,14 @@ import api from "../../../services/api";
 import { isBackendEnabled } from "../../../services/resourceSync";
 import { useAppStore } from "../../../stores/appStore";
 import { useDocumentStore } from "../../../stores/documentStore";
+import { useDocumentFileUrl, downloadDocumentFile } from "../../../hooks/useDocumentFile";
+
+/** Matches the server's FILE_MAX_BYTES (25 MB). */
+const MAX_UPLOAD_BYTES = 25 * 1024 * 1024;
+
+function isPdf(file) {
+  return file.type === "application/pdf" || /\.pdf$/i.test(file.name);
+}
 import { Badge } from "../../../components/hrms/Badge";
 import Modal from "../../../components/ui/Modal";
 import PageHeader from "../../../components/ui/PageHeader";
@@ -28,7 +36,6 @@ import {
   Building,
   UploadCloud,
   FileCheck,
-  Check,
   X,
   ChevronRight,
   Sparkles,
@@ -38,120 +45,6 @@ import {
   Upload,
   FileUp,
 } from "lucide-react";
-
-// Converts base64 DataURL to Blob
-function dataUrlToBlob(dataUrl) {
-  const parts = dataUrl.split(",");
-  const mime = parts[0].match(/:(.*?);/)?.[1] || "application/pdf";
-  const bstr = atob(parts[1]);
-  let n = bstr.length;
-  const u8arr = new Uint8Array(n);
-  while (n--) {
-    u8arr[n] = bstr.charCodeAt(n);
-  }
-  return new Blob([u8arr], { type: mime });
-}
-
-// Builds a compliant PDF 1.4 Binary Blob
-function buildPdfBlob(doc) {
-  if (doc.fileData && typeof doc.fileData === "string" && doc.fileData.startsWith("data:")) {
-    return dataUrlToBlob(doc.fileData);
-  }
-
-  const clean = (str) => String(str || "").replace(/[()\\]/g, "");
-  const title = clean(doc.title || "DOCUMENT").toUpperCase();
-  const id = clean(doc.id || "DOC-000");
-  const category = clean(doc.category || "General");
-  const employee = clean(doc.employee || "All Staff");
-  const expiry = clean(doc.expiry || "Permanent");
-  const status = clean(doc.status || "Valid");
-  const updatedOn = clean(doc.updatedOn || new Date().toISOString().slice(0, 10));
-  const desc = clean(doc.description || "Official HRMS organizational document recorded under corporate compliance policies.");
-  const uploader = clean(doc.uploadedBy || "HR Administration");
-
-  const lines = [
-    "BT",
-    "/F1 20 Tf",
-    "50 750 Td",
-    `(${title.slice(0, 42)}) Tj`,
-    "/F1 11 Tf",
-    "0 -32 Td",
-    `(Document ID: ${id}   |   Format: PDF   |   Status: ${status}) Tj`,
-    "0 -20 Td",
-    `(Category: ${category}   |   Scope / Personnel: ${employee}) Tj`,
-    "0 -20 Td",
-    `(Effective Date: ${updatedOn}   |   Expiry Date: ${expiry}) Tj`,
-    "0 -20 Td",
-    `(Authorized Uploader: ${uploader}   |   Vault Record: Verified) Tj`,
-    "0 -36 Td",
-    "/F1 13 Tf",
-    "(DOCUMENT ABSTRACT & COMPLIANCE SUMMARY:) Tj",
-    "0 -22 Td",
-    "/F1 10 Tf",
-    `(${desc.slice(0, 75)}) Tj`,
-  ];
-
-  if (desc.length > 75) {
-    lines.push("0 -15 Td", `(${desc.slice(75, 150)}) Tj`);
-  }
-  if (desc.length > 150) {
-    lines.push("0 -15 Td", `(${desc.slice(150, 225)}) Tj`);
-  }
-
-  lines.push(
-    "0 -40 Td",
-    "/F1 11 Tf",
-    "(AUDIT TRAIL & ENCRYPTION ATTESTATION:) Tj",
-    "0 -18 Td",
-    "/F1 9 Tf",
-    "(This electronic PDF document was certified and archived in the Evenmore HRMS Vault.) Tj",
-    "0 -14 Td",
-    "(Security Protocol: ISO 27001 Certified   |   Hash: SHA-256 Verified) Tj",
-    "0 -14 Td",
-    "(CONFIDENTIALITY NOTICE: Unauthorized copying or distribution is strictly prohibited.) Tj",
-    "ET"
-  );
-
-  const stream = lines.join("\n");
-  const streamBytes = new TextEncoder().encode(stream).length;
-
-  let out = "%PDF-1.4\n";
-  const offsets = [];
-
-  function addObj(content) {
-    offsets.push(new TextEncoder().encode(out).length);
-    out += content + "\n";
-  }
-
-  addObj("1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj");
-  addObj("2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj");
-  addObj("3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Contents 4 0 R /Resources << /Font << /F1 5 0 R >> >> >>\nendobj");
-  addObj(`4 0 obj\n<< /Length ${streamBytes} >>\nstream\n${stream}\nendstream\nendobj`);
-  addObj("5 0 obj\n<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>\nendobj");
-
-  const startXref = new TextEncoder().encode(out).length;
-  out += "xref\n0 " + (offsets.length + 1) + "\n0000000000 65535 f \n";
-  for (const off of offsets) {
-    out += String(off).padStart(10, "0") + " 00000 n \n";
-  }
-  out += "trailer\n<< /Size " + (offsets.length + 1) + " /Root 1 0 R >>\nstartxref\n" + startXref + "\n%%EOF";
-
-  return new Blob([out], { type: "application/pdf" });
-}
-
-// Direct PDF Download in browser
-function downloadPdfDocument(doc) {
-  const blob = buildPdfBlob(doc);
-  const url = URL.createObjectURL(blob);
-  const link = document.createElement("a");
-  link.href = url;
-  const safeName = (doc.title || "Document").replace(/[^a-zA-Z0-9_-]/g, "_");
-  link.download = `${safeName}_${doc.id || "FILE"}.pdf`;
-  document.body.appendChild(link);
-  link.click();
-  document.body.removeChild(link);
-  URL.revokeObjectURL(url);
-}
 
 // Inferred category from filename
 function inferCategoryFromFilename(filename) {
@@ -191,7 +84,6 @@ export function DocumentsPage() {
     addDocument,
     updateDocument,
     deleteDocument,
-    verifyDocument,
   } = useDocumentStore();
 
   // Primary navigation tabs: 'all' | 'employee' | 'my'
@@ -216,28 +108,34 @@ export function DocumentsPage() {
 
   // Modals state
   const [previewDoc, setPreviewDoc] = useState(null);
-  const [previewBlobUrl, setPreviewBlobUrl] = useState(null);
   const [deleteDocConfirm, setDeleteDocConfirm] = useState(null);
   const [editDoc, setEditDoc] = useState(null);
+  const [editReplacement, setEditReplacement] = useState(null);
+  const [savingEdit, setSavingEdit] = useState(false);
 
-  // Hidden native file input reference for selecting directly from device
+  // Hidden native file inputs: new uploads, and a replacement for the edited document
   const deviceFileInputRef = useRef(null);
+  const replaceFileInputRef = useRef(null);
   const [targetScopeForUpload, setTargetScopeForUpload] = useState("All Staff");
   const [isDragOver, setIsDragOver] = useState(false);
+  const [uploadingCount, setUploadingCount] = useState(0);
 
-  // Manage Preview PDF Object URL
-  useEffect(() => {
-    if (previewDoc) {
-      const blob = buildPdfBlob(previewDoc);
-      const url = URL.createObjectURL(blob);
-      setPreviewBlobUrl(url);
-      return () => {
-        URL.revokeObjectURL(url);
-      };
-    } else {
-      setPreviewBlobUrl(null);
+  // The stored file, fetched from the server for the viewer
+  const preview = useDocumentFileUrl(previewDoc);
+
+  async function handleDownload(doc) {
+    try {
+      await downloadDocumentFile(doc);
+    } catch (err) {
+      showToast(err?.message || "Could not download the file");
     }
-  }, [previewDoc]);
+  }
+
+  /** Server employee id for a scope name; null means company-wide (All Staff). */
+  function employeeIdFor(scopeName) {
+    if (!scopeName || scopeName === "All Staff") return null;
+    return employees.find((x) => x.name === scopeName)?.id || null;
+  }
 
   // KPI Statistics calculations
   const total = documents.length;
@@ -316,91 +214,82 @@ export function DocumentsPage() {
     }
   }
 
-  
-async function uploadDocumentFile(file) {
-  const resolvedName = file.name || 'document.pdf';
-  const size = file.size || 1024;
-  const contentType = file.type || (resolvedName.toLowerCase().endsWith('.pdf') ? 'application/pdf' : 'image/png');
-
-  const uploadInit = await api.post('/files/upload-url/', {
-    fileName: resolvedName,
-    contentType,
-    size,
-    scope: 'hrms_document',
-  });
-  const payload = uploadInit?.data || uploadInit;
-  const fileId = payload?.fileId || uploadInit?.fileId;
-  const uploadUrl = payload?.uploadUrl || uploadInit?.uploadUrl;
-  if (!fileId || !uploadUrl) {
-    throw new Error('Server failed to initiate file upload.');
+  /** Returns an error message, or "" when the file can be uploaded. */
+  function rejectReason(file) {
+    if (!isPdf(file)) return `"${file.name}" is not a PDF.`;
+    if (file.size > MAX_UPLOAD_BYTES) return `"${file.name}" is larger than 25 MB.`;
+    return "";
   }
 
-  let targetUrl = uploadUrl;
-  try {
-    const parsed = new URL(uploadUrl, window.location.origin);
-    if (parsed.pathname.startsWith('/api/')) {
-      targetUrl = `${parsed.pathname}${parsed.search}`;
-    }
-  } catch {}
-
-  const formData = new FormData();
-  formData.append('file', file, resolvedName);
-  const putRes = await fetch(targetUrl, {
-    method: 'PUT',
-    body: formData,
-  });
-  if (!putRes.ok) {
-    throw new Error(`Upload transfer failed (${putRes.status})`);
-  }
-
-  const commitRes = await api.post(`/files/${fileId}/commit/`, {});
-  return commitRes?.data || commitRes || { id: fileId, fileId };
-}
-
+  // The real file goes to the server (/files/ upload, not base64), then the
+  // document row is created pointing at it.
   async function processFilesFromDevice(fileList, targetScope) {
     if (!fileList || fileList.length === 0) return;
 
     for (const file of Array.from(fileList)) {
+      const reason = rejectReason(file);
+      if (reason) {
+        showToast(reason);
+        continue;
+      }
+      const baseName = file.name.replace(/\.[^/.]+$/, "");
+      const formattedTitle = baseName
+        .replace(/[_-]+/g, " ")
+        .replace(/\b\w/g, (c) => c.toUpperCase());
+      const inferredCat = inferCategoryFromFilename(file.name);
+
+      setUploadingCount((n) => n + 1);
       try {
-        let fileId = null;
-        let fileUrl = null;
-        if (isBackendEnabled()) {
-          const committed = await uploadDocumentFile(file);
-          fileId = committed?.id || committed?.fileId;
-          fileUrl = committed?.url || `/api/v1/files/${fileId}/`;
-        }
-
-        const baseName = file.name.replace(/\.[^/.]+$/, "");
-        const formattedTitle = baseName
-          .replace(/[_-]+/g, " ")
-          .replace(/\b\w/g, (c) => c.toUpperCase());
-        const sizeInMb = (file.size / (1024 * 1024)).toFixed(1);
-        const inferredCat = inferCategoryFromFilename(file.name);
-
-        const newDoc = addDocument({
+        await addDocument({
+          file,
           title: formattedTitle || file.name,
           category: inferredCat,
-          employee: targetScope,
-          employeeId:
-            targetScope === "All Staff"
-              ? "ALL"
-              : employees.find((x) => x.name === targetScope)?.id || "EMP-VAR",
-          version: "v1.0",
-          expiry: "—",
-          status: "Valid",
-          fileType: file.name.toLowerCase().endsWith('.pdf') ? 'PDF' : file.type || 'PDF',
-          fileSize: `${sizeInMb} MB`,
-          uploadedBy: currentUser?.name || 'Administrator',
-          description: `Uploaded from device: ${file.name} (uploaded on ${new Date().toISOString().slice(0, 10)}).`,
-          fileId,
-          fileUrl,
+          employeeId: employeeIdFor(targetScope),
+          description: `Uploaded from device: ${file.name}`,
           tags: [inferredCat, "Device Upload"],
         });
-
-        showToast(`Selected "${file.name}" from device & added to ${targetScope} (${newDoc.id})`);
+        showToast(`Uploaded "${file.name}" to ${targetScope}`);
       } catch (err) {
-        showToast(`Failed to upload "${file.name}": ${err?.message || 'Upload error'}`, 'error');
+        showToast(`Could not upload "${file.name}": ${err?.message || "server error"}`);
+      } finally {
+        setUploadingCount((n) => n - 1);
       }
+    }
+  }
+
+  function handleReplaceFileChange(e) {
+    const file = e.target.files?.[0];
+    e.target.value = "";
+    if (!file) return;
+    const reason = rejectReason(file);
+    if (reason) {
+      showToast(reason);
+      return;
+    }
+    setEditReplacement(file);
+  }
+
+  async function handleSaveEdit() {
+    if (!editDoc) return;
+    setSavingEdit(true);
+    try {
+      await updateDocument(
+        editDoc.id,
+        {
+          title: editDoc.title,
+          category: editDoc.category,
+          employeeId: employeeIdFor(editDoc.employee),
+          expiry: editDoc.expiryIso || null,
+        },
+        { file: editReplacement },
+      );
+      showToast(editReplacement ? `Updated "${editDoc.title}" with the new file` : `Updated "${editDoc.title}"`);
+      setEditDoc(null);
+      setEditReplacement(null);
+    } catch (err) {
+      showToast(`Could not save: ${err?.message || "server error"}`);
+    } finally {
+      setSavingEdit(false);
     }
   }
 
@@ -429,15 +318,15 @@ async function uploadDocumentFile(file) {
     processFilesFromDevice(files, currentScope);
   }
 
-  function handleDelete(doc) {
-    deleteDocument(doc.id);
-    setDeleteDocConfirm(null);
-    showToast(`Document ${doc.id} removed`);
-  }
-
-  function handleQuickVerify(doc) {
-    verifyDocument(doc.id);
-    showToast(`Document ${doc.id} verified as active & valid`);
+  async function handleDelete(doc) {
+    try {
+      await deleteDocument(doc.id);
+      showToast(`Document "${doc.title}" removed`);
+    } catch (err) {
+      showToast(`Could not delete: ${err?.message || "server error"}`);
+    } finally {
+      setDeleteDocConfirm(null);
+    }
   }
 
   function getStatusBadge(status) {
@@ -496,6 +385,13 @@ async function uploadDocumentFile(file) {
         className="hidden"
         onChange={handleDeviceFileInputChange}
       />
+      <input
+        type="file"
+        ref={replaceFileInputRef}
+        accept=".pdf,application/pdf"
+        className="hidden"
+        onChange={handleReplaceFileChange}
+      />
 
       <PageHeader
         title="Document Management"
@@ -517,7 +413,7 @@ async function uploadDocumentFile(file) {
             className="inline-flex items-center gap-2 px-5 py-2.5 bg-navy text-white rounded-xl text-[13.5px] font-semibold hover:bg-navy/90 transition cursor-pointer shadow-sm"
           >
             <UploadCloud size={17} />
-            <span>Select PDF from Device</span>
+            <span>{uploadingCount > 0 ? `Uploading ${uploadingCount}…` : "Select PDF from Device"}</span>
           </button>
         }
       />
@@ -832,7 +728,7 @@ async function uploadDocumentFile(file) {
                             <span className="text-[10px] bg-rose-50 text-rose-700 px-1.5 py-0.2 rounded border border-rose-200 font-bold">PDF</span>
                             <span>{d.version || "v1.0"}</span>
                           </div>
-                          <div className="text-[11px] text-muted">{d.fileSize || "1.2 MB"}</div>
+                          <div className="text-[11px] text-muted">{d.fileSize || "—"}</div>
                         </td>
 
                         <td className="py-3.5 px-5 text-slate-700">
@@ -868,8 +764,7 @@ async function uploadDocumentFile(file) {
                             <button
                               type="button"
                               onClick={() => {
-                                downloadPdfDocument(d);
-                                showToast(`Downloading ${d.title}.pdf`);
+                                handleDownload(d);
                               }}
                               className="p-1.5 hover:bg-slate-100 rounded-lg text-slate-500 hover:text-emerald-700 transition cursor-pointer"
                               title="Download PDF"
@@ -1131,7 +1026,7 @@ async function uploadDocumentFile(file) {
                             <span>•</span>
                             <span>Format: <b className="text-rose-700">PDF</b></span>
                             <span>•</span>
-                            <span>Size: <b>{doc.fileSize || "1.2 MB"}</b></span>
+                            <span>Size: <b>{doc.fileSize || "—"}</b></span>
                             <span>•</span>
                             <span>
                               Expiry:{" "}
@@ -1153,17 +1048,6 @@ async function uploadDocumentFile(file) {
 
                       {/* Action buttons */}
                       <div className="flex items-center gap-1.5 self-end sm:self-center shrink-0">
-                        {doc.status !== "Valid" && (
-                          <button
-                            type="button"
-                            onClick={() => handleQuickVerify(doc)}
-                            className="inline-flex items-center gap-1 px-2.5 py-1.5 bg-emerald-50 text-emerald-700 border border-emerald-200 hover:bg-emerald-100 rounded-lg text-[11.5px] font-semibold transition cursor-pointer"
-                            title="Verify Document"
-                          >
-                            <Check size={13} />
-                            Verify
-                          </button>
-                        )}
                         <button
                           type="button"
                           onClick={() => setPreviewDoc(doc)}
@@ -1175,8 +1059,7 @@ async function uploadDocumentFile(file) {
                         <button
                           type="button"
                           onClick={() => {
-                            downloadPdfDocument(doc);
-                            showToast(`Downloading ${doc.title}.pdf`);
+                            handleDownload(doc);
                           }}
                           className="p-1.5 hover:bg-slate-100 rounded-lg text-slate-600 hover:text-emerald-700 transition cursor-pointer"
                           title="Download PDF"
@@ -1365,7 +1248,7 @@ async function uploadDocumentFile(file) {
 
                   <div className="mt-4 pt-3 border-t border-bdr/60">
                     <div className="flex items-center justify-between text-[11.5px] text-muted mb-3">
-                      <span>Format: <b className="text-rose-700">PDF</b> ({doc.fileSize || "1.2 MB"})</span>
+                      <span>Format: <b className="text-rose-700">PDF</b> ({doc.fileSize || "—"})</span>
                       <span>
                         Expiry:{" "}
                         <b
@@ -1394,8 +1277,7 @@ async function uploadDocumentFile(file) {
                       <button
                         type="button"
                         onClick={() => {
-                          downloadPdfDocument(doc);
-                          showToast(`Downloading ${doc.title}.pdf`);
+                          handleDownload(doc);
                         }}
                         className="flex-1 py-1.5 px-3 bg-navy/5 hover:bg-navy/10 text-navy rounded-xl text-[12px] font-semibold transition cursor-pointer flex items-center justify-center gap-1"
                       >
@@ -1439,10 +1321,10 @@ async function uploadDocumentFile(file) {
             <button
               type="button"
               className="inline-flex items-center gap-1.5 px-4.5 py-2 bg-navy text-white rounded-xl text-[13px] font-semibold hover:bg-navy/90 transition cursor-pointer shadow-xs"
+              disabled={!previewDoc?.hasFile}
               onClick={() => {
                 if (previewDoc) {
-                  downloadPdfDocument(previewDoc);
-                  showToast(`Downloading ${previewDoc.title}.pdf`);
+                  handleDownload(previewDoc);
                 }
               }}
             >
@@ -1480,20 +1362,29 @@ async function uploadDocumentFile(file) {
               </div>
 
               <div className="text-right text-[12px] text-muted space-y-0.5">
-                <div>Format: <b className="text-rose-700">PDF</b> ({previewDoc.fileSize || "1.2 MB"})</div>
+                <div>File: <b className="text-slate-800">{previewDoc.fileName || "—"}</b> ({previewDoc.fileSize || "—"})</div>
+                <div>Version: <b className="text-slate-800">{previewDoc.version}</b></div>
                 <div>Updated: <b className="text-slate-800">{previewDoc.updatedOn}</b></div>
                 <div>Expiry: <b className="text-slate-800">{previewDoc.expiry || "Permanent"}</b></div>
               </div>
             </div>
 
-            {/* Embedded Live PDF Viewer (using generated/uploaded PDF blob) */}
-            {previewBlobUrl && (
+            {/* The stored file, fetched from the server */}
+            {preview.url ? (
               <div className="border border-bdr rounded-2xl overflow-hidden bg-slate-100 shadow-inner">
                 <iframe
-                  src={previewBlobUrl}
+                  src={preview.url}
                   title={previewDoc.title}
                   className="w-full h-[520px] rounded-2xl border-0"
                 />
+              </div>
+            ) : (
+              <div className="border border-bdr rounded-2xl bg-slate-50 p-12 text-center text-[13px] text-muted">
+                {preview.loading
+                  ? "Loading file…"
+                  : preview.error
+                  ? <span className="text-rose-700">{preview.error}</span>
+                  : "No file is attached to this document."}
               </div>
             )}
           </div>
@@ -1505,35 +1396,25 @@ async function uploadDocumentFile(file) {
          ========================================================================= */}
       <Modal
         isOpen={Boolean(editDoc)}
-        onClose={() => setEditDoc(null)}
-        title={editDoc ? `Edit: ${editDoc.id}` : "Edit"}
+        onClose={() => { setEditDoc(null); setEditReplacement(null); }}
+        title={editDoc ? `Edit: ${editDoc.title}` : "Edit"}
         size="md"
         footer={
           <>
             <button
               type="button"
               className="px-4 py-2 border border-bdr rounded-xl text-[13px] hover:bg-slate-50 font-medium cursor-pointer"
-              onClick={() => setEditDoc(null)}
+              onClick={() => { setEditDoc(null); setEditReplacement(null); }}
             >
               Cancel
             </button>
             <button
               type="button"
-              className="px-5 py-2 bg-navy text-white rounded-xl text-[13px] font-semibold hover:bg-navy/90 transition cursor-pointer shadow-xs"
-              onClick={() => {
-                if (editDoc) {
-                  updateDocument(editDoc.id, {
-                    title: editDoc.title,
-                    category: editDoc.category,
-                    employee: editDoc.employee,
-                    status: editDoc.status,
-                  });
-                  showToast(`Updated ${editDoc.id}`);
-                  setEditDoc(null);
-                }
-              }}
+              disabled={savingEdit}
+              className="px-5 py-2 bg-navy text-white rounded-xl text-[13px] font-semibold hover:bg-navy/90 transition cursor-pointer shadow-xs disabled:opacity-60"
+              onClick={handleSaveEdit}
             >
-              Save Changes
+              {savingEdit ? "Saving…" : "Save Changes"}
             </button>
           </>
         }
@@ -1594,33 +1475,37 @@ async function uploadDocumentFile(file) {
 
             <div>
               <label className="block text-[12px] font-semibold text-slate-700 mb-1">
-                Verification Status
+                Expiry Date
               </label>
-              <select
-                value={editDoc.status}
-                onChange={(e) => setEditDoc({ ...editDoc, status: e.target.value })}
-                className="w-full px-3 py-2 rounded-xl border border-bdr text-[12.5px] bg-off focus:bg-white focus:outline-none focus:border-navy cursor-pointer"
-              >
-                <option value="Valid">Valid</option>
-                <option value="Expiring Soon">Expiring Soon</option>
-                <option value="Expired">Expired</option>
-                <option value="Pending Verification">Pending Verification</option>
-              </select>
+              <input
+                type="date"
+                value={editDoc.expiryIso || ""}
+                onChange={(e) => setEditDoc({ ...editDoc, expiryIso: e.target.value })}
+                className="w-full px-3 py-2 rounded-xl border border-bdr text-[12.5px] bg-off focus:bg-white focus:outline-none focus:border-navy"
+              />
+              <p className="text-[11px] text-muted mt-1">
+                Leave empty for a permanent document. Status (Valid / Expiring Soon / Expired) follows this date.
+              </p>
             </div>
 
-            {/* Replace file directly from device */}
+            {/* Replace this document's file (keeps the record, bumps the version) */}
             <div className="pt-2 border-t border-bdr">
               <label className="block text-[12px] font-semibold text-slate-700 mb-1.5">
-                Replace with New PDF from Device
+                Replace File ({editDoc.fileName || "no file attached"} · {editDoc.version})
               </label>
               <button
                 type="button"
-                onClick={() => triggerSelectFromDevice(editDoc.employee)}
+                onClick={() => replaceFileInputRef.current?.click()}
                 className="w-full py-2.5 px-3 bg-slate-100 hover:bg-slate-200 border border-bdr rounded-xl text-[12.5px] font-semibold text-slate-800 transition cursor-pointer flex items-center justify-center gap-2"
               >
                 <UploadCloud size={16} />
-                <span>Choose Replacement PDF from Device</span>
+                <span>{editReplacement ? `Selected: ${editReplacement.name}` : "Choose Replacement PDF from Device"}</span>
               </button>
+              {editReplacement && (
+                <p className="text-[11px] text-muted mt-1">
+                  Uploaded when you save; the version becomes v{(parseInt(String(editDoc.version).replace(/^v/i, ""), 10) || 1) + 1}.0.
+                </p>
+              )}
             </div>
           </div>
         )}

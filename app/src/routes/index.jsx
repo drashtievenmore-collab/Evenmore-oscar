@@ -96,6 +96,7 @@ const TrainingDashboard = lazy(() => import('../features/hrms/performance/Traini
 const OrgChartPage = lazy(() => import('../features/hrms/organization/OrgChartPage'));
 const DepartmentsPage = lazy(() => import('../features/hrms/organization/DepartmentsPage'));
 const DesignationsPage = lazy(() => import('../features/hrms/organization/DesignationsPage'));
+const IncentivesPage = lazy(() => import('../features/hrms/incentives/IncentivesPage'));
 const LocationsPage = lazy(() => import('../features/hrms/organization/LocationsPage'));
 const AssetsPage = lazy(() => import('../features/hrms/organization/AssetsPage'));
 const DocumentsPage = lazy(() => import('../features/hrms/organization/DocumentsPage'));
@@ -541,6 +542,7 @@ const router = createBrowserRouter([
       { path: 'hrms/org-chart', element: <Page component={OrgChartPage} /> },
       { path: 'hrms/departments', element: <Page component={DepartmentsPage} /> },
       { path: 'hrms/designations', element: <Page component={DesignationsPage} /> },
+      { path: 'hrms/incentives', element: <Page component={IncentivesPage} /> },
       { path: 'hrms/locations', element: <Page component={LocationsPage} /> },
       { path: 'hrms/assets', element: <Page component={AssetsPage} /> },
       { path: 'hrms/asset', element: <Page component={AssetsPage} /> },
