@@ -2989,7 +2989,7 @@ export default function EmployeePortal() {
               <option value="Stationery & Office Supplies">Stationery & Office Consumables</option>
               <option value="HR Document / Experience / NOC">HR Document Request (Experience Letter / Bonafide / NOC)</option>
               <option value="Policy / Shift Flexibility Requirement">Special Timing / Shift Flexibility</option>
-              <option value="Training & Upskilling Requirement">Training / Course Material Requirement</option>
+              {/* <option value="Training & Upskilling Requirement">Training / Course Material Requirement</option> */}
               <option value="Health, Safety & Ergonomic Support">Health, Safety & Ergonomic Support</option>
               <option value="Other Workplace Reason">Other Specific Workplace Reason</option>
             </select>

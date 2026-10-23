@@ -324,8 +324,8 @@ export const HRMS_RESOURCES = {
   kpis: plain('/hrms/performance/kpis/'),
 
   // ── training ──────────────────────────────────────────────────────────────
-  trainings: dated('/hrms/trainings/', ['startDate', 'endDate']),
-  trainers: plain('/hrms/trainers/'),
+  // trainings: dated('/hrms/trainings/', ['startDate', 'endDate']),
+  // trainers: plain('/hrms/trainers/'),
 
   // ── policies ──────────────────────────────────────────────────────────────
   policies: dated('/hrms/policies/', ['effectiveDate', 'publishedDate']),
@@ -514,8 +514,10 @@ export const pullHrmsDashboard = (query) => read('/hrms/dashboard/', query, 'das
 export const pullPayrollSummary = (query) => read('/hrms/payroll/summary/', query, 'payroll summary');
 export const pullRecruitmentDashboard = () => read('/hrms/recruitment/dashboard/', null, 'recruitment dashboard');
 export const pullRecruitmentFunnel = () => read('/hrms/recruitment/funnel/', null, 'recruitment funnel');
-export const pullTrainingDashboard = () => read('/hrms/trainings/dashboard/', null, 'training dashboard');
-export const pullTrainingFunnel = () => read('/hrms/trainings/funnel/', null, 'training funnel');
+// export const pullTrainingDashboard = () => read('/hrms/trainings/dashboard/', null, 'training dashboard');
+export const pullTrainingDashboard = () => Promise.resolve({ data: {} });
+// export const pullTrainingFunnel = () => read('/hrms/trainings/funnel/', null, 'training funnel');
+export const pullTrainingFunnel = () => Promise.resolve({ data: {} });
 export const pullPerformanceDashboard = () => read('/hrms/performance/dashboard/', null, 'performance dashboard');
 export const pullIndividualAttendance = (employeeId, query) =>
   read(`/hrms/attendance/individual/${employeeId}/`, query, 'individual attendance');
@@ -554,9 +556,9 @@ export const archivePolicy = (id, payload = {}) => hrmsSync.act('policies', id, 
 export const submitPolicyForApproval = (id, payload = {}) =>
   hrmsSync.act('policies', id, 'submit-for-approval', payload);
 export const terminateEmployee = (id, payload) => hrmsSync.act('employees', id, 'terminate', payload);
-export const assignTrainer = (id, payload) => hrmsSync.act('trainings', id, 'assign-trainer', payload);
-export const evaluateTraining = (id, payload) => hrmsSync.act('trainings', id, 'evaluate', payload);
-export const addTrainingParticipants = (id, payload) => hrmsSync.act('trainings', id, 'participants', payload);
+// export const assignTrainer = (id, payload) => hrmsSync.act('trainings', id, 'assign-trainer', payload);
+// export const evaluateTraining = (id, payload) => hrmsSync.act('trainings', id, 'evaluate', payload);
+// export const addTrainingParticipants = (id, payload) => hrmsSync.act('trainings', id, 'participants', payload);
 
 /**
  * The last rows the server gave us, per collection.

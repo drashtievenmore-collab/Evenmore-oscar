@@ -108,18 +108,18 @@ export default function TrainingDashboard({ initialTab }) {
         title="Training Management"
         subtitle="Unified training setup: overview, programs list, funnel progression & trainers directory"
         guide={hrmsGuides.trainingDashboard}
-        actions={
-          activeTab === "overview" && (
-            <button
-              type="button"
-              onClick={() => handleTabChange("funnel")}
-              className="bg-[#1b2b4a] hover:bg-[#111f36] text-white rounded-xl px-5 py-2.5 font-bold text-[13.5px] transition shadow-2xs cursor-pointer flex items-center gap-1.5"
-            >
-              <Plus size={16} />
-              Create Program
-            </button>
-          )
-        }
+        // actions={
+        //   activeTab === "overview" && (
+        //     <button
+        //       type="button"
+        //       onClick={() => handleTabChange("funnel")}
+        //       className="bg-[#1b2b4a] hover:bg-[#111f36] text-white rounded-xl px-5 py-2.5 font-bold text-[13.5px] transition shadow-2xs cursor-pointer flex items-center gap-1.5"
+        //     >
+        //       <Plus size={16} />
+        //       Create Program
+        //     </button>
+        //   )
+        // }
       />
 
       {/* Unified Tab Bar */}
@@ -172,7 +172,8 @@ export default function TrainingDashboard({ initialTab }) {
             ))}
           </div>
 
-          {/* Quick Navigation Cards switching to embedded tabs */}
+          {/* Quick Navigation Cards switching to embedded tabs - Commented out */}
+          {/*
           <div className="grid grid-cols-1 md:grid-cols-3 gap-3.5">
             <button
               type="button"
@@ -225,6 +226,7 @@ export default function TrainingDashboard({ initialTab }) {
               <ArrowRight size={16} className="text-slate-400 group-hover:translate-x-1 transition-transform" />
             </button>
           </div>
+          */}
 
           {/* Two Column Layout: Recent Programs & Upcoming Sessions */}
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-5">
@@ -232,13 +234,13 @@ export default function TrainingDashboard({ initialTab }) {
             <div className="lg:col-span-8 bg-white border border-[#e2e8f0] rounded-2xl p-5 shadow-2xs">
               <div className="flex items-center justify-between mb-4">
                 <h3 className="text-[15px] font-bold text-slate-800">Recent Programs</h3>
-                <button
+                {/* <button
                   type="button"
                   onClick={() => handleTabChange("list")}
                   className="text-[12px] font-semibold text-[#1e3a8a] hover:underline cursor-pointer"
                 >
                   View All →
-                </button>
+                </button> */}
               </div>
 
               <div className="overflow-x-auto">

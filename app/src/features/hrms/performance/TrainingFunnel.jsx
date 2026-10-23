@@ -232,8 +232,8 @@ export default function TrainingFunnel({ embedded = false, onBack }) {
     <div className="flex flex-col gap-5 w-full pb-16">
       {/* Header */}
       <div className="flex flex-col gap-1">
-        {/* Back button to Training Setup */}
-        {!embedded && (
+        {/* Back button to Training Setup - Commented out */}
+        {/* {!embedded && (
           <button
             type="button"
             onClick={() => (onBack ? onBack() : navigate("/hrms/training"))}
@@ -242,7 +242,7 @@ export default function TrainingFunnel({ embedded = false, onBack }) {
             <ArrowLeft size={16} className="group-hover:-translate-x-0.5 transition-transform" />
             <span>Back to Training Setup</span>
           </button>
-        )}
+        )} */}
 
         <PageHeader
           title="Training Funnel"
@@ -328,7 +328,8 @@ export default function TrainingFunnel({ embedded = false, onBack }) {
           )}
         </div>
 
-        {/* Quick Links to other training modules */}
+        {/* Quick Links to other training modules - Commented out */}
+        {/*
         <div className="flex flex-wrap lg:flex-nowrap items-center gap-2">
           <button
             type="button"
@@ -345,6 +346,7 @@ export default function TrainingFunnel({ embedded = false, onBack }) {
             Trainers &rarr;
           </button>
         </div>
+        */}
       </div>
 
       {/* Main Funnel Card */}
