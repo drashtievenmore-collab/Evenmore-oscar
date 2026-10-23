@@ -42,6 +42,7 @@ import {
 import { api } from '../../services/api';
 import PageHeader from '../../components/ui/PageHeader';
 import DigitalSignatureModal from '../../components/common/DigitalSignatureModal';
+import { PrintJobWorkChallanModal } from '../../components/common/PrintJobWorkChallanModal';
 
 const TABS = [
   'Material Details',
@@ -65,6 +66,7 @@ export default function JobWorkOrderDetailPage() {
   const { id } = useParams();
   const navigate = useNavigate();
   const [jwo, setJwo] = useState(null);
+  const [printOutwardId, setPrintOutwardId] = useState(null);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState('');
   const [saving, setSaving] = useState(false);
@@ -869,7 +871,7 @@ export default function JobWorkOrderDetailPage() {
                           <div className="absolute right-0 top-8 z-20 w-32 rounded-lg border border-slate-200 bg-white py-1 shadow-lg text-left">
                             <button
                               onClick={() => {
-                                window.print();
+                                setPrintOutwardId(o.id);
                                 setOpenActionMenuId(null);
                               }}
                               className="w-full px-3 py-1.5 text-[11.5px] font-semibold text-slate-700 hover:bg-slate-50 flex items-center gap-1.5"
@@ -2120,6 +2122,13 @@ export default function JobWorkOrderDetailPage() {
         </div>
       )}
 
+      <PrintJobWorkChallanModal
+        isOpen={Boolean(printOutwardId)}
+        onClose={() => setPrintOutwardId(null)}
+        jwoId={jwo?.id || id}
+        outwardId={printOutwardId}
+      />
+
       {/* ── MODAL: View Outward Challan Details ── */}
       {viewingOutward && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4 backdrop-blur-xs">
@@ -2170,7 +2179,7 @@ export default function JobWorkOrderDetailPage() {
               <div className="flex justify-end gap-2 pt-2">
                 <button
                   type="button"
-                  onClick={() => window.print()}
+                  onClick={() => setPrintOutwardId(viewingOutward.id)}
                   className="rounded-lg border border-slate-200 px-3.5 py-1.5 font-bold text-slate-600 hover:bg-slate-50 inline-flex items-center gap-1.5"
                 >
                   <Printer size={13} /> Print

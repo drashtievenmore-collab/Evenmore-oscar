@@ -22,9 +22,11 @@ import {
 import { uploadFileToBackend } from '../../../services/fileUploadService';
 import { inventoryService } from '../../../services/domainServices';
 import PageInfoButton from '../../../components/ui/PageInfoButton';
+import { PrintLorryReceiptModal } from '../../../components/common/PrintLorryReceiptModal';
 
 export default function TripListPage() {
   const [trips, setTrips] = useState([]);
+  const [printTripId, setPrintTripId] = useState(null);
   const [transporters, setTransporters] = useState([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
@@ -224,7 +226,7 @@ export default function TripListPage() {
     try {
       setSubmitting(true);
       setError(null);
-      await inventoryService.createTrip(tripForm);
+      await inventoryService.createTrip({ ...tripForm, lrDate: tripForm.lrDate || null });
       setShowCreateModal(false);
       setTripForm({
         tripType: 'OUTWARD',
@@ -423,6 +425,12 @@ export default function TripListPage() {
                       )}
                     </td>
                     <td className="py-3 px-4 text-right space-x-1.5 whitespace-nowrap">
+                      <button
+                        onClick={() => setPrintTripId(t.id)}
+                        className="px-2.5 py-1 text-xs font-medium text-slate-700 bg-white hover:bg-slate-50 rounded border border-slate-200 transition-colors inline-flex items-center gap-1"
+                      >
+                        <FileText className="w-3 h-3" /> Print LR
+                      </button>
                       {t.status !== 'Delivered' && t.status !== 'Completed' && (
                         <button
                           onClick={() => handleOpenConfirmDelivery(t)}
@@ -606,13 +614,35 @@ export default function TripListPage() {
                 </div>
               </div>
 
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-medium text-slate-700 mb-1">LR Number</label>
+                  <input
+                    type="text"
+                    placeholder="LR / bilty no. from transporter"
+                    value={tripForm.lrNumber}
+                    onChange={(e) => setTripForm({ ...tripForm, lrNumber: e.target.value })}
+                    className="w-full text-sm border border-slate-200 rounded-md p-2"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-slate-700 mb-1">LR Date</label>
+                  <input
+                    type="date"
+                    value={tripForm.lrDate}
+                    onChange={(e) => setTripForm({ ...tripForm, lrDate: e.target.value })}
+                    className="w-full text-sm border border-slate-200 rounded-md p-2"
+                  />
+                </div>
+              </div>
+
               {/* Financial Charges */}
               <div className="p-3 bg-slate-50 border border-slate-200 rounded-lg space-y-3">
                 <div className="text-xs font-semibold text-slate-700 flex items-center gap-1.5">
                   <DollarSign className="w-3.5 h-3.5 text-indigo-600" />
                   Freight & Logistics Charges Breakdown
                 </div>
-                <div className="grid grid-cols-4 gap-2">
+                <div className="grid grid-cols-5 gap-2">
                   <div>
                     <label className="block text-xs text-slate-600 mb-1">Freight (₹)</label>
                     <input
@@ -640,6 +670,16 @@ export default function TripListPage() {
                       step="0.01"
                       value={tripForm.unloadingCharges}
                       onChange={(e) => setTripForm({ ...tripForm, unloadingCharges: e.target.value })}
+                      className="w-full text-sm border border-slate-200 rounded p-1.5 bg-white"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs text-slate-600 mb-1">Other (₹)</label>
+                    <input
+                      type="number"
+                      step="0.01"
+                      value={tripForm.otherCharges}
+                      onChange={(e) => setTripForm({ ...tripForm, otherCharges: e.target.value })}
                       className="w-full text-sm border border-slate-200 rounded p-1.5 bg-white"
                     />
                   </div>
@@ -995,6 +1035,7 @@ export default function TripListPage() {
           </div>
         </div>
       )}
+      <PrintLorryReceiptModal isOpen={Boolean(printTripId)} onClose={() => setPrintTripId(null)} tripId={printTripId} />
     </div>
   );
 }

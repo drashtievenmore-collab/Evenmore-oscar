@@ -223,6 +223,12 @@ export function planFromApi(row) {
   return {
     id: row.id,
     planNo: row.planNo || '',
+    projectId: row.projectId || row.project || null,
+    projectCode: row.projectCode || '',
+    projectDestination: row.projectDestination || 'Customer Project',
+    priority: row.priority || 'Normal',
+    targetShadeFkId: row.targetShadeFkId || null,
+    selectedTakas: row.selectedTakas || [],
     date: row.date || '',
     process: row.process || '',
     processCategory: row.processCategory || '',
@@ -293,6 +299,11 @@ export function planToApi(p, { withCharges = false } = {}) {
     approver: p.approver || null,
     remarks: p.remarks || null,
   };
+  if (p.projectId) body.projectId = p.projectId;
+  if (p.projectDestination) body.projectDestination = p.projectDestination;
+  if (p.priority) body.priority = p.priority;
+  if (p.targetShadeFkId) body.targetShadeFkId = p.targetShadeFkId;
+  if (p.selectedTakas) body.selectedTakas = p.selectedTakas;
   if (p.status) body.status = p.status;
   if (withCharges) body.charges = (p.charges || []).map(ROW_MAPPERS.charges);
   return body;
@@ -384,6 +395,10 @@ export async function completePlan(id) {
   return planFromApi(await api.post(`/jobwork/process-plans/${id}/complete/`, {}));
 }
 
+export async function createJWOFromPlan(planId) {
+  return jwoFromApi(await api.post(`/jobwork/process-plans/${planId}/create-jwo/`, {}));
+}
+
 export async function createPlanCharge(planId, charge) {
   return api.post(`/jobwork/process-plans/${planId}/charges/`, ROW_MAPPERS.charges(charge));
 }
@@ -425,5 +440,19 @@ export async function fetchProcessorLedger(processorId) {
   const query = {};
   if (processorId) query.processorId = processorId;
   return api.get('/jobwork/orders/processor-ledger/', { query });
+}
+
+export async function fetchPendingRegister(projectId) {
+  const query = {};
+  if (projectId) query.project = projectId;
+  const res = await api.get('/jobwork/orders/pending-register/', { query });
+  return res?.results || [];
+}
+
+export async function fetchVendorReconciliation(projectId) {
+  const query = {};
+  if (projectId) query.project = projectId;
+  const res = await api.get('/jobwork/orders/vendor-reconciliation/', { query });
+  return res?.results || [];
 }
 

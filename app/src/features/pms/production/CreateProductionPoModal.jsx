@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from 'react';
-import { Factory, X } from 'lucide-react';
+import { ShoppingCart, X } from 'lucide-react';
 import { useERP } from '../../../context/ERPContext';
 
 const todayISO = () => new Date().toISOString().slice(0, 10);
@@ -10,10 +10,11 @@ const addDays = (iso, n) => {
 };
 
 /**
- * Vendor A Production PO, created from inside the PMS project slide.
- * Same server path as the Purchase screen's Create PO (ERPContext
- * addPurchaseOrder -> POST /purchase/orders/): Draft, PO number series and
- * rate checks on the server; approval follows the normal purchase flow.
+ * Vendor A Production PO -- the first stage of a project's production run,
+ * created inside the PMS project slide. Same server path as the Purchase
+ * screen's Create PO (ERPContext addPurchaseOrder -> POST /purchase/orders/):
+ * Draft, PO number series and rate checks on the server; approval follows the
+ * normal purchase flow before the Production Work Instruction is raised.
  */
 export function CreateProductionPoModal({ project, defaultQty, onClose, onCreated }) {
   const { vendors = [], items = [], addPurchaseOrder } = useERP();
@@ -67,13 +68,14 @@ export function CreateProductionPoModal({ project, defaultQty, onClose, onCreate
   };
 
   const field = 'w-full border border-slate-300 rounded-lg p-2 bg-white text-slate-800';
+  const label = 'block font-semibold text-slate-700 mb-1';
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
       <form onSubmit={submit} className="w-full max-w-lg rounded-2xl bg-white shadow-2xl border border-slate-200 text-xs">
         <div className="flex items-center justify-between p-4 border-b border-slate-100">
           <div className="flex items-center gap-2">
-            <Factory size={16} className="text-amber-600" />
-            <h3 className="font-extrabold text-slate-900 text-sm">Create Vendor A Production PO</h3>
+            <ShoppingCart size={16} className="text-amber-600" />
+            <h3 className="font-extrabold text-slate-900 text-sm">Purchase Order — Vendor A Production</h3>
           </div>
           <button type="button" onClick={onClose} className="p-1 rounded-lg text-slate-400 hover:bg-slate-100">
             <X size={16} />
@@ -81,42 +83,30 @@ export function CreateProductionPoModal({ project, defaultQty, onClose, onCreate
         </div>
         <div className="p-5 space-y-3">
           <div className="text-slate-500">
-            Project: <strong className="text-slate-800">{project?.code || project?.name}</strong> · saved as Draft, then submitted for approval.
+            Project: <strong className="text-slate-800">{project?.code || project?.name}</strong> · saved as Draft. After approval the Production Work Instruction is raised from this PO.
           </div>
           <label className="block">
-            <span className="block font-semibold text-slate-700 mb-1">Vendor / Agency</span>
+            <span className={label}>Vendor / Agency</span>
             <select value={vendorId} onChange={(e) => setVendorId(e.target.value)} className={field}>
               <option value="">Select…</option>
               {vendors.map((v) => <option key={v.id} value={v.id}>{v.name}</option>)}
             </select>
           </label>
           <label className="block">
-            <span className="block font-semibold text-slate-700 mb-1">Fabric Item</span>
+            <span className={label}>Fabric Item</span>
             <select value={itemId} onChange={(e) => setItemId(e.target.value)} className={field}>
               <option value="">Select…</option>
               {items.map((i) => <option key={i.id} value={i.id}>{i.name}{i.sku ? ` (${i.sku})` : ''}</option>)}
             </select>
           </label>
           <div className="grid grid-cols-2 gap-3">
-            <label className="block">
-              <span className="block font-semibold text-slate-700 mb-1">Quantity (m)</span>
-              <input type="number" min="0" step="0.01" value={qty} onChange={(e) => setQty(e.target.value)} className={`${field} font-mono`} />
-            </label>
-            <label className="block">
-              <span className="block font-semibold text-slate-700 mb-1">Rate (₹/m)</span>
-              <input type="number" min="0" step="0.01" value={rate} onChange={(e) => setRate(e.target.value)} className={`${field} font-mono`} />
-            </label>
-            <label className="block">
-              <span className="block font-semibold text-slate-700 mb-1">PO Date</span>
-              <input type="date" value={poDate} onChange={(e) => setPoDate(e.target.value)} className={field} />
-            </label>
-            <label className="block">
-              <span className="block font-semibold text-slate-700 mb-1">Expected Date</span>
-              <input type="date" value={expectedDate} onChange={(e) => setExpectedDate(e.target.value)} className={field} />
-            </label>
+            <label><span className={label}>Quantity (m)</span><input type="number" min="0" step="0.01" value={qty} onChange={(e) => setQty(e.target.value)} className={`${field} font-mono`} /></label>
+            <label><span className={label}>Rate (₹/m)</span><input type="number" min="0" step="0.01" value={rate} onChange={(e) => setRate(e.target.value)} className={`${field} font-mono`} /></label>
+            <label><span className={label}>PO Date</span><input type="date" value={poDate} onChange={(e) => setPoDate(e.target.value)} className={field} /></label>
+            <label><span className={label}>Expected Date</span><input type="date" value={expectedDate} onChange={(e) => setExpectedDate(e.target.value)} className={field} /></label>
           </div>
           <label className="block">
-            <span className="block font-semibold text-slate-700 mb-1">Notes</span>
+            <span className={label}>Notes</span>
             <textarea rows={2} value={notes} onChange={(e) => setNotes(e.target.value)} className={field} />
           </label>
           {error && <div className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-rose-700">{error}</div>}

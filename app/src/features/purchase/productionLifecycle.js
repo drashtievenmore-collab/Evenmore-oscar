@@ -91,6 +91,17 @@ export const lifecycleStageDetail = (stage) => {
       return [fmtQty(stage.quantity), stage.party].filter(Boolean).join(' · ');
     case 'agency_bill_match':
       return [stage.matchResult ? `3-way: ${stage.matchResult}` : null, stage.matchStatus].filter(Boolean).join(' · ');
+    // Client PDF section 05 stages (PMS project view).
+    case 'production_work_instruction':
+      return [fmtQty(stage.quantity), stage.fabric, stage.processType, stage.rate ? `${fmtAmt(stage.rate)}/m` : null].filter(Boolean).join(' · ');
+    case 'external_agency_assignment':
+      return [stage.party, stage.employee, stage.supervisor ? `Supervisor: ${stage.supervisor}` : null].filter(Boolean).join(' · ');
+    case 'production_completion':
+      if (!stage.quantity) return '';
+      return `Produced ${fmtQty(stage.quantity)} · accepted ${fmtQty(stage.acceptedQuantity)} · rejected ${fmtQty(stage.rejectedQuantity)} · shortage ${fmtQty(stage.shortageQuantity)}`;
+    case 'final_quantity_verification':
+      return [stage.quantity != null ? `Verified ${fmtQty(stage.quantity)}` : null, stage.verifiedBy].filter(Boolean).join(' · ');
+    case 'approval_payable':
     case 'disbursement_payment':
       return [
         stage.approvalStatus ? `Approval: ${stage.approvalStatus}` : null,

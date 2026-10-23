@@ -37,13 +37,13 @@ export function StageVendorProductionWorkspace({
   const primary = lifecycles[0];
   const stageOf = (key) => primary?.stages?.find((s) => s.key === key);
   const kpis = useMemo(() => {
-    const pi = stageOf('production_instruction');
+    const pi = stageOf('production_work_instruction');
     const daily = stageOf('daily_production_entry');
     return {
-      ordered: pi?.quantity ?? stageOf('purchase_order')?.quantity,
+      ordered: pi?.quantity,
       produced: daily?.quantity,
       balance: daily?.balanceQuantity,
-      agency: pi?.party || stageOf('purchase_order')?.party,
+      agency: stageOf('external_agency_assignment')?.party,
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [primary]);

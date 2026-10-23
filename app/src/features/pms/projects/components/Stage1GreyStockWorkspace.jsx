@@ -127,6 +127,20 @@ export function Stage1GreyStockWorkspace({
     });
   };
 
+  const handleAllocationTypeChange = (lotId, newType) => {
+    setLots((prevLots) => {
+      const updated = prevLots.map((lot) => {
+        if (lot.id !== lotId) return lot;
+        return {
+          ...lot,
+          allocationType: newType,
+        };
+      });
+      syncAllocation(updated);
+      return updated;
+    });
+  };
+
   const handleToggleLot = (lotId) => {
     setLots((prevLots) => {
       const updated = prevLots.map((lot) => {
@@ -173,9 +187,11 @@ export function Stage1GreyStockWorkspace({
         allocations: currentLots.map((l) => ({
           id: l.id,
           lotId: l.id,
+          lotTakaId: l.id,
           fabricQuality: l.fabricQuality,
           lotNumber: l.lotNumber,
           allocateQty: l.allocateQty,
+          allocationType: l.allocationType || 'Customer Project',
         })),
         shortageAction: nextShortageAction,
       });
@@ -195,9 +211,11 @@ export function Stage1GreyStockWorkspace({
         allocations: lots.map((l) => ({
           id: l.id,
           lotId: l.id,
+          lotTakaId: l.id,
           fabricQuality: l.fabricQuality,
           lotNumber: l.lotNumber,
           allocateQty: l.allocateQty,
+          allocationType: l.allocationType || 'Customer Project',
         })),
         shortageAction: actionType,
       });
@@ -208,8 +226,9 @@ export function Stage1GreyStockWorkspace({
       } else {
         toast.success(`Vendor A Production route selected for ${shortageQty.toLocaleString('en-IN')} m shortage`);
         if (onSyncPipeline) await onSyncPipeline();
-        // Stay in the project slide. No Vendor A Production PO yet -> open the
-        // create form here; otherwise go to the production lifecycle stage.
+        // Stay in the project slide. The production run starts with a Vendor A
+        // Production PO: open its form here if the project has none yet,
+        // otherwise go to the production stages.
         const lifecycle = await getProjectProductionLifecycle(projectId).catch(() => null);
         if (lifecycle?.lifecycles?.length) {
           if (onHandoff) onHandoff(2);
@@ -228,9 +247,11 @@ export function Stage1GreyStockWorkspace({
         allocations: lots.map((l) => ({
           id: l.id,
           lotId: l.id,
+          lotTakaId: l.id,
           fabricQuality: l.fabricQuality,
           lotNumber: l.lotNumber,
           allocateQty: l.allocateQty,
+          allocationType: l.allocationType || 'Customer Project',
         })),
         shortageAction: stageMeta.shortageAction,
       });
@@ -247,9 +268,11 @@ export function Stage1GreyStockWorkspace({
         allocations: lots.map((l) => ({
           id: l.id,
           lotId: l.id,
+          lotTakaId: l.id,
           fabricQuality: l.fabricQuality,
           lotNumber: l.lotNumber,
           allocateQty: l.allocateQty,
+          allocationType: l.allocationType || 'Customer Project',
         })),
         shortageAction: stageMeta.shortageAction,
       });
@@ -269,7 +292,12 @@ export function Stage1GreyStockWorkspace({
     };
     try {
       await saveGreyStockAllocation(projectId, {
-        allocations: lots.map((l) => ({ id: l.id, allocateQty: l.allocateQty })),
+        allocations: lots.map((l) => ({
+          id: l.id,
+          lotTakaId: l.id,
+          allocateQty: l.allocateQty,
+          allocationType: l.allocationType || 'Customer Project',
+        })),
         shortageAction: 'PURCHASE_PO',
         purchaseOrder: payload,
       });
@@ -291,7 +319,12 @@ export function Stage1GreyStockWorkspace({
     };
     try {
       await saveGreyStockAllocation(projectId, {
-        allocations: lots.map((l) => ({ id: l.id, allocateQty: l.allocateQty })),
+        allocations: lots.map((l) => ({
+          id: l.id,
+          lotTakaId: l.id,
+          allocateQty: l.allocateQty,
+          allocationType: l.allocationType || 'Customer Project',
+        })),
         shortageAction: 'PRODUCTION_ORDER',
         productionOrder: payload,
       });
@@ -466,6 +499,16 @@ export function Stage1GreyStockWorkspace({
   const totalUsable = useMemo(() => fabricGroups.reduce((acc, g) => acc + g.usableStock, 0), [fabricGroups]);
   const totalAllocated = useMemo(() => fabricGroups.reduce((acc, g) => acc + g.allocatedToProject, 0), [fabricGroups]);
   const totalBalance = useMemo(() => fabricGroups.reduce((acc, g) => acc + g.balanceStock, 0), [fabricGroups]);
+
+  const customerAllocated = useMemo(() => {
+    return lots.filter((l) => (l.allocationType || 'Customer Project') === 'Customer Project')
+      .reduce((acc, l) => acc + (Number(l.allocateQty) || 0), 0);
+  }, [lots]);
+
+  const ownAllocated = useMemo(() => {
+    return lots.filter((l) => l.allocationType === 'Own Project')
+      .reduce((acc, l) => acc + (Number(l.allocateQty) || 0), 0);
+  }, [lots]);
 
   const projectRequirement = Number(stageMeta.requiredMeters || 3000);
   const shortageQty = Math.max(0, projectRequirement - totalAllocated);
@@ -797,6 +840,7 @@ export function Stage1GreyStockWorkspace({
                                         <th className="py-2 px-2 text-right font-bold text-emerald-700">Usable</th>
                                         <th className="py-2 px-2 text-center">Allocate (m)</th>
                                         <th className="py-2 px-2 text-right">Balance</th>
+                                        <th className="py-2 px-2 text-center">Destination</th>
                                         <th className="py-2 px-2.5 text-center">Status</th>
                                       </tr>
                                     </thead>
@@ -876,6 +920,21 @@ export function Stage1GreyStockWorkspace({
                                             </td>
                                             <td className="py-2 px-2 text-right font-medium text-slate-600">
                                               {Number(lot.balance || 0).toLocaleString('en-IN')}
+                                            </td>
+                                            <td className="py-1 px-1.5 text-center whitespace-nowrap">
+                                              <select
+                                                value={lot.allocationType || 'Customer Project'}
+                                                onChange={(e) => handleAllocationTypeChange(lot.id, e.target.value)}
+                                                disabled={!isEligible || lot.usable <= 0}
+                                                className={`text-[10px] font-semibold py-0.5 px-1 rounded border cursor-pointer ${
+                                                  (lot.allocationType || 'Customer Project') === 'Customer Project'
+                                                    ? 'bg-blue-50 text-blue-700 border-blue-200'
+                                                    : 'bg-purple-50 text-purple-700 border-purple-200'
+                                                }`}
+                                              >
+                                                <option value="Customer Project">Customer Project</option>
+                                                <option value="Own Project">Own Project</option>
+                                              </select>
                                             </td>
                                             <td className="py-2 px-2.5 text-center whitespace-nowrap">
                                               {isAllocated ? (
@@ -969,6 +1028,7 @@ export function Stage1GreyStockWorkspace({
                     <th className="py-2.5 px-2 text-right text-emerald-700 font-bold">Usable Qty (m)</th>
                     <th className="py-2.5 px-2 text-center">Allocate Qty (m)</th>
                     <th className="py-2.5 px-2 text-right">Balance (m)</th>
+                    <th className="py-2.5 px-2 text-center">Destination</th>
                     <th className="py-2.5 px-2.5 text-center">Status</th>
                   </tr>
                 </thead>
@@ -1055,6 +1115,21 @@ export function Stage1GreyStockWorkspace({
                         <td className="py-2 px-2 text-right font-medium text-slate-600">
                           {Number(lot.balance || 0).toLocaleString('en-IN')}
                         </td>
+                        <td className="py-1 px-2 text-center whitespace-nowrap">
+                          <select
+                            value={lot.allocationType || 'Customer Project'}
+                            onChange={(e) => handleAllocationTypeChange(lot.id, e.target.value)}
+                            disabled={!isEligible || lot.usable <= 0}
+                            className={`text-[11px] font-semibold py-0.5 px-1.5 rounded border cursor-pointer ${
+                              (lot.allocationType || 'Customer Project') === 'Customer Project'
+                                ? 'bg-blue-50 text-blue-700 border-blue-200'
+                                : 'bg-purple-50 text-purple-700 border-purple-200'
+                            }`}
+                          >
+                            <option value="Customer Project">Customer Project</option>
+                            <option value="Own Project">Own Project</option>
+                          </select>
+                        </td>
                         <td className="py-2 px-2.5 text-center whitespace-nowrap">
                           {isSelected ? (
                             <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-semibold bg-emerald-100 text-emerald-800 border border-emerald-200">
@@ -1137,7 +1212,7 @@ export function Stage1GreyStockWorkspace({
             </div>
           </div>
 
-          <div className="grid grid-cols-3 gap-2.5">
+          <div className="grid grid-cols-2 gap-2.5">
             <div className="rounded-xl p-3 bg-blue-50/70 border border-blue-100 flex items-center gap-2.5">
               <div className="w-9 h-9 rounded-xl bg-blue-100 text-blue-600 flex items-center justify-center shrink-0">
                 <FileText size={18} />
@@ -1155,11 +1230,26 @@ export function Stage1GreyStockWorkspace({
                 <Layers size={18} />
               </div>
               <div>
-                <p className="text-[11px] font-medium text-slate-500">Allocated from Stock</p>
+                <p className="text-[11px] font-medium text-slate-500">Customer Project</p>
                 <p className="text-base font-bold text-emerald-600 leading-tight">
-                  {totalAllocated.toLocaleString('en-IN')} m
+                  {customerAllocated.toLocaleString('en-IN')} m
                 </p>
-                <p className="text-[10px] font-bold text-emerald-600 mt-0.5">{allocatedPct}%</p>
+                <p className="text-[10px] font-bold text-emerald-600 mt-0.5">
+                  {projectRequirement > 0 ? Math.round((customerAllocated / projectRequirement) * 100) : 0}% of Req
+                </p>
+              </div>
+            </div>
+
+            <div className="rounded-xl p-3 bg-purple-50/70 border border-purple-100 flex items-center gap-2.5">
+              <div className="w-9 h-9 rounded-xl bg-purple-100 text-purple-600 flex items-center justify-center shrink-0">
+                <Box size={18} />
+              </div>
+              <div>
+                <p className="text-[11px] font-medium text-purple-700">Own Project Stock</p>
+                <p className="text-base font-bold text-purple-700 leading-tight">
+                  {ownAllocated.toLocaleString('en-IN')} m
+                </p>
+                <p className="text-[10px] font-bold text-purple-600 mt-0.5">Surplus / Internal</p>
               </div>
             </div>
 
