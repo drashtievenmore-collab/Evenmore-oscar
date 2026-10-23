@@ -51,6 +51,7 @@ const emptyScheme = () => ({
   slabs: DEFAULT_SLABS.map((s) => ({ ...s })),
   holdUnpaidInvoices: false,
   excludeGst: true,
+  payoutAfterDays: 90,
   isActive: true,
 });
 
@@ -68,6 +69,7 @@ const schemeToForm = (s) => {
       : DEFAULT_SLABS.map((sl) => ({ ...sl })),
     holdUnpaidInvoices: Boolean(s.holdUnpaidInvoices),
     excludeGst: Boolean(s.excludeGst),
+    payoutAfterDays: s.payoutAfterDays ?? 90,
     isActive: Boolean(s.isActive),
   };
 };
@@ -92,6 +94,7 @@ const formToPayload = (f) => {
     slabs,
     holdUnpaidInvoices: f.holdUnpaidInvoices,
     excludeGst: f.excludeGst,
+    payoutAfterDays: Math.max(0, parseInt(f.payoutAfterDays, 10) || 0),
     isActive: f.isActive,
   };
 };
@@ -349,7 +352,11 @@ export default function IncentivesPage() {
                     <td className="py-2.5 px-4 text-text">{BASIS_LABELS[s.basis] || s.basis}</td>
                     <td className="py-2.5 px-4 text-text">{describeRate(s)}</td>
                     <td className="py-2.5 px-4 text-xs text-muted">
-                      {[s.holdUnpaidInvoices && "Holds unpaid share", s.excludeGst && "Excl. GST"].filter(Boolean).join(" · ") || "—"}
+                      {[
+                        `Paid ${s.payoutAfterDays ?? 90} days after customer payment`,
+                        s.holdUnpaidInvoices && "Holds unpaid share",
+                        s.excludeGst && "Excl. GST",
+                      ].filter(Boolean).join(" · ")}
                     </td>
                     <td className="py-2.5 px-4 text-center">
                       <button
@@ -457,6 +464,11 @@ export default function IncentivesPage() {
                     <td className="py-3 px-4 text-center font-semibold text-text">{row.applicable_rate || row.applicableRate}%</td>
                     <td className="py-3 px-4 text-right font-bold text-emerald-600 dark:text-emerald-400">
                       ₹{Number(row.calculated_incentive || row.calculatedIncentive || 0).toLocaleString("en-IN")}
+                      {row.status === "APPROVED" && (
+                        <div className="text-[11px] font-medium text-muted">
+                          Payable now ₹{Number(row.payableNow || 0).toLocaleString("en-IN")}
+                        </div>
+                      )}
                     </td>
                     <td className="py-3 px-4 text-center">
                       {getStatusBadge(row.status)}
@@ -498,7 +510,7 @@ export default function IncentivesPage() {
                             Release
                           </button>
                         )}
-                        {row.status === "APPROVED" && (
+                        {row.status === "APPROVED" && Number(row.payableNow || 0) > 0 && (
                           <button
                             onClick={() => runAction(() => markPaid(row.id))}
                             title="Mark as Paid"
@@ -730,6 +742,21 @@ export default function IncentivesPage() {
                   </button>
                 </div>
               )}
+
+              <div>
+                <label className="text-xs font-semibold text-muted uppercase">Pay incentive after (days from customer payment)</label>
+                <input
+                  type="number"
+                  min="0"
+                  step="1"
+                  value={schemeForm.payoutAfterDays}
+                  onChange={(e) => setSchemeForm({ ...schemeForm, payoutAfterDays: e.target.value })}
+                  className="w-full mt-1 p-2 bg-soft border border-border rounded-lg text-sm text-text"
+                />
+                <div className="text-[11px] text-muted mt-1">
+                  Each customer payment releases its share of the incentive once it is this many days old. Default 90.
+                </div>
+              </div>
 
               <div className="space-y-2 pt-2">
                 <label className="flex items-center gap-2 text-sm text-text">
