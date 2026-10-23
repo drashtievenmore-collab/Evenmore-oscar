@@ -60,7 +60,7 @@ export function SupplierPaymentInlineSlide({ po, instruction, onClose, onPayment
     (finalPoNumber && (b.poNumber === finalPoNumber || b.purchase_order_number === finalPoNumber))
   );
 
-  const billTotal = Number(linkedBill?.total || linkedBill?.amount || po?.amount || 0);
+  const billTotal = Number(linkedBill?.total || linkedBill?.amount || 0);
 
   // Fetch purchase bills linked to this PO or Final Job Work PO if not already loaded in context
   useEffect(() => {
@@ -113,19 +113,8 @@ export function SupplierPaymentInlineSlide({ po, instruction, onClose, onPayment
         map.set(String(b.id), b);
       }
     }
-    const list = Array.from(map.values());
-    if (list.length === 0) {
-      return [
-        {
-          id: '68821493-4a75-4302-95f7-11f850d19445',
-          bank_name: 'HDFC Bank',
-          name: 'HDFC Current Account',
-          account_number: '50200012345678',
-          type: 'Bank',
-        },
-      ];
-    }
-    return list;
+    // Only real company accounts; never a placeholder id.
+    return Array.from(map.values());
   }, [fetchedBanks, bankAccounts]);
 
   useEffect(() => {
@@ -170,6 +159,14 @@ export function SupplierPaymentInlineSlide({ po, instruction, onClose, onPayment
     const resolvedBankId = payMode !== 'Cash'
       ? (bankAccountId && bankAccountId !== 'default-bank' ? bankAccountId : activeBankList[0]?.id || undefined)
       : undefined;
+    if (!linkedBill?.id) {
+      setErrorMsg('No payable bill exists for this order yet. Approve the bill match first so the payment is allocated to it.');
+      return;
+    }
+    if (payMode !== 'Cash' && !resolvedBankId) {
+      setErrorMsg('No company bank account is configured. Add one in Accounts, or record a Cash payment.');
+      return;
+    }
 
     try {
       setSubmitting(true);
@@ -183,7 +180,7 @@ export function SupplierPaymentInlineSlide({ po, instruction, onClose, onPayment
         date: payDate,
         mode: payMode,
         bankAccountId: resolvedBankId,
-        reference: reference || `UTR-${Date.now().toString().slice(-6)}`,
+        reference: reference || undefined,
         notes: `Payment disbursement against PO ${poNumber}${remarks ? ` - ${remarks}` : ''}`,
       };
 

@@ -148,12 +148,12 @@ export function CompletionVerificationInlineSlide({
   const piNumber = completionData?.piNo || instructionDetail?.instructionNumber || propInstruction?.instructionNumber || '—';
   const piDate = completionData?.piDate || instructionDetail?.pi_date || instructionDetail?.createdAt || '';
   const vendorName = completionData?.agency || propInstruction?.vendor || po?.vendor || '—';
-  const fabricQuality = completionData?.fabric || propInstruction?.fabric || po?.fabric || 'Velvet Grey Fabric';
+  const fabricQuality = completionData?.fabric || propInstruction?.fabric || po?.fabric || '';
   const status = instructionDetail?.status || completionData?.status || propInstruction?.status || 'In Progress';
   const finalPoNumber = instructionDetail?.finalPoNumber || propInstruction?.finalPoNumber || completionData?.finalPoNumber || null;
 
   // Quantities
-  const poQty = Number(completionData?.orderQty ?? propInstruction?.orderMeter ?? po?.order_meter ?? 7890);
+  const poQty = Number(completionData?.orderQty ?? propInstruction?.orderMeter ?? po?.order_meter ?? 0);
   const totalProduced = Number(completionData?.totalProduced ?? propInstruction?.totalProduced ?? 0);
   
   // QC breakdown: pull from completionData.qcSummary or fallback to qcData
@@ -312,14 +312,14 @@ export function CompletionVerificationInlineSlide({
 
           <div>
             <span className="text-[10px] uppercase font-bold text-slate-400 block tracking-wider">Fabric Quality</span>
-            <strong className="text-slate-900 text-[13px] block mt-0.5">{fabricQuality}</strong>
+            <strong className="text-slate-900 text-[13px] block mt-0.5">{fabricQuality || '—'}</strong>
           </div>
 
           <div>
             <span className="text-[10px] uppercase font-bold text-slate-400 block tracking-wider">PO Details</span>
             <div className="text-[11.5px] text-slate-600 space-y-0.5 mt-0.5">
-              <div>PO No: <strong className="text-slate-900 font-mono">{po?.poNumber || 'PO-2026-0027'}</strong></div>
-              <div>PO Date: <strong className="text-slate-800">{fmtDate(po?.date || '2026-10-21')}</strong></div>
+              <div>PO No: <strong className="text-slate-900 font-mono">{po?.poNumber || '—'}</strong></div>
+              <div>PO Date: <strong className="text-slate-800">{fmtDate(po?.date)}</strong></div>
               <div>UOM: <strong className="text-slate-800">Mtr</strong></div>
             </div>
           </div>
@@ -944,22 +944,22 @@ export function CompletionVerificationInlineSlide({
           piDate: piDate,
           agency: vendorName,
           fabric: fabricQuality,
-          processType: instructionData?.processType || 'Processing',
-          assignedEmployee: assignedSupervisor || '-',
+          processType: completionData?.processType || 'Processing',
+          assignedEmployee: completionData?.assignedEmployee || '-',
           orderQty: poQty,
           totalProduced: totalProduced,
           rejectedQty: qcRejected,
           acceptedQty: qcAccepted,
           shortageQty: shortageDifference,
-          jobRate: agreedRate,
-          finalAmount: finalCommercialAmount,
+          jobRate: completionData?.jobRate,
+          finalAmount: completionData?.finalAmount,
           status: isApproved ? 'Approved & Completed' : isPendingApproval ? 'Pending Approval' : 'In Progress',
-          dailySummary: dailyEntries || [],
+          dailySummary: completionData?.dailySummary || [],
         }}
         detail={{
           instructionNumber: piNumber,
-          greyLotNo: instructionData?.greyLotNo,
-          finalPoNumber: instructionData?.finalPoNumber,
+          greyLotNo: completionData?.greyLotNo,
+          finalPoNumber,
         }}
       />
 
