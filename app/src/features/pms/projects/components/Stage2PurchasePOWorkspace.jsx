@@ -25,6 +25,7 @@ import {
 } from '../../../../services/pmsSync';
 import { usePmsStore } from '../../../../stores/pmsStore';
 import { useERP } from '../../../../context/ERPContext';
+import MasterSourceLink from '../../../../components/common/MasterSourceLink';
 
 export function Stage2PurchasePOWorkspace({
   project,
@@ -561,9 +562,12 @@ export function Stage2PurchasePOWorkspace({
             <form onSubmit={handleCreatePurchaseOrder} className="space-y-3.5">
               {/* Supplier Selection */}
               <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1">
-                  Supplier / Vendor <span className="text-rose-500">*</span>
-                </label>
+                <div className="flex items-center justify-between mb-1">
+                  <label className="block text-xs font-bold text-slate-700">
+                    Supplier / Vendor <span className="text-rose-500">*</span>
+                  </label>
+                  <MasterSourceLink source="vendors" />
+                </div>
                 <select
                   required
                   value={form.vendorId}
@@ -588,9 +592,12 @@ export function Stage2PurchasePOWorkspace({
 
               {/* Fabric Item Selection */}
               <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1">
-                  Fabric Item / Quality <span className="text-rose-500">*</span>
-                </label>
+                <div className="flex items-center justify-between mb-1">
+                  <label className="block text-xs font-bold text-slate-700">
+                    Fabric Item / Quality <span className="text-rose-500">*</span>
+                  </label>
+                  <MasterSourceLink source="items" />
+                </div>
                 <select
                   required
                   value={form.itemId}

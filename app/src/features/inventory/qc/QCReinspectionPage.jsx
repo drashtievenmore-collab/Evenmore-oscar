@@ -28,6 +28,7 @@ import {
 import { inventoryService } from '../../../services/domainServices';
 import { useERP } from '../../../context/ERPContext';
 import PageInfoButton from '../../../components/ui/PageInfoButton';
+import MasterSourceLink from '../../../components/common/MasterSourceLink';
 
 export default function QCReinspectionPage() {
   const { vendors = [], items = [] } = useERP();
@@ -1049,7 +1050,10 @@ export default function QCReinspectionPage() {
                 </div>
 
                 <div>
-                  <label className="block text-slate-700 font-medium mb-1">Vendor / Processor *</label>
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="block text-slate-700 font-medium">Vendor / Processor *</label>
+                    <MasterSourceLink source="vendors" />
+                  </div>
                   <select
                     required
                     value={newVendor}
@@ -1066,7 +1070,10 @@ export default function QCReinspectionPage() {
                 </div>
 
                 <div>
-                  <label className="block text-slate-700 font-medium mb-1">Item Code / Fabric *</label>
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="block text-slate-700 font-medium">Item Code / Fabric *</label>
+                    <MasterSourceLink source="items" />
+                  </div>
                   <select
                     required
                     value={newItemCode}

@@ -9,6 +9,7 @@ import {
 import { purchaseService } from '../../services/domainServices';
 import { Button } from '../../components/ui/Button';
 import { useERP } from '../../context/ERPContext';
+import MasterSourceLink from '../../components/common/MasterSourceLink';
 
 export function PoQualityControlSection({
   po,
@@ -458,9 +459,12 @@ export function PoQualityControlSection({
                   </div>
 
                   <div>
-                    <label className="block text-[11px] font-bold text-slate-700 mb-1">
-                      Inspector / QC Incharge <span className="text-rose-500">*</span>
-                    </label>
+                    <div className="flex items-center justify-between mb-1">
+                      <label className="block text-[11px] font-bold text-slate-700">
+                        Inspector / QC Incharge <span className="text-rose-500">*</span>
+                      </label>
+                      <MasterSourceLink source="employees" />
+                    </div>
                     <select
                       value={inspectorId}
                       onChange={(e) => setInspectorId(e.target.value)}

@@ -6,6 +6,7 @@ import {
 } from 'lucide-react';
 import { purchaseService, hrmsService } from '../../services/domainServices';
 import { Button } from '../../components/ui/Button';
+import MasterSourceLink from '../../components/common/MasterSourceLink';
 
 export function PoProductionInstructionSection({ po, onUpdated, navigate, defaultCollapsed = false, onOpenDailyProduction }) {
   const [isCollapsed, setIsCollapsed] = useState(defaultCollapsed);
@@ -258,9 +259,12 @@ export function PoProductionInstructionSection({ po, onUpdated, navigate, defaul
 
           {/* Assigned Supervisor */}
           <div>
-            <label className="block text-[11px] font-semibold text-slate-600 mb-1">
-              Assigned Supervisor <span className="text-rose-500">*</span>
-            </label>
+            <div className="flex items-center justify-between mb-1">
+              <label className="block text-[11px] font-semibold text-slate-600">
+                Assigned Supervisor <span className="text-rose-500">*</span>
+              </label>
+              <MasterSourceLink source="employees" />
+            </div>
             <select
               value={supervisorId}
               onChange={(e) => setSupervisorId(e.target.value)}

@@ -14,6 +14,7 @@ import { PageHeader } from '../../components/common/PageHeader';
 import { PrintSalesOrderModal } from '../../components/common/PrintSalesOrderModal';
 import PickingListModal from './orders/PickingListModal';
 import SalespersonSelect from '../../components/common/SalespersonSelect';
+import MasterSourceLink from '../../components/common/MasterSourceLink';
 import { usePmsStore } from '../../stores/pmsStore';
 import { CreateProjectModal } from '../pms/projects/components/CreateProjectModal';
 const salesOrderGuide = {
@@ -468,7 +469,10 @@ export const SalesOrdersPage = () => {
             <form onSubmit={handleCreate} className="space-y-4 mt-4 overflow-y-auto pr-1 flex-1">
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
-                  <label className="font-semibold text-slate-700 block mb-1">Customer Account *</label>
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="font-semibold text-slate-700 block">Customer Account *</label>
+                    <MasterSourceLink source="customers" />
+                  </div>
                   <select required value={selectedCustomerId} onChange={(e) => setSelectedCustomerId(e.target.value)} className="w-full p-2 border border-slate-300 rounded bg-white text-slate-800 font-medium">
                     {customers.map((c) => (
                       <option key={c.id} value={c.id}>
@@ -496,7 +500,10 @@ export const SalesOrdersPage = () => {
                 <div>
                   <label className="font-semibold text-slate-700 block mb-1">Target Delivery Date</label>
                   <input type="date" value={deliveryDate} onChange={(e) => setDeliveryDate(e.target.value)} className="w-full p-2 border border-slate-300 rounded bg-white text-slate-800"/>
-                  <label className="font-semibold text-slate-700 block mb-1 mt-3">Salesperson</label>
+                  <div className="flex items-center justify-between mb-1 mt-3">
+                    <label className="font-semibold text-slate-700 block">Salesperson</label>
+                    <MasterSourceLink source="employees" />
+                  </div>
                   <SalespersonSelect value={salesperson.id} name={salesperson.name} onChange={setSalesperson} className="w-full p-2 border border-slate-300 rounded bg-white text-slate-800"/>
                 </div>
               </div>

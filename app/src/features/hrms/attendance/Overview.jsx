@@ -6,6 +6,7 @@ import { useAppStore } from "../../../stores/appStore";
 import { useAttendanceStore } from "../../../stores/attendanceStore";
 import { hrmsGuides } from "../../../data/hrms/hrmsGuides";
 import { Avatar } from "../../../components/hrms/Avatar";
+import MasterSourceLink from "../../../components/common/MasterSourceLink";
 
 const LIVE_ATTENDANCE_FALLBACK = [];
 
@@ -407,7 +408,10 @@ export default function AttendanceOverview() {
       >
         <div style={{ display: "grid", gap: 16 }}>
           <div className="form-group">
-            <label className="form-label">Select Employee</label>
+            <div className="flex items-center justify-between">
+              <label className="form-label">Select Employee</label>
+              <MasterSourceLink source="employees" />
+            </div>
             <select
               className="form-select"
               value={regEmp}

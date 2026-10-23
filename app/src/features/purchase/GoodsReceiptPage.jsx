@@ -28,6 +28,7 @@ import {
 import api from '../../services/api';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { numIN } from '../../utils/formatters';
+import MasterSourceLink from '../../components/common/MasterSourceLink';
 
 const goodsReceiptGuide = {
   title: 'Goods Receipt Notes (GRN)',
@@ -709,7 +710,10 @@ export const GoodsReceiptPage = () => {
               {/* Header Fields Grid */}
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 bg-slate-50 p-4 rounded-xl border border-slate-200">
                 <div>
-                  <label className="block font-semibold text-slate-700 mb-1">Supplier / Mill *</label>
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="block font-semibold text-slate-700">Supplier / Mill *</label>
+                    <MasterSourceLink source="vendors" />
+                  </div>
                   <select
                     required
                     value={standaloneForm.vendorId}
@@ -738,7 +742,10 @@ export const GoodsReceiptPage = () => {
                 </div>
 
                 <div>
-                  <label className="block font-semibold text-slate-700 mb-1">Destination Godown *</label>
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="block font-semibold text-slate-700">Destination Godown *</label>
+                    <MasterSourceLink source="godowns" />
+                  </div>
                   <select
                     required
                     value={standaloneForm.locationId}
@@ -791,13 +798,16 @@ export const GoodsReceiptPage = () => {
                   <h4 className="font-bold text-slate-800 text-xs uppercase tracking-wider">
                     Intake Line Items ({standaloneForm.lines.length})
                   </h4>
-                  <button
-                    type="button"
-                    onClick={handleAddLine}
-                    className="text-xs font-semibold text-blue-600 hover:text-blue-800 flex items-center gap-1"
-                  >
-                    <Plus size={13} /> Add Fabric Line
-                  </button>
+                  <div className="flex items-center gap-3">
+                    <MasterSourceLink source="items" label="+ Add / Manage Items" />
+                    <button
+                      type="button"
+                      onClick={handleAddLine}
+                      className="text-xs font-semibold text-blue-600 hover:text-blue-800 flex items-center gap-1"
+                    >
+                      <Plus size={13} /> Add Fabric Line
+                    </button>
+                  </div>
                 </div>
 
                 {standaloneForm.lines.map((line, lIdx) => {

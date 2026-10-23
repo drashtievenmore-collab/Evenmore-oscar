@@ -19,6 +19,7 @@ import PageHeader from '../../../components/ui/PageHeader';
 import { StatCard } from '../../../components/ui/StatCard';
 import { Button } from '../../../components/ui/Button';
 import { productionService, hrmsService } from '../../../services/domainServices';
+import MasterSourceLink from '../../../components/common/MasterSourceLink';
 import { formatINR, formatDate, unwrapList, describeApiError } from '../../accounts/accountingShared';
 
 const STATUS_PILLS = {
@@ -729,7 +730,10 @@ export default function IncentiveSchemesPage() {
 
             <form onSubmit={handleRunCalculateSubmit} className="space-y-3">
               <div>
-                <label className="block text-[11px] font-semibold text-slate-600 mb-1">Employee *</label>
+                <div className="flex items-center justify-between mb-1">
+                  <label className="block text-[11px] font-semibold text-slate-600">Employee *</label>
+                  <MasterSourceLink source="employees" />
+                </div>
                 <select
                   required
                   value={calcForm.employeeId}

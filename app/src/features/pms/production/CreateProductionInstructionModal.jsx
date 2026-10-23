@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { FileText, X } from 'lucide-react';
 import { api } from '../../../services/api';
+import MasterSourceLink from '../../../components/common/MasterSourceLink';
 
 const todayISO = () => new Date().toISOString().slice(0, 10);
 const rowsOf = (res) => (Array.isArray(res) ? res : res?.results || res?.data || []);
@@ -111,7 +112,7 @@ export function CreateProductionInstructionModal({ project, po, defaultQty, onCl
           <fieldset className="grid grid-cols-2 sm:grid-cols-3 gap-3">
             <legend className="col-span-full font-bold text-slate-800 mb-1">Header</legend>
             <label><span className={label}>Date</span><input type="date" value={form.piDate} onChange={set('piDate')} className={field} /></label>
-            <label className="sm:col-span-2"><span className={label}>External Agency</span>
+            <label className="sm:col-span-2"><span className="flex items-baseline justify-between"><span className={label}>External Agency</span><MasterSourceLink source="agencies" /></span>
               <select value={form.agencyId} onChange={set('agencyId')} className={field}>
                 <option value="">Select…</option>
                 {agencies.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
@@ -144,13 +145,13 @@ export function CreateProductionInstructionModal({ project, po, defaultQty, onCl
 
           <fieldset className="grid grid-cols-2 gap-3">
             <legend className="col-span-full font-bold text-slate-800 mb-1">Responsibility</legend>
-            <label><span className={label}>Company Production Employee</span>
+            <label><span className="flex items-baseline justify-between"><span className={label}>Company Production Employee</span><MasterSourceLink source="employees" /></span>
               <select value={form.employeeId} onChange={set('employeeId')} className={field}>
                 <option value="">Select…</option>
                 {employees.map((em) => <option key={em.id} value={em.id}>{em.name}{em.employeeCode ? ` (${em.employeeCode})` : ''}</option>)}
               </select>
             </label>
-            <label><span className={label}>Supervisor / Approver</span>
+            <label><span className="flex items-baseline justify-between"><span className={label}>Supervisor / Approver</span><MasterSourceLink source="employees" /></span>
               <select value={form.supervisorId} onChange={set('supervisorId')} className={field}>
                 <option value="">—</option>
                 {employees.map((em) => <option key={em.id} value={em.id}>{em.name}</option>)}

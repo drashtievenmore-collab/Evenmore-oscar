@@ -3,6 +3,7 @@ import { Plus, Trash2, Package, ShoppingCart, Boxes, AlertTriangle, Search, X, L
 import { useERP } from '../../context/ERPContext';
 import { Button } from '../ui/Button';
 import UomSelect from './UomSelect';
+import MasterSourceLink from './MasterSourceLink';
 import useUnits from '../../hooks/useUnits';
 import { factorToStock, formatQty, resolveUnit, unitDecimals } from '../../utils/uom';
 
@@ -415,7 +416,12 @@ export const LineItemEditor = ({ items = [], onChange, type = 'sales', readOnly 
         <table className="w-full min-w-[720px] lg:min-w-0 border-collapse text-xs">
           <thead>
             <tr className="bg-table-head border-b border-border text-[11px] font-bold text-text-secondary uppercase tracking-wider">
-              <th className="text-left px-3.5 py-3 w-[36%]">Item / Description</th>
+              <th className="text-left px-3.5 py-3 w-[36%]">
+                <div className="flex items-center justify-between gap-2">
+                  <span>Item / Description</span>
+                  {!readOnly && <MasterSourceLink source="items" className="normal-case tracking-normal" />}
+                </div>
+              </th>
               <th className="text-center px-3 py-3 w-[12%]">Available Stock</th>
               <th className="text-center px-3 py-3 w-[9%]">Qty</th>
               <th className="text-right px-3 py-3 w-[12%]">Unit Rate (₹)</th>

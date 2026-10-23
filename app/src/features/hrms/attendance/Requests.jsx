@@ -7,6 +7,7 @@ import { ConfirmModal } from "../../../components/hrms/Shared";
 import PageHeader from "../../../components/ui/PageHeader";
 import { hrmsGuides } from "../../../data/hrms/hrmsGuides";
 import { Avatar } from "../../../components/hrms/Avatar";
+import MasterSourceLink from "../../../components/common/MasterSourceLink";
 
 const SAMPLE_REQUESTS = [];
 
@@ -520,7 +521,10 @@ export default function Requests() {
       >
         <div style={{ display: "grid", gap: 16 }}>
           <div className="form-group">
-            <label className="form-label">Employee</label>
+            <div className="flex items-center justify-between">
+              <label className="form-label">Employee</label>
+              <MasterSourceLink source="employees" />
+            </div>
             <select
               className="form-select"
               value={regForm.employee}
@@ -599,7 +603,10 @@ export default function Requests() {
       >
         <div style={{ display: "grid", gap: 16 }}>
           <div className="form-group">
-            <label className="form-label">Employee</label>
+            <div className="flex items-center justify-between">
+              <label className="form-label">Employee</label>
+              <MasterSourceLink source="employees" />
+            </div>
             <select
               className="form-select"
               value={earlyForm.employee}

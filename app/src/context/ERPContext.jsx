@@ -2194,8 +2194,9 @@ export const ERPProvider = ({ children, }) => {
                 if (!deal) return;
                 const from = deal.stage || 'Draft';
                 const allowed = {
-                    Sent: ['Draft', 'Open'],
-                    Open: ['Draft', 'Sent', 'Revised', 'Declined', 'Lost'],
+                    Draft: ['Draft', 'Open', 'Sent', 'Revised', 'Declined', 'Won', 'Lost'],
+                    Sent: ['Draft', 'Open', 'Revised', 'Declined', 'Lost'],
+                    Open: ['Draft', 'Sent', 'Revised', 'Declined', 'Won', 'Lost'],
                     Won: ['Draft', 'Sent', 'Open', 'Revised', 'Declined'],
                     Lost: ['Draft', 'Sent', 'Open', 'Revised', 'Declined'],
                 };
@@ -2316,9 +2317,12 @@ export const ERPProvider = ({ children, }) => {
         }
         if (status === 'Rejected') {
             moveLinkedDealToStage(target, 'Open');
+        } else if (status === 'Sent') {
+            moveLinkedDealToStage(target, 'Sent');
+        } else if (status === 'Draft') {
+            moveLinkedDealToStage(target, 'Draft');
         }
         if (target && target.status !== 'Sent' && status === 'Sent') {
-            moveLinkedDealToStage(target, 'Sent');
             emitCrmEvent({
                 type: CRM_EVENT_TYPES.QUOTATION_SENT,
                 entityType: 'quotation',

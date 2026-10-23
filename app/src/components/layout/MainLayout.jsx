@@ -13,6 +13,12 @@ import { useModuleHydration } from '../../hooks/useModuleHydration';
 // untouched. No routing, data, or API logic changes here.
 const ERP_PREFIXES = ['/dashboard', '/sales', '/purchase', '/inventory', '/parties', '/accounts', '/reports'];
 
+// Inside the "+ Add / Manage" popup (MasterSourceLink) the app runs in an
+// iframe: show only the page, without the sidebar, topbar and floating widgets.
+const IS_EMBEDDED = (() => {
+  try { return window.self !== window.top; } catch { return true; }
+})();
+
 export default function MainLayout() {
   const sidebarWidth = useAppStore((s) => s.sidebarWidth) ?? 280;
   const toast = useAppStore((s) => s.toast);
@@ -72,6 +78,17 @@ export default function MainLayout() {
     const timer = window.setTimeout(() => clearToast?.(), 3000);
     return () => window.clearTimeout(timer);
   }, [clearToast, toast]);
+
+  if (IS_EMBEDDED) {
+    return (
+      <div className="min-h-screen bg-slate-50">
+        <main className={`content${isErpRoute ? ' erp-scope' : ''}`}>
+          <Outlet />
+        </main>
+        {toast && <div className="toast">{toast.msg}</div>}
+      </div>
+    );
+  }
 
   return (
     <div

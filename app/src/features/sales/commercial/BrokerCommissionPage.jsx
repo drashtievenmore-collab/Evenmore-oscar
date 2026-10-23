@@ -28,6 +28,7 @@ import {
 import { salesService, crmService } from '../../../services/domainServices';
 import PageInfoButton from '../../../components/ui/PageInfoButton';
 import TablePagination from '../../../components/ui/TablePagination';
+import MasterSourceLink from '../../../components/common/MasterSourceLink';
 
 export default function BrokerCommissionPage() {
   // Navigation tabs: 'leads' (default) | 'register' | 'statement' | 'analytics'
@@ -1270,9 +1271,12 @@ export default function BrokerCommissionPage() {
 
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
                   <div>
-                    <label className="block text-xs font-semibold text-slate-700 mb-1">
-                      Select Broker <span className="text-rose-500">*</span>
-                    </label>
+                    <div className="flex items-center justify-between mb-1">
+                      <label className="block text-xs font-semibold text-slate-700">
+                        Select Broker <span className="text-rose-500">*</span>
+                      </label>
+                      <MasterSourceLink source="brokers" />
+                    </div>
                     <select
                       required
                       value={leadFormData.brokerId}

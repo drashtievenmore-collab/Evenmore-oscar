@@ -10,6 +10,7 @@ import { PageHeader } from '../../components/common/PageHeader';
 import { formatDateDDMMYYYY } from '../../utils/dateUtils';
 import { SendChallanModal } from '../../components/common/SendChallanModal';
 import { PrintDeliveryChallanModal } from '../../components/common/PrintDeliveryChallanModal';
+import { SignatureSlot, useDocumentSignatures } from '../../components/common/SignatureSlot';
 const challanGuide = {
     title: 'Delivery Challans & Waybills',
     subtitle: 'Warehouse logistics dispatch, non-commercial shipping waybills, and proof of delivery (POD).',
@@ -35,6 +36,7 @@ export const DeliveryChallansPage = () => {
     const [draftChallan, setDraftChallan] = useState(null);
     const [showAddModal, setShowAddModal] = useState(false);
     const [selectedChallan, setSelectedChallan] = useState(null);
+    const challanSigs = useDocumentSignatures('DeliveryChallan', selectedChallan?.id, `Delivery Challan ${selectedChallan?.challanNumber || ''}`);
     const [printChallanTarget, setPrintChallanTarget] = useState(null);
     const [cancelModalTarget, setCancelModalTarget] = useState(null);
     const [sendModalChallan, setSendModalChallan] = useState(null);
@@ -836,16 +838,20 @@ export const DeliveryChallansPage = () => {
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-2">
                 <div className="border border-dashed border-slate-300 rounded-xl p-3 space-y-2 bg-slate-50/50">
                   <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Warehouse Dispatcher Signature</span>
-                  <div className="h-12 border-b border-slate-300 flex items-end pb-1 font-mono text-[11px] text-slate-500">
-                    Authorized Signatory (Warehouse Mgr.)
+                  <div className="border-b border-slate-300 pb-1">
+                    <SignatureSlot doc={challanSigs} signatory="dispatcher" label="Warehouse Dispatcher" modalType="authorized"
+                      defaultDesignation="Authorized Signatory (Warehouse Mgr.)"
+                      placeholder={<span className="font-mono text-[11px] text-slate-500">Authorized Signatory (Warehouse Mgr.)</span>}/>
                   </div>
                   <p className="text-[10px] text-slate-400">Goods dispatched in undamaged, verified condition.</p>
                 </div>
 
                 <div className="border border-dashed border-blue-200 rounded-xl p-3 space-y-2 bg-blue-50/30">
                   <span className="text-[10px] font-bold text-blue-800 uppercase tracking-wider">Receiver Proof of Delivery (POD)</span>
-                  <div className="h-12 border-b border-blue-300 flex items-end pb-1 font-mono text-[11px] text-blue-900">
-                    {selectedChallan.status === 'Delivered' ? 'Signed & Received by Consignee' : 'Awaiting Consignee Receiver Signature & Stamp'}
+                  <div className="border-b border-blue-300 pb-1">
+                    <SignatureSlot doc={challanSigs} signatory="consignee" label="Receiver POD" modalType="receiver"
+                      defaultName={selectedChallan.customer || ''} defaultDesignation="Consignee — Received in good condition"
+                      placeholder={<span className="font-mono text-[11px] text-blue-900">{selectedChallan.status === 'Delivered' ? 'Signed & Received by Consignee' : 'Awaiting Consignee Receiver Signature & Stamp'}</span>}/>
                   </div>
                   <p className="text-[10px] text-slate-400">Received complete quantity in good order and condition.</p>
                 </div>

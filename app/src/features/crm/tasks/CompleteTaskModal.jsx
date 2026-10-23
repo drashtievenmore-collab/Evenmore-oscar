@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { X, CheckCircle2, AlertTriangle, CheckSquare, Phone, Clock, MoveRight, LayoutGrid, CalendarDays, Check } from 'lucide-react';
 import { NEXT_ACTIONS, NEXT_ACTION_LABELS, getNextStageName } from '../../../services/taskCompletionService';
 import { useCrmStore } from '../../../stores/crmStore';
+import MasterSourceLink from '../../../components/common/MasterSourceLink';
 
 const WHAT_HAPPENED_MAX = 1000;
 const OUTCOME_NOTES_MAX = 500;
@@ -288,9 +289,12 @@ export default function CompleteTaskModal({ open, task, lead, onCancel, onComple
 
               {showMoveToStage && (
                 <div>
-                  <label className="mb-1.5 block text-[13px] font-semibold text-slate-800">
-                    Move to stage <span className="text-rose-500">*</span>
-                  </label>
+                  <div className="mb-1.5 flex items-center justify-between gap-2">
+                    <label className="block text-[13px] font-semibold text-slate-800">
+                      Move to stage <span className="text-rose-500">*</span>
+                    </label>
+                    <MasterSourceLink source="leadStages" />
+                  </div>
                   <select
                     value={targetStageId}
                     onChange={(e) => setTargetStageId(e.target.value)}

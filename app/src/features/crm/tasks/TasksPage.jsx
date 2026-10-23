@@ -11,6 +11,7 @@ import {
 } from '../../../services/leadStageAutomation';
 import { completeTaskWithOutcome, resolveLeadForTask, NEXT_ACTION_LABELS } from '../../../services/taskCompletionService';
 import CompleteTaskModal from './CompleteTaskModal';
+import MasterSourceLink from '../../../components/common/MasterSourceLink';
 import { useAppStore } from '../../../stores/appStore';
 import { useCrmStore } from '../../../stores/crmStore';
 import { describeError } from '../../../services/crmSync';
@@ -514,7 +515,10 @@ export default function TasksPage() {
               </div>
 
               <div>
-                <label className="block text-xs font-semibold text-slate-700 mb-1">Assigned Employee</label>
+                <div className="flex items-center justify-between mb-1">
+                  <label className="block text-xs font-semibold text-slate-700">Assigned Employee</label>
+                  <MasterSourceLink source="users" />
+                </div>
                 <select
                   value={editForm.assigneeId}
                   onChange={(e) => setEditForm({ ...editForm, assigneeId: e.target.value })}

@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { X, AlertTriangle, Check } from 'lucide-react';
 import { useERP } from '../../context/ERPContext';
+import MasterSourceLink from '../../components/common/MasterSourceLink';
 export const ReportFaultyModal = ({ isOpen, onClose, onSubmit, }) => {
     const [product, setProduct] = useState('');
     const { vendors = [] } = useERP() || {};
@@ -88,9 +89,12 @@ export const ReportFaultyModal = ({ isOpen, onClose, onSubmit, }) => {
           </div>
 
           <div>
-            <label className="block text-xs font-semibold text-[#1F2E4A] uppercase tracking-wider mb-1">
-              Vendor / Distributor
-            </label>
+            <div className="flex items-center justify-between mb-1">
+              <label className="block text-xs font-semibold text-[#1F2E4A] uppercase tracking-wider">
+                Vendor / Distributor
+              </label>
+              <MasterSourceLink source="vendors" />
+            </div>
             <select value={vendor} onChange={(e) => setVendor(e.target.value)} className="w-full border border-[#CED4DA] rounded px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-[#1F2E4A] bg-white">
               <option value="">Select vendor</option>
               {vendors.map((v) => <option key={v.id} value={v.name}>{v.name}</option>)}

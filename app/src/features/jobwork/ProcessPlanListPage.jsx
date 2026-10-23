@@ -17,6 +17,7 @@ import PageHeader from '../../components/ui/PageHeader';
 import TablePagination from '../../components/ui/TablePagination';
 import { useERP } from '../../context/ERPContext';
 import { api } from '../../services/api';
+import MasterSourceLink from '../../components/common/MasterSourceLink';
 import { fetchPlans, createPlan, updatePlan, deletePlan, errorMessage } from '../../services/jobWorkSync';
 
 export { toDDMMYYYY, numIN };
@@ -318,9 +319,12 @@ export function ProcessPlanForm({
             </div>
             <div className="grid grid-cols-2 gap-3">
               <div>
-                <label className="block font-semibold text-slate-600 mb-1">
-                  Process <span className="text-rose-500">*</span>
-                </label>
+                <div className="flex items-center justify-between mb-1">
+                  <label className="block font-semibold text-slate-600">
+                    Process <span className="text-rose-500">*</span>
+                  </label>
+                  <MasterSourceLink source="processes" />
+                </div>
                 <select
                   required
                   value={form.process}
@@ -354,9 +358,12 @@ export function ProcessPlanForm({
           <h3 className="mb-3 text-[13px] font-bold text-[#2563eb]">Processor / Vendor</h3>
           <div className="space-y-3 text-[12px]">
             <div>
-              <label className="block font-semibold text-slate-600 mb-1">
-                Vendor / Processor <span className="text-rose-500">*</span>
-              </label>
+              <div className="flex items-center justify-between mb-1">
+                <label className="block font-semibold text-slate-600">
+                  Vendor / Processor <span className="text-rose-500">*</span>
+                </label>
+                <MasterSourceLink source="vendors" />
+              </div>
               <select
                 required
                 value={form.vendor}
@@ -396,9 +403,12 @@ export function ProcessPlanForm({
           <div className="space-y-3 text-[12px]">
             <div className="grid grid-cols-2 gap-3">
               <div>
-                <label className="block font-semibold text-slate-600 mb-1">
-                  Fabric Item <span className="text-rose-500">*</span>
-                </label>
+                <div className="flex items-center justify-between mb-1">
+                  <label className="block font-semibold text-slate-600">
+                    Fabric Item <span className="text-rose-500">*</span>
+                  </label>
+                  <MasterSourceLink source="items" />
+                </div>
                 <select
                   required
                   value={form.fabricItem}
@@ -588,7 +598,10 @@ export function ProcessPlanForm({
           <h3 className="mb-3 text-[13px] font-bold text-[#2563eb]">Responsibility</h3>
           <div className="space-y-3 text-[12px]">
             <div>
-              <label className="block font-semibold text-slate-600 mb-1">Assigned Employee</label>
+              <div className="flex items-center justify-between mb-1">
+                <label className="block font-semibold text-slate-600">Assigned Employee</label>
+                <MasterSourceLink source="employees" />
+              </div>
               <select
                 value={form.assignedEmployee}
                 onChange={(e) => setForm({ ...form, assignedEmployee: e.target.value })}
@@ -601,7 +614,10 @@ export function ProcessPlanForm({
               </select>
             </div>
             <div>
-              <label className="block font-semibold text-slate-600 mb-1">Approver</label>
+              <div className="flex items-center justify-between mb-1">
+                <label className="block font-semibold text-slate-600">Approver</label>
+                <MasterSourceLink source="employees" />
+              </div>
               <select
                 value={form.approver}
                 onChange={(e) => setForm({ ...form, approver: e.target.value })}

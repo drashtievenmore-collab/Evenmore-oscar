@@ -23,10 +23,12 @@ import { uploadFileToBackend } from '../../../services/fileUploadService';
 import { inventoryService } from '../../../services/domainServices';
 import PageInfoButton from '../../../components/ui/PageInfoButton';
 import { PrintLorryReceiptModal } from '../../../components/common/PrintLorryReceiptModal';
+import MasterSourceLink, { useMasterDataRefresh } from '../../../components/common/MasterSourceLink';
 
 export default function TripListPage() {
   const [trips, setTrips] = useState([]);
   const [printTripId, setPrintTripId] = useState(null);
+  const [listError, setListError] = useState(null);
   const [transporters, setTransporters] = useState([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
@@ -105,7 +107,12 @@ export default function TripListPage() {
       const transpData = transpRes?.data || transpRes?.results || transpRes || [];
       const vehData = vehRes?.data || vehRes?.results || vehRes || [];
       const drivData = drivRes?.data || drivRes?.results || drivRes || [];
-      setTrips(Array.isArray(data) ? data : []);
+      // API returns camelCase (tripNumber); the table reads snake_case (trip_number).
+      const withSnakeKeys = (t) => ({
+        ...Object.fromEntries(Object.entries(t).map(([k, v]) => [k.replace(/[A-Z]/g, (c) => `_${c.toLowerCase()}`), v])),
+        ...t,
+      });
+      setTrips(Array.isArray(data) ? data.map(withSnakeKeys) : []);
       setTransporters(Array.isArray(transpData) ? transpData : []);
       setVehicles(Array.isArray(vehData) ? vehData : []);
       setDrivers(Array.isArray(drivData) ? drivData : []);
@@ -119,6 +126,9 @@ export default function TripListPage() {
   useEffect(() => {
     fetchTrips();
   }, [fetchTrips]);
+
+  // Vehicles / drivers added in the "+ Add / Manage" popup show up without reopening the form.
+  useMasterDataRefresh(fetchTrips, ['vehicles', 'drivers', 'transporters']);
 
   const handleVehicleSelect = (vehicleId) => {
     if (!vehicleId) {
@@ -226,7 +236,14 @@ export default function TripListPage() {
     try {
       setSubmitting(true);
       setError(null);
-      await inventoryService.createTrip({ ...tripForm, lrDate: tripForm.lrDate || null });
+      // A lot typed into the draft row but not "Add"-ed would otherwise be silently dropped.
+      const pendingLine = materialDraft.lotNumber && materialDraft.meters ? [{ ...materialDraft }] : [];
+      await inventoryService.createTrip({
+        ...tripForm,
+        lrDate: tripForm.lrDate || null,
+        materials: [...tripForm.materials, ...pendingLine],
+      });
+      setMaterialDraft({ lotNumber: '', takaNumber: '', meters: '', weightKg: '' });
       setShowCreateModal(false);
       setTripForm({
         tripType: 'OUTWARD',
@@ -260,10 +277,11 @@ export default function TripListPage() {
 
   const handleAllocateFreight = async (tripId) => {
     try {
+      setListError(null);
       await inventoryService.allocateTripFreight(tripId);
       fetchTrips();
     } catch (err) {
-      alert(err?.response?.data?.message || err?.message || 'Freight allocation failed.');
+      setListError(err?.response?.data?.message || err?.message || 'Freight allocation failed.');
     }
   };
 
@@ -329,6 +347,14 @@ export default function TripListPage() {
           </select>
         </div>
       </div>
+
+      {listError && (
+        <div className="p-3 bg-rose-50 border border-rose-200 rounded-lg text-rose-700 text-sm flex items-start gap-2">
+          <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
+          <span className="flex-1">{listError}</span>
+          <button onClick={() => setListError(null)} className="text-rose-400 hover:text-rose-600"><X className="w-4 h-4" /></button>
+        </div>
+      )}
 
       {/* Trips Table */}
       <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
@@ -439,13 +465,25 @@ export default function TripListPage() {
                           <CheckCircle2 className="w-3 h-3" /> Confirm Delivery
                         </button>
                       )}
-                      {!t.freight_allocated && !t.is_cost_allocated && (
-                        <button
-                          onClick={() => handleAllocateFreight(t.id)}
-                          className="px-2.5 py-1 text-xs font-medium text-indigo-700 bg-indigo-50 hover:bg-indigo-100 rounded border border-indigo-200 transition-colors"
-                        >
-                          Allocate Cost
-                        </button>
+                      {!t.freight_allocated && !t.is_cost_allocated && (() => {
+                        // Spreading cost to LOT / SALES_ORDER needs material lines; mirror the backend rule.
+                        const needsLines = (t.cost_allocation_target || 'LOT') !== 'EXPENSE'
+                          && Number(t.total_charges) > 0
+                          && !(t.materials || []).length;
+                        return (
+                          <button
+                            onClick={() => handleAllocateFreight(t.id)}
+                            disabled={needsLines}
+                            title={needsLines ? 'No material (lot/taka) lines on this trip, so there is nothing to allocate the cost to.' : undefined}
+                            className="px-2.5 py-1 text-xs font-medium text-indigo-700 bg-indigo-50 hover:bg-indigo-100 rounded border border-indigo-200 transition-colors disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-indigo-50"
+                          >
+                            Allocate Cost
+                          </button>
+                        );
+                      })()}
+                      {!t.freight_allocated && !t.is_cost_allocated && (t.cost_allocation_target || 'LOT') !== 'EXPENSE'
+                        && Number(t.total_charges) > 0 && !(t.materials || []).length && (
+                        <div className="text-[10px] text-amber-600 mt-1 whitespace-normal">No lot lines — cost can't be allocated</div>
                       )}
                     </td>
                   </tr>
@@ -503,13 +541,16 @@ export default function TripListPage() {
                 <div>
                   <div className="flex items-center justify-between mb-1">
                     <label className="block text-xs font-medium text-slate-700">Transporter</label>
-                    <button
-                      type="button"
-                      onClick={() => setShowTransporterModal(true)}
-                      className="text-[11px] text-indigo-600 hover:text-indigo-800 font-semibold"
-                    >
-                      + New
-                    </button>
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setShowTransporterModal(true)}
+                        className="text-[11px] text-indigo-600 hover:text-indigo-800 font-semibold"
+                      >
+                        + New
+                      </button>
+                      <MasterSourceLink source="transporters" />
+                    </div>
                   </div>
                   <select
                     value={tripForm.transporterId}
@@ -526,7 +567,10 @@ export default function TripListPage() {
 
               <div className="grid grid-cols-2 gap-3 p-3 bg-slate-50 border border-slate-200 rounded-lg">
                 <div>
-                  <label className="block text-xs font-medium text-slate-700 mb-1">Select Registered Vehicle</label>
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="block text-xs font-medium text-slate-700">Select Registered Vehicle</label>
+                    <MasterSourceLink source="vehicles" />
+                  </div>
                   <select
                     value={tripForm.vehicleId || ''}
                     onChange={(e) => handleVehicleSelect(e.target.value)}
@@ -541,7 +585,10 @@ export default function TripListPage() {
                   </select>
                 </div>
                 <div>
-                  <label className="block text-xs font-medium text-slate-700 mb-1">Select Registered Driver</label>
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="block text-xs font-medium text-slate-700">Select Registered Driver</label>
+                    <MasterSourceLink source="drivers" />
+                  </div>
                   <select
                     value={tripForm.driverId || ''}
                     onChange={(e) => handleDriverSelect(e.target.value)}

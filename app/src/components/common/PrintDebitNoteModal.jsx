@@ -1,11 +1,13 @@
 import React, { useEffect } from 'react';
 import { X, Printer, RotateCcw, Building2, Calendar, FileText } from 'lucide-react';
+import { SignatureSlot, useDocumentSignatures } from './SignatureSlot';
 
 export const PrintDebitNoteModal = ({
   isOpen,
   onClose,
   debitNote,
 }) => {
+  const docSigs = useDocumentSignatures('DebitNote', debitNote?.id, `Debit Note ${debitNote?.debitNoteNumber || ''}`);
   useEffect(() => {
     if (!isOpen) return;
     const onKey = (e) => { if (e.key === 'Escape') onClose?.(); };
@@ -229,12 +231,16 @@ export const PrintDebitNoteModal = ({
           <div className="grid grid-cols-2 gap-12 pt-6 border-t border-slate-200 text-center text-xs">
             <div className="space-y-10">
               <p className="text-slate-400 uppercase text-[10px] font-bold">QA Intake Inspector / Prepared By</p>
-              <div className="border-b border-slate-300 w-3/4 mx-auto" />
+              <div className="border-b border-slate-300 w-3/4 mx-auto pb-1">
+                <SignatureSlot doc={docSigs} signatory="prepared" label="QA Intake Inspector / Prepared By" modalType="authorized" defaultDesignation="QA Intake Inspector" />
+              </div>
               <p className="font-semibold text-slate-700 text-[11px]">Quality Control Department</p>
             </div>
             <div className="space-y-10">
               <p className="text-slate-400 uppercase text-[10px] font-bold">Commercial Accounts & Authorized Signatory</p>
-              <div className="border-b border-slate-300 w-3/4 mx-auto" />
+              <div className="border-b border-slate-300 w-3/4 mx-auto pb-1">
+                <SignatureSlot doc={docSigs} signatory="authorized" label="Commercial Accounts & Authorized Signatory" modalType="authorized" defaultDesignation="Commercial Accounts — Authorized Signatory" />
+              </div>
               <p className="font-semibold text-slate-700 text-[11px]">Evenmore Systems Private Limited</p>
             </div>
           </div>

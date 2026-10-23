@@ -513,8 +513,22 @@ export async function pullTeamRoster() {
     const body = await api.get('/crm/team-roster/');
     const roster = body?.roster || body || {};
     const members = [];
+    const seen = new Set();
     Object.entries(roster).forEach(([role, people]) => {
-      (people || []).forEach((person) => members.push({ ...person, role }));
+      (people || []).forEach((person) => {
+        if (!person) return;
+        const key = String(person.id || person.name || '');
+        if (!seen.has(key)) {
+          seen.add(key);
+          members.push({ ...person, role, roles: [role] });
+        } else {
+          const existing = members.find((m) => String(m.id || m.name || '') === key);
+          if (existing) {
+            existing.roles = existing.roles || [existing.role];
+            if (!existing.roles.includes(role)) existing.roles.push(role);
+          }
+        }
+      });
     });
     return { roster, members };
   } catch (err) {

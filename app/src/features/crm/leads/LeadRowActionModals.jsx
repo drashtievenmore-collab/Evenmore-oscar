@@ -1,19 +1,23 @@
 import { useEffect, useRef, useState } from 'react';
 import { Modal } from '../../../components/ui/Modal';
+import MasterSourceLink from '../../../components/common/MasterSourceLink';
 
 /* Shared bits for the lead ⋮ quick actions. Every modal is controlled by
    LeadsPage: it passes the lead, option lists, and an onSave that writes
    server-first with a local fallback. */
 
-function Field({ label, required, children, wide }) {
+function Field({ label, required, children, wide, source }) {
   return (
     <label
       className="grid gap-1.5 text-xs font-semibold text-slate-600"
       style={wide ? { gridColumn: '1 / -1' } : undefined}
     >
-      <span>
-        {label}
-        {required && <span className="text-rose-500"> *</span>}
+      <span className="flex items-center justify-between">
+        <span>
+          {label}
+          {required && <span className="text-rose-500"> *</span>}
+        </span>
+        {source && <MasterSourceLink source={source} />}
       </span>
       {children}
     </label>
@@ -126,7 +130,7 @@ export function CreateLeadTaskModal({ isOpen, lead, members = [], onClose, onSav
             ))}
           </select>
         </Field>
-        <Field label="Salesperson" wide>
+        <Field label="Salesperson" wide source="users">
           <select
             className={inputCls}
             value={assigneeId}

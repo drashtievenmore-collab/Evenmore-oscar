@@ -13,6 +13,7 @@ import { Button } from '../../components/ui/Button';
 import { PageHeader } from '../../components/common/PageHeader';
 import { Pagination } from '../../components/ui/Pagination';
 import SalespersonSelect from '../../components/common/SalespersonSelect';
+import MasterSourceLink from '../../components/common/MasterSourceLink';
 
 const invoiceGuide = {
     title: 'Sales Invoices & Receivables',
@@ -764,7 +765,10 @@ export const SalesInvoicesView = ({ invoices = [], onCreateInvoice, searchTerm: 
                             {/* Top Form Row */}
                             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-3">
                                 <div className="flex flex-col gap-1">
-                                    <label className="font-semibold text-slate-700">Customer Account *</label>
+                                    <div className="flex items-center justify-between">
+                                        <label className="font-semibold text-slate-700">Customer Account *</label>
+                                        <MasterSourceLink source="customers" />
+                                    </div>
                                     <select
                                         value={selectedCustomerId}
                                         onChange={(e) => handleCustomerChange(e.target.value)}
@@ -813,7 +817,10 @@ export const SalesInvoicesView = ({ invoices = [], onCreateInvoice, searchTerm: 
                                 </div>
 
                                 <div className="flex flex-col gap-1">
-                                    <label className="font-semibold text-slate-700">Salesperson</label>
+                                    <div className="flex items-center justify-between">
+                                        <label className="font-semibold text-slate-700">Salesperson</label>
+                                        <MasterSourceLink source="employees" />
+                                    </div>
                                     <SalespersonSelect value={salesperson.id} name={salesperson.name} onChange={setSalesperson} className="border border-slate-300 rounded-xl px-3 py-2 bg-white text-slate-800"/>
                                 </div>
                             </div>

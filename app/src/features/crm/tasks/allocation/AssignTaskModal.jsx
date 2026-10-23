@@ -3,6 +3,7 @@ import { X } from 'lucide-react';
 import { PRIORITIES } from './taskAllocationStore';
 import { useCrmStore } from '../../../../stores/crmStore';
 import { describeError } from '../../../../services/crmSync';
+import MasterSourceLink from '../../../../components/common/MasterSourceLink';
 
 export default function AssignTaskModal({ isOpen, initial, onClose, onSubmit }) {
   const employees = useCrmStore((s) => s.teamMembers);
@@ -118,7 +119,10 @@ export default function AssignTaskModal({ isOpen, initial, onClose, onSubmit }) 
               <p className="text-[11px] text-slate-400 mt-1">Filters the assignee list below.</p>
             </div>
             <div>
-              <label className="block text-xs font-semibold text-slate-600 mb-1.5">Assign To<span className="text-rose-500">*</span></label>
+              <div className="flex items-center justify-between mb-1.5">
+                <label className="block text-xs font-semibold text-slate-600">Assign To<span className="text-rose-500">*</span></label>
+                <MasterSourceLink source="users" />
+              </div>
               <select
                 value={form.assigneeId}
                 onChange={(e) => update('assigneeId', e.target.value)}
