@@ -24,6 +24,8 @@ import {
   Layers,
   Download,
   ExternalLink,
+  PenTool,
+  ShieldCheck,
 } from 'lucide-react';
 import { jwoKpis, numIN, toDDMMYYYY, purgeLegacyJobWorkCache } from './jobWorkOrdersStore';
 import {
@@ -34,10 +36,13 @@ import {
   updateJWORow,
   deleteJWORow,
   approveJWOLoss,
+  signJWODocument,
   errorMessage,
 } from '../../services/jobWorkSync';
 import { api } from '../../services/api';
 import PageHeader from '../../components/ui/PageHeader';
+import DigitalSignatureModal from '../../components/common/DigitalSignatureModal';
+import { PrintJobWorkChallanModal } from '../../components/common/PrintJobWorkChallanModal';
 
 const TABS = [
   'Material Details',
@@ -61,6 +66,7 @@ export default function JobWorkOrderDetailPage() {
   const { id } = useParams();
   const navigate = useNavigate();
   const [jwo, setJwo] = useState(null);
+  const [printOutwardId, setPrintOutwardId] = useState(null);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState('');
   const [saving, setSaving] = useState(false);
@@ -111,6 +117,103 @@ export default function JobWorkOrderDetailPage() {
 
   const [showUploadDocModal, setShowUploadDocModal] = useState(false);
   const [viewingDoc, setViewingDoc] = useState(null);
+  const [signModalOpen, setSignModalOpen] = useState(false);
+  const [signatoryType, setSignatoryType] = useState('authorized');
+  const [isSigning, setIsSigning] = useState(false);
+
+  const getDocSignatures = (doc) => {
+    if (!doc || !jwo?.signatures) return { authorized: null, receiver: null };
+    const sigs = jwo.signatures;
+    if (doc.sourceType === 'jwo' || doc.type === 'Job Work Order') {
+      return sigs.jwo || {};
+    }
+    if (doc.sourceType === 'outward' || doc.type === 'Outward Challan') {
+      const id = doc.sourceData?.id;
+      return (id && sigs.outwards?.[id]) || sigs.outwards?.default || {};
+    }
+    if (doc.sourceType === 'inward' || doc.type === 'Inward Receipt') {
+      const id = doc.sourceData?.id;
+      return (id && sigs.inwards?.[id]) || sigs.inwards?.default || {};
+    }
+    return {};
+  };
+
+  const handleOpenSignModal = (type) => {
+    setSignatoryType(type);
+    setSignModalOpen(true);
+  };
+
+  const handleSaveSignature = async (sigPayload) => {
+    if (!viewingDoc || !jwo?.id) return;
+    try {
+      setIsSigning(true);
+      let docType = 'jwo';
+      let docId = null;
+      if (viewingDoc.sourceType === 'outward' || viewingDoc.type === 'Outward Challan') {
+        docType = 'outward';
+        docId = viewingDoc.sourceData?.id;
+      } else if (viewingDoc.sourceType === 'inward' || viewingDoc.type === 'Inward Receipt') {
+        docType = 'inward';
+        docId = viewingDoc.sourceData?.id;
+      }
+
+      const res = await signJWODocument(jwo.id, {
+        documentType: docType,
+        documentId: docId,
+        signatoryType,
+        signature: sigPayload,
+      });
+
+      if (res?.signatures) {
+        setJwo((prev) => ({ ...prev, signatures: res.signatures }));
+      } else {
+        const refreshed = await fetchJWO(jwo.id);
+        setJwo(refreshed);
+      }
+      setSignModalOpen(false);
+    } catch (err) {
+      console.error('Error saving signature:', err);
+      window.alert(errorMessage(err, 'Failed to save signature.'));
+    } finally {
+      setIsSigning(false);
+    }
+  };
+
+  const handleClearSignature = async (type) => {
+    if (!viewingDoc || !jwo?.id) return;
+    if (!window.confirm(`Clear this ${type === 'authorized' ? 'Authorized' : 'Receiver'} signature?`)) return;
+    try {
+      setIsSigning(true);
+      let docType = 'jwo';
+      let docId = null;
+      if (viewingDoc.sourceType === 'outward' || viewingDoc.type === 'Outward Challan') {
+        docType = 'outward';
+        docId = viewingDoc.sourceData?.id;
+      } else if (viewingDoc.sourceType === 'inward' || viewingDoc.type === 'Inward Receipt') {
+        docType = 'inward';
+        docId = viewingDoc.sourceData?.id;
+      }
+
+      const res = await signJWODocument(jwo.id, {
+        documentType: docType,
+        documentId: docId,
+        signatoryType: type,
+        signature: null,
+      });
+
+      if (res?.signatures) {
+        setJwo((prev) => ({ ...prev, signatures: res.signatures }));
+      } else {
+        const refreshed = await fetchJWO(jwo.id);
+        setJwo(refreshed);
+      }
+    } catch (err) {
+      console.error('Error clearing signature:', err);
+      window.alert(errorMessage(err, 'Failed to clear signature.'));
+    } finally {
+      setIsSigning(false);
+    }
+  };
   const [isUploadingDoc, setIsUploadingDoc] = useState(false);
   const [docForm, setDocForm] = useState({
     type: 'QC Report',
@@ -768,7 +871,7 @@ export default function JobWorkOrderDetailPage() {
                           <div className="absolute right-0 top-8 z-20 w-32 rounded-lg border border-slate-200 bg-white py-1 shadow-lg text-left">
                             <button
                               onClick={() => {
-                                window.print();
+                                setPrintOutwardId(o.id);
                                 setOpenActionMenuId(null);
                               }}
                               className="w-full px-3 py-1.5 text-[11.5px] font-semibold text-slate-700 hover:bg-slate-50 flex items-center gap-1.5"
@@ -2019,6 +2122,13 @@ export default function JobWorkOrderDetailPage() {
         </div>
       )}
 
+      <PrintJobWorkChallanModal
+        isOpen={Boolean(printOutwardId)}
+        onClose={() => setPrintOutwardId(null)}
+        jwoId={jwo?.id || id}
+        outwardId={printOutwardId}
+      />
+
       {/* ── MODAL: View Outward Challan Details ── */}
       {viewingOutward && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4 backdrop-blur-xs">
@@ -2069,7 +2179,7 @@ export default function JobWorkOrderDetailPage() {
               <div className="flex justify-end gap-2 pt-2">
                 <button
                   type="button"
-                  onClick={() => window.print()}
+                  onClick={() => setPrintOutwardId(viewingOutward.id)}
                   className="rounded-lg border border-slate-200 px-3.5 py-1.5 font-bold text-slate-600 hover:bg-slate-50 inline-flex items-center gap-1.5"
                 >
                   <Printer size={13} /> Print
@@ -2690,16 +2800,141 @@ export default function JobWorkOrderDetailPage() {
                   )}
 
                   {/* Signature footer */}
-                  <div className="grid grid-cols-2 gap-8 pt-6 border-t border-slate-100 text-[11px] text-slate-500">
-                    <div>
-                      <p className="border-b border-slate-300 pb-8 text-center" />
-                      <p className="mt-1 text-center font-medium">Authorized Signatory</p>
-                    </div>
-                    <div>
-                      <p className="border-b border-slate-300 pb-8 text-center" />
-                      <p className="mt-1 text-center font-medium">Vendor / Receiver's Signature</p>
-                    </div>
-                  </div>
+                  {(() => {
+                    const docSigs = getDocSignatures(viewingDoc);
+                    const authSig = docSigs.authorized;
+                    const recvSig = docSigs.receiver;
+
+                    return (
+                      <div className="grid grid-cols-2 gap-8 pt-6 border-t border-slate-100 text-[11px] text-slate-500">
+                        {/* Authorized Signatory Column */}
+                        <div className="flex flex-col items-center justify-end text-center">
+                          {authSig ? (
+                            <div className="w-full flex flex-col items-center justify-center mb-1">
+                              {authSig.type === 'digital_stamp' ? (
+                                <div className="w-full max-w-[220px] p-2.5 rounded-xl bg-emerald-50/80 border border-emerald-200/90 shadow-2xs mb-1">
+                                  <div className="flex items-center justify-center gap-1 text-[10.5px] font-extrabold text-emerald-800">
+                                    <ShieldCheck size={13} className="text-emerald-600" />
+                                    <span>DIGITALLY AUTHORIZED</span>
+                                  </div>
+                                  <div className="font-extrabold text-slate-900 text-xs mt-0.5">{authSig.name}</div>
+                                  <div className="text-[10px] text-slate-600 font-medium">{authSig.designation || 'Authorized Signatory'}</div>
+                                  <div className="text-[9px] font-mono text-emerald-700/80 mt-0.5">
+                                    {authSig.signedAt ? new Date(authSig.signedAt).toLocaleString() : ''}
+                                  </div>
+                                </div>
+                              ) : (
+                                <div className="flex flex-col items-center justify-center mb-1">
+                                  <img
+                                    src={authSig.signatureData}
+                                    alt="Authorized Signature"
+                                    className="max-h-14 max-w-[190px] object-contain drop-shadow-2xs"
+                                  />
+                                  <span className="text-[10.5px] font-bold text-slate-800">{authSig.name}</span>
+                                  {authSig.designation && <span className="text-[9.5px] text-slate-500">{authSig.designation}</span>}
+                                  <span className="text-[9px] text-slate-400 font-mono">
+                                    {authSig.signedAt ? new Date(authSig.signedAt).toLocaleDateString() : ''}
+                                  </span>
+                                </div>
+                              )}
+                              <div className="no-print flex items-center justify-center gap-2 mt-1">
+                                <button
+                                  type="button"
+                                  onClick={() => handleOpenSignModal('authorized')}
+                                  className="text-[10px] text-blue-600 hover:text-blue-800 font-bold inline-flex items-center gap-0.5 cursor-pointer"
+                                >
+                                  <Pencil size={10} /> Change
+                                </button>
+                                <span className="text-slate-300">|</span>
+                                <button
+                                  type="button"
+                                  onClick={() => handleClearSignature('authorized')}
+                                  className="text-[10px] text-rose-600 hover:text-rose-800 font-bold inline-flex items-center gap-0.5 cursor-pointer"
+                                >
+                                  <Trash2 size={10} /> Remove
+                                </button>
+                              </div>
+                            </div>
+                          ) : (
+                            <div className="no-print pb-3 pt-1 flex items-center justify-center">
+                              <button
+                                type="button"
+                                onClick={() => handleOpenSignModal('authorized')}
+                                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-dashed border-emerald-400 bg-emerald-50/70 hover:bg-emerald-100 text-emerald-800 font-bold text-[11px] transition shadow-2xs cursor-pointer"
+                              >
+                                <PenTool size={12} className="text-emerald-600" /> Sign Digitally
+                              </button>
+                            </div>
+                          )}
+                          <p className="border-b border-slate-300 w-full text-center" />
+                          <p className="mt-1 text-center font-bold text-slate-700">Authorized Signatory</p>
+                        </div>
+
+                        {/* Vendor / Receiver's Signature Column */}
+                        <div className="flex flex-col items-center justify-end text-center">
+                          {recvSig ? (
+                            <div className="w-full flex flex-col items-center justify-center mb-1">
+                              {recvSig.type === 'digital_stamp' ? (
+                                <div className="w-full max-w-[220px] p-2.5 rounded-xl bg-blue-50/80 border border-blue-200/90 shadow-2xs mb-1">
+                                  <div className="flex items-center justify-center gap-1 text-[10.5px] font-extrabold text-blue-800">
+                                    <CheckCircle2 size={13} className="text-blue-600" />
+                                    <span>RECEIVER ACKNOWLEDGMENT</span>
+                                  </div>
+                                  <div className="font-extrabold text-slate-900 text-xs mt-0.5">{recvSig.name}</div>
+                                  <div className="text-[10px] text-slate-600 font-medium">{recvSig.designation || 'Vendor Representative'}</div>
+                                  <div className="text-[9px] font-mono text-blue-700/80 mt-0.5">
+                                    {recvSig.signedAt ? new Date(recvSig.signedAt).toLocaleString() : ''}
+                                  </div>
+                                </div>
+                              ) : (
+                                <div className="flex flex-col items-center justify-center mb-1">
+                                  <img
+                                    src={recvSig.signatureData}
+                                    alt="Receiver Signature"
+                                    className="max-h-14 max-w-[190px] object-contain drop-shadow-2xs"
+                                  />
+                                  <span className="text-[10.5px] font-bold text-slate-800">{recvSig.name}</span>
+                                  {recvSig.designation && <span className="text-[9.5px] text-slate-500">{recvSig.designation}</span>}
+                                  <span className="text-[9px] text-slate-400 font-mono">
+                                    {recvSig.signedAt ? new Date(recvSig.signedAt).toLocaleDateString() : ''}
+                                  </span>
+                                </div>
+                              )}
+                              <div className="no-print flex items-center justify-center gap-2 mt-1">
+                                <button
+                                  type="button"
+                                  onClick={() => handleOpenSignModal('receiver')}
+                                  className="text-[10px] text-blue-600 hover:text-blue-800 font-bold inline-flex items-center gap-0.5 cursor-pointer"
+                                >
+                                  <Pencil size={10} /> Change
+                                </button>
+                                <span className="text-slate-300">|</span>
+                                <button
+                                  type="button"
+                                  onClick={() => handleClearSignature('receiver')}
+                                  className="text-[10px] text-rose-600 hover:text-rose-800 font-bold inline-flex items-center gap-0.5 cursor-pointer"
+                                >
+                                  <Trash2 size={10} /> Remove
+                                </button>
+                              </div>
+                            </div>
+                          ) : (
+                            <div className="no-print pb-3 pt-1 flex items-center justify-center">
+                              <button
+                                type="button"
+                                onClick={() => handleOpenSignModal('receiver')}
+                                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-dashed border-blue-400 bg-blue-50/70 hover:bg-blue-100 text-blue-800 font-bold text-[11px] transition shadow-2xs cursor-pointer"
+                              >
+                                <PenTool size={12} className="text-blue-600" /> Record Receiver Sign
+                              </button>
+                            </div>
+                          )}
+                          <p className="border-b border-slate-300 w-full text-center" />
+                          <p className="mt-1 text-center font-bold text-slate-700">Vendor / Receiver's Signature</p>
+                        </div>
+                      </div>
+                    );
+                  })()}
                 </div>
               )}
 
@@ -2716,6 +2951,33 @@ export default function JobWorkOrderDetailPage() {
           </div>
         </div>
       )}
+
+      {/* ── MODAL: Digital E-Signature ── */}
+      <DigitalSignatureModal
+        isOpen={signModalOpen}
+        onClose={() => setSignModalOpen(false)}
+        signatoryType={signatoryType}
+        documentTitle={`${viewingDoc?.type || 'Job Work Voucher'} — ${viewingDoc?.no || jwo?.jwoNo || ''}`}
+        defaultName={
+          signatoryType === 'authorized'
+            ? (() => {
+                try {
+                  const u = JSON.parse(localStorage.getItem('evenmore_saved_user') || '{}');
+                  return u.name || u.fullName || u.username || 'Authorized Officer';
+                } catch {
+                  return 'Authorized Officer';
+                }
+              })()
+            : jwo?.vendor || 'Vendor Representative'
+        }
+        defaultDesignation={
+          signatoryType === 'authorized'
+            ? 'Authorized Signatory — Operations'
+            : 'Authorized Receiver / Transporter'
+        }
+        onSave={handleSaveSignature}
+        isSaving={isSigning}
+      />
 
       {/* ── MODAL: Record Loss Entry ── */}
       {showLossModal && (

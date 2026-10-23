@@ -13,6 +13,7 @@ import {
   FileText,
   ChevronDown,
   ChevronUp,
+  PackageCheck,
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { api } from '../../services/api';

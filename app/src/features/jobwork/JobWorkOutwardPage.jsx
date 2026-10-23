@@ -5,6 +5,7 @@ import { numIN, toDDMMYYYY, purgeLegacyJobWorkCache } from './jobWorkOrdersStore
 import { fetchJWOs, fetchPlans, createJWORow, deleteJWORow, errorMessage } from '../../services/jobWorkSync';
 import PageHeader from '../../components/ui/PageHeader';
 import TablePagination from '../../components/ui/TablePagination';
+import { PrintJobWorkChallanModal } from '../../components/common/PrintJobWorkChallanModal';
 
 const statusPill = (s) =>
   s === 'Sent' || s === 'Fully Received' || s === 'Completed'
@@ -60,6 +61,7 @@ export default function JobWorkOutwardPage() {
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(10);
   const [menuId, setMenuId] = useState(null);
+  const [printRow, setPrintRow] = useState(null);
   const [showForm, setShowForm] = useState(false);
   const [form, setForm] = useState({
     jwoId: '',
@@ -312,6 +314,7 @@ export default function JobWorkOutwardPage() {
                             <div className="fixed inset-0 z-10" onClick={() => setMenuId(null)} />
                             <div className="absolute right-0 z-20 w-36 overflow-hidden rounded-xl border border-slate-200 bg-white py-1 shadow-xl">
                               <button onClick={() => { setMenuId(null); navigate(`/job-work/orders/${r.jwoId}`); }} className="block w-full px-3 py-2 text-left text-[12px] font-medium text-slate-700 hover:bg-slate-50">Open JWO</button>
+                              <button onClick={() => { setMenuId(null); setPrintRow(r); }} className="block w-full px-3 py-2 text-left text-[12px] font-medium text-slate-700 hover:bg-slate-50">Print Challan</button>
                               <button onClick={() => handleDelete(r)} className="block w-full px-3 py-2 text-left text-[12px] font-semibold text-rose-600 hover:bg-rose-50">Delete</button>
                             </div>
                           </>
@@ -434,6 +437,12 @@ export default function JobWorkOutwardPage() {
           </div>
         </div>
       )}
+      <PrintJobWorkChallanModal
+        isOpen={Boolean(printRow)}
+        onClose={() => setPrintRow(null)}
+        jwoId={printRow?.jwoId}
+        outwardId={printRow?.id}
+      />
     </div>
   );
 }

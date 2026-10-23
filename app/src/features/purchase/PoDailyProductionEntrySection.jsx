@@ -891,7 +891,7 @@ export function PoDailyProductionEntrySection({ po, onUpdated, navigate, onSwitc
                     Daily Production Register — {instruction?.instructionNumber || 'Instruction'}
                   </h3>
                   <p className="text-[11px] text-slate-500 font-mono">
-                    PO: <strong className="text-teal-700">{po?.poNumber}</strong> | Agency: <strong className="text-slate-700">{agencyName}</strong> | Quality: <strong className="text-slate-700">{fabricQuality}</strong>
+                    PO: <strong className="text-teal-700">{po?.poNumber}</strong> | Agency: <strong className="text-slate-700">{displayVendor}</strong> | Quality: <strong className="text-slate-700">{displayFabric}</strong>
                   </p>
                 </div>
               </div>
