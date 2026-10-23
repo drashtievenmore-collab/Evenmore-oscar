@@ -263,7 +263,7 @@ export const hrmsService = {
   getKpis: (query) => api.get('/hrms/performance/kpis/', { query }),
   createAppraisal: (data) => api.post('/hrms/performance/appraisals/', data),
   trackGoal: (id, data) => api.patch(`/hrms/performance/goals/${id}/`, data),
-  getTrainings: (query) => api.get('/hrms/trainings/', { query }),
+  // getTrainings: (query) => api.get('/hrms/trainings/', { query }),
 };
 
 // ── Inventory ────────────────────────────────────────────────────────────

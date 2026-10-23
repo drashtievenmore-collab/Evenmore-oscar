@@ -443,20 +443,22 @@ export const NAV = [
       { label: 'HR Admin', icon: ShieldCheck, to: '/hrms/hr-admin' },
       { label: 'Asset Setup', icon: Briefcase, to: '/hrms/assets' },
       { label: 'Documents', icon: FileText, to: '/hrms/documents' },
-      {
-        label: 'Organization',
-        icon: Building2,
-        defaultOpen: false,
-        children: [
-          { label: 'Org Chart', to: '/hrms/org-chart', dot: true },
-          { label: 'Departments', to: '/hrms/departments' },
-          { label: 'Locations', to: '/hrms/locations' },
-          { label: 'Designations', to: '/hrms/designations' },
-        ],
-      },
       { label: 'Company Policy', icon: ShieldCheck, to: '/hrms/company-policy' },
       { label: 'Calendar', icon: Calendar, to: '/hrms/calendar' },
       // { label: 'HRMS Setup', icon: Sliders, to: '/hrms/hrms-setup' }, // Hidden: HRMS Setup commented out
+    ],
+  },
+
+  {
+    label: 'Organization',
+    icon: Building2,
+    permission: 'menu_hrms',
+    defaultOpen: false,
+    children: [
+      { label: 'Org Chart', to: '/hrms/org-chart', dot: true },
+      { label: 'Departments', to: '/hrms/departments' },
+      { label: 'Locations', to: '/hrms/locations' },
+      { label: 'Designations', to: '/hrms/designations' },
     ],
   },
 

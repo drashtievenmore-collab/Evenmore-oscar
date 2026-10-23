@@ -46,13 +46,18 @@ function OrgNode({ person, depth, isCollapsed, onToggle, onSelect, highlight }) 
   const reports = person.reports || [];
   const expanded = reports.length > 0 && !isCollapsed(person.id);
   const isRoot = depth === 0;
+  const isLevel1 = depth === 1;
 
   return (
     <div className="flex flex-col items-center">
       <div
         onClick={() => onSelect(person)}
         className={`w-[160px] bg-white rounded-xl p-3 flex flex-col items-center shadow-xs cursor-pointer hover:shadow-md hover:-translate-y-0.5 transition-all group ${
-          isRoot ? 'border-2 border-navy' : 'border border-bdr hover:border-slate-400'
+          isRoot
+            ? 'border-2 border-navy ring-2 ring-navy/10'
+            : isLevel1
+            ? 'border-2 border-indigo-500/70 shadow-xs'
+            : 'border border-bdr hover:border-slate-400'
         } ${highlight(person) ? 'ring-2 ring-blue-500/40 border-blue-400' : ''}`}
       >
         <Avatar name={person.name} size={isRoot ? 'lg' : 'md'} />
@@ -141,9 +146,9 @@ export function OrgChartPage() {
     } else {
       const roots = Array.isArray(chart?.tree) ? chart.tree : [];
       setTree(roots);
-      // Open the first two levels; deeper branches start folded.
+      // Open the first two levels (Super User + CEO/Admin); deeper branches start folded.
       setCollapsed(new Set(
-        walk(roots).filter(({ node, depth }) => depth >= 1 && node.reports?.length).map(({ node }) => node.id),
+        walk(roots).filter(({ node, depth }) => depth >= 2 && node.reports?.length).map(({ node }) => node.id),
       ));
       setLoadedAt(new Date());
     }

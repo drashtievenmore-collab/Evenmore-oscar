@@ -91,10 +91,10 @@ const Appraisal = lazy(() => import('../features/hrms/performance/Appraisal'));
 const AppraisalFunnel = lazy(() => import('../features/hrms/performance/AppraisalFunnel'));
 const GoalTracking = lazy(() => import('../features/hrms/performance/GoalTracking'));
 const GoalFunnel = lazy(() => import('../features/hrms/performance/GoalFunnel'));
-const TrainingList = lazy(() => import('../features/hrms/performance/TrainingList'));
-const TrainingFunnel = lazy(() => import('../features/hrms/performance/TrainingFunnel'));
-const Trainers = lazy(() => import('../features/hrms/performance/Trainers'));
-const TrainingDashboard = lazy(() => import('../features/hrms/performance/TrainingDashboard'));
+// const TrainingList = lazy(() => import('../features/hrms/performance/TrainingList'));
+// const TrainingFunnel = lazy(() => import('../features/hrms/performance/TrainingFunnel'));
+// const Trainers = lazy(() => import('../features/hrms/performance/Trainers'));
+// const TrainingDashboard = lazy(() => import('../features/hrms/performance/TrainingDashboard'));
 const OrgChartPage = lazy(() => import('../features/hrms/organization/OrgChartPage'));
 const DepartmentsPage = lazy(() => import('../features/hrms/organization/DepartmentsPage'));
 const DesignationsPage = lazy(() => import('../features/hrms/organization/DesignationsPage'));
@@ -242,13 +242,13 @@ function RecruitmentPage({ component: Component, ...rest }) {
   );
 }
 
-function TrainingPage({ component: Component, ...rest }) {
-  return (
-    <RequireHrmsModule module="training">
-      <Page component={Component} {...rest} />
-    </RequireHrmsModule>
-  );
-}
+// function TrainingPage({ component: Component, ...rest }) {
+//   return (
+//     <RequireHrmsModule module="training">
+//       <Page component={Component} {...rest} />
+//     </RequireHrmsModule>
+//   );
+// }
 
 function RootErrorBoundary() {
   const error = useRouteError();
@@ -546,8 +546,8 @@ const router = createBrowserRouter([
       // { path: 'hrms/training/training-funnel', element: <TrainingPage component={() => <TrainingDashboard initialTab="funnel" />} /> },
       // { path: 'hrms/training/trainers', element: <TrainingPage component={() => <TrainingDashboard initialTab="trainers" />} /> },
       // { path: 'hrms/training/funnel', element: <TrainingPage component={() => <TrainingDashboard initialTab="funnel" />} /> },
-      { path: 'hrms/training', element: <Navigate to="/hrms/dashboard" replace /> },
-      { path: 'hrms/training/*', element: <Navigate to="/hrms/dashboard" replace /> },
+      // { path: 'hrms/training', element: <Navigate to="/hrms/dashboard" replace /> }, // Hidden: Training feature commented out
+      // { path: 'hrms/training/*', element: <Navigate to="/hrms/dashboard" replace /> }, // Hidden: Training feature commented out
       { path: 'hrms/org-chart', element: <Page component={OrgChartPage} /> },
       { path: 'hrms/departments', element: <Page component={DepartmentsPage} /> },
       { path: 'hrms/designations', element: <Page component={DesignationsPage} /> },
