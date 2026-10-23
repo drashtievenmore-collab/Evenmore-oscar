@@ -83,6 +83,48 @@ export default function ProductionInstructionsPage() {
 
   // View / Edit state
   const [viewingPi, setViewingPi] = useState(null);
+  const [viewTab, setViewTab] = useState('overview'); // 'overview' | 'progress' | 'match'
+  const [piProgress, setPiProgress] = useState(null);
+  const [piProgressLoading, setPiProgressLoading] = useState(false);
+  const [matchQty, setMatchQty] = useState('');
+  const [matchRate, setMatchRate] = useState('');
+  const [matchResult, setMatchResult] = useState(null);
+  const [matchLoading, setMatchLoading] = useState(false);
+  const [matchError, setMatchError] = useState('');
+
+  const handleOpenViewingPi = (pi) => {
+    setViewingPi(pi);
+    setViewTab('overview');
+    setMatchQty(String(pi.assignedQty || ''));
+    setMatchRate(String(pi.agreedRate || pi.agreedJobRate || ''));
+    setMatchResult(null);
+    setMatchError('');
+
+    // Fetch live progress
+    setPiProgressLoading(true);
+    api.get(`/production/instructions/${pi.id}/progress/`)
+      .then((res) => setPiProgress(res?.data || res))
+      .catch(() => setPiProgress(null))
+      .finally(() => setPiProgressLoading(false));
+  };
+
+  const handleRunThreeWayMatch = async (e) => {
+    e?.preventDefault();
+    if (!viewingPi?.id) return;
+    setMatchLoading(true);
+    setMatchError('');
+    try {
+      const res = await api.post(`/production/instructions/${viewingPi.id}/three-way-match/`, {
+        invoiceQty: parseFloat(matchQty) || 0,
+        invoiceRate: parseFloat(matchRate) || 0,
+      });
+      setMatchResult(res?.data || res);
+    } catch (err) {
+      setMatchError(err?.response?.data?.message || err?.message || 'Failed to verify three-way match.');
+    } finally {
+      setMatchLoading(false);
+    }
+  };
   const [editingPi, setEditingPi] = useState(null);
   const [editQty, setEditQty] = useState('');
   const [editStart, setEditStart] = useState('');
@@ -395,7 +437,7 @@ export default function ProductionInstructionsPage() {
                           <>
                             <div className="fixed inset-0 z-10" onClick={() => setOpenMenuId(null)} />
                             <div className="absolute right-0 z-20 w-48 overflow-hidden rounded-xl border border-slate-200 bg-white py-1 shadow-xl">
-                              <button onClick={() => { setOpenMenuId(null); setViewingPi(pi); }} className="block w-full px-3 py-2 text-left text-[12px] font-medium text-slate-700 hover:bg-slate-50">View details</button>
+                              <button onClick={() => { setOpenMenuId(null); handleOpenViewingPi(pi); }} className="block w-full px-3 py-2 text-left text-[12px] font-medium text-slate-700 hover:bg-slate-50">View details</button>
                               {canEditInstruction(pi.status) && (
                                 <button onClick={() => openEdit(pi)} className="block w-full px-3 py-2 text-left text-[12px] font-medium text-slate-700 hover:bg-slate-50">Edit</button>
                               )}
@@ -570,39 +612,237 @@ export default function ProductionInstructionsPage() {
 
       {viewingPi && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-2 sm:p-4" onClick={() => setViewingPi(null)}>
-          <div className="bg-white border border-slate-200 shadow-2xl rounded-2xl p-4 sm:p-6 max-w-lg w-full text-xs" onClick={(e) => e.stopPropagation()}>
+          <div className="bg-white border border-slate-200 shadow-2xl rounded-2xl p-4 sm:p-6 max-w-2xl w-full text-xs flex flex-col max-h-[90vh] overflow-hidden" onClick={(e) => e.stopPropagation()}>
             <div className="flex items-center justify-between pb-3 border-b border-slate-200">
-              <h3 className="font-bold text-base text-[#1F2E4A]">Production Instruction Details</h3>
-              <button type="button" onClick={() => setViewingPi(null)} className="p-1.5 text-slate-400 hover:text-slate-700 rounded-lg hover:bg-slate-100 transition">
+              <div className="flex items-center gap-2">
+                <h3 className="font-bold text-base text-[#1F2E4A] font-mono">{viewingPi.piNumber}</h3>
+                <span className={`inline-block rounded-md border px-2 py-0.5 text-[10px] font-bold ${statusPill(viewingPi.status)}`}>
+                  {viewingPi.status}
+                </span>
+              </div>
+              <button type="button" onClick={() => setViewingPi(null)} className="p-1.5 text-slate-400 hover:text-slate-700 rounded-lg hover:bg-slate-100 transition cursor-pointer">
                 <X size={18} />
               </button>
             </div>
-            <dl className="mt-4 grid grid-cols-2 gap-x-4 gap-y-2.5">
-              {[
-                ['PI Number', viewingPi.piNumber || '—'],
-                ['Order Reference', viewingPi.orderReference || '—'],
-                ['PI Date', viewingPi.date ? formatDateDDMMYYYY(viewingPi.date) : '—'],
-                ['Vendor', viewingPi.vendor || '—'],
-                ['Fabric', viewingPi.fabric || '—'],
-                ['Process Type', viewingPi.processType || '—'],
-                ['Assigned Employee', viewingPi.assignedEmployee || '—'],
-                ['Assigned Qty (M)', fmtNum(viewingPi.assignedQty)],
-                ['Produced (M)', fmtNum(getProduced(viewingPi))],
-                ['Balance (M)', fmtNum(getBalance(viewingPi))],
-                ['Expected Start', viewingPi.startDate ? formatDateDDMMYYYY(viewingPi.startDate) : '—'],
-                ['Status', viewingPi.status || '—'],
-                ['Grey Lot', viewingPi.greyLotNo || '—'],
-                ['Final PO', viewingPi.finalPoNumber || '—'],
-                ['Remarks', viewingPi.remarks || '—'],
-              ].map(([k, v]) => (
-                <div key={k}>
-                  <dt className="text-[10.5px] font-bold uppercase tracking-wide text-slate-400">{k}</dt>
-                  <dd className="mt-0.5 text-[12px] font-semibold text-slate-700">{v}</dd>
+
+            {/* Modal Tabs */}
+            <div className="flex border-b border-slate-200 gap-2 mt-3 text-xs">
+              <button
+                type="button"
+                onClick={() => setViewTab('overview')}
+                className={`pb-2 px-3 font-bold border-b-2 transition cursor-pointer ${
+                  viewTab === 'overview'
+                    ? 'border-blue-600 text-blue-600'
+                    : 'border-transparent text-slate-500 hover:text-slate-800'
+                }`}
+              >
+                Instruction Info
+              </button>
+              <button
+                type="button"
+                onClick={() => setViewTab('progress')}
+                className={`pb-2 px-3 font-bold border-b-2 transition cursor-pointer ${
+                  viewTab === 'progress'
+                    ? 'border-blue-600 text-blue-600'
+                    : 'border-transparent text-slate-500 hover:text-slate-800'
+                }`}
+              >
+                Production Progress
+              </button>
+              <button
+                type="button"
+                onClick={() => setViewTab('match')}
+                className={`pb-2 px-3 font-bold border-b-2 transition cursor-pointer ${
+                  viewTab === 'match'
+                    ? 'border-blue-600 text-blue-600'
+                    : 'border-transparent text-slate-500 hover:text-slate-800'
+                }`}
+              >
+                Three-Way Match Verification
+              </button>
+            </div>
+
+            <div className="mt-4 overflow-y-auto pr-1 flex-1 space-y-4">
+              {/* TAB 1: OVERVIEW */}
+              {viewTab === 'overview' && (
+                <dl className="grid grid-cols-2 sm:grid-cols-3 gap-x-4 gap-y-3 bg-slate-50 p-4 rounded-xl border border-slate-200">
+                  {[
+                    ['PI Number', viewingPi.piNumber || '—'],
+                    ['Order Reference', viewingPi.orderReference || '—'],
+                    ['PI Date', viewingPi.date ? formatDateDDMMYYYY(viewingPi.date) : '—'],
+                    ['Vendor / Mill', viewingPi.vendor || '—'],
+                    ['Fabric Quality', viewingPi.fabric || '—'],
+                    ['Process Type', viewingPi.processType || '—'],
+                    ['Assigned Employee', viewingPi.assignedEmployee || '—'],
+                    ['Assigned Qty (M)', fmtNum(viewingPi.assignedQty)],
+                    ['Produced (M)', fmtNum(getProduced(viewingPi))],
+                    ['Balance (M)', fmtNum(getBalance(viewingPi))],
+                    ['Expected Start', viewingPi.startDate ? formatDateDDMMYYYY(viewingPi.startDate) : '—'],
+                    ['Grey Lot', viewingPi.greyLotNo || '—'],
+                    ['Final PO', viewingPi.finalPoNumber || '—'],
+                    ['Remarks', viewingPi.remarks || '—'],
+                  ].map(([k, v]) => (
+                    <div key={k}>
+                      <dt className="text-[10px] font-bold uppercase tracking-wide text-slate-400">{k}</dt>
+                      <dd className="mt-0.5 text-[11.5px] font-semibold text-slate-700">{v}</dd>
+                    </div>
+                  ))}
+                </dl>
+              )}
+
+              {/* TAB 2: PROGRESS */}
+              {viewTab === 'progress' && (
+                <div className="space-y-4">
+                  {piProgressLoading ? (
+                    <div className="py-8 text-center text-slate-400">Loading progress data...</div>
+                  ) : (
+                    <>
+                      <div className="grid grid-cols-3 gap-3">
+                        <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl">
+                          <span className="text-[10px] uppercase font-bold text-slate-500 block">Order Meters</span>
+                          <span className="font-mono font-bold text-base text-slate-900 block mt-0.5">
+                            {Number(piProgress?.orderMeter || viewingPi.assignedQty || 0).toLocaleString()} m
+                          </span>
+                        </div>
+                        <div className="p-3 bg-blue-50/60 border border-blue-200 rounded-xl">
+                          <span className="text-[10px] uppercase font-bold text-blue-700 block">Cumulative Produced</span>
+                          <span className="font-mono font-bold text-base text-blue-900 block mt-0.5">
+                            {Number(piProgress?.cumulative || getProduced(viewingPi) || 0).toLocaleString()} m
+                          </span>
+                        </div>
+                        <div className="p-3 bg-emerald-50/60 border border-emerald-200 rounded-xl">
+                          <span className="text-[10px] uppercase font-bold text-emerald-700 block">Balance Remaining</span>
+                          <span className="font-mono font-bold text-base text-emerald-900 block mt-0.5">
+                            {Number(piProgress?.balance ?? getBalance(viewingPi) ?? 0).toLocaleString()} m
+                          </span>
+                        </div>
+                      </div>
+
+                      {/* Progress Bar */}
+                      {(() => {
+                        const target = Number(piProgress?.orderMeter || viewingPi.assignedQty || 1);
+                        const done = Number(piProgress?.cumulative || getProduced(viewingPi) || 0);
+                        const pct = Math.min(100, Math.round((done / (target || 1)) * 100));
+                        return (
+                          <div className="p-4 bg-slate-50 border border-slate-200 rounded-xl space-y-2">
+                            <div className="flex justify-between font-semibold text-slate-700">
+                              <span>Production Completion Progress</span>
+                              <span className="font-mono font-bold text-blue-600">{pct}%</span>
+                            </div>
+                            <div className="w-full bg-slate-200 rounded-full h-2.5 overflow-hidden">
+                              <div className="bg-blue-600 h-2.5 rounded-full transition-all" style={{ width: `${pct}%` }} />
+                            </div>
+                            <p className="text-[11px] text-slate-500">
+                              Verified production entries cumulative total towards order meter target.
+                            </p>
+                          </div>
+                        );
+                      })()}
+                    </>
+                  )}
                 </div>
-              ))}
-            </dl>
-            <div className="flex justify-end pt-4 border-t border-slate-100 mt-4">
-              <button type="button" onClick={() => setViewingPi(null)} className="px-4 py-1.5 bg-slate-100 text-slate-700 rounded-lg hover:bg-slate-200 font-medium">Close</button>
+              )}
+
+              {/* TAB 3: THREE-WAY MATCH */}
+              {viewTab === 'match' && (
+                <div className="space-y-4">
+                  <form onSubmit={handleRunThreeWayMatch} className="p-3.5 bg-slate-50 border border-slate-200 rounded-xl space-y-3">
+                    <span className="font-bold text-slate-700 uppercase text-[10px] tracking-wider block">
+                      Verify Vendor Agency Bill (3-Way Match)
+                    </span>
+
+                    <div className="grid grid-cols-2 gap-3">
+                      <div>
+                        <label className="block text-[11px] font-semibold text-slate-600 mb-1">Invoice Quantity (Meters) *</label>
+                        <input
+                          type="number"
+                          step="0.01"
+                          required
+                          value={matchQty}
+                          onChange={(e) => setMatchQty(e.target.value)}
+                          className="w-full text-xs border border-slate-300 rounded-lg p-2 bg-white text-slate-800 font-mono"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-[11px] font-semibold text-slate-600 mb-1">Invoice Rate (₹/M) *</label>
+                        <input
+                          type="number"
+                          step="0.01"
+                          required
+                          value={matchRate}
+                          onChange={(e) => setMatchRate(e.target.value)}
+                          className="w-full text-xs border border-slate-300 rounded-lg p-2 bg-white text-slate-800 font-mono"
+                        />
+                      </div>
+                    </div>
+
+                    <div className="flex justify-end pt-1">
+                      <button
+                        type="submit"
+                        disabled={matchLoading}
+                        className="px-4 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-bold text-xs shadow-xs cursor-pointer disabled:opacity-50"
+                      >
+                        {matchLoading ? 'Verifying...' : 'Check 3-Way Match'}
+                      </button>
+                    </div>
+                  </form>
+
+                  {matchError && (
+                    <div className="p-3 bg-rose-50 border border-rose-200 rounded-lg text-rose-700 text-xs flex items-center gap-2">
+                      <AlertTriangle size={14} /> {matchError}
+                    </div>
+                  )}
+
+                  {matchResult && (
+                    <div className="p-4 bg-white border border-slate-200 rounded-xl space-y-3">
+                      <div className="flex items-center justify-between pb-2 border-b border-slate-100">
+                        <span className="font-bold text-slate-800 text-xs">Matching Verification Result</span>
+                        <span className={`inline-block px-2.5 py-0.5 rounded-full text-[11px] font-bold border ${
+                          matchResult.matched
+                            ? 'bg-emerald-50 text-emerald-700 border-emerald-300'
+                            : 'bg-rose-50 text-rose-700 border-rose-300'
+                        }`}>
+                          {matchResult.matched ? 'Verified & Matched' : 'Mismatch Flagged'}
+                        </span>
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-3 text-xs">
+                        <div className="p-2.5 bg-slate-50 rounded-lg border border-slate-200">
+                          <span className="text-[10px] uppercase font-bold text-slate-400 block">Quantity Comparison</span>
+                          <p className="mt-1">Verified Qty: <strong className="font-mono">{matchResult.verifiedQty} m</strong></p>
+                          <p>PO Qty: <strong className="font-mono">{matchResult.poQty} m</strong></p>
+                          <p className={`font-mono font-bold mt-1 ${Math.abs(matchResult.qtyDiff) > 0.01 ? 'text-rose-600' : 'text-emerald-700'}`}>
+                            Diff: {matchResult.qtyDiff > 0 ? `+${matchResult.qtyDiff}` : matchResult.qtyDiff} m
+                          </p>
+                        </div>
+
+                        <div className="p-2.5 bg-slate-50 rounded-lg border border-slate-200">
+                          <span className="text-[10px] uppercase font-bold text-slate-400 block">Rate Comparison</span>
+                          <p className="mt-1">Agreed Rate: <strong className="font-mono">₹{matchResult.agreedRate}</strong></p>
+                          <p>PO Rate: <strong className="font-mono">₹{matchResult.poRate}</strong></p>
+                          <p className={`font-mono font-bold mt-1 ${Math.abs(matchResult.rateDiff) > 0.01 ? 'text-rose-600' : 'text-emerald-700'}`}>
+                            Diff: ₹{matchResult.rateDiff > 0 ? `+${matchResult.rateDiff}` : matchResult.rateDiff}
+                          </p>
+                        </div>
+                      </div>
+
+                      <p className="text-[11px] text-slate-500">
+                        Final PO: <strong className="text-slate-800">{matchResult.poNumber || 'PO Pending'}</strong> | Instruction: <strong className="text-slate-800">{matchResult.instructionNo}</strong>
+                      </p>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+
+            <div className="flex justify-end pt-3 border-t border-slate-200 mt-4">
+              <button
+                type="button"
+                onClick={() => setViewingPi(null)}
+                className="px-4 py-1.5 border border-slate-300 hover:bg-slate-100 text-slate-700 rounded-lg font-medium cursor-pointer"
+              >
+                Close
+              </button>
             </div>
           </div>
         </div>

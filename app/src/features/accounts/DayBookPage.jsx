@@ -92,9 +92,14 @@ export default function DayBookPage() {
 
   const summary = dayBookData?.summary || {};
 
-  const handleDownload = (url) => {
-    window.open(url, '_blank');
+  const handleDownload = async (download) => {
     setShowExportMenu(false);
+    setError('');
+    try {
+      await download();
+    } catch (err) {
+      setError(describeApiError(err));
+    }
   };
 
   return (
@@ -158,14 +163,14 @@ export default function DayBookPage() {
                   Tally ERP / Prime (XML)
                 </div>
                 <button
-                  onClick={() => handleDownload(accountingService.getTallyExportUrl('vouchers', asOfDate, asOfDate))}
+                  onClick={() => handleDownload(() => accountingService.downloadTallyExport('vouchers', asOfDate, asOfDate))}
                   className="w-full text-left px-3 py-2 hover:bg-blue-50 flex items-center gap-2 text-slate-700 hover:text-blue-600"
                 >
                   <FileCode size={14} className="text-blue-500" />
                   <span>Day's Vouchers XML (Tally)</span>
                 </button>
                 <button
-                  onClick={() => handleDownload(accountingService.getTallyExportUrl('masters'))}
+                  onClick={() => handleDownload(() => accountingService.downloadTallyExport('masters'))}
                   className="w-full text-left px-3 py-2 hover:bg-blue-50 flex items-center gap-2 text-slate-700 hover:text-blue-600"
                 >
                   <FileCode size={14} className="text-indigo-500" />
@@ -177,21 +182,21 @@ export default function DayBookPage() {
                   Excel / CSV Registers
                 </div>
                 <button
-                  onClick={() => handleDownload(accountingService.getExcelExportUrl('sales', asOfDate, asOfDate))}
+                  onClick={() => handleDownload(() => accountingService.downloadExcelExport('sales', asOfDate, asOfDate))}
                   className="w-full text-left px-3 py-2 hover:bg-slate-50 flex items-center gap-2 text-slate-700"
                 >
                   <FileSpreadsheet size={14} className="text-emerald-500" />
                   <span>Sales Register CSV</span>
                 </button>
                 <button
-                  onClick={() => handleDownload(accountingService.getExcelExportUrl('purchase', asOfDate, asOfDate))}
+                  onClick={() => handleDownload(() => accountingService.downloadExcelExport('purchase', asOfDate, asOfDate))}
                   className="w-full text-left px-3 py-2 hover:bg-slate-50 flex items-center gap-2 text-slate-700"
                 >
                   <FileSpreadsheet size={14} className="text-amber-500" />
                   <span>Purchase Register CSV</span>
                 </button>
                 <button
-                  onClick={() => handleDownload(accountingService.getExcelExportUrl('standalone_notes', asOfDate, asOfDate))}
+                  onClick={() => handleDownload(() => accountingService.downloadExcelExport('standalone_notes', asOfDate, asOfDate))}
                   className="w-full text-left px-3 py-2 hover:bg-slate-50 flex items-center gap-2 text-slate-700"
                 >
                   <FileSpreadsheet size={14} className="text-purple-500" />

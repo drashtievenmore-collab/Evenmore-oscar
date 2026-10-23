@@ -6,21 +6,10 @@ import { hrmsGuides } from '../../../data/hrms/hrmsGuides';
 import { hrmsSync, isBackendEnabled } from '../../../services/hrmsSync';
 import { Plus, Award, Search, Edit2, Trash2 } from 'lucide-react';
 
-const INITIAL_DESIGNATIONS = [
-  { id: 'DSG-01', title: 'Chief Executive Officer', level: 'L7', department: 'Executive', count: 1 },
-  { id: 'DSG-02', title: 'Chief Technology Officer', level: 'L6', department: 'Engineering', count: 1 },
-  { id: 'DSG-03', title: 'Head of People & HRMS', level: 'L6', department: 'Human Resources', count: 1 },
-  { id: 'DSG-04', title: 'Chief Financial Officer', level: 'L6', department: 'Finance', count: 1 },
-  { id: 'DSG-05', title: 'Staff Backend Architect', level: 'L5', department: 'Engineering', count: 4 },
-  { id: 'DSG-06', title: 'Senior Software Engineer', level: 'L4', department: 'Engineering', count: 32 },
-  { id: 'DSG-07', title: 'Product Manager', level: 'L5', department: 'Product', count: 14 },
-  { id: 'DSG-08', title: 'HR Operations Lead', level: 'L4', department: 'Human Resources', count: 6 },
-  { id: 'DSG-09', title: 'DevOps & Cloud Lead', level: 'L5', department: 'Engineering', count: 5 },
-];
-
 export function DesignationsPage() {
   const showToast = useAppStore((s) => s.showToast);
-  const [designations, setDesignations] = useState(INITIAL_DESIGNATIONS);
+  const [designations, setDesignations] = useState([]);
+  const [loading, setLoading] = useState(true);
   const [q, setQ] = useState('');
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [newDesig, setNewDesig] = useState({ title: '', level: 'L4', department: 'Engineering' });
@@ -30,11 +19,13 @@ export function DesignationsPage() {
     (async () => {
       try {
         const rows = await hrmsSync.pull('designations');
-        if (active && Array.isArray(rows) && rows.length > 0) {
-          setDesignations(rows);
+        if (active) {
+          setDesignations(Array.isArray(rows) ? rows : []);
         }
       } catch (err) {
         console.warn('[DesignationsPage] Failed to pull designations:', err);
+      } finally {
+        if (active) setLoading(false);
       }
     })();
     return () => { active = false; };
@@ -110,66 +101,76 @@ export function DesignationsPage() {
       </div>
 
       {/* Main Table View */}
-      <div className="bg-white border border-bdr rounded-xl shadow-xs overflow-hidden">
-        <div className="overflow-x-auto">
-          <table className="w-full min-w-[640px] lg:min-w-0 text-left">
-            <thead className="bg-off border-b border-bdr text-[11px] uppercase text-muted">
-              <tr>
-                <th className="py-3 px-5">Job Title</th>
-                <th className="py-3 px-5">Level</th>
-                <th className="py-3 px-5">Department</th>
-                <th className="py-3 px-5">Assigned Employees</th>
-                <th className="py-3 px-5 text-right">Actions</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-bdr/40 text-[13px]">
-              {filtered.map((r) => (
-                <tr key={r.id} className="hover:bg-off/60 transition-colors">
-                  <td className="py-4 px-5 font-semibold text-slate-900 flex items-center gap-2">
-                    <Award size={15} className="text-navy shrink-0" />
-                    {r.title}
-                  </td>
-                  <td className="py-4 px-5">
-                    <span
-                      className={`px-2.5 py-1 rounded-full text-[11px] font-semibold border ${
-                        r.level === 'L7' || r.level === 'L6'
-                          ? 'bg-navy text-white border-navy'
-                          : r.level === 'L5'
-                          ? 'bg-blue-50 text-blue-700 border-blue-200'
-                          : 'bg-off border-bdr text-slate-700'
-                      }`}
-                    >
-                      {r.level}
-                    </span>
-                  </td>
-                  <td className="py-4 px-5 text-slate-700">{r.department}</td>
-                  <td className="py-4 px-5 font-medium text-slate-700">{r.count} members</td>
-                  <td className="py-4 px-5 text-right">
-                    <div className="flex justify-end gap-1">
-                      <button
-                        type="button"
-                        onClick={() => showToast(`Edit ${r.title}`)}
-                        className="w-8 h-8 rounded-lg hover:bg-off grid place-items-center text-muted transition-colors cursor-pointer"
-                        title="Edit"
-                      >
-                        <Edit2 size={14} />
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => handleDelete(r.id, r.title)}
-                        className="w-8 h-8 rounded-lg hover:bg-red-50 text-muted hover:text-red-600 grid place-items-center transition-colors cursor-pointer"
-                        title="Delete"
-                      >
-                        <Trash2 size={14} />
-                      </button>
-                    </div>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+      {loading ? (
+        <div className="py-16 text-center text-muted text-sm bg-white border border-bdr rounded-xl">
+          Loading designations…
         </div>
-      </div>
+      ) : filtered.length === 0 ? (
+        <div className="py-16 text-center text-muted text-[13px] bg-white border border-bdr rounded-xl">
+          {q ? `No designations matching "${q}"` : 'No designations found. Add the first designation to get started.'}
+        </div>
+      ) : (
+        <div className="bg-white border border-bdr rounded-xl shadow-xs overflow-hidden">
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[640px] lg:min-w-0 text-left">
+              <thead className="bg-off border-b border-bdr text-[11px] uppercase text-muted">
+                <tr>
+                  <th className="py-3 px-5">Job Title</th>
+                  <th className="py-3 px-5">Level</th>
+                  <th className="py-3 px-5">Department</th>
+                  <th className="py-3 px-5">Assigned Employees</th>
+                  <th className="py-3 px-5 text-right">Actions</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-bdr/40 text-[13px]">
+                {filtered.map((r) => (
+                  <tr key={r.id} className="hover:bg-off/60 transition-colors">
+                    <td className="py-4 px-5 font-semibold text-slate-900 flex items-center gap-2">
+                      <Award size={15} className="text-navy shrink-0" />
+                      {r.title}
+                    </td>
+                    <td className="py-4 px-5">
+                      <span
+                        className={`px-2.5 py-1 rounded-full text-[11px] font-semibold border ${
+                          r.level === 'L7' || r.level === 'L6'
+                            ? 'bg-navy text-white border-navy'
+                            : r.level === 'L5'
+                            ? 'bg-blue-50 text-blue-700 border-blue-200'
+                            : 'bg-off border-bdr text-slate-700'
+                        }`}
+                      >
+                        {r.level}
+                      </span>
+                    </td>
+                    <td className="py-4 px-5 text-slate-700">{r.department}</td>
+                    <td className="py-4 px-5 font-medium text-slate-700">{r.count || 0} members</td>
+                    <td className="py-4 px-5 text-right">
+                      <div className="flex justify-end gap-1">
+                        <button
+                          type="button"
+                          onClick={() => showToast(`Edit ${r.title}`)}
+                          className="w-8 h-8 rounded-lg hover:bg-off grid place-items-center text-muted transition-colors cursor-pointer"
+                          title="Edit"
+                        >
+                          <Edit2 size={14} />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleDelete(r.id, r.title)}
+                          className="w-8 h-8 rounded-lg hover:bg-red-50 text-muted hover:text-red-600 grid place-items-center transition-colors cursor-pointer"
+                          title="Delete"
+                        >
+                          <Trash2 size={14} />
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
 
       {/* Modal: Create Designation */}
       <Modal isOpen={isModalOpen} onClose={() => setIsModalOpen(false)} title="Create Designation">
@@ -247,4 +248,3 @@ export function DesignationsPage() {
 
 export const Designations = DesignationsPage;
 export default DesignationsPage;
-

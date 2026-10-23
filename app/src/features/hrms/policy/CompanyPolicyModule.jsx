@@ -97,7 +97,7 @@ export function CompanyPolicyModule({ forcedSection }) {
   const navigate = useNavigate();
   const showToast = useAppStore((s) => s.showToast || s.setToast);
   const employees = useAppStore((s) => s.employees || []);
-  const currentUser = useAppStore((s) => s.currentUser || { name: "Adarsh Gupta", role: "Operations Admin" });
+  const currentUser = useAppStore((s) => s.currentUser || { name: "System User", role: "Operations Admin" });
 
   const {
     policies,

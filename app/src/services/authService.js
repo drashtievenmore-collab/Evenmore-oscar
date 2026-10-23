@@ -10,7 +10,7 @@ import { api } from './api';
 import {
   saveStoredAuth,
   clearStoredAuth,
-  getStoredToken,
+  hasStoredSession,
 } from '../utils/authUtils';
 
 /** `{id, name, role: {name}, …}` from the API → what the header/sidebar read. */
@@ -73,7 +73,7 @@ export async function login({ email, password, tenant, remember = true }) {
  * sends the user back to the sign-in page rather than into an empty shell.
  */
 export async function fetchMe() {
-  if (!getStoredToken()) return null;
+  if (!hasStoredSession()) return null;
   try {
     const row = await api.get('/auth/me/');
     if (!row) return null;
@@ -85,7 +85,9 @@ export async function fetchMe() {
       tenant: row.tenant || null,
     };
   } catch (err) {
-    if (err?.status === 401 || err?.status === 403) {
+    // The API client clears the session when its refresh attempt fails; only
+    // clear here for a 403 the refresh path never saw.
+    if ((err?.status === 401 || err?.status === 403) && hasStoredSession()) {
       clearStoredAuth();
     }
     return null;
@@ -95,7 +97,7 @@ export async function fetchMe() {
 /** Tell the server, then forget locally either way. */
 export async function logout() {
   try {
-    if (getStoredToken()) await api.post('/auth/logout/', {});
+    if (hasStoredSession()) await api.post('/auth/logout/', {});
   } catch {
     // A failed logout must still end the local session.
   } finally {

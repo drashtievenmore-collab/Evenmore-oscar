@@ -82,7 +82,7 @@ const SIDEBAR_THEMES = [
   { id: 'emerald', name: 'Emerald', icon: TreePine, color: '#10b981' },
 ];
 
-function getEffectiveRoleCode(user) {
+export function getEffectiveRoleCode(user) {
   if (!user) return '';
   if (typeof user.roleCode === 'string') return user.roleCode.toUpperCase();
   if (user.role && typeof user.role.code === 'string') return user.role.code.toUpperCase();
@@ -90,7 +90,7 @@ function getEffectiveRoleCode(user) {
   return '';
 }
 
-function isUserAdmin(user, permissions = []) {
+export function isUserAdmin(user, permissions = []) {
   if (!user) return false;
   if (user.is_superuser || user.isSuperuser || permissions.includes('*')) return true;
   const roleCode = getEffectiveRoleCode(user);
@@ -100,24 +100,38 @@ function isUserAdmin(user, permissions = []) {
   return false;
 }
 
-function isItemPermitted(item, user, permissions = [], hasPermission) {
+// A nav entry either names one permission code or one of these "any of"
+// groups. Keeping the groups here means the sidebar and the route guard can
+// never drift apart.
+export const PARTIES_PERMISSIONS = ['view_masters', 'view_purchase', 'view_sales', 'view_inventory'];
+export const ADMIN_PERMISSIONS = ['menu_admin', 'view_approvals', 'view_alerts', 'view_staff'];
+export const REPORTS_PERMISSIONS = ['export_excel', 'view_owner_mis', 'view_financial_reports'];
+
+/** The permission requirement a single nav item contributes, if any. */
+export function getItemPermissionRequirement(item) {
+  if (item.label === 'Parties') return { anyOf: PARTIES_PERMISSIONS };
+  if (item.label === 'Administration') return { anyOf: ADMIN_PERMISSIONS };
+  if (item.label === 'Reports') return { anyOf: REPORTS_PERMISSIONS };
+  if (item.permission) return { allOf: [item.permission] };
+  return null;
+}
+
+/** Does a requirement hold for this user? No requirement means everyone. */
+export function isRequirementMet(requirement, user, permissions = [], hasPermission) {
+  if (!requirement) return true;
   if (!user) return true;
   if (isUserAdmin(user, permissions)) return true;
+  const granted = (code) => Boolean(hasPermission?.(code)) || permissions.includes(code);
 
-  if (item.label === 'Parties') {
-    return hasPermission('view_masters') || hasPermission('view_purchase') || hasPermission('view_sales') || hasPermission('view_inventory');
-  }
-  if (item.label === 'Administration') {
-    return hasPermission('menu_admin') || hasPermission('view_approvals') || hasPermission('view_alerts') || hasPermission('view_staff');
-  }
-  if (item.label === 'Reports') {
-    return hasPermission('export_excel') || hasPermission('view_owner_mis') || hasPermission('view_financial_reports');
-  }
-
-  if (item.permission && !hasPermission(item.permission) && !permissions.includes(item.permission)) {
-    return false;
-  }
+  if (requirement.allOf) return requirement.allOf.every(granted);
+  if (requirement.anyOf) return requirement.anyOf.some(granted);
   return true;
+}
+
+export function isItemPermitted(item, user, permissions = [], hasPermission) {
+  if (!user) return true;
+  if (isUserAdmin(user, permissions)) return true;
+  return isRequirementMet(getItemPermissionRequirement(item), user, permissions, hasPermission);
 }
 
 function filterNavByPermissions(items, user, permissions = [], hasPermission) {
@@ -140,7 +154,7 @@ function filterNavByPermissions(items, user, permissions = [], hasPermission) {
     .filter(Boolean);
 }
 
-const NAV = [
+export const NAV = [
   {
     label: 'Dashboard',
     icon: Home,
@@ -204,6 +218,7 @@ const NAV = [
           { label: 'Production Instructions', icon: ClipboardList, to: '/pms/production-instructions' },
           { label: 'Daily Production', icon: CalendarCheck, to: '/pms/daily-production' },
           { label: 'Production Completion & Verification', icon: CheckCircle2, to: '/pms/production-completion' },
+          { label: 'Incentive Schemes & Calcs', icon: DollarSign, to: '/production/incentives' },
         ],
       },
       {
@@ -336,6 +351,7 @@ const NAV = [
       { label: 'Transfers', icon: ArrowLeftRight, to: '/inventory/transfers' },
       { label: 'Godown / Rack', icon: Warehouse, to: '/inventory/locations' },
       { label: 'Valuation & Ageing', icon: TrendingUp, to: '/inventory/valuation' },
+      { label: 'Lot Costing & Profitability', icon: DollarSign, to: '/inventory/lot-costing' },
       { label: 'Month-End Audit', icon: CalendarCheck, to: '/inventory/audit' },
     ],
   },
@@ -348,6 +364,7 @@ const NAV = [
       { label: 'Day Book & Position', icon: BookOpen, to: '/accounts/day-book' },
       { label: 'Cash / Bank', icon: Landmark, to: '/accounts/cash-bank' },
       { label: 'General Ledger', icon: FileText, to: '/accounts/general-ledger' },
+      { label: 'Debit / Credit Notes', icon: Receipt, to: '/accounts/notes' },
       { label: 'Financial Reports', icon: PieChart, to: '/accounts/reports' },
     ],
   },

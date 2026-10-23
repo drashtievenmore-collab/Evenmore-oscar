@@ -245,8 +245,13 @@ const useRecruitmentStoreBase = create((set, get) => ({
     } catch (err) {
       // Already converted on another device — the tick above still stands.
       if (err?.status === 409) return err.payload || { already: true };
+      set((st) => {
+        const copy = { ...st.onboardedMap };
+        delete copy[candidateId];
+        return { onboardedMap: copy };
+      });
       console.warn("[HRMS] onboarding not saved:", err?.message || err);
-      return null;
+      throw err;
     }
   },
 

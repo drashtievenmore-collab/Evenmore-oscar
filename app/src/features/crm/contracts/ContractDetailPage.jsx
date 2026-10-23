@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import {
-  ArrowLeft, Pencil, Download, MoreHorizontal, RefreshCw,
+  ArrowLeft, Pencil, Download, MoreHorizontal, RefreshCw, Printer, Send,
   FileText, Upload, Trash2, X, CheckCircle2, Plus, ChevronDown,
   Handshake, UserRound, Link2, Phone, Flag, Users, FolderPlus,
 } from 'lucide-react';
@@ -10,6 +10,7 @@ import KpiCard from '../../../components/ui/KpiCard';
 import PageInfoButton from '../../../components/ui/PageInfoButton';
 import './ContractDetailPage.css';
 import { printContract } from '../../../utils/contractPrint';
+import { crmService } from '../../../services/domainServices';
 import { useAppStore } from '../../../stores/appStore';
 import {
   CONTRACT_TYPES,
@@ -358,6 +359,8 @@ export default function ContractDetailPage() {
           </div>
           <div className="flex flex-wrap items-center gap-2 shrink-0">
             <button type="button" className="btn-outline btn-sm" onClick={openEdit}><Pencil size={14} /> Edit</button>
+            <button type="button" className="btn-outline btn-sm" onClick={handlePrintServer}><Printer size={14} /> Print</button>
+            <button type="button" className="btn-outline btn-sm" disabled={sendingSign} onClick={handleSendForSignature}><Send size={14} /> {sendingSign ? 'Sending...' : 'Send for Signature'}</button>
             <button type="button" className="btn-outline btn-sm" onClick={() => printContract(contract, deal)}><Download size={14} /> Download PDF</button>
             <details className="relative">
               <summary className="btn-outline btn-sm cursor-pointer list-none"><MoreHorizontal size={15} /> More</summary>

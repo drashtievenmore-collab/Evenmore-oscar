@@ -7,7 +7,7 @@ import PageHeader from "../../../components/ui/PageHeader";
 import { hrmsGuides } from "../../../data/hrms/hrmsGuides";
 import { Avatar } from "../../../components/hrms/Avatar";
 
-const INITIAL_EMPLOYEES = [];
+const DEFAULT_EMPLOYEES = [];
 
 const DEPARTMENTS = ["All", "Engineering", "Design", "Marketing", "Finance", "HR", "Operations"];
 const LOCATIONS = ["All", "Bangalore", "Mumbai", "Delhi", "Hyderabad"];
@@ -34,7 +34,7 @@ export default function MarkAttendance() {
         checked: false,
       }));
     }
-    return INITIAL_EMPLOYEES;
+    return DEFAULT_EMPLOYEES;
   });
 
   const [confirmOpen, setConfirmOpen] = useState(false);

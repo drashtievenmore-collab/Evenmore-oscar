@@ -81,7 +81,7 @@ export function Assets() {
       />
       <div className="grid grid-cols-2 md:grid-cols-5 gap-4">{[{ l: "Total Assets", v: "342" }, { l: "Assigned", v: "248" }, { l: "Available", v: "72" }, { l: "Under Maintenance", v: "14" }, { l: "Lost/Damaged", v: "8" }].map((x) => <div key={x.l} className="bg-white border border-bdr rounded-xl p-4 shadow-sm"><div className="text-[12px] text-muted">{x.l}</div><div className="text-[20px] font-bold mt-1">{x.v}</div></div>)}</div>
       <div className="bg-white border border-bdr rounded-xl shadow-sm overflow-x-auto"><table className="w-full min-w-[640px] lg:min-w-0 text-left text-[13px]"><thead className="bg-off border-b border-bdr text-[11px] uppercase text-muted"><tr><th className="py-3 px-5">Asset</th><th className="py-3 px-5">ID</th><th className="py-3 px-5">Category</th><th className="py-3 px-5">Assigned To</th><th className="py-3 px-5">Status</th></tr></thead>
-        <tbody className="divide-y divide-bdr/40"><tr><td className="py-3 px-5">MacBook Pro 16" — Space Gray</td><td className="py-3 px-5 text-muted">AST-1001</td><td className="py-3 px-5">Laptop</td><td className="py-3 px-5">Priya Patel</td><td className="py-3 px-5"><Badge tone="success">Assigned</Badge></td></tr></tbody>
+        <tbody className="divide-y divide-bdr/40"><tr><td className="py-3 px-5">MacBook Pro 16" — Space Gray</td><td className="py-3 px-5 text-muted">AST-1001</td><td className="py-3 px-5">Laptop</td><td className="py-3 px-5">Assigned Employee</td><td className="py-3 px-5"><Badge tone="success">Assigned</Badge></td></tr></tbody>
       </table></div>
     </div>;
 }
@@ -96,7 +96,7 @@ export function Documents() {
         }
       />
       <div className="bg-white border border-bdr rounded-xl shadow-sm overflow-x-auto"><table className="w-full min-w-[640px] lg:min-w-0 text-left text-[13px]"><thead className="bg-off border-b border-bdr text-[11px] uppercase text-muted"><tr><th className="py-3 px-5">Document</th><th className="py-3 px-5">Employee</th><th className="py-3 px-5">Expiry</th><th className="py-3 px-5">Status</th></tr></thead>
-        <tbody className="divide-y divide-bdr/40"><tr><td className="py-3 px-5">Employment Contract — Priya Patel</td><td className="py-3 px-5">Priya Patel</td><td className="py-3 px-5">—</td><td className="py-3 px-5"><Badge tone="success">Valid</Badge></td></tr><tr><td className="py-3 px-5">Work Permit — Chen Li</td><td className="py-3 px-5">Chen Li</td><td className="py-3 px-5">Nov 15, 2024</td><td className="py-3 px-5"><Badge tone="warning">Expiring Soon</Badge></td></tr><tr><td className="py-3 px-5">NDA — Rahul Verma</td><td className="py-3 px-5">Rahul Verma</td><td className="py-3 px-5">Expired Jan 02</td><td className="py-3 px-5"><Badge tone="danger">Expired</Badge></td></tr></tbody>
+        <tbody className="divide-y divide-bdr/40"><tr><td className="py-3 px-5">Employment Contract — Assigned Employee</td><td className="py-3 px-5">Assigned Employee</td><td className="py-3 px-5">—</td><td className="py-3 px-5"><Badge tone="success">Valid</Badge></td></tr><tr><td className="py-3 px-5">Work Permit — Chen Li</td><td className="py-3 px-5">Chen Li</td><td className="py-3 px-5">Nov 15, 2024</td><td className="py-3 px-5"><Badge tone="warning">Expiring Soon</Badge></td></tr><tr><td className="py-3 px-5">NDA — Rahul Verma</td><td className="py-3 px-5">Rahul Verma</td><td className="py-3 px-5">Expired Jan 02</td><td className="py-3 px-5"><Badge tone="danger">Expired</Badge></td></tr></tbody>
       </table></div>
     </div>;
 }

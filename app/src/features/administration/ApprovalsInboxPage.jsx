@@ -118,7 +118,32 @@ export default function ApprovalsInboxPage() {
       setComments('');
       await loadData();
     } catch (err) {
-      alert(err?.response?.data?.message || 'Failed to submit approval decision');
+      alert(err?.message || 'Failed to submit approval decision');
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const handleToggleRule = async (rule) => {
+    setSubmitting(true);
+    try {
+      await approvalService.updateRule(rule.id, { is_active: !rule.is_active });
+      await loadData();
+    } catch (err) {
+      alert(err?.message || 'Failed to update approval rule');
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const handleDeleteRule = async (rule) => {
+    if (!window.confirm(`Delete approval rule "${rule.name}"? Requests already raised under it are kept.`)) return;
+    setSubmitting(true);
+    try {
+      await approvalService.deleteRule(rule.id);
+      await loadData();
+    } catch (err) {
+      alert(err?.message || 'Failed to delete approval rule');
     } finally {
       setSubmitting(false);
     }
@@ -144,7 +169,7 @@ export default function ApprovalsInboxPage() {
       });
       await loadData();
     } catch (err) {
-      alert(err?.response?.data?.message || 'Failed to create approval rule');
+      alert(err?.message || 'Failed to create approval rule');
     } finally {
       setSubmitting(false);
     }
@@ -493,12 +518,13 @@ export default function ApprovalsInboxPage() {
                     <th className="py-3 px-4">Approver Role</th>
                     <th className="py-3 px-4">Min Level</th>
                     <th className="py-3 px-4 text-right">Status</th>
+                    <th className="py-3 px-4 text-right">Actions</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100 text-slate-700">
                   {rules.length === 0 ? (
                     <tr>
-                      <td colSpan={7} className="py-8 text-center text-slate-400">
+                      <td colSpan={8} className="py-8 text-center text-slate-400">
                         No approval rules configured yet. Create a rule to enforce authorization thresholds.
                       </td>
                     </tr>
@@ -537,6 +563,24 @@ export default function ApprovalsInboxPage() {
                           >
                             {rule.is_active ? 'Active' : 'Inactive'}
                           </span>
+                        </td>
+                        <td className="py-3 px-4 text-right whitespace-nowrap">
+                          <button
+                            type="button"
+                            disabled={submitting}
+                            onClick={() => handleToggleRule(rule)}
+                            className="px-2 py-1 text-xs font-semibold text-indigo-600 hover:underline disabled:opacity-50"
+                          >
+                            {rule.is_active ? 'Deactivate' : 'Activate'}
+                          </button>
+                          <button
+                            type="button"
+                            disabled={submitting}
+                            onClick={() => handleDeleteRule(rule)}
+                            className="px-2 py-1 text-xs font-semibold text-rose-600 hover:underline disabled:opacity-50"
+                          >
+                            Delete
+                          </button>
                         </td>
                       </tr>
                     ))

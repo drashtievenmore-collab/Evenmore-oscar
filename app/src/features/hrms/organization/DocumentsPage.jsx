@@ -1,4 +1,6 @@
 import { useState, useMemo, useRef, useEffect } from "react";
+import api from "../../../services/api";
+import { isBackendEnabled } from "../../../services/resourceSync";
 import { useAppStore } from "../../../stores/appStore";
 import { useDocumentStore } from "../../../stores/documentStore";
 import { Badge } from "../../../components/hrms/Badge";
@@ -179,7 +181,7 @@ export function DocumentsPage() {
   const showToast = useAppStore((s) => s.showToast);
   const employees = useAppStore((s) => s.employees);
   const currentUser = useAppStore((s) => s.currentUser) || {
-    name: "Adarsh Gupta",
+    name: "System Admin",
     role: "Operations Admin",
     email: "admin@evenmore.io",
   };
@@ -203,13 +205,13 @@ export function DocumentsPage() {
 
   // Employee-wise tab state
   const [selectedEmpName, setSelectedEmpName] = useState(
-    employees[0]?.name || "Priya Patel"
+    employees[0]?.name || ""
   );
   const [empSearch, setEmpSearch] = useState("");
   const [empCategoryFilter, setEmpCategoryFilter] = useState("All");
 
   // My Documents user override
-  const [myDocUser, setMyDocUser] = useState(currentUser?.name || "Adarsh Gupta");
+  const [myDocUser, setMyDocUser] = useState(currentUser?.name || "");
   const [myDocCategoryFilter, setMyDocCategoryFilter] = useState("All");
 
   // Modals state
@@ -314,19 +316,64 @@ export function DocumentsPage() {
     }
   }
 
-  function processFilesFromDevice(fileList, targetScope) {
+  
+async function uploadDocumentFile(file) {
+  const resolvedName = file.name || 'document.pdf';
+  const size = file.size || 1024;
+  const contentType = file.type || (resolvedName.toLowerCase().endsWith('.pdf') ? 'application/pdf' : 'image/png');
+
+  const uploadInit = await api.post('/files/upload-url/', {
+    fileName: resolvedName,
+    contentType,
+    size,
+    scope: 'hrms_document',
+  });
+  const payload = uploadInit?.data || uploadInit;
+  const fileId = payload?.fileId || uploadInit?.fileId;
+  const uploadUrl = payload?.uploadUrl || uploadInit?.uploadUrl;
+  if (!fileId || !uploadUrl) {
+    throw new Error('Server failed to initiate file upload.');
+  }
+
+  let targetUrl = uploadUrl;
+  try {
+    const parsed = new URL(uploadUrl, window.location.origin);
+    if (parsed.pathname.startsWith('/api/')) {
+      targetUrl = `${parsed.pathname}${parsed.search}`;
+    }
+  } catch {}
+
+  const formData = new FormData();
+  formData.append('file', file, resolvedName);
+  const putRes = await fetch(targetUrl, {
+    method: 'PUT',
+    body: formData,
+  });
+  if (!putRes.ok) {
+    throw new Error(`Upload transfer failed (${putRes.status})`);
+  }
+
+  const commitRes = await api.post(`/files/${fileId}/commit/`, {});
+  return commitRes?.data || commitRes || { id: fileId, fileId };
+}
+
+  async function processFilesFromDevice(fileList, targetScope) {
     if (!fileList || fileList.length === 0) return;
 
-    Array.from(fileList).forEach((file) => {
-      const reader = new FileReader();
-      reader.onload = () => {
-        const fileDataUrl = reader.result;
-        // Clean Title from File Name
+    for (const file of Array.from(fileList)) {
+      try {
+        let fileId = null;
+        let fileUrl = null;
+        if (isBackendEnabled()) {
+          const committed = await uploadDocumentFile(file);
+          fileId = committed?.id || committed?.fileId;
+          fileUrl = committed?.url || `/api/v1/files/${fileId}/`;
+        }
+
         const baseName = file.name.replace(/\.[^/.]+$/, "");
         const formattedTitle = baseName
           .replace(/[_-]+/g, " ")
           .replace(/\b\w/g, (c) => c.toUpperCase());
-
         const sizeInMb = (file.size / (1024 * 1024)).toFixed(1);
         const inferredCat = inferCategoryFromFilename(file.name);
 
@@ -341,19 +388,20 @@ export function DocumentsPage() {
           version: "v1.0",
           expiry: "—",
           status: "Valid",
-          fileType: "PDF",
+          fileType: file.name.toLowerCase().endsWith('.pdf') ? 'PDF' : file.type || 'PDF',
           fileSize: `${sizeInMb} MB`,
-          uploadedBy: currentUser?.name,
-          description: `Selected from device: ${file.name} (uploaded on ${new Date().toISOString().slice(0, 10)}).`,
-          fileData: fileDataUrl,
+          uploadedBy: currentUser?.name || 'Administrator',
+          description: `Uploaded from device: ${file.name} (uploaded on ${new Date().toISOString().slice(0, 10)}).`,
+          fileId,
+          fileUrl,
           tags: [inferredCat, "Device Upload"],
         });
 
         showToast(`Selected "${file.name}" from device & added to ${targetScope} (${newDoc.id})`);
-      };
-
-      reader.readAsDataURL(file);
-    });
+      } catch (err) {
+        showToast(`Failed to upload "${file.name}": ${err?.message || 'Upload error'}`, 'error');
+      }
+    }
   }
 
   function handleDeviceFileInputChange(e) {

@@ -7,7 +7,7 @@ import { hrmsGuides } from "../../../data/hrms/hrmsGuides";
 export default function Performance() {
   const showToast = useAppStore((s) => s.showToast);
   const [goals, setGoals] = useState([
-    { id: "G1", emp: "Priya Patel", avatar: "https://i.pravatar.cc/100?img=15", title: "Reduce API latency by 30%", target: "30%", progress: 72, due: "Dec 31", status: "In Progress" },
+    { id: "G1", emp: "Team Member", avatar: "https://i.pravatar.cc/100?img=15", title: "Reduce API latency by 30%", target: "30%", progress: 72, due: "Dec 31", status: "In Progress" },
     { id: "G2", emp: "Marcus Chen", avatar: "https://i.pravatar.cc/100?img=16", title: "Launch Design System v2", target: "1 release", progress: 100, due: "Oct 15", status: "Completed" }
   ]);
   const [filter, setFilter] = useState("All");

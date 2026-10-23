@@ -1,5 +1,7 @@
 import React, { useState, useEffect, Suspense, lazy } from 'react';
 import { useERP } from '../../context/ERPContext';
+import { useAppStore } from '../../stores/appStore';
+import { isUserAdmin } from '../../components/layout/Sidebar';
 import { inventoryService } from '../../services/domainServices';
 import { Button } from '../../components/ui/Button';
 import PageHeader from '../../components/ui/PageHeader';
@@ -28,6 +30,9 @@ function GeneralSettings() {
         setCompanyProfile,
         showToast,
     } = useERP();
+    const currentUser = useAppStore((s) => s.currentUser);
+    const permissions = useAppStore((s) => s.permissions) || [];
+    const isAdmin = isUserAdmin(currentUser, permissions);
     const [saved, setSaved] = useState(false);
     const [companyName, setCompanyName] = useState(companyProfile?.name || '');
     const [gstin, setGstin] = useState(companyProfile?.gstin || '');
@@ -42,15 +47,19 @@ function GeneralSettings() {
     const [greyAlertEnabled, setGreyAlertEnabled] = useState(true);
     const [showConfirmReset, setShowConfirmReset] = useState(false);
 
-    const { maxDiscountPct, approverRole, savePolicy: saveDiscountPolicy } = useDiscountPolicy();
-    const [discThreshold, setDiscThreshold] = useState('');
-    const [discApproverRole, setDiscApproverRole] = useState('sales_manager');
+    const { policy: discountPolicy, savePolicy: saveDiscountPolicy } = useDiscountPolicy();
+    const [discForm, setDiscForm] = useState({ autoAllowPct: '', salespersonMaxPct: '', managerMaxPct: '', minMarginPct: '' });
     const [discSaved, setDiscSaved] = useState(false);
+    const [discError, setDiscError] = useState('');
     // Sync from loaded policy
     useEffect(() => {
-      setDiscThreshold(String(maxDiscountPct));
-      setDiscApproverRole(approverRole);
-    }, [maxDiscountPct, approverRole]);
+      setDiscForm({
+        autoAllowPct: String(discountPolicy.autoAllowPct),
+        salespersonMaxPct: String(discountPolicy.salespersonMaxPct),
+        managerMaxPct: String(discountPolicy.managerMaxPct),
+        minMarginPct: String(discountPolicy.minMarginPct),
+      });
+    }, [discountPolicy]);
 
     useEffect(() => {
         let active = true;
@@ -72,14 +81,21 @@ function GeneralSettings() {
     const handleSave = async (e) => {
         e.preventDefault();
         setGlobalCurrency(currency);
+        let profileOk = true;
         if (typeof setCompanyProfile === 'function') {
-            setCompanyProfile({
-                name: companyName,
-                gstin,
-                pan,
-                address,
-                phone,
-            });
+            try {
+                await setCompanyProfile({
+                    name: companyName,
+                    gstin,
+                    pan,
+                    address,
+                    phone,
+                });
+            } catch (err) {
+                profileOk = false;
+                console.error('Failed to save company profile:', err);
+                if (showToast) showToast(err?.message || 'Failed to save company profile', 'error');
+            }
         }
         try {
             const numericThreshold = parseFloat(greyThreshold) || 0;
@@ -92,8 +108,11 @@ function GeneralSettings() {
             console.error('Failed to update combined grey stock setting:', err);
             if (showToast) showToast('Failed to save combined grey stock setting', 'error');
         }
-        setSaved(true);
-        setTimeout(() => setSaved(false), 3000);
+        if (profileOk) {
+            setSaved(true);
+            setTimeout(() => setSaved(false), 3000);
+            if (showToast) showToast('Settings saved successfully');
+        }
     };
     const handleResetData = () => {
         resetDemoData();
@@ -101,9 +120,21 @@ function GeneralSettings() {
     };
     const handleSaveDiscountPolicy = async (e) => {
       e.preventDefault();
-      await saveDiscountPolicy(discThreshold, discApproverRole);
-      setDiscSaved(true);
-      setTimeout(() => setDiscSaved(false), 3000);
+      setDiscError('');
+      try {
+        await saveDiscountPolicy({
+          autoAllowPct: Number(discForm.autoAllowPct),
+          salespersonMaxPct: Number(discForm.salespersonMaxPct),
+          managerMaxPct: Number(discForm.managerMaxPct),
+          minMarginPct: Number(discForm.minMarginPct),
+        });
+        setDiscSaved(true);
+        setTimeout(() => setDiscSaved(false), 3000);
+      } catch (err) {
+        const fieldErrors = err?.payload?.field_errors;
+        const first = fieldErrors && Object.values(fieldErrors).flat()[0];
+        setDiscError(first || err?.message || 'Could not save the discount policy.');
+      }
     };
     return (<div className="space-y-6 max-w-4xl">
       <form onSubmit={handleSave} className="space-y-6">
@@ -227,41 +258,35 @@ function GeneralSettings() {
         </div>
         <form onSubmit={handleSaveDiscountPolicy} className="space-y-4 text-xs">
           <p className="text-slate-500 text-[11px] leading-relaxed">
-            Set the maximum discount % a salesperson can give without approval. Any quotation with a higher
-            discount will require explicit approval from the selected authority before it can be sent.
+            Up to the salesperson limit a salesperson gives the discount on their own. Above it, up to the manager
+            limit, the Sales Manager must approve; above that — or on any line sold below cost or below the
+            minimum margin — the Owner must approve. Quotations and orders wait in the approvals inbox until then.
           </p>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <div>
-              <label className="font-semibold text-slate-700 block mb-1 flex items-center gap-1">
-                <Percent size={12} /> Max Discount Without Approval (%)
-              </label>
-              <input
-                type="number"
-                min="0"
-                max="100"
-                step="0.5"
-                value={discThreshold}
-                onChange={(e) => setDiscThreshold(e.target.value)}
-                className="w-full p-2 border border-[#CED4DA] rounded bg-[#F8F9FA] font-mono font-semibold text-slate-900"
-                placeholder="e.g. 15"
-              />
-              <p className="text-[11px] text-slate-400 mt-1">Discounts above this % will be flagged for approval.</p>
-            </div>
-            <div>
-              <label className="font-semibold text-slate-700 block mb-1">Approver Role</label>
-              <select
-                value={discApproverRole}
-                onChange={(e) => setDiscApproverRole(e.target.value)}
-                className="w-full p-2 border border-[#CED4DA] rounded bg-[#F8F9FA]"
-              >
-                <option value="owner">Owner / Super Admin</option>
-                <option value="admin">Admin</option>
-                <option value="sales_manager">Sales Manager</option>
-                <option value="accounts">Accounts</option>
-              </select>
-              <p className="text-[11px] text-slate-400 mt-1">Who must approve above-threshold discounts.</p>
-            </div>
+            {[
+              ['autoAllowPct', 'Allowed for everyone up to (%)', 'Nobody needs to approve discounts up to this.'],
+              ['salespersonMaxPct', 'Salesperson limit (%)', 'A salesperson may give up to this without approval.'],
+              ['managerMaxPct', 'Sales Manager limit (%)', 'Above the salesperson limit and up to this, the Sales Manager approves. Above it, the Owner.'],
+              ['minMarginPct', 'Minimum margin (%)', 'A line with a lower margin over landed cost needs Owner approval.'],
+            ].map(([key, label, hint]) => (
+              <div key={key}>
+                <label className="font-semibold text-slate-700 block mb-1 flex items-center gap-1">
+                  <Percent size={12} /> {label}
+                </label>
+                <input
+                  type="number"
+                  min="0"
+                  max="100"
+                  step="0.5"
+                  value={discForm[key]}
+                  onChange={(e) => setDiscForm((f) => ({ ...f, [key]: e.target.value }))}
+                  className="w-full p-2 border border-[#CED4DA] rounded bg-[#F8F9FA] font-mono font-semibold text-slate-900"
+                />
+                <p className="text-[11px] text-slate-400 mt-1">{hint}</p>
+              </div>
+            ))}
           </div>
+          {discError && <p role="alert" className="text-xs font-semibold text-rose-600">{discError}</p>}
           <div className="flex items-center gap-3 pt-1">
             <button
               type="submit"

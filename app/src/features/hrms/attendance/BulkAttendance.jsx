@@ -8,7 +8,7 @@ import { hrmsGuides } from "../../../data/hrms/hrmsGuides";
 import { bulkAttendance, isBackendEnabled } from "../../../services/hrmsSync";
 import { Avatar } from "../../../components/hrms/Avatar";
 
-const INITIAL_EMPLOYEES = [];
+const DEFAULT_EMPLOYEES = [];
 
 const DEPARTMENTS = ["All", "Engineering", "Design", "Marketing", "Finance", "HR", "Operations"];
 const LOCATIONS = ["All", "Bangalore", "Mumbai", "Delhi", "Hyderabad"];
@@ -45,7 +45,7 @@ export default function BulkAttendance() {
         avatar: r.avatar || r.img || null,
       }));
     }
-    return INITIAL_EMPLOYEES;
+    return DEFAULT_EMPLOYEES;
   });
 
   const storeEmployees = useAppStore((s) => s.employees);

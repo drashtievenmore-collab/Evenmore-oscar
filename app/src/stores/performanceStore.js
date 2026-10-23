@@ -1,6 +1,6 @@
 import { create } from "zustand";
 import { lazyStore } from "../services/lazyModules";
-import { writeThrough, pullTracked } from "../services/hrmsSync";
+import { writeThrough, pullTracked, hrmsSync, isBackendEnabled, isServerId } from "../services/hrmsSync";
 import { RATING_SCALES } from "../services/performanceScales";
 import { useAppStore } from "./appStore";
 
@@ -68,8 +68,8 @@ const usePerformanceStoreBase = create((set, get) => ({
 
   // Role Simulation ('HR' | 'Manager' | 'Employee')
   role: "HR",
-  simulatedEmployeeName: "Priya Patel",
-  simulatedManagerName: "David Park",
+  simulatedEmployeeName: "",
+  simulatedManagerName: "",
 
   setRole: (role) => {
     set({ role });

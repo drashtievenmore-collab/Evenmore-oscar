@@ -26,6 +26,18 @@ import {
 import { inventoryService } from '../../../services/domainServices';
 import PageInfoButton from '../../../components/ui/PageInfoButton';
 
+const fmtQty = (val, fallback = '—') => {
+  if (val === null || val === undefined || val === '') return fallback;
+  const num = Number(val);
+  return Number.isFinite(num) ? num.toLocaleString('en-IN') : fallback;
+};
+
+const fmtPct = (val, fallback = '—') => {
+  if (val === null || val === undefined || val === '') return fallback;
+  const num = Number(val);
+  return Number.isFinite(num) ? `${num}%` : fallback;
+};
+
 export default function QCReportsPage() {
   const [activeTab, setActiveTab] = useState('supplierRejection');
   const [loading, setLoading] = useState(true);
@@ -218,7 +230,7 @@ export default function QCReportsPage() {
             <span>Audited Receipts</span>
             <FileText className="w-4 h-4 text-slate-400" />
           </div>
-          <div className="text-xl font-bold text-slate-900">{summaryKPIs.totalReceipts}</div>
+          <div className="text-xl font-bold text-slate-900">{summaryKPIs?.totalReceipts ?? 0}</div>
           <div className="text-[11px] text-slate-400 mt-0.5">GRN & Job Work</div>
         </div>
 
@@ -227,8 +239,8 @@ export default function QCReportsPage() {
             <span>Inspected Fabric</span>
             <Layers className="w-4 h-4 text-blue-500" />
           </div>
-          <div className="text-xl font-bold text-slate-900">{summaryKPIs.totalInspected.toLocaleString()} <span className="text-xs font-normal text-slate-500">m</span></div>
-          <div className="text-[11px] text-blue-600 font-medium mt-0.5">{summaryKPIs.totalReceived ? Math.round((summaryKPIs.totalInspected / summaryKPIs.totalReceived) * 100) : 100}% of received</div>
+          <div className="text-xl font-bold text-slate-900">{fmtQty(summaryKPIs?.totalInspected, '0')} <span className="text-xs font-normal text-slate-500">m</span></div>
+          <div className="text-[11px] text-blue-600 font-medium mt-0.5">{summaryKPIs?.totalReceived ? Math.round(((summaryKPIs?.totalInspected || 0) / summaryKPIs.totalReceived) * 100) : 100}% of received</div>
         </div>
 
         <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm">
@@ -236,7 +248,7 @@ export default function QCReportsPage() {
             <span>Overall Pass Rate</span>
             <CheckCircle2 className="w-4 h-4 text-emerald-500" />
           </div>
-          <div className="text-xl font-bold text-emerald-600">{summaryKPIs.passRate}%</div>
+          <div className="text-xl font-bold text-emerald-600">{fmtPct(summaryKPIs?.passRate, '0%')}</div>
           <div className="text-[11px] text-emerald-700 font-medium mt-0.5">Approved usable</div>
         </div>
 
@@ -245,7 +257,7 @@ export default function QCReportsPage() {
             <span>Rejection Rate</span>
             <XCircle className="w-4 h-4 text-rose-500" />
           </div>
-          <div className="text-xl font-bold text-rose-600">{summaryKPIs.rejectionRate}%</div>
+          <div className="text-xl font-bold text-rose-600">{fmtPct(summaryKPIs?.rejectionRate, '0%')}</div>
           <div className="text-[11px] text-rose-600 mt-0.5 font-medium">Scrap & wastage</div>
         </div>
 
@@ -254,7 +266,7 @@ export default function QCReportsPage() {
             <span>Hold / Pending</span>
             <Clock className="w-4 h-4 text-amber-500" />
           </div>
-          <div className="text-xl font-bold text-amber-600">{summaryKPIs.pendingHoldQty.toLocaleString()} <span className="text-xs font-normal text-slate-500">m</span></div>
+          <div className="text-xl font-bold text-amber-600">{fmtQty(summaryKPIs?.pendingHoldQty, '0')} <span className="text-xs font-normal text-slate-500">m</span></div>
           <div className="text-[11px] text-amber-700 mt-0.5">Awaiting resolution</div>
         </div>
 
@@ -263,7 +275,7 @@ export default function QCReportsPage() {
             <span>Recovery Rate</span>
             <RotateCcw className="w-4 h-4 text-indigo-500" />
           </div>
-          <div className="text-xl font-bold text-indigo-600">{summaryKPIs.reprocessRecovery}%</div>
+          <div className="text-xl font-bold text-indigo-600">{fmtPct(summaryKPIs?.reprocessRecovery, '0%')}</div>
           <div className="text-[11px] text-indigo-600 font-medium mt-0.5">From reprocessing</div>
         </div>
       </div>
@@ -435,14 +447,14 @@ export default function QCReportsPage() {
                           Grade {row.grade}
                         </span>
                       </td>
-                      <td className="py-3 px-4 text-right font-medium text-slate-600">{row.receiptsCount}</td>
-                      <td className="py-3 px-4 text-right font-medium text-slate-900">{row.receivedQty.toLocaleString()} m</td>
-                      <td className="py-3 px-4 text-right text-slate-700">{row.inspectedQty.toLocaleString()} m</td>
-                      <td className="py-3 px-4 text-right font-semibold text-emerald-600">{row.goodQty.toLocaleString()} m</td>
-                      <td className="py-3 px-4 text-right text-amber-600">{row.holdQty.toLocaleString()} m</td>
-                      <td className="py-3 px-4 text-right font-semibold text-rose-600">{row.rejectedQty.toLocaleString()} m</td>
-                      <td className="py-3 px-4 text-right font-bold text-rose-600">{row.rejectionPct}%</td>
-                      <td className="py-3 px-4 text-right font-bold text-emerald-600">{row.passPct}%</td>
+                      <td className="py-3 px-4 text-right font-medium text-slate-600">{row.receiptsCount ?? 0}</td>
+                      <td className="py-3 px-4 text-right font-medium text-slate-900">{fmtQty(row.receivedQty)} m</td>
+                      <td className="py-3 px-4 text-right text-slate-700">{fmtQty(row.inspectedQty)} m</td>
+                      <td className="py-3 px-4 text-right font-semibold text-emerald-600">{fmtQty(row.goodQty)} m</td>
+                      <td className="py-3 px-4 text-right text-amber-600">{fmtQty(row.holdQty)} m</td>
+                      <td className="py-3 px-4 text-right font-semibold text-rose-600">{fmtQty(row.rejectedQty)} m</td>
+                      <td className="py-3 px-4 text-right font-bold text-rose-600">{fmtPct(row.rejectionPct, '0%')}</td>
+                      <td className="py-3 px-4 text-right font-bold text-emerald-600">{fmtPct(row.passPct, '0%')}</td>
                       <td className="py-3 px-4 text-center">
                         <button
                           onClick={() => setSelectedRow({ ...row, type: 'supplier' })}
@@ -480,12 +492,12 @@ export default function QCReportsPage() {
                     <tr key={idx} className="hover:bg-slate-50 transition">
                       <td className="py-3 px-4 font-semibold text-slate-900">{row.quality}</td>
                       <td className="py-3 px-4 font-mono text-slate-500">{row.itemCode}</td>
-                      <td className="py-3 px-4 text-right font-medium text-slate-700">{row.lotsCount}</td>
-                      <td className="py-3 px-4 text-right font-medium text-slate-900">{row.inspectedQty.toLocaleString()} m</td>
-                      <td className="py-3 px-4 text-right font-semibold text-emerald-600">{row.goodQty.toLocaleString()} m</td>
-                      <td className="py-3 px-4 text-right font-semibold text-rose-600">{row.defectiveQty.toLocaleString()} m</td>
-                      <td className="py-3 px-4 text-right font-bold text-rose-600">{row.defectPct}%</td>
-                      <td className="py-3 px-4 text-right font-bold text-emerald-600">{row.passPct}%</td>
+                      <td className="py-3 px-4 text-right font-medium text-slate-700">{row.lotsCount ?? 0}</td>
+                      <td className="py-3 px-4 text-right font-medium text-slate-900">{fmtQty(row.inspectedQty)} m</td>
+                      <td className="py-3 px-4 text-right font-semibold text-emerald-600">{fmtQty(row.goodQty)} m</td>
+                      <td className="py-3 px-4 text-right font-semibold text-rose-600">{fmtQty(row.defectiveQty)} m</td>
+                      <td className="py-3 px-4 text-right font-bold text-rose-600">{fmtPct(row.defectPct, '0%')}</td>
+                      <td className="py-3 px-4 text-right font-bold text-emerald-600">{fmtPct(row.passPct, '0%')}</td>
                       <td className="py-3 px-4 text-slate-600">
                         <span className="inline-block px-2 py-0.5 bg-slate-100 text-slate-700 rounded text-[11px]">
                           {row.primaryDefect}
@@ -539,7 +551,7 @@ export default function QCReportsPage() {
                       <td className="py-3 px-4 font-medium text-slate-800">{row.supplier}</td>
                       <td className="py-3 px-4 text-slate-700">{row.itemName || row.quality}</td>
                       <td className="py-3 px-4 font-mono text-slate-500">{row.lotNo}</td>
-                      <td className="py-3 px-4 text-right font-bold text-amber-600">{row.qty.toLocaleString()} m</td>
+                      <td className="py-3 px-4 text-right font-bold text-amber-600">{fmtQty(row.qty)} m</td>
                       <td className="py-3 px-4 text-center font-semibold text-slate-700">{row.daysPending} days</td>
                       <td className="py-3 px-4 text-center">
                         <span className={`inline-block px-2 py-0.5 rounded text-[11px] font-bold ${
@@ -589,10 +601,10 @@ export default function QCReportsPage() {
                       <td className="py-3 px-4 font-mono text-blue-600">{row.sourceRef}</td>
                       <td className="py-3 px-4 font-medium text-slate-800">{row.vendor}</td>
                       <td className="py-3 px-4 text-slate-700">{row.fabricItem}</td>
-                      <td className="py-3 px-4 text-right font-medium text-slate-900">{row.sentQty.toLocaleString()} m</td>
-                      <td className="py-3 px-4 text-right font-semibold text-emerald-600">{row.receivedQty.toLocaleString()} m</td>
-                      <td className="py-3 px-4 text-right font-bold text-indigo-600">{row.recoveryPct}%</td>
-                      <td className="py-3 px-4 text-right font-medium text-rose-600">{row.lossQty.toLocaleString()} m</td>
+                      <td className="py-3 px-4 text-right font-medium text-slate-900">{fmtQty(row.sentQty)} m</td>
+                      <td className="py-3 px-4 text-right font-semibold text-emerald-600">{row.receivedQty !== null && row.receivedQty !== undefined ? `${fmtQty(row.receivedQty)} m` : <span className="text-slate-400 italic font-normal">Pending</span>}</td>
+                      <td className="py-3 px-4 text-right font-bold text-indigo-600">{fmtPct(row.recoveryPct, '—')}</td>
+                      <td className="py-3 px-4 text-right font-medium text-rose-600">{row.lossQty !== null && row.lossQty !== undefined ? `${fmtQty(row.lossQty)} m` : '—'}</td>
                       <td className="py-3 px-4 text-center">
                         <span className={`inline-block px-2 py-0.5 rounded text-[11px] font-semibold ${
                           row.status === 'Completed' ? 'bg-emerald-100 text-emerald-800' :
@@ -601,7 +613,7 @@ export default function QCReportsPage() {
                           {row.status}
                         </span>
                       </td>
-                      <td className="py-3 px-4 text-right font-bold text-emerald-600">{row.goodQty.toLocaleString()} m</td>
+                      <td className="py-3 px-4 text-right font-bold text-emerald-600">{row.goodQty !== null && row.goodQty !== undefined ? `${fmtQty(row.goodQty)} m` : '—'}</td>
                       <td className="py-3 px-4 text-slate-500 truncate max-w-[180px]">{row.reason}</td>
                     </tr>
                   ))}
@@ -628,12 +640,12 @@ export default function QCReportsPage() {
                   {filteredData.map((row, idx) => (
                     <tr key={idx} className="hover:bg-slate-50 transition">
                       <td className="py-3 px-4 font-semibold text-slate-900">{row.inspector}</td>
-                      <td className="py-3 px-4 text-right font-medium text-slate-700">{row.inspectionsCount}</td>
-                      <td className="py-3 px-4 text-right font-medium text-slate-900">{row.inspectedQty.toLocaleString()} m</td>
-                      <td className="py-3 px-4 text-right font-semibold text-emerald-600">{row.approvedCount}</td>
-                      <td className="py-3 px-4 text-right font-medium text-amber-600">{row.holdCount}</td>
-                      <td className="py-3 px-4 text-right font-medium text-rose-600">{row.rejectedCount}</td>
-                      <td className="py-3 px-4 text-right font-bold text-blue-600">{row.passPct}%</td>
+                      <td className="py-3 px-4 text-right font-medium text-slate-700">{row.inspectionsCount ?? 0}</td>
+                      <td className="py-3 px-4 text-right font-medium text-slate-900">{fmtQty(row.inspectedQty)} m</td>
+                      <td className="py-3 px-4 text-right font-semibold text-emerald-600">{row.approvedCount ?? 0}</td>
+                      <td className="py-3 px-4 text-right font-medium text-amber-600">{row.holdCount ?? 0}</td>
+                      <td className="py-3 px-4 text-right font-medium text-rose-600">{row.rejectedCount ?? 0}</td>
+                      <td className="py-3 px-4 text-right font-bold text-blue-600">{fmtPct(row.passPct, '0%')}</td>
                       <td className="py-3 px-4 text-center">
                         <span className="inline-block px-2.5 py-0.5 rounded text-[11px] font-bold bg-emerald-100 text-emerald-800">
                           Consistent
@@ -665,14 +677,14 @@ export default function QCReportsPage() {
                   {filteredData.map((row, idx) => (
                     <tr key={idx} className="hover:bg-slate-50 transition">
                       <td className="py-3 px-4 font-mono font-semibold text-slate-900">{row.date}</td>
-                      <td className="py-3 px-4 text-right font-medium text-slate-700">{row.receiptsCount}</td>
-                      <td className="py-3 px-4 text-right font-medium text-slate-900">{row.receivedQty.toLocaleString()} m</td>
-                      <td className="py-3 px-4 text-right text-slate-700">{row.inspectedQty.toLocaleString()} m</td>
-                      <td className="py-3 px-4 text-right font-semibold text-emerald-600">{row.goodQty.toLocaleString()} m</td>
-                      <td className="py-3 px-4 text-right text-amber-600">{row.holdQty.toLocaleString()} m</td>
-                      <td className="py-3 px-4 text-right font-semibold text-rose-600">{row.rejectedQty.toLocaleString()} m</td>
-                      <td className="py-3 px-4 text-right font-bold text-emerald-600">{row.passPct}%</td>
-                      <td className="py-3 px-4 text-right font-bold text-rose-600">{row.rejectionPct}%</td>
+                      <td className="py-3 px-4 text-right font-medium text-slate-700">{row.receiptsCount ?? 0}</td>
+                      <td className="py-3 px-4 text-right font-medium text-slate-900">{fmtQty(row.receivedQty)} m</td>
+                      <td className="py-3 px-4 text-right text-slate-700">{fmtQty(row.inspectedQty)} m</td>
+                      <td className="py-3 px-4 text-right font-semibold text-emerald-600">{fmtQty(row.goodQty)} m</td>
+                      <td className="py-3 px-4 text-right text-amber-600">{fmtQty(row.holdQty)} m</td>
+                      <td className="py-3 px-4 text-right font-semibold text-rose-600">{fmtQty(row.rejectedQty)} m</td>
+                      <td className="py-3 px-4 text-right font-bold text-emerald-600">{fmtPct(row.passPct, '0%')}</td>
+                      <td className="py-3 px-4 text-right font-bold text-rose-600">{fmtPct(row.rejectionPct, '0%')}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -707,29 +719,29 @@ export default function QCReportsPage() {
               <div className="grid grid-cols-2 gap-3 bg-slate-50 p-3 rounded-lg border border-slate-200">
                 <div>
                   <div className="text-slate-500 text-[11px]">Total Inspected</div>
-                  <div className="text-base font-bold text-slate-900">{selectedRow.inspectedQty?.toLocaleString() || 0} m</div>
+                  <div className="text-base font-bold text-slate-900">{fmtQty(selectedRow?.inspectedQty, '0')} m</div>
                 </div>
                 <div>
                   <div className="text-slate-500 text-[11px]">Pass Rate</div>
-                  <div className="text-base font-bold text-emerald-600">{selectedRow.passPct || 0}%</div>
+                  <div className="text-base font-bold text-emerald-600">{fmtPct(selectedRow?.passPct, '0%')}</div>
                 </div>
               </div>
 
               <div className="space-y-2">
                 <div className="flex justify-between py-1.5 border-b border-slate-100">
                   <span className="text-slate-500">Approved Good Fabric:</span>
-                  <span className="font-semibold text-emerald-600">{selectedRow.goodQty?.toLocaleString() || 0} m</span>
+                  <span className="font-semibold text-emerald-600">{fmtQty(selectedRow?.goodQty, '0')} m</span>
                 </div>
-                {selectedRow.holdQty !== undefined && (
+                {selectedRow?.holdQty !== undefined && (
                   <div className="flex justify-between py-1.5 border-b border-slate-100">
                     <span className="text-slate-500">QC Hold Fabric:</span>
-                    <span className="font-semibold text-amber-600">{selectedRow.holdQty?.toLocaleString() || 0} m</span>
+                    <span className="font-semibold text-amber-600">{fmtQty(selectedRow?.holdQty, '0')} m</span>
                   </div>
                 )}
-                {selectedRow.rejectedQty !== undefined && (
+                {(selectedRow?.rejectedQty !== undefined || selectedRow?.defectiveQty !== undefined) && (
                   <div className="flex justify-between py-1.5 border-b border-slate-100">
                     <span className="text-slate-500">Rejected / Defective:</span>
-                    <span className="font-semibold text-rose-600">{selectedRow.rejectedQty?.toLocaleString() || selectedRow.defectiveQty?.toLocaleString() || 0} m</span>
+                    <span className="font-semibold text-rose-600">{fmtQty(selectedRow?.rejectedQty ?? selectedRow?.defectiveQty, '0')} m</span>
                   </div>
                 )}
                 <div className="flex justify-between py-1.5 border-b border-slate-100">

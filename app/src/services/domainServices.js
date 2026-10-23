@@ -2,6 +2,66 @@ import { api, getAuthToken } from './api';
 
 const API_BASE = (import.meta.env.VITE_API_URL || import.meta.env.VITE_API_BASE_URL || '/api/v1').replace(/\/+$/, '');
 
+/**
+ * Fetch a file with the login token and hand it to the browser as a download.
+ * A plain `window.open()` cannot send the Bearer token, so protected exports
+ * would come back 401. Mirrors `openTakaTagsPdf`, but saves instead of opens
+ * because a CSV/XML attachment should land in the Downloads folder.
+ */
+async function downloadWithAuth(url, fallbackFilename) {
+  const token = getAuthToken();
+  let res;
+  try {
+    res = await fetch(url, {
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+    });
+  } catch {
+    throw new Error('Could not reach the server. Check your connection and try again.');
+  }
+  if (!res.ok) {
+    let detail = '';
+    try {
+      const payload = await res.json();
+      detail = payload?.detail || payload?.message || payload?.error || '';
+    } catch {
+      // The body is not JSON (HTML error page or empty) — use the status.
+    }
+    throw new Error(detail || `Could not generate the file (HTTP ${res.status}).`);
+  }
+
+  const disposition = res.headers.get('Content-Disposition') || '';
+  const match = /filename\*?=(?:UTF-8'')?"?([^";]+)"?/i.exec(disposition);
+  let filename = fallbackFilename;
+  if (match?.[1]) {
+    try {
+      filename = decodeURIComponent(match[1]);
+    } catch {
+      filename = match[1];
+    }
+  }
+
+  const objectUrl = URL.createObjectURL(await res.blob());
+  const anchor = document.createElement('a');
+  anchor.href = objectUrl;
+  anchor.download = filename;
+  document.body.appendChild(anchor);
+  anchor.click();
+  anchor.remove();
+  setTimeout(() => URL.revokeObjectURL(objectUrl), 60000);
+}
+
+function tallyExportUrl(type, dateFrom, dateTo) {
+  return `${API_BASE}/accounts/export/tally/?type=${type || 'vouchers'}${dateFrom ? '&dateFrom=' + dateFrom : ''}${dateTo ? '&dateTo=' + dateTo : ''}`;
+}
+
+function excelExportUrl(register, dateFrom, dateTo) {
+  return `${API_BASE}/accounts/export/excel/?register=${register || 'sales'}${dateFrom ? '&dateFrom=' + dateFrom : ''}${dateTo ? '&dateTo=' + dateTo : ''}`;
+}
+
+function itc04ExportUrl(financialYear, quarter, table = 'both') {
+  return `${API_BASE}/jobwork/itc-04/export/?table=${table}${financialYear ? '&financialYear=' + financialYear : ''}${quarter ? '&quarter=' + quarter : ''}`;
+}
+
 // ── CRM ──────────────────────────────────────────────────────────────────
 // Graph parity: Lead Data Operations, Notes & Discussions, Stage & Task
 // Kanban, Lead Detail Workspace (users/products/files), Custom Form Builder.
@@ -63,6 +123,13 @@ export const crmService = {
   getDealDocuments: (dealId) => api.get(`/crm/deals/${dealId}/documents/`),
   addDealDocument: (dealId, data) => api.post(`/crm/deals/${dealId}/documents/`, data || {}),
   deleteDealDocument: (dealId, documentId) => api.delete(`/crm/deals/${dealId}/documents/${documentId}/`),
+  // Contracts actions
+  getContracts: (query) => api.get('/crm/contracts/', { query }),
+  getContract: (id) => api.get(`/crm/contracts/${id}/`),
+  createContract: (data) => api.post('/crm/contracts/', data),
+  updateContract: (id, data) => api.patch(`/crm/contracts/${id}/`, data),
+  printContract: (id) => api.get(`/crm/contracts/${id}/print/`),
+  sendContractForSignature: (id) => api.post(`/crm/contracts/${id}/send-for-signature/`),
 };
 
 // ── Sales pipeline ───────────────────────────────────────────────────────
@@ -82,6 +149,11 @@ export const salesService = {
   approveQuotation: (id, data) => api.post(`/sales/quotations/${id}/approve/`, data || {}),
   acceptQuotation: (id, data) => api.post(`/sales/quotations/${id}/accept/`, data || {}),
   convertQuotationToOrder: (id) => api.post(`/sales/quotations/${id}/convert-to-order/`),
+  // Discount approval: the server decides who must approve; `reason` is the
+  // salesperson's justification shown to the approver.
+  requestQuotationApproval: (id, reason) => api.post(`/sales/quotations/${id}/request-approval/`, { reason }),
+  getQuotationDiscountCheck: (id) => api.get(`/sales/quotations/${id}/discount-check/`),
+  getOrderDiscountCheck: (id) => api.get(`/sales/orders/${id}/discount-check/`),
   createOrder: (data) => api.post('/sales/orders/', data),
   updateOrderStage: (id, stage) => api.patch(`/sales/orders/${id}/`, { stage }),
   convertOrderToChallan: (id) => api.post(`/sales/orders/${id}/convert-to-challan/`),
@@ -215,6 +287,8 @@ export const inventoryService = {
   getLotRegister: (query) => api.get('/inventory/lot-register/', { query }),
   createLotTaka: (data) => api.post('/inventory/lot-register/', data),
   updateLotTaka: (id, data) => api.patch(`/inventory/lot-register/${id}/`, data),
+  // { lotTakaIds: [...], lotNumber?, remarks? } -> the merged taka
+  mergeLots: (data) => api.post('/inventory/lot-register/merge/', data),
   // Taka Tag Print
   getTakaTags: (query) => api.get('/inventory/taka-tags/', { query }),
   recordTakaTagPrint: (data) => api.post('/inventory/taka-tags/print/', data),
@@ -279,6 +353,11 @@ export const inventoryService = {
   createZoneRequest: (data) => api.post('/inventory/zone-requests/', data),
   updateZoneRequest: (id, status) => api.patch(`/inventory/zone-requests/${id}/`, { status }),
   createMonthEndAudit: (data) => api.post('/inventory/audits/', data),
+  getAudits: (query) => api.get('/inventory/audits/', { query }),
+  getAudit: (id) => api.get(`/inventory/audits/${id}/`),
+  createAudit: (data) => api.post('/inventory/audits/', data),
+  updateAudit: (id, data) => api.patch(`/inventory/audits/${id}/`, data),
+  postAuditVariances: (id) => api.post(`/inventory/audits/${id}/post_variances/`),
   // Sampling (Phase 3.2)
   getSamples: (query) => api.get('/inventory/samples/', { query }),
   getSample: (id) => api.get(`/inventory/samples/${id}/`),
@@ -293,6 +372,15 @@ export const inventoryService = {
   allocateTripFreight: (id) => api.post(`/inventory/trips/${id}/allocate-freight/`),
   getTransporters: (query) => api.get('/masters/transporters/', { query }),
   createTransporter: (data) => api.post('/masters/transporters/', data),
+  confirmTripDelivery: (id, data) => api.post('/inventory/trips/' + id + '/confirm-delivery/', data),
+  getVehicles: (query) => api.get('/masters/vehicles/', { query }),
+  createVehicle: (data) => api.post('/masters/vehicles/', data),
+  updateVehicle: (id, data) => api.put('/masters/vehicles/' + id + '/', data),
+  deleteVehicle: (id) => api.delete('/masters/vehicles/' + id + '/'),
+  getDrivers: (query) => api.get('/masters/drivers/', { query }),
+  createDriver: (data) => api.post('/masters/drivers/', data),
+  updateDriver: (id, data) => api.put('/masters/drivers/' + id + '/', data),
+  deleteDriver: (id) => api.delete('/masters/drivers/' + id + '/'),
   // Costing & Lot Profitability (Phase 3.1)
   getLotCostEntries: (query) => api.get('/inventory/lot-cost-entries/', { query }),
   createLotCostEntry: (data) => api.post('/inventory/lot-cost-entries/', data),
@@ -306,7 +394,9 @@ export const productionService = {
   getSalespersonDashboard: (query) => api.get('/production/dashboard/salesperson/', { query }),
   getInstructions: (query) => api.get('/production/instructions/', { query }),
   getDailyEntries: (query) => api.get('/production/daily-entries/', { query }),
-  // Salesperson Incentives (Phase 3.4)
+  getInstructionProgress: (id) => api.get(`/production/instructions/${id}/progress/`),
+  checkInstructionThreeWayMatch: (id, data) => api.post(`/production/instructions/${id}/three-way-match/`, data),
+  // Salesperson Incentives (Phase 3.4) — served under /production/, not /pms/
   getIncentiveSchemes: (query) => api.get('/production/incentive-schemes/', { query }),
   createIncentiveScheme: (data) => api.post('/production/incentive-schemes/', data),
   updateIncentiveScheme: (id, data) => api.patch(`/production/incentive-schemes/${id}/`, data),
@@ -330,8 +420,18 @@ export const accountingService = {
   getDayBook: (query) => api.get('/accounts/reports/day-book/', { query }),
   getOverdueSummary: (query) => api.get('/accounts/reports/overdue-summary/', { query }),
   getSubLedgers: (query) => api.get('/accounts/reports/sub-ledgers/', { query }),
-  getTallyExportUrl: (type, dateFrom, dateTo) => `/api/accounts/export/tally/?type=${type || 'vouchers'}${dateFrom ? '&dateFrom=' + dateFrom : ''}${dateTo ? '&dateTo=' + dateTo : ''}`,
-  getExcelExportUrl: (register, dateFrom, dateTo) => `/api/accounts/export/excel/?register=${register || 'sales'}${dateFrom ? '&dateFrom=' + dateFrom : ''}${dateTo ? '&dateTo=' + dateTo : ''}`,
+  getGSTSummary: (query) => api.get('/accounts/reports/gst-summary/', { query }),
+  getARAPAgeing: (query) => api.get('/accounts/reports/ageing/', { query }),
+  getBudgets: (query) => api.get('/accounts/budgets/', { query }),
+  createBudget: (data) => api.post('/accounts/budgets/', data),
+  updateBudget: (id, data) => api.patch(`/accounts/budgets/${id}/`, data),
+  deleteBudget: (id) => api.delete(`/accounts/budgets/${id}/`),
+  getTallyExportUrl: (type, dateFrom, dateTo) => tallyExportUrl(type, dateFrom, dateTo),
+  getExcelExportUrl: (register, dateFrom, dateTo) => excelExportUrl(register, dateFrom, dateTo),
+  downloadTallyExport: (type, dateFrom, dateTo) =>
+    downloadWithAuth(tallyExportUrl(type, dateFrom, dateTo), `tally_${type || 'vouchers'}.xml`),
+  downloadExcelExport: (register, dateFrom, dateTo) =>
+    downloadWithAuth(excelExportUrl(register, dateFrom, dateTo), `${register || 'sales'}_register.csv`),
 };
 
 // ── Approvals Engine (Phase 4.1) ──────────────────────────────────────────
@@ -345,10 +445,10 @@ export const approvalService = {
   createRule: (data) => api.post('/approvals/rules/', data),
   updateRule: (id, data) => api.patch(`/approvals/rules/${id}/`, data),
   deleteRule: (id) => api.delete(`/approvals/rules/${id}/`),
-  // Discount policy: admin-configurable threshold stored via backend setting
+  // Discount policy (per tenant): limits by role, plus what the current user
+  // may give on their own (myMaxDiscountPct / myLevel).
   getDiscountPolicy: () => api.get('/approvals/discount-policy/'),
   updateDiscountPolicy: (data) => api.patch('/approvals/discount-policy/', data),
-  // Submit a new approval request (for discount exceeded)
   createRequest: (data) => api.post('/approvals/requests/', data),
 };
 
@@ -376,7 +476,12 @@ export const jobworkService = {
   getOrders: (query) => api.get('/jobwork/orders/', { query }),
   getITC04Report: (query) => api.get('/jobwork/itc-04/', { query }),
   getITC04ExportUrl: (financialYear, quarter, table = 'both') =>
-    `/api/v1/jobwork/itc-04/export/?table=${table}${financialYear ? '&financialYear=' + financialYear : ''}${quarter ? '&quarter=' + quarter : ''}`,
+    itc04ExportUrl(financialYear, quarter, table),
+  downloadITC04Export: (financialYear, quarter, table = 'both') =>
+    downloadWithAuth(
+      itc04ExportUrl(financialYear, quarter, table),
+      `itc04_${quarter || 'Q'}_${financialYear || 'FY'}.csv`,
+    ),
 };
 
 

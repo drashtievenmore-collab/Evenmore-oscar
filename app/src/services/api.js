@@ -1,8 +1,17 @@
 /**
  * Base API Client — Bridges frontend state with Django REST APIs.
  * Supports timeout, retry, query builder, JWT authentication, idempotency keys,
- * structured ApiError, safe JSON parsing, and unauthorized session handling.
+ * structured ApiError, safe JSON parsing, single-flight token refresh, and
+ * unauthorized session handling.
  */
+
+import {
+  AUTH_TOKEN_KEY,
+  EVENMORE_AUTH_TOKEN_KEY,
+  getStoredRefreshToken,
+  saveRefreshedTokens,
+  clearStoredAuth,
+} from '../utils/authUtils';
 
 const API_BASE_URL = (import.meta.env.VITE_API_URL || import.meta.env.VITE_API_BASE_URL || '/api/v1').replace(/\/+$/, '');
 const DEFAULT_TIMEOUT_MS = Number(import.meta.env.VITE_API_TIMEOUT_MS) || 15000;
@@ -33,20 +42,92 @@ export function buildQuery(params = {}) {
 
 export function getAuthToken(storage = typeof localStorage !== 'undefined' ? localStorage : null) {
   try {
-    return storage?.getItem('evenmore_auth_token') || storage?.getItem('auth_token') || '';
+    return storage?.getItem(EVENMORE_AUTH_TOKEN_KEY) || storage?.getItem(AUTH_TOKEN_KEY) || '';
   } catch {
     return '';
   }
 }
 
-export function clearAuthTokens(storage = typeof localStorage !== 'undefined' ? localStorage : null) {
-  try {
-    storage?.removeItem('evenmore_auth_token');
-    storage?.removeItem('auth_token');
-    storage?.removeItem('evenmore_refresh_token');
-    storage?.removeItem('evenmore_token_expires_at');
-    storage?.removeItem('evenmore_saved_user');
-  } catch {}
+/**
+ * Alias kept for callers that import `clearAuthTokens` directly from this
+ * module. Internally all session teardown goes through `clearStoredAuth` so
+ * the `evenmore:unauthorized` event is always fired and all token keys are
+ * cleared consistently.
+ */
+export { clearStoredAuth as clearAuthTokens };
+
+/**
+ * The one in-flight refresh request. Concurrent 401s await this same promise
+ * instead of each spending the (possibly single-use) refresh token.
+ */
+let refreshPromise = null;
+
+/**
+ * Exchange the stored refresh token for a new access token.
+ *
+ * The refresh endpoint is called directly rather than through `apiClient`, so a
+ * 401 from it cannot recurse into another refresh attempt. If the refresh
+ * fails, the session is over: tokens are cleared and `evenmore:unauthorized`
+ * fires. That is the only place a normal 401 path ends a session.
+ */
+export function refreshAccessToken() {
+  if (refreshPromise) return refreshPromise;
+
+  const refreshToken = getStoredRefreshToken();
+  if (!refreshToken) {
+    clearStoredAuth();
+    return Promise.reject(
+      new ApiError('Your session has expired. Please sign in again.', {
+        status: 401,
+        endpoint: '/auth/refresh/',
+      }),
+    );
+  }
+
+  refreshPromise = (async () => {
+    const response = await fetchWithTimeout(
+      `${API_BASE_URL}/auth/refresh/`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ refresh: refreshToken }),
+      },
+      DEFAULT_TIMEOUT_MS,
+    );
+
+    const payload = await parseBodySafe(response);
+    if (!response.ok) {
+      clearStoredAuth();
+      const message =
+        payload?.message ||
+        payload?.detail ||
+        'Your session has expired. Please sign in again.';
+      throw new ApiError(String(message), {
+        status: response.status,
+        endpoint: '/auth/refresh/',
+        payload,
+      });
+    }
+
+    const access = payload?.access || payload?.token;
+    if (!access) {
+      clearStoredAuth();
+      throw new ApiError('The server did not return a new access token.', {
+        status: 0,
+        endpoint: '/auth/refresh/',
+        payload,
+      });
+    }
+
+    // Rotation is off today, but persist a rotated refresh token if the server
+    // ever turns it on.
+    saveRefreshedTokens(access, payload?.refresh || payload?.refresh_token || null);
+    return access;
+  })().finally(() => {
+    refreshPromise = null;
+  });
+
+  return refreshPromise;
 }
 
 async function fetchWithTimeout(url, config, timeoutMs, externalSignal) {
@@ -126,14 +207,34 @@ export async function apiClient(
     config.body = JSON.stringify(data);
   }
 
+  const isAuthEndpoint = normalizedEp === '/auth/login/' || normalizedEp === '/auth/refresh/';
+  let didRefresh = false;
   let attempt = 0;
   for (;;) {
     try {
       const response = await fetchWithTimeout(url, config, timeoutMs, signal);
+
       if (response.status === 401 && clearAuthOnUnauthorized) {
-        clearAuthTokens();
-        if (typeof window !== 'undefined') {
-          window.dispatchEvent(new CustomEvent('evenmore:unauthorized'));
+        // An expired access token is not a signed-out user: exchange the
+        // refresh token once, then replay the original request. Every 401 in
+        // this window awaits the same refresh promise (refreshAccessToken).
+        if (!isAuthEndpoint && !didRefresh && getStoredRefreshToken()) {
+          try {
+            await refreshAccessToken();
+            didRefresh = true;
+            config.headers = {
+              ...config.headers,
+              Authorization: `Bearer ${getAuthToken()}`,
+            };
+            continue;
+          } catch {
+            // refreshAccessToken has already cleared the session and fired
+            // `evenmore:unauthorized`; fall through to the original 401.
+          }
+        } else if (!isAuthEndpoint) {
+          // No refresh token, or the freshly minted token was rejected too —
+          // the session is genuinely over. clearStoredAuth fires the event.
+          clearStoredAuth();
         }
       }
 
@@ -148,7 +249,7 @@ export async function apiClient(
         `Request failed with status ${response.status}`;
       // Error pages (Django DEBUG 404/500, proxies) come back as HTML, not
       // JSON — never surface raw markup in the toast, just the status.
-      if (typeof message === 'string' && /<\s*!?doctype|<\s*html/i.test(message)) {
+      if (typeof message === 'string' && /\<\s*!?doctype|\<\s*html/i.test(message)) {
         message = `Request failed with status ${response.status}`;
       }
       if (typeof message !== 'string') message = `Request failed with status ${response.status}`;
