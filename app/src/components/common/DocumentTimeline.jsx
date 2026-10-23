@@ -2,12 +2,12 @@ import React from 'react';
 import { Check, Circle, Clock, ShieldCheck, ArrowRight } from 'lucide-react';
 
 function TimelineConnector({ isCompleted, isCurrent, isNextCurrent, isPartial }) {
-  if ((isCompleted || isPartial) && isNextCurrent) {
+  if (isCompleted) {
     return (
       <div className="hidden sm:flex items-center justify-center shrink-0 -mt-6 sm:-mt-7 px-0.5 select-none w-5 sm:w-8">
         <svg className="w-5 sm:w-8 h-4 overflow-visible" viewBox="0 0 32 16" fill="none">
-          <line x1="2" y1="8" x2="24" y2="8" stroke="#f59e0b" strokeWidth="2.5" strokeLinecap="round" strokeDasharray="4 3" className="animate-flow-dash" />
-          <path d="M19 4 L26 8 L19 12" fill="none" stroke="#d97706" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
+          <line x1="2" y1="8" x2="24" y2="8" stroke="#10b981" strokeWidth="2.5" strokeLinecap="round" />
+          <path d="M19 4 L26 8 L19 12" fill="none" stroke="#10b981" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
         </svg>
       </div>
     );
@@ -19,17 +19,6 @@ function TimelineConnector({ isCompleted, isCurrent, isNextCurrent, isPartial })
         <svg className="w-5 sm:w-8 h-4 overflow-visible" viewBox="0 0 32 16" fill="none">
           <line x1="2" y1="8" x2="24" y2="8" stroke="#f59e0b" strokeWidth="2" strokeLinecap="round" strokeDasharray="3 3" />
           <path d="M19 4 L26 8 L19 12" fill="none" stroke="#f59e0b" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-        </svg>
-      </div>
-    );
-  }
-
-  if (isCompleted) {
-    return (
-      <div className="hidden sm:flex items-center justify-center shrink-0 -mt-6 sm:-mt-7 px-0.5 select-none w-5 sm:w-8">
-        <svg className="w-5 sm:w-8 h-4 overflow-visible" viewBox="0 0 32 16" fill="none">
-          <line x1="2" y1="8" x2="24" y2="8" stroke="#10b981" strokeWidth="2.5" strokeLinecap="round" />
-          <path d="M19 4 L26 8 L19 12" fill="none" stroke="#10b981" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
         </svg>
       </div>
     );
@@ -89,13 +78,21 @@ export const DocumentTimeline = ({ steps, onStepClick, className = '' }) => {
       <div className="timeline-scroll overflow-x-auto pb-1.5">
         <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-1 sm:gap-0 min-w-max px-1">
           {steps.map((step, idx) => {
-            const isCompleted = step.status === 'completed';
-            const isPartial = step.status === 'partial' || step.isPartial;
-            const isCurrent = step.status === 'current';
-            const isHighlighted = step.highlightCard || (step.key === 'grey_fabric_qc' && step.isHighlighted);
+            const isApprovedStatus = ['APPROVED', 'VERIFIED', 'COMPLETED', 'PAID', 'PASSED'].includes(
+              String(step.statusLabel || '').trim().toUpperCase()
+            );
+            const isCompleted = step.status === 'completed' || isApprovedStatus;
+            const isPartial = !isCompleted && (step.status === 'partial' || step.isPartial);
+            const isCurrent = !isCompleted && !isPartial && step.status === 'current';
+            const isHighlighted = Boolean(step.highlightCard || (step.key === 'grey_fabric_qc' && step.isHighlighted));
             const isLast = idx === steps.length - 1;
             const nextStep = steps[idx + 1];
-            const isNextCurrent = nextStep?.status === 'current' || nextStep?.status === 'partial';
+            const isNextCompleted =
+              nextStep?.status === 'completed' ||
+              ['APPROVED', 'VERIFIED', 'COMPLETED', 'PAID', 'PASSED'].includes(
+                String(nextStep?.statusLabel || '').trim().toUpperCase()
+              );
+            const isNextCurrent = !isNextCompleted && (nextStep?.status === 'current' || nextStep?.status === 'partial');
 
             return (
               <React.Fragment key={idx}>
@@ -104,7 +101,13 @@ export const DocumentTimeline = ({ steps, onStepClick, className = '' }) => {
                   tabIndex={onStepClick ? 0 : undefined}
                   onClick={() => onStepClick && onStepClick(step, idx)}
                   className={`group flex items-start sm:flex-col sm:items-center gap-2.5 sm:gap-1.5 flex-1 min-w-[90px] sm:min-w-[100px] max-w-[130px] p-1.5 sm:p-2 rounded-xl transition-all select-none ${
-                    isCurrent || isHighlighted
+                    isCompleted
+                      ? (isHighlighted
+                        ? 'bg-emerald-50/70 ring-2 ring-emerald-400 shadow-2xs'
+                        : onStepClick
+                        ? 'hover:bg-slate-50 cursor-pointer active:scale-95'
+                        : '')
+                      : (isCurrent || isHighlighted)
                       ? 'bg-blue-50/70 ring-1 ring-blue-300 shadow-2xs'
                       : onStepClick
                       ? 'hover:bg-slate-50 cursor-pointer active:scale-95'
@@ -114,17 +117,21 @@ export const DocumentTimeline = ({ steps, onStepClick, className = '' }) => {
                 >
                   {/* Clean Uniform Circular Node */}
                   <div className="relative flex items-center justify-center shrink-0">
-                    {isCurrent || isHighlighted ? (
+                    {isCompleted ? (
+                      <div className={`w-8 h-8 rounded-full bg-emerald-500 text-white flex items-center justify-center shadow-md ${isHighlighted ? 'ring-4 ring-emerald-100 scale-105' : 'shadow-xs'} group-hover:scale-105 transition-transform`}>
+                        {step.key?.includes('qc') ? (
+                          <ShieldCheck className="w-4 h-4 stroke-[2.5]" />
+                        ) : (
+                          <Check className="w-4 h-4 stroke-[2.5]" />
+                        )}
+                      </div>
+                    ) : isCurrent || isHighlighted ? (
                       <div className="w-8 h-8 rounded-full bg-gradient-to-tr from-blue-600 to-indigo-600 border-2 border-white text-white flex items-center justify-center shadow-md ring-4 ring-blue-100 group-hover:scale-105 transition-transform">
                         {step.key?.includes('qc') ? (
                           <ShieldCheck className="w-4 h-4" />
                         ) : (
                           <Clock className="w-4 h-4 animate-spin-slow" />
                         )}
-                      </div>
-                    ) : isCompleted ? (
-                      <div className="w-7 h-7 rounded-full bg-emerald-500 text-white flex items-center justify-center shadow-xs group-hover:scale-105 transition-transform">
-                        <Check className="w-4 h-4 stroke-[2.5]" />
                       </div>
                     ) : isPartial ? (
                       <div className="w-7 h-7 rounded-full bg-amber-500 text-white flex items-center justify-center shadow-xs ring-3 ring-amber-100 group-hover:scale-105 transition-transform">
@@ -141,10 +148,10 @@ export const DocumentTimeline = ({ steps, onStepClick, className = '' }) => {
                   <div className="text-left sm:text-center min-w-0 w-full">
                     <p
                       className={`text-[11px] font-bold leading-tight line-clamp-2 transition-colors ${
-                        isCurrent || isHighlighted
+                        isCompleted
+                          ? 'text-emerald-950 font-bold'
+                          : isCurrent || isHighlighted
                           ? 'text-blue-950 font-black'
-                          : isCompleted
-                          ? 'text-slate-800'
                           : isPartial
                           ? 'text-amber-900 font-bold'
                           : 'text-slate-500'
@@ -154,19 +161,19 @@ export const DocumentTimeline = ({ steps, onStepClick, className = '' }) => {
                     </p>
 
                     {/* Stage status indicator pill */}
-                    {(step.statusLabel || isCurrent || isHighlighted) && (
+                    {(step.statusLabel || isCurrent || isHighlighted || isCompleted) && (
                       <span
                         className={`inline-block mt-1 px-1.5 py-0.2 rounded-full text-[8.5px] font-black uppercase tracking-wider truncate max-w-full border ${
-                          isCurrent || isHighlighted
-                            ? 'bg-blue-100/90 text-blue-800 border-blue-200'
-                            : isCompleted
+                          isCompleted
                             ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
                             : isPartial
                             ? 'bg-amber-50 text-amber-700 border-amber-200'
+                            : isCurrent || isHighlighted
+                            ? 'bg-blue-100/90 text-blue-800 border-blue-200'
                             : 'bg-slate-100 text-slate-600 border-slate-200'
                         }`}
                       >
-                        {step.statusLabel || (isCurrent || isHighlighted ? 'Active Stage' : 'Pending')}
+                        {step.statusLabel || (isCompleted ? 'Completed' : (isCurrent || isHighlighted ? 'Active Stage' : 'Pending'))}
                       </span>
                     )}
 

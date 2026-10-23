@@ -150,11 +150,12 @@ export function AgencyBillMatchingInlineSlide({
         }
       } else {
         // Prefill form defaults from Final PO / Instruction
-        const defaultQty = finalPo?.items?.[0]?.qty || inst?.completion?.acceptedQty || inst?.acceptedQty || po?.totalQuantity || '';
-        const defaultRate = finalPo?.items?.[0]?.rate || inst?.agreed_job_rate || inst?.agreed_rate || po?.items?.[0]?.rate || '5.50';
+        const defaultQty = finalPo?.lineItems?.[0]?.qty || finalPo?.items?.[0]?.qty || inst?.completion?.acceptedQty || inst?.acceptedQty || po?.totalQuantity || '';
+        const defaultRate = finalPo?.lineItems?.[0]?.rate || finalPo?.items?.[0]?.rate || inst?.agreed_job_rate || inst?.agreed_rate || po?.items?.[0]?.rate || '';
         setInvoiceQty(String(defaultQty));
         setInvoiceRate(String(defaultRate));
-        setInvoiceNumber(`INV-${inst?.finalPoNumber || poNumber}-${new Date().getFullYear()}`);
+        // The agency's own invoice number is entered by the user, never generated.
+        setInvoiceNumber('');
       }
     } catch (err) {
       console.warn('Failed to load agency bill matching data:', err);
@@ -168,14 +169,23 @@ export function AgencyBillMatchingInlineSlide({
   }, [poId]);
 
   // Derived baseline values
-  const origInstructedQty = Number(instructionData?.orderMeter || po?.totalQuantity || 25000);
-  const origAgreedRate = Number(instructionData?.agreed_job_rate || instructionData?.agreed_rate || po?.items?.[0]?.rate || 5.50);
+  const origInstructedQty = Number(instructionData?.orderMeter || po?.totalQuantity || 0);
+  const origAgreedRate = Number(instructionData?.agreed_job_rate || instructionData?.agreed_rate || po?.items?.[0]?.rate || 0);
   const origTaxable = origInstructedQty * origAgreedRate;
   const origTaxAmount = origTaxable * 0.05;
   const origTotal = origTaxable + origTaxAmount;
 
-  const finalPoQty = Number(finalPoData?.items?.[0]?.qty || instructionData?.completion?.acceptedQty || 24640);
-  const finalApprovedRate = Number(finalPoData?.items?.[0]?.rate || origAgreedRate);
+  const finalPoQty = Number(
+    finalPoData?.lineItems?.[0]?.qty ||
+    finalPoData?.items?.[0]?.qty ||
+    instructionData?.completion?.acceptedQty ||
+    0
+  );
+  const finalApprovedRate = Number(
+    finalPoData?.lineItems?.[0]?.rate ||
+    finalPoData?.items?.[0]?.rate ||
+    origAgreedRate
+  );
   const finalTaxable = finalPoQty * finalApprovedRate;
   const finalTaxAmount = finalTaxable * 0.05;
   const finalTotal = finalTaxable + finalTaxAmount;
@@ -220,7 +230,7 @@ export function AgencyBillMatchingInlineSlide({
       {
         field: 'Vendor / Agency',
         origVal: po?.vendor || po?.partyName || 'Vendor A Agency',
-        finalVal: finalPoData?.vendor || instructionData?.agencyName || 'Vendor A Agency',
+        finalVal: finalPoData?.vendor || finalPoData?.vendorName || finalPoData?.partyName || instructionData?.agencyName || 'Vendor A Agency',
         invoiceVal: po?.vendor || 'Vendor A Agency',
         difference: '—',
         status: 'Matched',
@@ -236,16 +246,16 @@ export function AgencyBillMatchingInlineSlide({
       {
         field: 'Final Job Work PO Reference',
         origVal: '— (Initial Stage)',
-        finalVal: instructionData?.finalPoNumber || finalPoData?.poNumber || 'FJWPO-2026-0043',
-        invoiceVal: instructionData?.finalPoNumber || finalPoData?.poNumber || 'FJWPO-2026-0043',
+        finalVal: instructionData?.finalPoNumber || finalPoData?.poNumber || '—',
+        invoiceVal: instructionData?.finalPoNumber || finalPoData?.poNumber || '—',
         difference: '—',
         status: (instructionData?.finalPoNumber || finalPoData?.poNumber) ? 'Matched' : 'Pending Final PO',
       },
       {
         field: 'Fabric Quality / Line Item',
-        origVal: instructionData?.fabric || po?.items?.[0]?.name || 'Velvet Grey Fabric',
-        finalVal: instructionData?.fabric || finalPoData?.items?.[0]?.name || 'Velvet Grey Fabric',
-        invoiceVal: instructionData?.fabric || 'Velvet Grey Fabric',
+        origVal: instructionData?.fabric || po?.lineItems?.[0]?.description || po?.items?.[0]?.name || '—',
+        finalVal: instructionData?.fabric || finalPoData?.lineItems?.[0]?.itemName || finalPoData?.lineItems?.[0]?.description || finalPoData?.items?.[0]?.name || '—',
+        invoiceVal: instructionData?.fabric || '—',
         difference: '—',
         status: 'Matched',
       },
@@ -404,9 +414,19 @@ export function AgencyBillMatchingInlineSlide({
       await loadData();
     } catch (err) {
       console.error('Agency bill match error:', err);
-      const detail = err?.response?.data?.message || err?.message || 'Action failed.';
+      const fieldErrors = err?.response?.data?.field_errors;
+      const firstFieldErr = fieldErrors ? Object.values(fieldErrors).flat().join(', ') : '';
+      const detail = firstFieldErr
+        ? `${err?.response?.data?.message || 'Validation error'}: ${firstFieldErr}`
+        : (err?.response?.data?.message || err?.message || 'Action failed.');
       setErrorMsg(detail);
       showToast?.(detail);
+      if (
+        fieldErrors?.remarks ||
+        /approval remarks|variance/i.test(detail)
+      ) {
+        setApprovalModalOpen(true);
+      }
     } finally {
       setSubmitting(false);
     }
@@ -429,7 +449,7 @@ export function AgencyBillMatchingInlineSlide({
                 </span>
               </div>
               <p className="text-xs text-slate-400">
-                3-Way Reconciliation: Original PO ({poNumber}) + Final Job Work PO ({instructionData?.finalPoNumber || 'FJWPO-2026-0043'}) + Agency Invoice
+                3-Way Reconciliation: Original PO ({poNumber}) + Final Job Work PO ({instructionData?.finalPoNumber || '—'}) + Agency Invoice
               </p>
             </div>
           </div>
@@ -539,7 +559,7 @@ export function AgencyBillMatchingInlineSlide({
             </div>
             <div className="flex justify-between py-1 border-b border-slate-200/50">
               <span className="text-slate-500 font-medium">Fabric Quality:</span>
-              <span className="font-semibold text-slate-800">{instructionData?.fabric || po?.items?.[0]?.name || 'Velvet Grey Fabric'}</span>
+              <span className="font-semibold text-slate-800">{instructionData?.fabric || po?.items?.[0]?.name || '—'}</span>
             </div>
             <div className="flex justify-between py-1 border-b border-slate-200/50">
               <span className="text-slate-500 font-medium">Instructed Quantity:</span>
@@ -573,7 +593,7 @@ export function AgencyBillMatchingInlineSlide({
           <div className="space-y-2 text-xs">
             <div className="flex justify-between py-1 border-b border-blue-200/50">
               <span className="text-slate-600 font-medium">Final PO Number:</span>
-              <span className="font-mono font-bold text-blue-900">{instructionData?.finalPoNumber || finalPoData?.poNumber || 'FJWPO-2026-0043'}</span>
+              <span className="font-mono font-bold text-blue-900">{instructionData?.finalPoNumber || finalPoData?.poNumber || '—'}</span>
             </div>
             <div className="flex justify-between py-1 border-b border-blue-200/50">
               <span className="text-slate-600 font-medium">Final PO Date:</span>
@@ -759,7 +779,7 @@ export function AgencyBillMatchingInlineSlide({
               </p>
               <p className="text-[11.5px] text-amber-800 mt-0.5 leading-relaxed">
                 Actual grey fabric production yielded {fmtQty(finalPoQty)} M against initial order of {fmtQty(origInstructedQty)} M.
-                This variance is commercially approved on Final Job Work PO ({instructionData?.finalPoNumber || 'FJWPO-2026-0043'}).
+                This variance is commercially approved on Final Job Work PO ({instructionData?.finalPoNumber || '—'}).
                 <strong> The agency invoice is matched against the verified Final PO quantity, not penalized as a shortage.</strong>
               </p>
             </div>

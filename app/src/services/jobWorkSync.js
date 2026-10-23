@@ -114,6 +114,7 @@ export function jwoFromApi(row) {
       fileId: d.fileId || '',
       remarks: d.remarks || '',
     })),
+    signatures: row.signatures || {},
     lossEntries: (row.lossEntries || row.losses || []).map((l) => ({
       id: l.id,
       lossReasonId: l.lossReasonId || '',
@@ -339,6 +340,15 @@ export async function updateJWORow(orderId, kind, rowId, row) {
 export async function deleteJWORow(orderId, kind, rowId) {
   await api.delete(`/jobwork/orders/${orderId}/${kind}/${rowId}/`);
   return true;
+}
+
+export async function signJWODocument(orderId, { documentType, documentId, signatoryType, signature }) {
+  return api.post(`/jobwork/orders/${orderId}/sign/`, {
+    documentType,
+    documentId,
+    signatoryType,
+    signature,
+  });
 }
 
 /* ── Process Plans ── */

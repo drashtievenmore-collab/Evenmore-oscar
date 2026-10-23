@@ -18,6 +18,8 @@ import {
 } from 'lucide-react';
 import { getGreyStockAllocation, saveGreyStockAllocation } from '../../../../services/pmsSync';
 import { usePmsStore } from '../../../../stores/pmsStore';
+import { getProjectProductionLifecycle } from '../../../purchase/productionLifecycle';
+import { CreateProductionPoModal } from '../../production/CreateProductionPoModal';
 
 export function Stage1GreyStockWorkspace({
   project,
@@ -46,6 +48,7 @@ export function Stage1GreyStockWorkspace({
   const [isDetailsOpen, setDetailsOpen] = useState(false);
   const [isPoModalOpen, setPoModalOpen] = useState(false);
   const [isProdModalOpen, setProdModalOpen] = useState(false);
+  const [isProductionPoOpen, setProductionPoOpen] = useState(false);
 
   const [stageMeta, setStageMeta] = useState({
     stageName: 'Stage 1: Grey Stock Check & Allocation',
@@ -204,7 +207,15 @@ export function Stage1GreyStockWorkspace({
         if (onHandoff) onHandoff(2);
       } else {
         toast.success(`Vendor A Production route selected for ${shortageQty.toLocaleString('en-IN')} m shortage`);
-        if (onSyncPipeline) onSyncPipeline();
+        if (onSyncPipeline) await onSyncPipeline();
+        // Stay in the project slide. No Vendor A Production PO yet -> open the
+        // create form here; otherwise go to the production lifecycle stage.
+        const lifecycle = await getProjectProductionLifecycle(projectId).catch(() => null);
+        if (lifecycle?.lifecycles?.length) {
+          if (onHandoff) onHandoff(2);
+        } else {
+          setProductionPoOpen(true);
+        }
       }
     } catch (err) {
       toast.error('Failed to select shortage route: ' + (err?.message || 'Server error'));
@@ -1496,6 +1507,18 @@ export function Stage1GreyStockWorkspace({
             </div>
           </div>
         </div>
+      )}
+      {isProductionPoOpen && (
+        <CreateProductionPoModal
+          project={project}
+          defaultQty={shortageQty || undefined}
+          onClose={() => setProductionPoOpen(false)}
+          onCreated={async () => {
+            setProductionPoOpen(false);
+            if (onSyncPipeline) await onSyncPipeline();
+            if (onHandoff) onHandoff(2);
+          }}
+        />
       )}
     </div>
   );

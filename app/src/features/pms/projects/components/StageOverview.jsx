@@ -307,16 +307,17 @@ export const PURCHASE_PO_STAGES = [
   { name: 'Payment', department: 'Accounts', branch: 'branch_purchase', weight: 3.34, icon: 'IndianRupee' },
 ];
 
+// The 8 Production Lifecycle stages -- same names as the backend pipeline
+// (apps/pms/pipeline_services.py VENDOR_PRODUCTION_STAGES).
 export const VENDOR_PRODUCTION_STAGES = [
-  { name: 'Production Work Instruction', department: 'Production', branch: 'branch_production', weight: 3.33, icon: 'FileText' },
-  { name: 'Assign Vendor A + Employee', department: 'Production', branch: 'branch_production', weight: 3.33, icon: 'ClipboardList' },
-  { name: 'Daily Production Entry', department: 'Production', branch: 'branch_production', weight: 3.33, icon: 'FileSpreadsheet' },
-  { name: 'Production Completion', department: 'Production', branch: 'branch_production', weight: 3.33, icon: 'CheckCircle2' },
-  { name: 'Final Quantity Verification', department: 'QC', branch: 'branch_production', weight: 3.33, icon: 'ShieldCheck' },
-  { name: 'Generate Final Job Work PO', department: 'Production', branch: 'branch_production', weight: 3.33, icon: 'FileText' },
-  { name: 'Production / Job Work PO', department: 'Accounts', branch: 'branch_production', weight: 3.33, icon: 'FileText' },
-  { name: 'Agency Bill Match (PO + verified qty + invoice)', department: 'Accounts', branch: 'branch_production', weight: 3.33, icon: 'FileSpreadsheet' },
-  { name: 'Approval / Hold / Payment', department: 'Accounts', branch: 'branch_production', weight: 3.36, icon: 'IndianRupee' },
+  { name: 'Purchase Order', department: 'Purchase', branch: 'branch_production', weight: 3.37, icon: 'FileText', lifecycleKey: 'purchase_order' },
+  { name: 'Production Instruction', department: 'Production', branch: 'branch_production', weight: 3.37, icon: 'ClipboardList', lifecycleKey: 'production_instruction' },
+  { name: 'Daily Production Entry', department: 'Production', branch: 'branch_production', weight: 3.37, icon: 'FileSpreadsheet', lifecycleKey: 'daily_production_entry' },
+  { name: 'Quality Control (QC)', department: 'Quality Control', branch: 'branch_production', weight: 3.37, icon: 'ShieldCheck', lifecycleKey: 'grey_fabric_qc' },
+  { name: 'Completion Verification', department: 'Quality Control', branch: 'branch_production', weight: 3.37, icon: 'CheckCircle2', lifecycleKey: 'completion_verification' },
+  { name: 'Final Job Work PO', department: 'Production', branch: 'branch_production', weight: 3.37, icon: 'FileText', lifecycleKey: 'final_job_work_po' },
+  { name: 'Agency Bill Match', department: 'Accounts', branch: 'branch_production', weight: 3.37, icon: 'FileSpreadsheet', lifecycleKey: 'agency_bill_match' },
+  { name: 'Disbursement Payment', department: 'Accounts', branch: 'branch_production', weight: 3.41, icon: 'IndianRupee', lifecycleKey: 'disbursement_payment' },
 ];
 
 export const DOWNSTREAM_STAGES = [
@@ -393,7 +394,8 @@ export function buildStaticPipelineStages(project) {
       completionPct = Number(existing.completionPct ?? (existing.status === 'Completed' ? 100 : 0));
     }
 
-    if (def.name === 'Create Grey Purchase PO' || def.sequence === 2) {
+    // Grey purchase branch only; production stages come from the lifecycle.
+    if (def.name === 'Create Grey Purchase PO' || (def.sequence === 2 && def.branch !== 'branch_production')) {
       const cfvData = project.customFieldValues || project.custom_field_values || {};
       const hasPo =
         Boolean(cfvData?.grey_stock_po?.orderNumber) ||
@@ -431,6 +433,7 @@ export function buildStaticPipelineStages(project) {
       name: def.name,
       department: existing?.department || def.department,
       branch: def.branch,
+      lifecycleKey: def.lifecycleKey,
       isRequired: status !== 'Not Required',
       percentage: Number(weight),
       weightPct: Number(weight),
