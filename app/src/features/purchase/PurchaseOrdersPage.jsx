@@ -27,12 +27,14 @@ import { PoDailyProductionEntrySection } from './PoDailyProductionEntrySection';
 import { PoQualityControlSection } from './PoQualityControlSection';
 import { CompletionVerificationInlineSlide } from './CompletionVerificationInlineSlide';
 import { FinalJobWorkPoInlineSlide } from './FinalJobWorkPoInlineSlide';
+import { getPoProductionLifecycle, lifecycleToTimelineSteps } from './productionLifecycle';
 import { RelatedDocumentsCard } from '../../components/common/RelatedDocumentsCard';
 import { PrintPurchaseOrderModal } from '../../components/common/PrintPurchaseOrderModal';
 import PageHeader from '../../components/ui/PageHeader';
 import { api } from '../../services/api';
 import { fabricMasterSync } from '../../services/fabricMasterSync';
 import UomSelect from '../../components/common/UomSelect';
+import MasterSourceLink from '../../components/common/MasterSourceLink';
 import useUnits from '../../hooks/useUnits';
 import { formatQty, formatUnitTotals, sumByUnit, unitKey, resolveUnit } from '../../utils/uom';
 
@@ -158,7 +160,7 @@ export const PurchaseOrdersPage = () => {
     const [isFullscreen, setIsFullscreen] = useState(false);
     const [selectedPo, setSelectedPo] = useState(null);
     const [isDetailFullscreen, setIsDetailFullscreen] = useState(false);
-    const [activeTimelineSlide, setActiveTimelineSlide] = useState('grey_fabric_qc');
+    const [activeTimelineSlide, setActiveTimelineSlide] = useState(null);
     const qcSectionRef = React.useRef(null);
     const completionVerificationRef = React.useRef(null);
     const finalJobWorkPoRef = React.useRef(null);
@@ -204,13 +206,15 @@ export const PurchaseOrdersPage = () => {
     const loadPoLifecycle = async (poId, poNumber) => {
         if (!poId) return;
         try {
-            const [delRes, grnRes, lotRes, poDetailRes, billRes, piRes] = await Promise.all([
+            const [delRes, grnRes, lotRes, poDetailRes, billRes, piRes, lifecycleRes] = await Promise.all([
                 api.get('/purchase/deliveries/', { params: { purchaseOrderId: poId } }).catch(() => []),
                 api.get('/purchase/receipts/', { params: { purchaseOrderId: poId } }).catch(() => []),
                 api.get('/inventory/lot-register/', { params: { po: poId } }).catch(() => ({ records: [] })),
                 api.get(`/purchase/orders/${poId}/`).catch(() => null),
                 api.get('/purchase/bills/', { params: { purchaseOrderId: poId } }).catch(() => []),
                 api.get(`/purchase/orders/${poId}/production-instruction/`).catch(() => null),
+                // Canonical 8-stage Production Lifecycle (shared with PMS).
+                getPoProductionLifecycle(poId).catch(() => null),
             ]);
 
             const rawDeliveries = Array.isArray(delRes) ? delRes : (delRes?.results || delRes?.rows || delRes?.data || []);
@@ -249,6 +253,7 @@ export const PurchaseOrdersPage = () => {
                 bills,
                 instruction: piRes?.instruction || null,
                 instructions: piRes?.instructions || [],
+                productionLifecycle: lifecycleRes?.applicable ? lifecycleRes : null,
                 loading: false,
             });
 
@@ -298,7 +303,7 @@ export const PurchaseOrdersPage = () => {
     const [dateTo, setDateTo] = useState('');
 
     const location = useLocation();
-    const [searchParams] = useSearchParams();
+    const [searchParams, setSearchParams] = useSearchParams();
 
     React.useEffect(() => {
         if (location.state?.createPo || searchParams.get('action') === 'create') {
@@ -341,6 +346,28 @@ export const PurchaseOrdersPage = () => {
             setShowAddModal(true);
         }
     }, [location.state, searchParams]);
+
+    // Deep link from PMS / other screens: ?po=<id>&stage=<stage key>.
+    const deepLinkPoId = searchParams.get('po');
+    const deepLinkStage = searchParams.get('stage');
+    React.useEffect(() => {
+        if (!deepLinkPoId) return;
+        const target = (purchaseOrders || []).find((p) => String(p.id) === String(deepLinkPoId));
+        if (target) {
+            setSelectedPo((prev) => (prev && String(prev.id) === String(target.id) ? prev : target));
+        } else {
+            api.get(`/purchase/orders/${deepLinkPoId}/`)
+                .then((po) => { if (po?.id) setSelectedPo((prev) => prev || po); })
+                .catch(() => showToast?.('Purchase order not found.', 'error'));
+        }
+        if (deepLinkStage && deepLinkStage !== 'purchase_order') setActiveTimelineSlide(deepLinkStage);
+        // Consume the link so closing the PO does not reopen it.
+        const next = new URLSearchParams(searchParams);
+        next.delete('po');
+        next.delete('stage');
+        setSearchParams(next, { replace: true });
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [deepLinkPoId, deepLinkStage, purchaseOrders?.length]);
 
     const handleOpenCreateModal = () => {
         setSelectedVendorId(vendors[0]?.id || '');
@@ -517,17 +544,23 @@ export const PurchaseOrdersPage = () => {
         const hasReceived = receivedQty > 0;
 
         if (purchaseTypeOf(po) === PURCHASE_TYPE_VENDOR_A) {
+            // Backend-derived lifecycle is the source of truth (same as PMS);
+            // the client-side derivation below only covers the loading gap.
+            const sharedLifecycle = poLifecycleData?.productionLifecycle;
+            if (sharedLifecycle && String(sharedLifecycle.purchaseOrderId) === String(po.id)) {
+                return lifecycleToTimelineSteps(sharedLifecycle, { activeKey: activeTimelineSlide });
+            }
             const piObj = poLifecycleData?.instruction;
             const isPiApproved = piObj?.status && piObj?.status !== 'Draft';
-            const isPiVerified = piObj?.isVerified || ['Verified', 'PO Pending', 'PO Created', 'Closed'].includes(piObj?.status);
+            const hasFinalPo = Boolean(piObj?.finalPoNumber);
+            const isPiVerified = piObj?.isVerified || ['Verified', 'PO Pending', 'PO Created', 'Closed'].includes(piObj?.status) || hasFinalPo;
             const totalProd = Number(piObj?.completion?.totalProduced || 0);
             const balQty = Number(piObj?.completion?.balanceQty ?? (piObj?.orderMeter ? Number(piObj?.orderMeter) - totalProd : 0));
             const isProdComplete = totalProd > 0 && balQty <= 0;
-            const hasFinalPo = Boolean(piObj?.finalPoNumber);
             const takas = poLifecycleData?.takas || [];
             const grns = poLifecycleData?.grns || [];
             const hasQcPassed = (takas.length > 0 && takas.some((t) => t.qcStatus === 'Passed')) || grns.some((g) => g.qc_status === 'Approved' || g.qc_status === 'Passed' || g.qcStatus === 'Passed');
-            const isQcComplete = (takas.length > 0 && takas.every((t) => t.qcStatus === 'Passed')) || isPiVerified;
+            const isQcComplete = (takas.length > 0 && takas.every((t) => t.qcStatus === 'Passed')) || isPiVerified || hasFinalPo || (hasQcPassed && !isQcPartial);
             const isQcPartial = hasQcPassed && !isQcComplete;
 
             return [
@@ -555,7 +588,7 @@ export const PurchaseOrdersPage = () => {
                 {
                     label: 'Quality Control (QC)',
                     key: 'grey_fabric_qc',
-                    highlightCard: activeTimelineSlide === 'grey_fabric_qc',
+                    highlightCard: activeTimelineSlide === 'grey_fabric_qc' && !(isQcComplete || isPiVerified),
                     status: (isQcComplete || isPiVerified)
                       ? 'completed'
                       : isQcPartial
@@ -567,7 +600,7 @@ export const PurchaseOrdersPage = () => {
                 {
                     label: 'Completion Verification',
                     key: 'completion_verification',
-                    highlightCard: activeTimelineSlide === 'completion_verification',
+                    highlightCard: activeTimelineSlide === 'completion_verification' && !isPiVerified,
                     status: isPiVerified
                       ? 'completed'
                       : (activeTimelineSlide === 'completion_verification' ? 'current' : (isQcComplete || isProdComplete ? 'partial' : 'pending')),
@@ -1344,7 +1377,10 @@ export const PurchaseOrdersPage = () => {
               </div>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
-                  <label className="block font-semibold text-slate-700 mb-1">Vendor / Supplier *</label>
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="block font-semibold text-slate-700">Vendor / Supplier *</label>
+                    <MasterSourceLink source="vendors" />
+                  </div>
                   <select value={selectedVendorId} onChange={(e) => setSelectedVendorId(e.target.value)} className="w-full border border-slate-300 rounded-lg p-2 bg-white text-slate-800 font-medium">
                     {vendors.map((v) => (
                       <option key={v.id} value={v.id}>{v.name} ({v.code}) - Terms: {v.paymentTerms}</option>
@@ -1391,9 +1427,19 @@ export const PurchaseOrdersPage = () => {
                     <thead>
                       <tr className="bg-slate-50 border-b border-slate-200 text-[10.5px] font-bold uppercase tracking-wide text-slate-400">
                         <th className="px-3 py-2.5 w-10 text-center">#</th>
-                        <th className="px-3 py-2.5">Fabric *</th>
+                        <th className="px-3 py-2.5">
+                          <div className="flex items-center justify-between gap-2">
+                            <span>Fabric *</span>
+                            <MasterSourceLink source="fabricVariants" className="normal-case tracking-normal" />
+                          </div>
+                        </th>
                         <th className="px-3 py-2.5 text-center w-32">Order Qty *</th>
-                        <th className="px-3 py-2.5 w-28">UOM *</th>
+                        <th className="px-3 py-2.5 w-28">
+                          <div className="flex items-center justify-between gap-1">
+                            <span>UOM *</span>
+                            <MasterSourceLink source="uom" label="+ Manage" className="normal-case tracking-normal" />
+                          </div>
+                        </th>
                         <th className="px-3 py-2.5 text-right w-36">Rate (₹ / Unit) *</th>
                         <th className="px-3 py-2.5 text-right w-36">Amount (₹)</th>
                         <th className="w-12 px-2 py-2.5 text-center"></th>
@@ -1618,6 +1664,7 @@ export const PurchaseOrdersPage = () => {
                     return;
                   }
                   const lbl = (step.label || '').toLowerCase();
+                  const isVendorA = purchaseTypeOf(selectedPo) === PURCHASE_TYPE_VENDOR_A;
                   if (lbl.includes('delivery')) setActiveTimelineSlide('supplier_delivery');
                   else if (lbl.includes('grn') || lbl.includes('inward')) setActiveTimelineSlide('grn_inward');
                   else if (lbl.includes('lot') || lbl.includes('taka')) setActiveTimelineSlide('lot_taka_creation');
@@ -1987,6 +2034,7 @@ export const PurchaseOrdersPage = () => {
             }`}>
               {(() => {
                 const poInfo = getPoBilledStatus(selectedPo.id);
+                const isVendorA = purchaseTypeOf(selectedPo) === PURCHASE_TYPE_VENDOR_A;
                 return (
                   <>
                     <div className="font-mono text-xs space-y-0.5">

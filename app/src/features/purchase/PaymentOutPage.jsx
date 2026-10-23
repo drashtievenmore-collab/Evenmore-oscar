@@ -5,6 +5,7 @@ import { StatCard } from '../../components/ui/StatCard';
 import { Button } from '../../components/ui/Button';
 import { Plus, ArrowUpRight, CreditCard, X, DollarSign, Receipt, CheckCircle2, TrendingDown } from 'lucide-react';
 import { PageHeader } from '../../components/common/PageHeader';
+import MasterSourceLink from '../../components/common/MasterSourceLink';
 const paymentOutGuide = {
     title: 'Payment Out & Vendor Disbursements',
     subtitle: 'Supplier payment authorization and Accounts Payable settlement',
@@ -420,7 +421,10 @@ export const PaymentOutPage = () => {
                     <p className="text-[11px] text-slate-500 mt-1">The advance stays unallocated until it is adjusted against the vendor's bill.</p>
                   </div>
                   <div>
-                    <label className="block font-semibold text-slate-700 mb-1">Payee Supplier *</label>
+                    <div className="flex items-center justify-between mb-1">
+                      <label className="block font-semibold text-slate-700">Payee Supplier *</label>
+                      <MasterSourceLink source="vendors" />
+                    </div>
                     <select required value={selectedVendorId} onChange={(e) => setSelectedVendorId(e.target.value)} className="w-full border border-slate-300 rounded-lg p-2 bg-white text-slate-800 font-medium">
                       <option value="">Select supplier</option>
                       {vendors.map((v) => (
@@ -460,7 +464,10 @@ export const PaymentOutPage = () => {
                 </div>
                 {mode && mode !== 'Cash' && (
                   <div>
-                    <label className="block font-semibold text-slate-700 mb-1">Paid From (Bank) *</label>
+                    <div className="flex items-center justify-between mb-1">
+                      <label className="block font-semibold text-slate-700">Paid From (Bank) *</label>
+                      <MasterSourceLink source="cashBank" />
+                    </div>
                     <select required value={bankAccountId} onChange={(e) => setBankAccountId(e.target.value)} className="w-full border border-slate-300 rounded-lg p-2 bg-white text-slate-800">
                       <option value="">Select bank account</option>
                       {(bankAccounts || []).map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}

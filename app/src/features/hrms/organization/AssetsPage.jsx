@@ -6,6 +6,7 @@ import { Badge } from "../../../components/hrms/Badge";
 import Modal from "../../../components/ui/Modal";
 import PageHeader from "../../../components/ui/PageHeader";
 import { hrmsGuides } from "../../../data/hrms/hrmsGuides";
+import MasterSourceLink from "../../../components/common/MasterSourceLink";
 import {
   Laptop,
   Monitor,
@@ -1241,7 +1242,10 @@ export function AssetsPage() {
 
           {assetForm.status === "Assigned" && (
             <div>
-              <label className="block text-[12.5px] font-semibold text-slate-700 mb-1.5">Assignee</label>
+              <div className="flex items-center justify-between mb-1.5">
+                <label className="block text-[12.5px] font-semibold text-slate-700">Assignee</label>
+                <MasterSourceLink source="employees" />
+              </div>
               <select
                 value={assetForm.assignedTo}
                 onChange={(e) => setAssetForm({ ...assetForm, assignedTo: e.target.value })}
@@ -1481,9 +1485,12 @@ export function AssetsPage() {
           </div>
 
           <div>
-            <label className="block text-[12.5px] font-semibold text-slate-700 mb-1.5">
-              Select Employee <span className="text-red-500">*</span>
-            </label>
+            <div className="flex items-center justify-between mb-1.5">
+              <label className="block text-[12.5px] font-semibold text-slate-700">
+                Select Employee <span className="text-red-500">*</span>
+              </label>
+              <MasterSourceLink source="employees" />
+            </div>
             <select
               required
               value={assignForm.employeeName}
@@ -1775,9 +1782,12 @@ export function AssetsPage() {
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
             <div>
-              <label className="block text-[12.5px] font-semibold text-slate-700 mb-1.5">
-                Requester / Employee <span className="text-red-500">*</span>
-              </label>
+              <div className="flex items-center justify-between mb-1.5">
+                <label className="block text-[12.5px] font-semibold text-slate-700">
+                  Requester / Employee <span className="text-red-500">*</span>
+                </label>
+                <MasterSourceLink source="employees" />
+              </div>
               <select
                 required
                 value={requestForm.employeeName}

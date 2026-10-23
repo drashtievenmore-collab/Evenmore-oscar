@@ -11,6 +11,7 @@ import { DocumentTimeline } from '../../components/common/DocumentTimeline';
 import { RelatedDocumentsCard } from '../../components/common/RelatedDocumentsCard';
 import { PageHeader } from '../../components/common/PageHeader';
 import { PrintBillModal } from '../../components/common/PrintBillModal';
+import MasterSourceLink from '../../components/common/MasterSourceLink';
 const purchaseBillGuide = {
     title: 'Purchase Bills & Accounts Payable',
     subtitle: 'Supplier invoice intake, 3-way matching audit, inventory replenishment, and disbursements.',
@@ -407,7 +408,10 @@ export const PurchaseBillsPage = () => {
                 </div>
 
                 <div>
-                  <label className="block font-semibold text-slate-700 mb-1">Vendor / Supplier *</label>
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="block font-semibold text-slate-700">Vendor / Supplier *</label>
+                    <MasterSourceLink source="vendors" />
+                  </div>
                   <select required value={selectedVendorId} onChange={(e) => setSelectedVendorId(e.target.value)} className="w-full border border-slate-300 rounded-lg p-2 bg-white text-slate-800 font-medium">
                     <option value="">Select vendor</option>
                     {vendors.map((v) => (
@@ -634,7 +638,10 @@ export const PurchaseBillsPage = () => {
                 </div>
                 {payMode && payMode !== 'Cash' && (
                   <div>
-                    <label className="font-semibold text-slate-700 block mb-1">Paid From (Bank) *</label>
+                    <div className="flex items-center justify-between mb-1">
+                      <label className="font-semibold text-slate-700 block">Paid From (Bank) *</label>
+                      <MasterSourceLink source="cashBank" />
+                    </div>
                     <select required value={payBankId} onChange={(e) => setPayBankId(e.target.value)} className="w-full border border-slate-300 rounded-lg p-2 bg-white text-slate-800">
                       <option value="">Select bank account</option>
                       {(bankAccounts || []).map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}

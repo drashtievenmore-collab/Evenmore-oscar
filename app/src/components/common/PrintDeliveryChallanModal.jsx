@@ -1,8 +1,10 @@
 import React, { useEffect } from 'react';
 import { X, Printer, CheckCircle2, Truck, ShieldCheck, FileText, MapPin } from 'lucide-react';
+import { SignatureSlot, useDocumentSignatures } from './SignatureSlot';
 import { useERP } from '../../context/ERPContext';
 
 export const PrintDeliveryChallanModal = ({ isOpen, onClose, challan }) => {
+  const docSigs = useDocumentSignatures('DeliveryChallan', challan?.id, `Delivery Challan ${challan?.challanNumber || ""}`);
     // [PHASE-2E.1] profile-driven letterhead (was hardcoded EVENMORE / US strings)
     const { companyProfile } = useERP();
     const companyName = companyProfile?.name || 'EVENMORE ENTERPRISES';
@@ -224,8 +226,9 @@ export const PrintDeliveryChallanModal = ({ isOpen, onClose, challan }) => {
                     {/* Dual Signatures & POD (Proof of Delivery) */}
                     <div className="pt-8 border-t border-slate-300 grid grid-cols-2 gap-12 text-center text-xs">
                         <div className="space-y-8">
-                            <div className="border-b border-slate-400 pb-1 h-12 flex items-end justify-center">
-                                <span className="font-mono text-slate-400 text-[10px] italic">Driver & Transporter Handover</span>
+                            <div className="border-b border-slate-400 pb-1">
+                              <SignatureSlot doc={docSigs} signatory="driver" label="Driver & Transporter Handover" modalType="receiver" defaultDesignation="Logistics Carrier Driver"
+                                placeholder={<span className="font-mono text-slate-400 text-[10px] italic">Driver & Transporter Handover</span>} />
                             </div>
                             <div>
                                 <p className="font-bold text-slate-900">Logistics Carrier Driver</p>
@@ -234,8 +237,9 @@ export const PrintDeliveryChallanModal = ({ isOpen, onClose, challan }) => {
                         </div>
 
                         <div className="space-y-8">
-                            <div className="border-b border-slate-400 pb-1 h-12 flex items-end justify-center">
-                                <span className="font-mono text-slate-400 text-[10px] italic">Consignee Receiving Stamp & Signature</span>
+                            <div className="border-b border-slate-400 pb-1">
+                              <SignatureSlot doc={docSigs} signatory="consignee" label="Consignee Receiving Signature" modalType="receiver" defaultName={challan?.customer || ""} defaultDesignation="Consignee — Received in good condition"
+                                placeholder={<span className="font-mono text-slate-400 text-[10px] italic">Consignee Receiving Stamp & Signature</span>} />
                             </div>
                             <div>
                                 <p className="font-bold text-slate-900">Authorized Consignee Receiver</p>

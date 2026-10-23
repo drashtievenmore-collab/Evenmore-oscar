@@ -5,6 +5,7 @@ import { Button } from '../../components/ui/Button';
 import { Modal } from '../../components/ui/Modal';
 import { Pagination } from '../../components/ui/Pagination';
 import { PageHeader } from '../../components/common/PageHeader';
+import MasterSourceLink, { useMasterDataRefresh } from '../../components/common/MasterSourceLink';
 import {
   Card,
   EmptyRow,
@@ -130,16 +131,23 @@ export const CashBankPage = () => {
     loadTransfers();
   }, [loadTransfers]);
 
-  const openBankForm = async () => {
-    setBankForm(emptyBank());
-    setBankFormError('');
-    setShowBankForm(true);
+  const loadLedgerAccounts = useCallback(async () => {
     try {
       setLedgerAccounts(await fetchAllPages(api, '/accounts/chart-of-accounts/', { type: 'Asset' }));
       setLedgerError('');
     } catch (err) {
       setLedgerError(describeApiError(err));
     }
+  }, []);
+
+  // Reload the ledger list after accounts are edited from the "+ Add / Manage" popup.
+  useMasterDataRefresh(loadLedgerAccounts, ['ledgerAccounts']);
+
+  const openBankForm = async () => {
+    setBankForm(emptyBank());
+    setBankFormError('');
+    setShowBankForm(true);
+    await loadLedgerAccounts();
   };
 
   const bankById = useMemo(() => Object.fromEntries(banks.map((b) => [b.id, b])), [banks]);
@@ -353,7 +361,10 @@ export const CashBankPage = () => {
               </select>
             </div>
             <div className="sm:col-span-2">
-              <label className={labelClass}>Ledger Account (Chart of Accounts, Asset) *</label>
+              <div className="flex items-center justify-between gap-2">
+                <label className={labelClass}>Ledger Account (Chart of Accounts, Asset) *</label>
+                <MasterSourceLink source="ledgerAccounts" />
+              </div>
               <select required value={bankForm.accountId} onChange={(e) => setBankForm({ ...bankForm, accountId: e.target.value })} className={inputClass}>
                 <option value="">Select ledger account…</option>
                 {ledgerAccounts.map((a) => (

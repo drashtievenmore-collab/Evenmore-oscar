@@ -87,6 +87,7 @@ import { completeTaskWithOutcome, NEXT_ACTION_LABELS, getLeadStageOrder } from '
 import CompleteTaskModal from '../tasks/CompleteTaskModal';
 import QuotationComposerPage from '../../sales/QuotationComposerPage';
 import PageInfoButton from '../../../components/ui/PageInfoButton';
+import MasterSourceLink from '../../../components/common/MasterSourceLink';
 
 const DETAIL_TABS = [
   'General',
@@ -2466,7 +2467,10 @@ function LeadTasksTab({ lead, onCountsChange, onActivity }) {
                 </div>
               </div>
               <div>
-                <label className="block text-[13px] font-semibold text-slate-800 mb-1.5">Assign To</label>
+                <div className="flex items-center justify-between mb-1.5">
+                  <label className="block text-[13px] font-semibold text-slate-800">Assign To</label>
+                  <MasterSourceLink source="users" />
+                </div>
                 <select value={form.assignee} onChange={(e) => updateTaskForm('assignee', e.target.value)} className="w-full h-11 px-4 bg-white border border-slate-300 rounded-lg text-[13px] text-slate-800 focus:outline-none focus:border-blue-500">
                   <option value="">Select Staff</option>
                   {assigneeOptions.map((option) => (<option key={option.id || option.name} value={option.id && isServerId(option.id) ? option.id : option.name}>{option.name}</option>))}
@@ -2527,7 +2531,10 @@ function LeadTasksTab({ lead, onCountsChange, onActivity }) {
             <form onSubmit={submitTask} className="px-6 py-5">
               <div className="bg-white rounded-xl border border-slate-100 p-5 space-y-4">
                 <div>
-                  <label className="block text-[13px] font-semibold text-slate-800 mb-1.5">Default Task</label>
+                  <div className="flex items-center justify-between mb-1.5">
+                    <label className="block text-[13px] font-semibold text-slate-800">Default Task</label>
+                    <MasterSourceLink source="leadTasks" />
+                  </div>
                   <select value={form.defaultTask} onChange={(e) => updateTaskForm('defaultTask', e.target.value)} className="w-full h-11 px-4 bg-white border border-slate-300 rounded-lg text-[13px] text-slate-800 focus:outline-none focus:border-blue-500">
                     <option value="custom">Create custom task</option>
                     {masterTaskOptions.map((t) => (<option key={t.id} value={t.id}>{t.name}</option>))}
@@ -2566,7 +2573,10 @@ function LeadTasksTab({ lead, onCountsChange, onActivity }) {
                   </div>
                 </div>
                 <div>
-                  <label className="block text-[13px] font-semibold text-slate-800 mb-1.5">Assign To</label>
+                  <div className="flex items-center justify-between mb-1.5">
+                    <label className="block text-[13px] font-semibold text-slate-800">Assign To</label>
+                    <MasterSourceLink source="users" />
+                  </div>
                   <select value={form.assignee} onChange={(e) => updateTaskForm('assignee', e.target.value)} className="w-full h-11 px-4 bg-white border border-slate-300 rounded-lg text-[13px] text-slate-800 focus:outline-none focus:border-blue-500">
                     <option value="">Select Staff</option>
                     {assigneeOptions.map((option) => (<option key={option.id || option.name} value={option.id && isServerId(option.id) ? option.id : option.name}>{option.name}</option>))}
@@ -3501,7 +3511,10 @@ function RequirementFormFields({ draft, onChange, autoFocus = false }) {
         />
       </label>
       <label className="text-xs font-semibold text-slate-700">
-        UOM
+        <span className="flex items-center justify-between">
+          UOM
+          <MasterSourceLink source="uom" />
+        </span>
         <select value={draft.uom} onChange={set('uom')} className={`${inputCls} bg-white`}>
           {uomOptions.map((opt) => (
             <option key={opt} value={opt}>{opt}</option>
@@ -3751,7 +3764,10 @@ function UsersProductsTab({ lead, onCountsChange, onActivity }) {
                 <button type="button" className="text-slate-400 hover:text-slate-700 text-lg" onClick={() => setIsAddUserOpen(false)} aria-label="Close add employee dialog">×</button>
               </div>
               <label className="block text-xs font-semibold text-slate-700">
-                Employee
+                <span className="flex items-center justify-between">
+                  Employee
+                  <MasterSourceLink source="users" />
+                </span>
                 <select
                   value={selectedEmployeeId}
                   onChange={(event) => setSelectedEmployeeId(event.target.value)}
@@ -4059,6 +4075,9 @@ export default function LeadDetailView({ lead, onBackToLeads }) {
   const [viewLead, setViewLead] = useState(lead);
   const [isEditOpen, setIsEditOpen] = useState(false);
   const [editForm, setEditForm] = useState(null);
+  // Subscribed so the edit form's Lead Status list (getLeadStageOrder) re-renders
+  // after stages are edited from its "+ Add / Manage" popup.
+  useCrmStore((s) => s.stages);
   const storedDetailState = useLeadDetailState(lead);
   const [searchParams, setSearchParams] = useSearchParams();
   const activeTab = DETAIL_TABS.find(
@@ -4607,7 +4626,10 @@ export default function LeadDetailView({ lead, onBackToLeads }) {
                 </select>
               </label>
               <label className="flex flex-col gap-1 text-xs font-semibold text-slate-600">
-                Lead Status
+                <span className="flex items-center justify-between gap-2">
+                  Lead Status
+                  <MasterSourceLink source="leadStages" />
+                </span>
                 <select className="border border-slate-200 rounded-lg px-3 py-2 text-xs font-normal text-slate-900 outline-none focus:border-blue-400 bg-white" value={editForm.status} onChange={(e) => updateEditField('status', e.target.value)}>
                   {Array.from(new Set([editForm.status, ...getLeadStageOrder()].filter(Boolean))).map((stage) => (
                     <option key={stage} value={stage}>{stage}</option>

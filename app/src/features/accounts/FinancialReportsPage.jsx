@@ -14,6 +14,7 @@ import {
   CheckCircle2,
 } from 'lucide-react';
 import PageHeader from '../../components/ui/PageHeader';
+import MasterSourceLink, { useMasterDataRefresh } from '../../components/common/MasterSourceLink';
 import { Button } from '../../components/ui/Button';
 import { accountingService } from '../../services/domainServices';
 import { exportToCSV } from '../../services/exportUtils';
@@ -97,6 +98,8 @@ export function FinancialReportsPage() {
   const ageing = useApiGet('/accounts/reports/ageing/', { type: ageingType, asOf }, { enabled: reportType === 'ageing' });
   const budgets = useApiGet('/accounts/budgets/', { page_size: 200, date_from: dateFrom, date_to: dateTo }, { enabled: reportType === 'budget' });
   const chartOfAccounts = useApiGet('/accounts/chart-of-accounts/', { page_size: 200 }, { enabled: showBudgetModal });
+  // Reload the budget account list after accounts are edited from the "+ Add / Manage" popup.
+  useMasterDataRefresh(chartOfAccounts.reload, ['ledgerAccounts']);
 
   const p = pnl.data;
   const b = bs.data;
@@ -707,7 +710,10 @@ export function FinancialReportsPage() {
 
             <form onSubmit={handleSaveBudget} className="space-y-3">
               <div>
-                <label className="block text-[11px] font-semibold text-slate-600 mb-1">Account (Chart of Accounts) *</label>
+                <div className="flex items-center justify-between gap-2 mb-1">
+                  <label className="block text-[11px] font-semibold text-slate-600">Account (Chart of Accounts) *</label>
+                  <MasterSourceLink source="ledgerAccounts" />
+                </div>
                 <select
                   required
                   value={budgetForm.accountId}

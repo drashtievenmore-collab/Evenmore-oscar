@@ -17,6 +17,7 @@ import {
 import PageHeader from '../../components/ui/PageHeader';
 import { StatCard } from '../../components/ui/StatCard';
 import { Button } from '../../components/ui/Button';
+import MasterSourceLink from '../../components/common/MasterSourceLink';
 import { accountingService, partiesService } from '../../services/domainServices';
 import {
   formatINR,
@@ -514,7 +515,10 @@ export default function StandaloneNotesPage() {
               </div>
 
               <div>
-                <label className={labelClass}>Party (Customer / Vendor) *</label>
+                <div className="flex items-center justify-between mb-1">
+                  <label className="block text-[11px] font-semibold text-slate-600">Party (Customer / Vendor) *</label>
+                  <MasterSourceLink source="parties" />
+                </div>
                 <select
                   name="party"
                   value={form.party}

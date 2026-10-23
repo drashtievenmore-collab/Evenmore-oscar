@@ -8,6 +8,7 @@ import {
   validateStageHandoff,
   summariseStageForHandoff,
 } from '../../../stores/pmsStore';
+import MasterSourceLink from '../../../components/common/MasterSourceLink';
 
 /**
  * StageHandoffModal — department-to-department handoff with PM sign-off.
@@ -194,7 +195,10 @@ export function StageHandoffModal({ isOpen, onClose, project, stageId, onHandedO
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div>
-                <label className={labelClass} htmlFor="handoff-user">Receiving employee</label>
+                <div className="flex items-center justify-between mb-1.5">
+                  <label className={labelClass + ' mb-0'} htmlFor="handoff-user">Receiving employee</label>
+                  <MasterSourceLink source="users" />
+                </div>
                 <select
                   id="handoff-user"
                   className={fieldClass}

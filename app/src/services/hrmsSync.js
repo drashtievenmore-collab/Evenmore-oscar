@@ -26,6 +26,24 @@ function displayIn(value) {
   return value ? formatDateDDMMYYYY(value) : value;
 }
 
+function formatBytes(bytes) {
+  const n = Number(bytes) || 0;
+  if (n >= 1024 * 1024) return `${(n / (1024 * 1024)).toFixed(1)} MB`;
+  if (n >= 1024) return `${Math.round(n / 1024)} KB`;
+  return `${n} B`;
+}
+
+/** Short label for a stored file ("PDF", "Image", "Word", …). */
+function fileTypeLabel(contentType, fileName) {
+  const type = String(contentType || '').toLowerCase();
+  const ext = String(fileName || '').split('.').pop().toLowerCase();
+  if (type === 'application/pdf' || ext === 'pdf') return 'PDF';
+  if (type.startsWith('image/')) return 'Image';
+  if (type.includes('word') || ['doc', 'docx'].includes(ext)) return 'Word';
+  if (type.includes('sheet') || type.includes('excel') || ['xls', 'xlsx', 'csv'].includes(ext)) return 'Excel';
+  return contentType ? (ext || 'File').toUpperCase() : '';
+}
+
 /** Weekday name for a wire date (`2024-11-01` → `Friday`). Empty when unparseable. */
 function weekdayName(value) {
   if (!value) return '';
@@ -362,11 +380,77 @@ export const HRMS_RESOURCES = {
   },
   terminations: dated('/hrms/terminations/', ['terminationDate']),
   complaints: dated('/hrms/complaints/', ['raisedDate']),
-  documents: dated('/hrms/documents/', ['uploadedDate', 'expiryDate']),
+  // The file itself is uploaded through /files/ (see stores/documentStore);
+  // the document row only carries its `fileId`. Status is derived on the
+  // server from the expiry date, so it is never sent.
+  documents: {
+    path: '/hrms/documents/',
+    toApi: (doc) => {
+      const version = parseInt(String(doc.version ?? '').replace(/^v/i, ''), 10);
+      const expiry = doc.expiry && doc.expiry !== '—' ? isoOut(doc.expiry) : null;
+      return compact({
+        title: doc.title,
+        category: doc.category,
+        // "All Staff" (company-wide) is a document with no employee.
+        employeeId: doc.employeeId === undefined ? undefined : (isServerId(doc.employeeId) ? doc.employeeId : null),
+        version: Number.isFinite(version) ? version : undefined,
+        expiry: doc.expiry === undefined ? undefined : expiry,
+        fileId: isServerId(doc.fileId) ? doc.fileId : undefined,
+        tags: Array.isArray(doc.tags) ? doc.tags : undefined,
+        description: doc.description,
+      });
+    },
+    fromApi: (row) => ({
+      ...row,
+      employee: row.employee || 'All Staff',
+      employeeId: row.employeeId || null,
+      version: `v${row.version || 1}.0`,
+      expiry: row.expiry ? displayIn(row.expiry) : '—',
+      expiryIso: row.expiry || '',
+      contentType: row.fileType || '',
+      fileType: fileTypeLabel(row.fileType, row.fileName),
+      fileSize: row.fileSize ? formatBytes(row.fileSize) : '',
+      fileSizeBytes: row.fileSize || 0,
+      hasFile: Boolean(row.fileId),
+      updatedOn: row.updatedOn ? displayIn(String(row.updatedOn).slice(0, 10)) : '',
+      _synced: true,
+    }),
+  },
   approvalChains: plain('/hrms/approval-chains/'),
   calendarEvents: dated('/hrms/calendar/events/', ['startDate', 'endDate', 'date']),
 
   // ── textile HR operational resources (Oscar Scope) ───────────────────────
+  incentives: {
+    path: '/hrms/incentives/',
+    toApi: (inc) => compact({
+      employeeId: inc.employeeId || inc.employee || undefined,
+      scheme: inc.scheme || inc.schemeId || undefined,
+      periodType: inc.periodType || inc.period_type || undefined,
+      periodName: inc.periodName || inc.period_name || undefined,
+      startDate: isoOut(inc.startDate || inc.start_date),
+      endDate: isoOut(inc.endDate || inc.end_date),
+      grossSales: inc.grossSales !== undefined ? num(inc.grossSales) : undefined,
+      returnsDeduction: inc.returnsDeduction !== undefined ? num(inc.returnsDeduction) : undefined,
+      netEligibleSales: inc.netEligibleSales !== undefined ? num(inc.netEligibleSales) : undefined,
+      applicableRate: inc.applicableRate !== undefined ? num(inc.applicableRate) : undefined,
+      calculatedIncentive: inc.calculatedIncentive !== undefined ? num(inc.calculatedIncentive) : undefined,
+      status: inc.status || undefined,
+      holdReason: inc.holdReason || inc.hold_reason || undefined,
+      notes: inc.notes || undefined,
+    }),
+    fromApi: (row) => ({
+      ...row,
+      startDate: displayIn(row.startDate || row.start_date),
+      endDate: displayIn(row.endDate || row.end_date),
+      grossSales: num(row.grossSales ?? row.gross_sales),
+      returnsDeduction: num(row.returnsDeduction ?? row.returns_deduction),
+      netEligibleSales: num(row.netEligibleSales ?? row.net_eligible_sales),
+      applicableRate: num(row.applicableRate ?? row.applicable_rate),
+      calculatedIncentive: num(row.calculatedIncentive ?? row.calculated_incentive),
+      _synced: true,
+    }),
+  },
+  incentiveSchemes: plain('/hrms/incentive-schemes/'),
   brokerCommissions: {
     path: '/hrms/broker-commissions/',
     toApi: (bc) => compact({
@@ -551,6 +635,14 @@ export async function processPayroll(payload) {
 
 
 // ── Textile Operational HR Actions & Data Fetchers (Oscar Scope) ────────────
+export const calculateQuarterlyIncentive = (payload) => api.post('/hrms/incentives/calculate-quarterly/', payload);
+export const holdIncentivePayout = (id, reason) => api.post(`/hrms/incentives/${id}/hold/`, { reason });
+export const releaseIncentivePayout = (id) => api.post(`/hrms/incentives/${id}/release/`, {});
+export const approveIncentivePayout = (id) => api.post(`/hrms/incentives/${id}/approve/`, {});
+export const markIncentivePaid = (id) => api.post(`/hrms/incentives/${id}/mark-paid/`, {});
+export const createIncentiveScheme = (data) => api.post('/hrms/incentive-schemes/', data);
+export const updateIncentiveScheme = (id, data) => api.patch(`/hrms/incentive-schemes/${id}/`, data);
+
 export const approveBrokerCommission = (id) => api.post(`/hrms/broker-commissions/${id}/approve/`, {});
 export const markBrokerCommissionPayable = (id) => api.post(`/hrms/broker-commissions/${id}/mark-payable/`, {});
 export const markBrokerCommissionPaid = (id) => api.post(`/hrms/broker-commissions/${id}/mark-paid/`, {});

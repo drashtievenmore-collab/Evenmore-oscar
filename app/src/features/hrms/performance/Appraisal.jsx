@@ -10,6 +10,7 @@ import { Drawer } from "../../../components/hrms/Drawer";
 import { Button } from "../../../components/hrms/Button";
 import PageHeader from "../../../components/ui/PageHeader";
 import { hrmsGuides } from "../../../data/hrms/hrmsGuides";
+import MasterSourceLink from "../../../components/common/MasterSourceLink";
 import {
   Eye,
   Pencil,
@@ -681,7 +682,10 @@ export default function Appraisal() {
       >
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <label className="flex flex-col gap-1">
-            <span className="text-[11px] font-medium text-slate-500">Employee *</span>
+            <span className="flex items-center justify-between">
+              <span className="text-[11px] font-medium text-slate-500">Employee *</span>
+              <MasterSourceLink source="employees" />
+            </span>
             <select
               value={form.employee}
               onChange={(e) => {
@@ -723,7 +727,10 @@ export default function Appraisal() {
           </label>
 
           <label className="flex flex-col gap-1">
-            <span className="text-[11px] font-medium text-slate-500">Reviewer *</span>
+            <span className="flex items-center justify-between">
+              <span className="text-[11px] font-medium text-slate-500">Reviewer *</span>
+              <MasterSourceLink source="employees" />
+            </span>
             <select
               value={form.reviewer}
               onChange={(e) => setForm({ ...form, reviewer: e.target.value })}

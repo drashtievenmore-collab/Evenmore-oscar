@@ -1,10 +1,11 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import UomSelect from '../../components/common/UomSelect';
+import MasterSourceLink from '../../components/common/MasterSourceLink';
 import { formatQty } from '../../utils/uom';
 import { useLocation, useNavigate } from 'react-router-dom';
 import {
   ArrowLeft, CheckCircle2, FileText, Plus, Search,
-  Send, Trash2, Package, RefreshCw, User, AlertTriangle, ShieldAlert,
+  Send, Trash2, Package, RefreshCw, User, AlertTriangle, ShieldAlert, X,
 } from 'lucide-react';
 import { useDiscountPolicy, requiredLevel, needsApprovalFor, APPROVER_LABEL } from '../../hooks/useDiscountPolicy';
 import { salesService } from '../../services/domainServices';
@@ -631,109 +632,196 @@ export default function QuotationComposerPage({ embedded = null } = {}) {
                 </div>
               </div>
             )}
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-              <div className="relative">
-                <label className={labelCls}>Customer / Lead *</label>
-                <div className="relative">
-                  <input
-                    value={selectedParty ? selectedParty.display : customerSearch}
-                    onChange={(e) => handlePartySearch(e.target.value)}
-                    onFocus={() => setCustomerPickerOpen(true)}
-                    placeholder="Search customer or lead…"
-                    className="w-full pl-2.5 pr-8 py-1.5 bg-white border border-slate-300 rounded-lg text-xs text-slate-800 focus:outline-none focus:border-blue-500"
-                  />
-                  <Search size={13} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
-                </div>
-                {customerPickerOpen && (
-                  <>
-                    <div className="fixed inset-0 z-10" onClick={() => setCustomerPickerOpen(false)} />
-                    <div className="absolute z-20 mt-1 w-full max-h-52 overflow-y-auto rounded-lg border border-slate-200 bg-white shadow-xl">
-                      {filteredParties.map((option) => (
-                        <button
-                          key={option.key}
-                          type="button"
-                          onClick={() => handlePartyChange(option)}
-                          className={`block w-full px-3 py-2 text-left text-xs hover:bg-blue-50 ${option.key === selectedPartyKey ? 'bg-blue-50' : ''}`}
-                        >
-                          <span className="flex items-center justify-between gap-2">
-                            <span className="block font-bold text-slate-800 truncate">{option.display}</span>
-                            <span className={`shrink-0 px-1.5 py-0.5 rounded text-[10px] font-bold border ${option.kind === 'lead' ? 'bg-violet-50 text-violet-700 border-violet-200' : 'bg-emerald-50 text-emerald-700 border-emerald-200'}`}>
-                              {option.kind === 'lead' ? 'Lead' : 'Customer'}
-                            </span>
-                          </span>
-                          <span className="block text-[11px] text-slate-500">{option.meta}</span>
-                        </button>
-                      ))}
-                      {filteredParties.length === 0 && <p className="px-3 py-2 text-xs text-slate-400">No customers or leads found.</p>}
-                    </div>
-                  </>
-                )}
-                {party && (
-                  <div className="mt-2 flex items-start gap-2 p-2.5 rounded-xl bg-slate-50 border border-slate-200">
-                    <span className={`inline-flex h-8 w-8 items-center justify-center rounded-full text-white text-xs font-bold shrink-0 ${partyKind === 'lead' ? 'bg-violet-500' : 'bg-rose-500'}`}>
-                      {String(partyLabel || '?').trim().charAt(0).toUpperCase()}
-                    </span>
-                    <div className="text-[11px] leading-relaxed">
-                      <p className="font-bold text-slate-800">{partyLabel}</p>
-                      {partyKind === 'lead' ? (
-                        <>
-                          <p className="text-slate-500">Lead {lead.leadNumber || '—'} • {lead.status || 'Open'}</p>
-                          <p className="text-slate-500">{[lead.city, lead.state, lead.country].filter(Boolean).join(', ') || '—'}</p>
-                          <span className="inline-block mt-1 px-1.5 py-0.5 rounded bg-violet-50 text-violet-700 border border-violet-200 text-[10px] font-bold">Lead — becomes a customer on approval</span>
-                        </>
-                      ) : (
-                        <>
-                          <p className="text-slate-500">Credit Limit: ₹{creditLimit.toLocaleString('en-IN')} • Outstanding: ₹{outstanding.toLocaleString('en-IN')}</p>
-                          <p className="text-slate-500">Available: ₹{available.toLocaleString('en-IN')}</p>
-                          <span className="inline-block mt-1 px-1.5 py-0.5 rounded bg-emerald-50 text-emerald-700 border border-emerald-200 text-[10px] font-bold">Existing Customer</span>
-                        </>
-                      )}
-                    </div>
+            <div className="space-y-4">
+              {/* Row 1: Customer / Lead & Contact Person */}
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3.5">
+                <div className="sm:col-span-2 relative">
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="block text-[11px] font-semibold text-slate-600">Customer / Lead *</label>
+                    <MasterSourceLink source="customers" />
                   </div>
-                )}
-              </div>
-              <div>
-                <label className={labelCls}>Contact Person</label>
-                <input value={contactPerson} onChange={(e) => setContactPerson(e.target.value)} placeholder="Purchase Manager" className={inputCls} />
-                <div className="mt-2 space-y-1 text-[11px] text-slate-600">
-                  <p>✆ {party?.phone || '—'}</p>
-                  <p>✉ {party?.email || '—'}</p>
+                  <div className="relative">
+                    <input
+                      value={selectedParty ? selectedParty.display : customerSearch}
+                      onChange={(e) => handlePartySearch(e.target.value)}
+                      onFocus={() => setCustomerPickerOpen(true)}
+                      placeholder="Search customer or lead by name, code, phone…"
+                      className="w-full pl-2.5 pr-8 py-1.5 bg-white border border-slate-300 rounded-lg text-xs text-slate-800 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
+                    />
+                    {selectedParty ? (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setCustomerId('');
+                          setLeadId('');
+                          setCustomerSearch('');
+                          setContactPerson('');
+                        }}
+                        className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 p-0.5 rounded transition-colors"
+                        title="Clear customer"
+                      >
+                        <X size={13} />
+                      </button>
+                    ) : (
+                      <Search size={13} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
+                    )}
+                  </div>
+                  {customerPickerOpen && (
+                    <>
+                      <div className="fixed inset-0 z-10" onClick={() => setCustomerPickerOpen(false)} />
+                      <div className="absolute z-20 mt-1 w-full max-h-56 overflow-y-auto rounded-lg border border-slate-200 bg-white shadow-xl">
+                        {filteredParties.map((option) => (
+                          <button
+                            key={option.key}
+                            type="button"
+                            onClick={() => handlePartyChange(option)}
+                            className={`block w-full px-3 py-2 text-left text-xs hover:bg-blue-50 transition-colors ${option.key === selectedPartyKey ? 'bg-blue-50' : ''}`}
+                          >
+                            <span className="flex items-center justify-between gap-2">
+                              <span className="block font-bold text-slate-800 truncate">{option.display}</span>
+                              <span className={`shrink-0 px-1.5 py-0.5 rounded text-[10px] font-bold border ${option.kind === 'lead' ? 'bg-violet-50 text-violet-700 border-violet-200' : 'bg-emerald-50 text-emerald-700 border-emerald-200'}`}>
+                                {option.kind === 'lead' ? 'Lead' : 'Customer'}
+                              </span>
+                            </span>
+                            <span className="block text-[11px] text-slate-500">{option.meta}</span>
+                          </button>
+                        ))}
+                        {filteredParties.length === 0 && <p className="px-3 py-2 text-xs text-slate-400">No customers or leads found.</p>}
+                      </div>
+                    </>
+                  )}
+                </div>
+                <div>
+                  <label className={labelCls}>Contact Person</label>
+                  <input
+                    value={contactPerson}
+                    onChange={(e) => setContactPerson(e.target.value)}
+                    placeholder="Contact person or manager"
+                    className={inputCls}
+                  />
                 </div>
               </div>
-              <div className="space-y-3">
+
+              {/* Selected Party Summary Card (spans full width cleanly) */}
+              {party && (
+                <div className="p-3 rounded-xl bg-slate-50/90 border border-slate-200">
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <div className="flex items-center gap-3 min-w-0">
+                      <span className={`inline-flex h-9 w-9 items-center justify-center rounded-xl text-white text-xs font-bold shrink-0 shadow-sm ${partyKind === 'lead' ? 'bg-violet-600' : 'bg-rose-500'}`}>
+                        {String(partyLabel || '?').trim().charAt(0).toUpperCase()}
+                      </span>
+                      <div className="min-w-0">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span className="font-bold text-slate-800 text-xs truncate">{partyLabel}</span>
+                          <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold border ${partyKind === 'lead' ? 'bg-violet-50 text-violet-700 border-violet-200' : 'bg-emerald-50 text-emerald-700 border-emerald-200'}`}>
+                            {partyKind === 'lead' ? 'Lead — becomes a customer on approval' : 'Existing Customer'}
+                          </span>
+                        </div>
+                        <div className="text-[11px] text-slate-500 mt-1 flex flex-wrap items-center gap-3">
+                          {party?.phone && <span>✆ {party.phone}</span>}
+                          {party?.email && <span>✉ {party.email}</span>}
+                          {partyKind === 'lead' && (
+                            <>
+                              {lead?.leadNumber && <span>Lead #{lead.leadNumber}</span>}
+                              {lead?.status && <span>Status: {lead.status}</span>}
+                              {[lead?.city, lead?.state, lead?.country].filter(Boolean).length > 0 && (
+                                <span>📍 {[lead?.city, lead?.state, lead?.country].filter(Boolean).join(', ')}</span>
+                              )}
+                            </>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                    {partyKind !== 'lead' && (
+                      <div className="flex items-center gap-4 text-xs font-medium shrink-0 ml-auto pt-2 sm:pt-0 border-t sm:border-t-0 border-slate-200/60">
+                        <div className="text-right">
+                          <span className="text-[10px] text-slate-400 block uppercase tracking-wider font-semibold">Credit Limit</span>
+                          <span className="font-bold text-slate-700">₹{creditLimit.toLocaleString('en-IN')}</span>
+                        </div>
+                        <div className="text-right">
+                          <span className="text-[10px] text-slate-400 block uppercase tracking-wider font-semibold">Outstanding</span>
+                          <span className="font-bold text-amber-600">₹{outstanding.toLocaleString('en-IN')}</span>
+                        </div>
+                        <div className="text-right">
+                          <span className="text-[10px] text-slate-400 block uppercase tracking-wider font-semibold">Available</span>
+                          <span className="font-bold text-emerald-600">₹{available.toLocaleString('en-IN')}</span>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {/* Row 2: Dates & Validity */}
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3.5">
                 <div>
                   <label className={labelCls}>Quotation Date *</label>
-                  <input type="date" value={quoteDate} onChange={(e) => handleQuoteDateChange(e.target.value)} className={inputCls} />
+                  <input
+                    type="date"
+                    value={quoteDate}
+                    onChange={(e) => handleQuoteDateChange(e.target.value)}
+                    className={`${inputCls} min-w-[130px]`}
+                  />
                 </div>
-                <div className="grid grid-cols-2 gap-2">
-                  <div>
-                    <label className={labelCls}>Valid Until *</label>
-                    <input type="date" value={validUntil} onChange={(e) => setValidUntil(e.target.value)} className={inputCls} />
-                  </div>
-                  <div>
-                    <label className={labelCls}>Validity</label>
-                    <select value={validityDays} onChange={(e) => handleValidityChange(e.target.value)} className={inputCls}>
-                      {VALIDITIES.map((d) => (<option key={d} value={d}>{d} Days</option>))}
-                    </select>
-                  </div>
+                <div>
+                  <label className={labelCls}>Validity</label>
+                  <select
+                    value={validityDays}
+                    onChange={(e) => handleValidityChange(e.target.value)}
+                    className={inputCls}
+                  >
+                    {VALIDITIES.map((d) => (
+                      <option key={d} value={d}>{d} Days</option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className={labelCls}>Valid Until *</label>
+                  <input
+                    type="date"
+                    value={validUntil}
+                    onChange={(e) => setValidUntil(e.target.value)}
+                    className={`${inputCls} min-w-[130px]`}
+                  />
                 </div>
               </div>
-            </div>
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mt-3">
-              <div>
-                <label className={labelCls}>Sales Person</label>
-                <select value={salesPerson} onChange={(e) => setSalesPerson(e.target.value)} className={inputCls}>
-                  <option value="">Select</option>
-                  {salesTeam.map((m) => (<option key={m.id} value={m.name}>{m.name}</option>))}
-                </select>
-              </div>
-              <div>
-                <label className={labelCls}>Broker (Optional)</label>
-                <input value={broker} onChange={(e) => setBroker(e.target.value)} placeholder="Select Broker" className={inputCls} />
-              </div>
-              <div>
-                <label className={labelCls}>Deal / Lead Reference</label>
-                <input value={dealRef} onChange={(e) => setDealRef(e.target.value)} placeholder="LEAD-0008" className={inputCls} />
+
+              {/* Row 3: Sales Person, Broker, Deal Reference */}
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3.5">
+                <div>
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="block text-[11px] font-semibold text-slate-600">Sales Person</label>
+                    <MasterSourceLink source="users" />
+                  </div>
+                  <select
+                    value={salesPerson}
+                    onChange={(e) => setSalesPerson(e.target.value)}
+                    className={inputCls}
+                  >
+                    <option value="">Select Sales Person</option>
+                    {salesTeam.map((m) => (
+                      <option key={m.id} value={m.name}>{m.name}</option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className={labelCls}>Broker (Optional)</label>
+                  <input
+                    value={broker}
+                    onChange={(e) => setBroker(e.target.value)}
+                    placeholder="Select or enter broker…"
+                    className={inputCls}
+                  />
+                </div>
+                <div>
+                  <label className={labelCls}>Deal / Lead Reference</label>
+                  <input
+                    value={dealRef}
+                    onChange={(e) => setDealRef(e.target.value)}
+                    placeholder="e.g. LEAD-0008"
+                    className={inputCls}
+                  />
+                </div>
               </div>
             </div>
           </div>
@@ -756,7 +844,12 @@ export default function QuotationComposerPage({ embedded = null } = {}) {
                 <thead>
                   <tr className="text-[11px] font-bold text-slate-500 border-b border-slate-200">
                     <th className="py-2 pr-2 w-8">#</th>
-                    <th className="py-2 pr-2 min-w-[140px]">Fabric / Item</th>
+                    <th className="py-2 pr-2 min-w-[140px]">
+                      <div className="flex items-center justify-between gap-2">
+                        <span>Fabric / Item</span>
+                        <MasterSourceLink source="items" />
+                      </div>
+                    </th>
                     <th className="py-2 pr-2 min-w-[80px]">Quality</th>
                     <th className="py-2 pr-2 min-w-[80px]">Design</th>
                     <th className="py-2 pr-2 min-w-[70px]">Colour</th>
@@ -764,7 +857,12 @@ export default function QuotationComposerPage({ embedded = null } = {}) {
                     <th className="py-2 pr-2 w-[60px]">GSM</th>
                     <th className="py-2 pr-2 w-[80px]">Stock</th>
                     <th className="py-2 pr-2 w-[64px]">Qty *</th>
-                    <th className="py-2 pr-2 w-[76px]">UOM</th>
+                    <th className="py-2 pr-2 w-[76px]">
+                      <div className="flex flex-col items-start">
+                        <span>UOM</span>
+                        <MasterSourceLink source="uom" label="+ Manage" />
+                      </div>
+                    </th>
                     <th className="py-2 pr-2 w-[76px]">Rate (₹)</th>
                     <th className="py-2 pr-2 w-[60px]">Disc. %</th>
                     <th className="py-2 pr-2 w-[60px]">GST %</th>

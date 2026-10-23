@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { api } from '../../services/api';
 import { useERP } from '../../context/ERPContext';
 import { DataTable } from '../../components/ui/DataTable';
@@ -6,6 +6,7 @@ import { StatCard } from '../../components/ui/StatCard';
 import { Button } from '../../components/ui/Button';
 import { Plus, TrendingDown, DollarSign, Receipt, Tag } from 'lucide-react';
 import { PageHeader } from '../../components/common/PageHeader';
+import MasterSourceLink, { useMasterDataRefresh } from '../../components/common/MasterSourceLink';
 
 const expensesGuide = {
     title: 'Operating Expenses Management',
@@ -41,10 +42,14 @@ export const ExpensesPage = () => {
     const [saving, setSaving] = useState(false);
 
     // Expense categories are a master on the server; nothing is assumed here.
+    // `categoriesReload` bumps when categories are edited from the "+ Add / Manage" popup.
+    const [categoriesReload, setCategoriesReload] = useState(0);
+    const reloadCategories = useCallback(() => setCategoriesReload((k) => k + 1), []);
+    useMasterDataRefresh(reloadCategories, ['expenseCategories']);
     useEffect(() => {
         if (!showAddModal) return undefined;
         let cancelled = false;
-        api.get('/accounts/expense-categories/', { query: { limit: 200 } })
+        api.get('/accounts/expense-categories/', { query: { page_size: 200 } })
             .then((body) => {
                 if (cancelled) return;
                 const rows = Array.isArray(body) ? body : (body?.results || []);
@@ -53,7 +58,7 @@ export const ExpensesPage = () => {
             })
             .catch((err) => { if (!cancelled) setCategoriesError(err?.message || 'Could not load expense categories.'); });
         return () => { cancelled = true; };
-    }, [showAddModal]);
+    }, [showAddModal, categoriesReload]);
 
     const resetForm = () => {
         setCategoryId('');
@@ -186,13 +191,16 @@ export const ExpensesPage = () => {
             <form onSubmit={handleCreate} className="space-y-3 text-xs">
               {formError && <div className="p-2 rounded border border-rose-200 bg-rose-50 text-rose-700">{formError}</div>}
               <div>
-                <label className="block font-semibold text-slate-700 mb-1">Category *</label>
+                <div className="flex items-center justify-between mb-1">
+                  <label className="block font-semibold text-slate-700">Category *</label>
+                  <MasterSourceLink source="expenseCategories" />
+                </div>
                 <select required value={categoryId} onChange={(e) => setCategoryId(e.target.value)} className="w-full border border-[#CED4DA] rounded p-2 bg-[#F8F9FA]">
                   <option value="">Select category</option>
                   {categories.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
                 </select>
                 {categoriesError && <p className="mt-1 text-rose-600">{categoriesError}</p>}
-                {!categoriesError && categories.length === 0 && <p className="mt-1 text-slate-500">No expense categories set up yet — add them under Accounts.</p>}
+                {!categoriesError && categories.length === 0 && <p className="mt-1 text-slate-500">No expense categories set up yet. Use &quot;+ Add / Manage&quot; above, or Accounts → Expense Categories.</p>}
               </div>
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -201,7 +209,10 @@ export const ExpensesPage = () => {
                   <input type="date" required value={expenseDate} onChange={(e) => setExpenseDate(e.target.value)} className="w-full border border-[#CED4DA] rounded p-2 bg-[#F8F9FA]"/>
                 </div>
                 <div>
-                  <label className="block font-semibold text-slate-700 mb-1">Vendor / Payee</label>
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="block font-semibold text-slate-700">Vendor / Payee</label>
+                    <MasterSourceLink source="vendors" />
+                  </div>
                   <select value={vendorId} onChange={(e) => setVendorId(e.target.value)} className="w-full border border-[#CED4DA] rounded p-2 bg-[#F8F9FA]">
                     <option value="">— None —</option>
                     {(vendors || []).map((v) => <option key={v.id} value={v.id}>{v.name}</option>)}
@@ -230,7 +241,10 @@ export const ExpensesPage = () => {
                 </div>
                 {paymentMode && paymentMode !== 'Cash' && paymentMode !== 'Credit' && (
                   <div>
-                    <label className="block font-semibold text-slate-700 mb-1">Paid From (Bank)</label>
+                    <div className="flex items-center justify-between mb-1">
+                      <label className="block font-semibold text-slate-700">Paid From (Bank)</label>
+                      <MasterSourceLink source="cashBank" />
+                    </div>
                     <select value={bankAccountId} onChange={(e) => setBankAccountId(e.target.value)} className="w-full border border-[#CED4DA] rounded p-2 bg-[#F8F9FA]">
                       <option value="">— Cash in hand —</option>
                       {(bankAccounts || []).map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}

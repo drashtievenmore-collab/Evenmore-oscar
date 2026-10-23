@@ -29,6 +29,7 @@ import {
   Wrench,
   AlertTriangle,
   PieChart,
+  Award,
   CalendarCheck,
   ListChecks,
   ClipboardList,
@@ -198,6 +199,16 @@ export const NAV = [
       },
       { label: 'Deals', icon: TrendingUp, to: '/crm/deals' },
       { label: 'Contracts', icon: FileText, to: '/crm/contracts' },
+      {
+        label: 'CRM Setup',
+        icon: Sliders,
+        defaultOpen: false,
+        children: [
+          { label: 'Lead Stages', to: '/crm/system-setup' },
+          { label: 'Deal Stages', to: '/crm/deal-stages' },
+          { label: 'Lead Sources', to: '/crm/lead-sources' },
+        ],
+      },
     ],
   },
 
@@ -366,6 +377,11 @@ export const NAV = [
       { label: 'General Ledger', icon: FileText, to: '/accounts/general-ledger' },
       { label: 'Debit / Credit Notes', icon: Receipt, to: '/accounts/notes' },
       { label: 'Financial Reports', icon: PieChart, to: '/accounts/reports' },
+      { label: 'Chart of Accounts', icon: ListChecks, to: '/accounts/chart-of-accounts' },
+      { label: 'Expense Categories', icon: Tag, to: '/accounts/expense-categories' },
+      // Ledger postings from payroll, incentive, brokerage, expenses, payments.
+      // Admin-only: needs view_audit_logs (Owner / Admin / System Admin).
+      { label: 'Accounting Log', icon: ClipboardList, to: '/accounts/accounting-log', permission: 'view_audit_logs' },
     ],
   },
 
@@ -391,6 +407,7 @@ export const NAV = [
       },
       { label: 'Leave', icon: CalendarCheck, to: '/hrms/leave' },
       { label: 'Payroll', icon: Receipt, to: '/hrms/payroll' },
+      { label: 'Incentives', icon: Award, to: '/hrms/incentives' },
       // Recruitment commented out per Oscar letter pad scope (kept for reference, do not remove):
       // {
       //   label: 'Recruitment',

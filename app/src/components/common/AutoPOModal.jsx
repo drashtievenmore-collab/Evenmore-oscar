@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { X, ShoppingBag, CheckCircle2, ShieldAlert } from 'lucide-react';
 import { useERP } from '../../context/ERPContext';
 import { getCurrentISODate } from '../../utils/dateUtils';
+import MasterSourceLink from './MasterSourceLink';
 export const AutoPOModal = ({
   isOpen,
   onClose,
@@ -127,9 +128,12 @@ export const AutoPOModal = ({
 
         <form onSubmit={handleCreatePO} className="space-y-4 mt-4 overflow-y-auto pr-1 flex-1">
           <div>
-            <label className="block font-semibold text-slate-700 mb-1">
-              Target Inventory Item / SKU *
-            </label>
+            <div className="flex items-center justify-between mb-1">
+              <label className="block font-semibold text-slate-700">
+                Target Inventory Item / SKU *
+              </label>
+              <MasterSourceLink source="items" />
+            </div>
             <select
               autoFocus
               value={selectedItemId}
@@ -152,9 +156,12 @@ export const AutoPOModal = ({
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div>
-              <label className="block font-semibold text-slate-700 mb-1">
-                Target Supplier / Vendor *
-              </label>
+              <div className="flex items-center justify-between mb-1">
+                <label className="block font-semibold text-slate-700">
+                  Target Supplier / Vendor *
+                </label>
+                <MasterSourceLink source="vendors" />
+              </div>
               <select
                 value={selectedVendorId}
                 onChange={(e) => setSelectedVendorId(e.target.value)}

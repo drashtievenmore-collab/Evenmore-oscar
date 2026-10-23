@@ -11,6 +11,7 @@ import {
 import { Link, useNavigate, useLocation } from 'react-router-dom';
 import { BarcodeLabelModal } from '../../components/common/BarcodeLabelModal';
 import { ImportModal } from '../../components/common/ImportModal';
+import MasterSourceLink from '../../components/common/MasterSourceLink';
 import { inventoryService } from '../../services/domainServices';
 import { describeError, isServerId } from '../../services/backendSync';
 
@@ -1257,9 +1258,12 @@ export const ItemsMasterPage = () => {
             <form onSubmit={handleSubmitPo} className="space-y-4 text-xs">
               {/* Supplier Selection */}
               <div>
-                <label className="font-bold text-slate-700 block mb-1">
-                  Supplier / Vendor <span className="text-rose-500">*</span>
-                </label>
+                <div className="flex items-center justify-between mb-1">
+                  <label className="font-bold text-slate-700 block">
+                    Supplier / Vendor <span className="text-rose-500">*</span>
+                  </label>
+                  <MasterSourceLink source="vendors" />
+                </div>
                 <select
                   value={poModalConfig.vendorId}
                   onChange={(e) => setPoModalConfig({ ...poModalConfig, vendorId: e.target.value })}

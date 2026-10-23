@@ -1,6 +1,8 @@
 import React, { useEffect } from 'react';
 import { X, Printer, CheckCircle2 } from 'lucide-react';
+import { SignatureSlot, useDocumentSignatures } from './SignatureSlot';
 export const PaymentReceiptModal = ({ receipt, onClose }) => {
+  const docSigs = useDocumentSignatures('PaymentReceipt', receipt?.id || receipt?.receiptNumber, `Payment Receipt ${receipt?.receiptNumber || ''}`);
     // UX only: Esc dismisses. No logic changes.
     useEffect(() => {
         if (!receipt) return;
@@ -65,14 +67,18 @@ export const PaymentReceiptModal = ({ receipt, onClose }) => {
           <div className="grid grid-cols-2 gap-4 pt-2">
             <div className="border border-dashed border-slate-200 rounded-xl p-3 text-center space-y-2">
               <span className="text-[9px] uppercase font-bold text-slate-400 block">Horizon Accounts Department</span>
-              <div className="h-8 border-b border-slate-300 flex items-end justify-center font-mono text-[10px] text-slate-600">
-                Authorized Signatory
+              <div className="border-b border-slate-300 pb-1">
+                <SignatureSlot doc={docSigs} signatory="authorized" label="Accounts — Authorized Signatory" modalType="authorized" className="h-10"
+                  defaultDesignation="Accounts Department — Authorized Signatory"
+                  placeholder={<span className="font-mono text-[10px] text-slate-600">Authorized Signatory</span>} />
               </div>
             </div>
             <div className="border border-dashed border-slate-200 rounded-xl p-3 text-center space-y-2">
               <span className="text-[9px] uppercase font-bold text-slate-400 block">Customer Acknowledgment</span>
-              <div className="h-8 border-b border-slate-300 flex items-end justify-center font-mono text-[10px] text-slate-600">
-                Received & Verified
+              <div className="border-b border-slate-300 pb-1">
+                <SignatureSlot doc={docSigs} signatory="customer" label="Customer Acknowledgment" modalType="receiver" className="h-10"
+                  defaultName={receipt?.customer || ''} defaultDesignation="Customer — Received & Verified"
+                  placeholder={<span className="font-mono text-[10px] text-slate-600">Received & Verified</span>} />
               </div>
             </div>
           </div>

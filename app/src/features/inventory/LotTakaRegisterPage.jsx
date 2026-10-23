@@ -46,6 +46,7 @@ import { useNavigate, useLocation, useSearchParams } from 'react-router-dom';
 import QRCode from 'qrcode';
 import { TakaTagLabel } from './TakaTagPrintPage';
 import PageInfoButton from '../../components/ui/PageInfoButton';
+import MasterSourceLink from '../../components/common/MasterSourceLink';
 
 // Helper for Indian Currency formatting
 function formatINR(val) {
@@ -2277,9 +2278,12 @@ export default function LotTakaRegisterPage({
 
                     <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
                       <div>
-                        <label className="block font-bold text-slate-700 mb-1 text-[11px]">
-                          Item Code <span className="text-rose-500">*</span>
-                        </label>
+                        <div className="flex items-center justify-between mb-1">
+                          <label className="block font-bold text-slate-700 text-[11px]">
+                            Item Code <span className="text-rose-500">*</span>
+                          </label>
+                          <MasterSourceLink source="items" />
+                        </div>
                         <select
                           required
                           value={addForm.itemId}
@@ -2364,9 +2368,12 @@ export default function LotTakaRegisterPage({
 
                       <div className="sm:col-span-3 grid grid-cols-1 sm:grid-cols-4 gap-2.5">
                         <div className="sm:col-span-2">
-                          <label className="block font-bold text-slate-700 mb-1 text-[11px]">
-                            Supplier <span className="text-rose-500">*</span>
-                          </label>
+                          <div className="flex items-center justify-between mb-1">
+                            <label className="block font-bold text-slate-700 text-[11px]">
+                              Supplier <span className="text-rose-500">*</span>
+                            </label>
+                            <MasterSourceLink source="vendors" />
+                          </div>
                           <select
                             value={addForm.supplierId}
                             onChange={(e) => setAddForm({ ...addForm, supplierId: e.target.value })}
@@ -2583,9 +2590,12 @@ export default function LotTakaRegisterPage({
 
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
                       <div>
-                        <label className="block font-bold text-slate-700 mb-1 text-[11px]">
-                          Storage Location <span className="text-rose-500">*</span>
-                        </label>
+                        <div className="flex items-center justify-between mb-1">
+                          <label className="block font-bold text-slate-700 text-[11px]">
+                            Storage Location <span className="text-rose-500">*</span>
+                          </label>
+                          <MasterSourceLink source="godowns" />
+                        </div>
                         <select
                           required
                           value={addForm.locationId}

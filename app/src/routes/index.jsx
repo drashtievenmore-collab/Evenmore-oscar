@@ -37,6 +37,8 @@ const DealsPage = lazy(() => import('../features/crm/deals/DealsPage'));
 //   Route `crm/user-allocation` and its sidebar entry were dropped; restore both if needed.
 // const UserAllocationPage = lazy(() => import('../features/crm/allocation/UserAllocationPage'));
 const CRMSystemSetupPage = lazy(() => import('../features/crm/setup/CRMSystemSetupPage'));
+const DealStagesPage = lazy(() => import('../features/crm/setup/DealStagesPage'));
+const LeadSourcesPage = lazy(() => import('../features/crm/setup/LeadSourcesPage'));
 // [REMOVED] CRM Reports concept removed from the CRM module.
 //   `features/crm/reports/CRMReportsPage.jsx` is kept per the no-delete rule.
 //   Route `crm/reports` and its sidebar entry were dropped; restore both if needed.
@@ -96,6 +98,7 @@ const TrainingDashboard = lazy(() => import('../features/hrms/performance/Traini
 const OrgChartPage = lazy(() => import('../features/hrms/organization/OrgChartPage'));
 const DepartmentsPage = lazy(() => import('../features/hrms/organization/DepartmentsPage'));
 const DesignationsPage = lazy(() => import('../features/hrms/organization/DesignationsPage'));
+const IncentivesPage = lazy(() => import('../features/hrms/incentives/IncentivesPage'));
 const LocationsPage = lazy(() => import('../features/hrms/organization/LocationsPage'));
 const AssetsPage = lazy(() => import('../features/hrms/organization/AssetsPage'));
 const DocumentsPage = lazy(() => import('../features/hrms/organization/DocumentsPage'));
@@ -190,7 +193,6 @@ const FinancialReportsPage = lazy(() => import('../features/accounts/FinancialRe
 const DayBookPage = lazy(() => import('../features/accounts/DayBookPage'));
 const StandaloneNotesPage = lazy(() => import('../features/accounts/StandaloneNotesPage'));
 const LotProfitabilityPage = lazy(() => import('../features/inventory/LotProfitabilityPage'));
-const IncentiveSchemesPage = lazy(() => import('../features/pms/production/IncentiveSchemesPage'));
 
 // ── ERP — Reports & Settings (Lazy Loaded) ────────────────────
 const ReportsPage = lazy(() => import('../features/reports/ReportsPage').then(m => ({ default: m.ReportsPage })));
@@ -203,6 +205,9 @@ const RolesPage = lazy(() => import('../features/administration/RolesPage'));
 const ClientsPage = lazy(() => import('../features/administration/ClientsPage'));
 const ApprovalsInboxPage = lazy(() => import('../features/administration/ApprovalsInboxPage'));
 const AlertCenterPage = lazy(() => import('../features/administration/AlertCenterPage'));
+const AccountingLogPage = lazy(() => import('../features/accounts/AccountingLogPage'));
+const ChartOfAccountsPage = lazy(() => import('../features/accounts/ChartOfAccountsPage'));
+const ExpenseCategoriesPage = lazy(() => import('../features/accounts/ExpenseCategoriesPage'));
 const ITC04ReportPage = lazy(() => import('../features/jobwork/ITC04ReportPage'));
 
 // ── Main Dashboard (Lazy Loaded) ──────────────────────────────
@@ -353,6 +358,8 @@ const router = createBrowserRouter([
       { path: 'crm/deals', element: <Page component={DealsPage} /> },
       // [REMOVED] `crm/user-allocation` — User Tracking concept removed from the CRM module.
       { path: 'crm/system-setup', element: <Page component={CRMSystemSetupPage} /> },
+      { path: 'crm/deal-stages', element: <Page component={DealStagesPage} title="Deal Stages" /> },
+      { path: 'crm/lead-sources', element: <Page component={LeadSourcesPage} title="Lead Sources" /> },
       // [REMOVED] `crm/reports` — CRM Reports concept removed from the CRM module.
       { path: 'crm/quotations', element: <Page component={QuotationsPage} /> },
 
@@ -370,9 +377,9 @@ const router = createBrowserRouter([
       { path: 'pms/production-instructions', element: <Page component={PMSProductionInstructionsPage} /> },
       { path: 'pms/daily-production', element: <Page component={PMSDailyProductionPage} /> },
       { path: 'pms/production-completion', element: <Page component={PMSProductionCompletionPage} /> },
-      { path: 'production/incentives', element: <Page component={IncentiveSchemesPage} title="Incentive Schemes & Calcs" /> },
-      { path: 'pms/incentives', element: <Navigate to="/production/incentives" replace /> },
-      { path: 'hrms/incentives', element: <Navigate to="/production/incentives" replace /> },
+      // Salesperson incentive lives in HRMS only; old links land there.
+      { path: 'production/incentives', element: <Navigate to="/hrms/incentives" replace /> },
+      { path: 'pms/incentives', element: <Navigate to="/hrms/incentives" replace /> },
 
       // ── Job Work / Processing ─────────────────────────
       { path: 'job-work/process-plan', element: <Page component={ProcessPlanListPage} /> },
@@ -495,6 +502,9 @@ const router = createBrowserRouter([
       { path: 'accounts/general-ledger', element: <Page component={GeneralLedgerPage} /> },
       { path: 'accounts/notes', element: <Page component={StandaloneNotesPage} title="Debit / Credit Notes" /> },
       { path: 'accounts/reports', element: <Page component={FinancialReportsPage} /> },
+      { path: 'accounts/accounting-log', element: <Page component={AccountingLogPage} title="Accounting Log" /> },
+      { path: 'accounts/chart-of-accounts', element: <Page component={ChartOfAccountsPage} title="Chart of Accounts" /> },
+      { path: 'accounts/expense-categories', element: <Page component={ExpenseCategoriesPage} title="Expense Categories" /> },
 
       // ── HRMS ──────────────────────────────────────────────
       { path: 'hrms', element: <Navigate to="/hrms/dashboard" replace /> },
@@ -541,6 +551,7 @@ const router = createBrowserRouter([
       { path: 'hrms/org-chart', element: <Page component={OrgChartPage} /> },
       { path: 'hrms/departments', element: <Page component={DepartmentsPage} /> },
       { path: 'hrms/designations', element: <Page component={DesignationsPage} /> },
+      { path: 'hrms/incentives', element: <Page component={IncentivesPage} /> },
       { path: 'hrms/locations', element: <Page component={LocationsPage} /> },
       { path: 'hrms/assets', element: <Page component={AssetsPage} /> },
       { path: 'hrms/asset', element: <Page component={AssetsPage} /> },
@@ -578,6 +589,7 @@ const router = createBrowserRouter([
       { path: 'administration', element: <Navigate to="/administration/settings" replace /> },
       { path: 'administration/approvals', element: <Page component={ApprovalsInboxPage} title="Approvals Inbox" /> },
       { path: 'administration/alerts', element: <Page component={AlertCenterPage} title="Alert Center & Exceptions" /> },
+      { path: 'administration/accounting-log', element: <Navigate to="/accounts/accounting-log" replace /> },
       { path: 'administration/users', element: <Page component={UsersPage} /> },
       { path: 'administration/roles', element: <Page component={RolesPage} /> },
       { path: 'administration/clients', element: <Page component={ClientsPage} /> },

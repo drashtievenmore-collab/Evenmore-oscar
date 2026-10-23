@@ -16,6 +16,7 @@ import {
 import { useNavigate } from 'react-router-dom';
 import { api } from '../../services/api';
 import { useERP } from '../../context/ERPContext';
+import MasterSourceLink from '../../components/common/MasterSourceLink';
 
 function numIN(val) {
   const n = Number(val) || 0;
@@ -581,9 +582,12 @@ export function GoodsReceiptInlineSlide({ po, delivery, onClose, onReceiptSaved,
       <form onSubmit={handleSubmit} className="space-y-4 text-xs">
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-3.5 bg-slate-50/80 p-3.5 rounded-xl border border-slate-200">
           <div>
-            <label className="block font-bold text-slate-700 mb-1 text-[11px]">
-              Supplier / Mill <span className="text-rose-500">*</span>
-            </label>
+            <div className="flex items-center justify-between mb-1">
+              <label className="block font-bold text-slate-700 text-[11px]">
+                Supplier / Mill <span className="text-rose-500">*</span>
+              </label>
+              <MasterSourceLink source="vendors" />
+            </div>
             <select
               required
               value={form.vendorId}
@@ -618,9 +622,12 @@ export function GoodsReceiptInlineSlide({ po, delivery, onClose, onReceiptSaved,
           </div>
 
           <div>
-            <label className="block font-bold text-slate-700 mb-1 text-[11px]">
-              Destination Godown <span className="text-rose-500">*</span>
-            </label>
+            <div className="flex items-center justify-between mb-1">
+              <label className="block font-bold text-slate-700 text-[11px]">
+                Destination Godown <span className="text-rose-500">*</span>
+              </label>
+              <MasterSourceLink source="godowns" />
+            </div>
             <select
               required
               value={form.locationId}
@@ -681,13 +688,16 @@ export function GoodsReceiptInlineSlide({ po, delivery, onClose, onReceiptSaved,
               <Layers size={13} className="text-emerald-700" />
               Intake Line Items ({form.lines.length})
             </h4>
-            <button
-              type="button"
-              onClick={handleAddLine}
-              className="text-xs font-bold text-emerald-700 hover:text-emerald-900 flex items-center gap-1"
-            >
-              <Plus size={13} /> Add Fabric Line
-            </button>
+            <div className="flex items-center gap-3">
+              <MasterSourceLink source="items" label="+ Add / Manage Items" />
+              <button
+                type="button"
+                onClick={handleAddLine}
+                className="text-xs font-bold text-emerald-700 hover:text-emerald-900 flex items-center gap-1"
+              >
+                <Plus size={13} /> Add Fabric Line
+              </button>
+            </div>
           </div>
 
           {form.lines.map((line) => {

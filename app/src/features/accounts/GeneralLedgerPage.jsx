@@ -5,6 +5,7 @@ import { Button } from '../../components/ui/Button';
 import { Modal } from '../../components/ui/Modal';
 import { Pagination } from '../../components/ui/Pagination';
 import { PageHeader } from '../../components/common/PageHeader';
+import MasterSourceLink, { useMasterDataRefresh } from '../../components/common/MasterSourceLink';
 import {
   Card,
   EmptyRow,
@@ -334,7 +335,12 @@ function JournalForm({ isOpen, accounts, accountsError, onClose, onPosted }) {
           <table className="w-full min-w-[640px] text-left">
             <thead className="bg-slate-50 border-b border-[#dce5f4]">
               <tr>
-                <th className={thClass}>Account *</th>
+                <th className={thClass}>
+                  <span className="flex items-center justify-between gap-2">
+                    Account *
+                    <MasterSourceLink source="ledgerAccounts" className="normal-case tracking-normal" />
+                  </span>
+                </th>
                 <th className={thClass}>Line note</th>
                 <th className={`${thClass} text-right w-32`}>Debit (₹)</th>
                 <th className={`${thClass} text-right w-32`}>Credit (₹)</th>
@@ -438,7 +444,10 @@ function LedgerTab({ accounts, accountsError }) {
     <Card title="Account Ledger" subtitle="Opening balance, every posted line and the running balance for one account.">
       <div className="grid grid-cols-1 sm:grid-cols-[1fr_160px_160px] gap-3 mb-4">
         <div>
-          <label className={labelClass}>Account</label>
+          <div className="flex items-center justify-between gap-2">
+            <label className={labelClass}>Account</label>
+            <MasterSourceLink source="ledgerAccounts" />
+          </div>
           <select value={accountId} onChange={(e) => setAccountId(e.target.value)} className={inputClass}>
             <option value="">Select account…</option>
             {accounts.map((a) => <option key={a.id} value={a.id}>{accountLabel(a)}</option>)}
@@ -590,6 +599,11 @@ export const GeneralLedgerPage = () => {
   const [accounts, setAccounts] = useState([]);
   const [accountsError, setAccountsError] = useState('');
   const [refreshKey, setRefreshKey] = useState(0);
+  const [accountsReload, setAccountsReload] = useState(0);
+
+  // Reload the account pickers after accounts are edited from the "+ Add / Manage" popup.
+  const reloadAccounts = useCallback(() => setAccountsReload((k) => k + 1), []);
+  useMasterDataRefresh(reloadAccounts, ['ledgerAccounts']);
 
   useEffect(() => {
     let live = true;
@@ -605,7 +619,7 @@ export const GeneralLedgerPage = () => {
     return () => {
       live = false;
     };
-  }, []);
+  }, [accountsReload]);
 
   const activeAccounts = useMemo(() => accounts.filter((a) => a.isActive !== false), [accounts]);
 

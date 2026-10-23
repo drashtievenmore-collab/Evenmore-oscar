@@ -30,6 +30,7 @@ import {
   FileCheck2,
   Paperclip,
 } from 'lucide-react';
+import { SignatureSlot, useDocumentSignatures } from '../../components/common/SignatureSlot';
 import { api } from '../../services/api';
 import { useERP } from '../../context/ERPContext';
 import { useAppStore } from '../../stores/appStore';
@@ -74,7 +75,8 @@ export function FinalJobWorkPoInlineSlide({
   const [finalPoRecord, setFinalPoRecord] = useState(null);
 
   // Form Fields
-  const [poNumber, setPoNumber] = useState('FJWPO-2026-0043');
+  const [poNumber, setPoNumber] = useState('');
+  const poSigs = useDocumentSignatures('FinalJobWorkPO', propInstruction?.id || po?.id, `Final Job Work PO ${poNumber}`);
   const [poDate, setPoDate] = useState(() => new Date().toISOString().slice(0, 10));
   const [expectedCompletionDate, setExpectedCompletionDate] = useState(() => {
     const d = new Date();
@@ -83,7 +85,7 @@ export function FinalJobWorkPoInlineSlide({
   });
   const [vendorName, setVendorName] = useState('');
   const [fabricQuality, setFabricQuality] = useState('');
-  const [approvedRate, setApprovedRate] = useState('65.00');
+  const [approvedRate, setApprovedRate] = useState('');
   const [remarks, setRemarks] = useState('');
   const [status, setStatus] = useState('Draft');
 
@@ -91,12 +93,12 @@ export function FinalJobWorkPoInlineSlide({
   const [lineItems, setLineItems] = useState([
     {
       id: 1,
-      fabric: 'Velvet Grey Fabric',
+      fabric: '',
       hsn: '540752',
       uom: 'Mtr',
-      finalQty: '7600.00',
-      rate: '65.00',
-      amount: 494000,
+      finalQty: '',
+      rate: '',
+      amount: 0,
     },
   ]);
 
@@ -126,7 +128,7 @@ export function FinalJobWorkPoInlineSlide({
       setCompletionData(compRes);
       setInstructionDetail(instRes);
 
-      const nextNo = nextNumRes?.nextPoNumber || nextNumRes?.poNo || 'FJWPO-2026-0043';
+      const nextNo = nextNumRes?.nextPoNumber || nextNumRes?.poNo || '';
       const existingPoNo = instRes?.finalPoNumber || compRes?.finalPoNumber;
       if (existingPoNo) {
         setPoNumber(existingPoNo);
@@ -135,19 +137,19 @@ export function FinalJobWorkPoInlineSlide({
       }
 
       // Pre-fill vendor & fabric
-      const vName = po?.partyName || po?.vendor || compRes?.agency || instRes?.agency_name || 'jkm jbmk j';
+      const vName = po?.partyName || po?.vendor || compRes?.agency || instRes?.agency_name || '';
       setVendorName(vName);
-      const fQual = (po?.items && po.items[0]?.name) || compRes?.fabric || instRes?.fabric || 'Velvet Grey Fabric';
+      const fQual = (po?.items && po.items[0]?.name) || compRes?.fabric || instRes?.fabric || '';
       setFabricQuality(fQual);
 
       // Pre-fill rate from PO or Instruction
-      const defaultRate = po?.items?.[0]?.rate || instRes?.agreed_job_rate || instRes?.agreed_rate || compRes?.jobRate || 65;
-      setApprovedRate(String(Number(defaultRate) || 65));
+      const defaultRate = po?.items?.[0]?.rate || instRes?.agreed_job_rate || instRes?.agreed_rate || compRes?.jobRate || 0;
+      setApprovedRate(Number(defaultRate) ? String(Number(defaultRate)) : '');
 
       // Calculate final accepted qty: min(qcAccepted, physicallyVerified)
-      const qcAccepted = Number(compRes?.qcSummary?.acceptedQty ?? 7600);
-      const physVerified = Number(compRes?.physicallyVerifiedQty ?? 7780);
-      const eligibleQty = qcAccepted > 0 && physVerified > 0 ? Math.min(qcAccepted, physVerified) : (qcAccepted || physVerified || 7600);
+      const qcAccepted = Number(compRes?.qcSummary?.acceptedQty ?? 0);
+      const physVerified = Number(compRes?.physicallyVerifiedQty ?? 0);
+      const eligibleQty = qcAccepted > 0 && physVerified > 0 ? Math.min(qcAccepted, physVerified) : (qcAccepted || physVerified || 0);
 
       // Status
       if (instRes?.final_po_id || compRes?.finalPoId) {
@@ -171,7 +173,7 @@ export function FinalJobWorkPoInlineSlide({
       if (Array.isArray(fjwMeta.items) && fjwMeta.items.length > 0) {
         setLineItems(fjwMeta.items);
       } else {
-        const unitRate = Number(defaultRate) || 65;
+        const unitRate = Number(defaultRate) || 0;
         const lineAmt = eligibleQty * unitRate;
         setLineItems([
           {
@@ -214,20 +216,20 @@ export function FinalJobWorkPoInlineSlide({
   }, [piId, po?.id]);
 
   // Derived Summary Quantities
-  const originalPoNumber = po?.poNumber || completionData?.orderReference || 'PO-2026-0027';
-  const originalPoDate = po?.date || '2026-10-21';
-  const originalPoRate = po?.items?.[0]?.rate || 65;
-  const originalPoQty = Number(po?.items?.[0]?.qty || completionData?.orderQty || 7890);
-  const totalProducedQty = Number(completionData?.totalProduced || 7800);
-  const qcAcceptedQty = Number(completionData?.qcSummary?.acceptedQty ?? 7600);
-  const physicallyVerifiedQty = Number(completionData?.physicallyVerifiedQty ?? 7780);
+  const originalPoNumber = po?.poNumber || completionData?.orderReference || '—';
+  const originalPoDate = po?.date || '';
+  const originalPoRate = po?.items?.[0]?.rate || 0;
+  const originalPoQty = Number(po?.items?.[0]?.qty || completionData?.orderQty || 0);
+  const totalProducedQty = Number(completionData?.totalProduced || 0);
+  const qcAcceptedQty = Number(completionData?.qcSummary?.acceptedQty ?? 0);
+  const physicallyVerifiedQty = Number(completionData?.physicallyVerifiedQty ?? 0);
 
   // Accounting Rule: Final Accepted Quantity is capped at physical verification and QC accepted
   const finalAcceptedQty = useMemo(() => {
     if (qcAcceptedQty > 0 && physicallyVerifiedQty > 0) {
       return Math.min(qcAcceptedQty, physicallyVerifiedQty);
     }
-    return qcAcceptedQty || physicallyVerifiedQty || 7600;
+    return qcAcceptedQty || physicallyVerifiedQty || 0;
   }, [qcAcceptedQty, physicallyVerifiedQty]);
 
   // Amount auto-calculated
@@ -321,6 +323,10 @@ export function FinalJobWorkPoInlineSlide({
   // Save / Submit / Approve Action Handler
   const handleAction = async (actionType) => {
     if (!piId) return;
+    if (actionType !== 'save_draft' && (!(currentRateNum > 0) || !(finalAcceptedQty > 0))) {
+      setError('Enter the agreed job rate and make sure a verified accepted quantity exists before submitting the Final Job Work PO.');
+      return;
+    }
     try {
       setSubmitting(true);
       setError(null);
@@ -389,7 +395,7 @@ export function FinalJobWorkPoInlineSlide({
               Supplier / Vendor
             </span>
             <strong className="text-slate-900 text-[13px] block mt-0.5">
-              {vendorName || 'jkm jbmk j'}
+              {vendorName || '—'}
             </strong>
             <span className="text-[11px] text-slate-500 flex items-center gap-1 mt-0.5">
               <MapPin size={11} className="text-slate-400" /> Maharashtra
@@ -402,7 +408,7 @@ export function FinalJobWorkPoInlineSlide({
               Fabric Quality
             </span>
             <strong className="text-slate-900 text-[13px] block mt-0.5">
-              {fabricQuality || 'Velvet Grey Fabric'}
+              {fabricQuality || '—'}
             </strong>
           </div>
 
@@ -434,7 +440,7 @@ export function FinalJobWorkPoInlineSlide({
             </span>
             <div className="text-[11.5px] text-slate-600 space-y-0.5 mt-0.5">
               <div>
-                Verified Date: <strong className="text-slate-800">{fmtDate(completionData?.verificationDate || '27-10-2026')}</strong>
+                Verified Date: <strong className="text-slate-800">{fmtDate(completionData?.verificationDate || '')}</strong>
               </div>
               <div>
                 Verified By: <strong className="text-slate-800">{completionData?.verifiedBy || 'Rajesh'}</strong>
@@ -563,7 +569,7 @@ export function FinalJobWorkPoInlineSlide({
                     onChange={(e) => setVendorName(e.target.value)}
                     className="w-full px-3 py-2 border border-slate-200 rounded-lg text-slate-800 font-semibold bg-white appearance-none pr-8 shadow-2xs"
                   >
-                    <option value={vendorName}>{vendorName || 'jkm jbmk j'}</option>
+                    <option value={vendorName}>{vendorName || '—'}</option>
                   </select>
                   <ChevronDown size={14} className="absolute right-3 top-3 text-slate-400 pointer-events-none" />
                 </div>
@@ -579,7 +585,7 @@ export function FinalJobWorkPoInlineSlide({
                     onChange={(e) => setFabricQuality(e.target.value)}
                     className="w-full px-3 py-2 border border-slate-200 rounded-lg text-slate-800 font-semibold bg-white appearance-none pr-8 shadow-2xs"
                   >
-                    <option value={fabricQuality}>{fabricQuality || 'Velvet Grey Fabric'}</option>
+                    <option value={fabricQuality}>{fabricQuality || '—'}</option>
                   </select>
                   <ChevronDown size={14} className="absolute right-3 top-3 text-slate-400 pointer-events-none" />
                 </div>
@@ -1130,7 +1136,10 @@ export function FinalJobWorkPoInlineSlide({
                   {remarks && <p className="mt-1 font-semibold text-slate-800">Remarks: {remarks}</p>}
                 </div>
                 <div className="flex flex-col justify-end items-end text-right">
-                  <div className="border-b border-slate-300 w-48 mb-1 pb-8"></div>
+                  <div className="border-b border-slate-300 w-48 mb-1 pb-1">
+                    <SignatureSlot doc={poSigs} signatory="authorized" label="Authorized Signatory" modalType="authorized" className="h-10"
+                      defaultName={currentUser?.name || ''} defaultDesignation="Authorized Signatory — Commercial Operations" />
+                  </div>
                   <span className="font-bold text-slate-900">Authorized Signatory</span>
                   <span className="text-[10px] text-slate-400">OSCAR ERP Commercial Operations</span>
                 </div>

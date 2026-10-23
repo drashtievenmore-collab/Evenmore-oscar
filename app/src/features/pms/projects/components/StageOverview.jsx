@@ -307,22 +307,24 @@ export const PURCHASE_PO_STAGES = [
   { name: 'Payment', department: 'Accounts', branch: 'branch_purchase', weight: 3.34, icon: 'IndianRupee' },
 ];
 
+// Purchase Order (Vendor A Production), then the client requirement PDF
+// section 05 flow -- same names as apps/pms/pipeline_services.py.
 export const VENDOR_PRODUCTION_STAGES = [
-  { name: 'Production Work Instruction', department: 'Production', branch: 'branch_production', weight: 3.33, icon: 'FileText' },
-  { name: 'Assign Vendor A + Employee', department: 'Production', branch: 'branch_production', weight: 3.33, icon: 'ClipboardList' },
-  { name: 'Daily Production Entry', department: 'Production', branch: 'branch_production', weight: 3.33, icon: 'FileSpreadsheet' },
-  { name: 'Production Completion', department: 'Production', branch: 'branch_production', weight: 3.33, icon: 'CheckCircle2' },
-  { name: 'Final Quantity Verification', department: 'QC', branch: 'branch_production', weight: 3.33, icon: 'ShieldCheck' },
-  { name: 'Generate Final Job Work PO', department: 'Production', branch: 'branch_production', weight: 3.33, icon: 'FileText' },
-  { name: 'Production / Job Work PO', department: 'Accounts', branch: 'branch_production', weight: 3.33, icon: 'FileText' },
-  { name: 'Agency Bill Match (PO + verified qty + invoice)', department: 'Accounts', branch: 'branch_production', weight: 3.33, icon: 'FileSpreadsheet' },
-  { name: 'Approval / Hold / Payment', department: 'Accounts', branch: 'branch_production', weight: 3.36, icon: 'IndianRupee' },
+  { name: 'Purchase Order', department: 'Purchase', branch: 'branch_production', weight: 3, icon: 'ShoppingCart', lifecycleKey: 'purchase_order' },
+  { name: 'Production Work Instruction', department: 'Production', branch: 'branch_production', weight: 3, icon: 'FileText', lifecycleKey: 'production_work_instruction' },
+  { name: 'External Agency Assignment', department: 'Production', branch: 'branch_production', weight: 3, icon: 'ClipboardList', lifecycleKey: 'external_agency_assignment' },
+  { name: 'Daily Production Entry', department: 'Production', branch: 'branch_production', weight: 3, icon: 'FileSpreadsheet', lifecycleKey: 'daily_production_entry' },
+  { name: 'Production Completion', department: 'Production', branch: 'branch_production', weight: 3, icon: 'CheckCircle2', lifecycleKey: 'production_completion' },
+  { name: 'Final Quantity Verification', department: 'Quality Control', branch: 'branch_production', weight: 3, icon: 'ShieldCheck', lifecycleKey: 'final_quantity_verification' },
+  { name: 'Final Job Work PO', department: 'Production', branch: 'branch_production', weight: 3, icon: 'FileText', lifecycleKey: 'final_job_work_po' },
+  { name: 'Agency Bill Match', department: 'Accounts', branch: 'branch_production', weight: 3, icon: 'FileSpreadsheet', lifecycleKey: 'agency_bill_match' },
+  { name: 'Approval & Payable', department: 'Accounts', branch: 'branch_production', weight: 3, icon: 'IndianRupee', lifecycleKey: 'approval_payable' },
 ];
 
 export const DOWNSTREAM_STAGES = [
   { name: 'Processing Plan & Vendor Assignment', department: 'Job Work', branch: 'common', weight: 7.5, icon: 'ClipboardList' },
   { name: 'Job Work Outward (Send to Vendor)', department: 'Job Work', branch: 'common', weight: 7.5, icon: 'Truck' },
-  { name: 'Processing (Dyeing)', department: 'Job Work', branch: 'common', weight: 7.5, icon: 'Cog' },
+  { name: 'Processing', department: 'Job Work', branch: 'common', weight: 7.5, icon: 'Cog' },
   { name: 'Job Work Inward (Receive)', department: 'Job Work', branch: 'common', weight: 7.5, icon: 'ArrowDownToLine' },
   { name: 'Quality Check & Stock Allocation', department: 'QC', branch: 'common', weight: 7.5, icon: 'ShieldCheck' },
   { name: 'Customer Dispatch', department: 'Dispatch', branch: 'common', weight: 7.5, icon: 'Boxes' },
@@ -393,7 +395,8 @@ export function buildStaticPipelineStages(project) {
       completionPct = Number(existing.completionPct ?? (existing.status === 'Completed' ? 100 : 0));
     }
 
-    if (def.name === 'Create Grey Purchase PO' || def.sequence === 2) {
+    // Grey purchase branch only; production stages come from the lifecycle.
+    if (def.name === 'Create Grey Purchase PO' || (def.sequence === 2 && def.branch !== 'branch_production')) {
       const cfvData = project.customFieldValues || project.custom_field_values || {};
       const hasPo =
         Boolean(cfvData?.grey_stock_po?.orderNumber) ||
@@ -431,6 +434,7 @@ export function buildStaticPipelineStages(project) {
       name: def.name,
       department: existing?.department || def.department,
       branch: def.branch,
+      lifecycleKey: def.lifecycleKey,
       isRequired: status !== 'Not Required',
       percentage: Number(weight),
       weightPct: Number(weight),
@@ -500,7 +504,7 @@ export function ConditionalStockBanner({ pipelineSummary }) {
         </div>
       </div>
 
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 pt-3">
+      <div className="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-6 gap-3 pt-3">
         <div className="rounded-lg bg-slate-50/70 p-2.5 border border-slate-100">
           <span className="text-[10px] font-semibold text-slate-400 uppercase">Requirement</span>
           <p className="text-sm font-black text-slate-800">{Number(pipelineSummary.required_meters || 0).toLocaleString('en-IN')} M</p>
@@ -510,8 +514,20 @@ export function ConditionalStockBanner({ pipelineSummary }) {
           <p className="text-sm font-black text-slate-800">{Number(pipelineSummary.available_meters || 0).toLocaleString('en-IN')} M</p>
         </div>
         <div className="rounded-lg bg-emerald-50/60 p-2.5 border border-emerald-100">
-          <span className="text-[10px] font-semibold text-emerald-600 uppercase">Allocated Stock</span>
+          <span className="text-[10px] font-semibold text-emerald-600 uppercase">Total Allocated</span>
           <p className="text-sm font-black text-emerald-700">{Number(pipelineSummary.allocated_meters || 0).toLocaleString('en-IN')} M</p>
+        </div>
+        <div className="rounded-lg bg-sky-50/60 p-2.5 border border-sky-100">
+          <span className="text-[10px] font-semibold text-sky-700 uppercase">Customer Project</span>
+          <p className="text-sm font-black text-sky-800">
+            {Number(pipelineSummary.customer_allocated_meters ?? pipelineSummary.allocated_meters ?? 0).toLocaleString('en-IN')} M
+          </p>
+        </div>
+        <div className="rounded-lg bg-purple-50/60 p-2.5 border border-purple-100">
+          <span className="text-[10px] font-semibold text-purple-700 uppercase">Own Project Stock</span>
+          <p className="text-sm font-black text-purple-800">
+            {Number(pipelineSummary.own_allocated_meters ?? 0).toLocaleString('en-IN')} M
+          </p>
         </div>
         <div
           className="rounded-lg p-2.5 border"

@@ -20,6 +20,7 @@ import {
 import { fabricMasterSync, isBackendEnabled, describeError } from '../../../services/fabricMasterSync';
 import { uploadFileToBackend } from '../../../services/fileUploadService';
 import PageInfoButton from '../../../components/ui/PageInfoButton';
+import MasterSourceLink from '../../../components/common/MasterSourceLink';
 
 const PER_PAGE = 10;
 const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
@@ -857,7 +858,10 @@ export default function FabricVariantMasterPage() {
                   {/* Row 2: Category | Fabric Type / Classification */}
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
                     <div>
-                      <label className="block font-semibold text-slate-700 mb-1">Category</label>
+                      <div className="flex items-center justify-between mb-1">
+                        <label className="block font-semibold text-slate-700">Category</label>
+                        <MasterSourceLink source="categories" />
+                      </div>
                       <select
                         value={form.categoryId || ''}
                         disabled={readOnly}
@@ -871,7 +875,10 @@ export default function FabricVariantMasterPage() {
                       </select>
                     </div>
                     <div>
-                      <label className="block font-semibold text-slate-700 mb-1">Fabric Type / Classification</label>
+                      <div className="flex items-center justify-between mb-1">
+                        <label className="block font-semibold text-slate-700">Fabric Type / Classification</label>
+                        <MasterSourceLink source="fabricTypes" />
+                      </div>
                       <select
                         value={form.fabricTypeId || ''}
                         disabled={readOnly}
@@ -899,9 +906,12 @@ export default function FabricVariantMasterPage() {
                   {/* Row 3: Fabric Quality * | Design */}
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
                     <div>
-                      <label className="block font-semibold text-slate-700 mb-1">
-                        Fabric Quality <span className="text-rose-500">*</span>
-                      </label>
+                      <div className="flex items-center justify-between mb-1">
+                        <label className="block font-semibold text-slate-700">
+                          Fabric Quality <span className="text-rose-500">*</span>
+                        </label>
+                        <MasterSourceLink source="fabricQualities" />
+                      </div>
                       <select
                         value={form.qualityId}
                         disabled={readOnly}
@@ -915,9 +925,12 @@ export default function FabricVariantMasterPage() {
                       </select>
                     </div>
                     <div>
-                      <label className="block font-semibold text-slate-700 mb-1">
-                        Design <span className="text-slate-400 font-normal">(Optional for Grey)</span>
-                      </label>
+                      <div className="flex items-center justify-between mb-1">
+                        <label className="block font-semibold text-slate-700">
+                          Design <span className="text-slate-400 font-normal">(Optional for Grey)</span>
+                        </label>
+                        <MasterSourceLink source="designs" />
+                      </div>
                       <select
                         value={form.designId}
                         disabled={readOnly}
@@ -935,9 +948,12 @@ export default function FabricVariantMasterPage() {
                   {/* Row 4: Shade | UOM * */}
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
                     <div>
-                      <label className="block font-semibold text-slate-700 mb-1">
-                        Shade <span className="text-slate-400 font-normal">(Optional for Grey)</span>
-                      </label>
+                      <div className="flex items-center justify-between mb-1">
+                        <label className="block font-semibold text-slate-700">
+                          Shade <span className="text-slate-400 font-normal">(Optional for Grey)</span>
+                        </label>
+                        <MasterSourceLink source="shades" />
+                      </div>
                       <select
                         value={form.shadeId}
                         disabled={readOnly}
@@ -951,9 +967,12 @@ export default function FabricVariantMasterPage() {
                       </select>
                     </div>
                     <div>
-                      <label className="block font-semibold text-slate-700 mb-1">
-                        UOM <span className="text-rose-500">*</span>
-                      </label>
+                      <div className="flex items-center justify-between mb-1">
+                        <label className="block font-semibold text-slate-700">
+                          UOM <span className="text-rose-500">*</span>
+                        </label>
+                        <MasterSourceLink source="uom" />
+                      </div>
                       <select
                         value={form.uom}
                         disabled={readOnly}

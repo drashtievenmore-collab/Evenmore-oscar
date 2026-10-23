@@ -22,6 +22,7 @@ import {
 import { api } from '../../../services/api';
 import { inventoryService, partiesService } from '../../../services/domainServices';
 import PageInfoButton from '../../../components/ui/PageInfoButton';
+import MasterSourceLink from '../../../components/common/MasterSourceLink';
 
 export default function SampleListPage() {
   const [samples, setSamples] = useState([]);
@@ -405,7 +406,10 @@ export default function SampleListPage() {
                 </div>
               )}
               <div>
-                <label className="block text-xs font-medium text-slate-700 mb-1">Party / Customer *</label>
+                <div className="flex items-center justify-between mb-1">
+                  <label className="block text-xs font-medium text-slate-700">Party / Customer *</label>
+                  <MasterSourceLink source="parties" />
+                </div>
                 <select
                   required
                   value={issueForm.partyId}

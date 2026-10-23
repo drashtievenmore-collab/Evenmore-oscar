@@ -1,8 +1,10 @@
 import React, { useEffect } from 'react';
 import { X, Printer, CheckCircle2, ShoppingCart, Truck } from 'lucide-react';
+import { SignatureSlot, useDocumentSignatures } from './SignatureSlot';
 import { useERP } from '../../context/ERPContext';
 
 export const PrintSalesOrderModal = ({ isOpen, onClose, order }) => {
+  const docSigs = useDocumentSignatures('SalesOrder', order?.id, `Sales Order ${order?.orderNumber || order?.number || ""}`);
     // [PHASE-2E.1] profile-driven letterhead (was hardcoded EVENMORE / US strings)
     const { companyProfile } = useERP();
     const companyName = companyProfile?.name || 'EVENMORE ENTERPRISES';
@@ -242,8 +244,9 @@ export const PrintSalesOrderModal = ({ isOpen, onClose, order }) => {
                     {/* Authorization & Signatures */}
                     <div className="pt-8 border-t border-slate-300 grid grid-cols-2 gap-12 text-center text-xs">
                         <div className="space-y-8">
-                            <div className="border-b border-slate-400 pb-1 h-12 flex items-end justify-center">
-                                <span className="font-mono text-slate-400 text-[10px] italic">Client Authorization</span>
+                            <div className="border-b border-slate-400 pb-1">
+                              <SignatureSlot doc={docSigs} signatory="customer" label="Client Authorization" modalType="receiver" defaultName={order?.customer || ""} defaultDesignation="Authorized Purchasing Manager"
+                                placeholder={<span className="font-mono text-slate-400 text-[10px] italic">Client Authorization</span>} />
                             </div>
                             <div>
                                 <p className="font-bold text-slate-900">Authorized Purchasing Manager</p>
@@ -252,8 +255,9 @@ export const PrintSalesOrderModal = ({ isOpen, onClose, order }) => {
                         </div>
 
                         <div className="space-y-8">
-                            <div className="border-b border-slate-400 pb-1 h-12 flex items-end justify-center">
-                                <span className="font-mono text-slate-400 text-[10px] italic">Evenmore Operations Approval</span>
+                            <div className="border-b border-slate-400 pb-1">
+                              <SignatureSlot doc={docSigs} signatory="authorized" label="Operations Approval" modalType="authorized" defaultDesignation="Director of Supply Chain & Operations"
+                                placeholder={<span className="font-mono text-slate-400 text-[10px] italic">Evenmore Operations Approval</span>} />
                             </div>
                             <div>
                                 <p className="font-bold text-slate-900">Director of Supply Chain & Operations</p>
