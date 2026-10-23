@@ -77,7 +77,7 @@ export function FinalJobWorkPoInlineSlide({
   // Form Fields
   const [poNumber, setPoNumber] = useState('');
   const poSigs = useDocumentSignatures('FinalJobWorkPO', propInstruction?.id || po?.id, `Final Job Work PO ${poNumber}`);
-  const [poDate, setPoDate] = useState(() => new Date().toISOString().slice(0, 10));
+cd   const [poDate, setPoDate] = useState(() => new Date().toISOString().slice(0, 10));
   const [expectedCompletionDate, setExpectedCompletionDate] = useState(() => {
     const d = new Date();
     d.setDate(d.getDate() + 10);
