@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Plus, Search, RefreshCw, Pencil, X, CheckCircle2, XCircle } from 'lucide-react';
 import api from '../../services/api';
 import PageHeader from '../ui/PageHeader';
+import TablePagination from '../ui/TablePagination';
 
 /** Every page of an envelope list (page_size is capped at 200 server-side). */
 async function fetchAll(endpoint, query) {
@@ -61,6 +62,8 @@ export default function SimpleMasterPage({
   const [formError, setFormError] = useState('');
   const [saving, setSaving] = useState(false);
   const [busyId, setBusyId] = useState(null);
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(10);
 
   const queryKey = JSON.stringify(query || {});
   const load = useCallback(async () => {
@@ -91,6 +94,12 @@ export default function SimpleMasterPage({
       return searchKeys.some((k) => String(row[k] ?? '').toLowerCase().includes(q));
     });
   }, [rows, search, showInactive, searchKeys]);
+
+  // Back to page 1 when the filter changes; stay in range when rows shrink.
+  useEffect(() => { setPage(1); }, [search, showInactive]);
+  const totalPages = Math.max(1, Math.ceil(visible.length / pageSize));
+  const currentPage = Math.min(page, totalPages);
+  const pageRows = visible.slice((currentPage - 1) * pageSize, currentPage * pageSize);
 
   const activeCount = rows.filter(isRowActive).length;
 
@@ -227,7 +236,7 @@ export default function SimpleMasterPage({
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
-                {visible.map((row) => {
+                {pageRows.map((row) => {
                   const active = isRowActive(row);
                   return (
                     <tr key={row.id} className={`hover:bg-slate-50/70 transition-colors ${active ? '' : 'opacity-60'}`}>
@@ -272,6 +281,15 @@ export default function SimpleMasterPage({
               </tbody>
             </table>
           </div>
+        )}
+        {visible.length > 0 && (
+          <TablePagination
+            total={visible.length}
+            page={currentPage}
+            pageSize={pageSize}
+            onPageChange={setPage}
+            onPageSizeChange={setPageSize}
+          />
         )}
       </div>
 

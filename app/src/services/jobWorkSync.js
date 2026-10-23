@@ -39,6 +39,9 @@ export function jwoFromApi(row) {
   return {
     id: row.id,
     jwoNo: row.jwoNo || '',
+    projectId: row.projectId || row.project || null,
+    projectCode: row.projectCode || '',
+    projectDestination: row.projectDestination || 'Customer Project',
     processPlanId: row.processPlanId || null,
     process: row.process || '',
     vendor: row.vendor || '',
@@ -63,15 +66,27 @@ export function jwoFromApi(row) {
     outwards: (row.outwards || []).map((o) => ({
       id: o.id,
       no: o.no || '',
+      challanNo: o.challanNo || o.challan_no || '',
       date: o.date || '',
       qty: num(o.qty),
-      lrNo: o.lrNo || '',
+      lrNo: o.lrNo || o.lr_no || '',
       transporter: o.transporter || '',
       warehouse: o.warehouse || '',
-      vehicleNo: o.vehicleNo || '',
+      vehicleNo: o.vehicleNo || o.vehicle_no || '',
       driver: o.driver || '',
+      expectedReturnDate: o.expectedReturnDate || o.expected_return_date || '',
+      authorizedById: o.authorizedById || o.authorized_by_id || null,
+      authorizedByName: o.authorizedByName || o.authorized_by_name || '',
       remarks: o.remarks || '',
-      status: o.status || '',
+      status: o.status || 'Sent',
+      takas: (o.takas || []).map((t) => ({
+        id: t.id,
+        lotTakaId: t.lotTakaId || t.lot_taka_id || t.lot_taka,
+        takaNo: t.takaNo || t.taka_no || '',
+        lotNo: t.lotNo || t.lot_no || '',
+        meters: num(t.meters),
+        weightKg: num(t.weightKg || t.weight_kg),
+      })),
     })),
     inwards: (row.inwards || []).map((r) => ({
       id: r.id,
@@ -157,11 +172,14 @@ const ROW_MAPPERS = {
   outwards: (o) => ({
     date: orUndef(o.date),
     qty: num(o.qty),
-    lrNo: o.lrNo || '',
+    challanNo: o.challanNo || o.challan_no || '',
+    lrNo: o.lrNo || o.lr_no || '',
     transporter: o.transporter || '',
     warehouse: o.warehouse || '',
-    vehicleNo: o.vehicleNo || '',
+    vehicleNo: o.vehicleNo || o.vehicle_no || '',
     driver: o.driver || '',
+    expectedReturnDate: orUndef(o.expectedReturnDate || o.expected_return_date),
+    authorizedById: o.authorizedById || o.authorized_by_id || null,
     remarks: o.remarks || '',
     ...(o.takas ? { takas: o.takas } : {}),
     ...(o.status ? { status: o.status } : {}),
@@ -456,3 +474,10 @@ export async function fetchVendorReconciliation(projectId) {
   return res?.results || [];
 }
 
+export async function validateJWOOutwardStock(orderId, payload) {
+  return api.post(`/jobwork/orders/${orderId}/validate-stock/`, payload);
+}
+
+export async function confirmJWOOutward(orderId, outwardId) {
+  return api.post(`/jobwork/orders/${orderId}/outwards/${outwardId}/confirm/`);
+}
