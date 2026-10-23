@@ -37,6 +37,7 @@ import {
   errorMessage,
 } from '../../../../services/jobWorkSync';
 import { ProcessPlanStageWorkspace } from './ProcessPlanStageWorkspace';
+import { Stage12JobWorkOutwardWorkspace } from './Stage12JobWorkOutwardWorkspace';
 
 export function StageDownstreamWorkspace({
   project,
@@ -600,7 +601,7 @@ export function StageDownstreamWorkspace({
               Refresh
             </button>
 
-            {!isPlanStage && !isProcessingStage && !isClosureStage && !isInvoiceStage && (
+            {!isPlanStage && !isOutwardStage && !isProcessingStage && !isClosureStage && !isInvoiceStage && (
               <button
                 type="button"
                 onClick={handleOpenModal}
@@ -717,135 +718,14 @@ export function StageDownstreamWorkspace({
           />
         )}
 
-        {/* Stage 12: Job Work Outward */}
+        {/* Stage 12: Job Work Outward (Send to Vendor) */}
         {isOutwardStage && (
-          <div className="space-y-4">
-            {realOutwards.length > 0 ? (
-              <div className="space-y-3">
-                <div className="flex items-center justify-between">
-                  <span className="font-bold text-slate-800 text-xs">
-                    Confirmed Outward Challans (External Job Work WIP)
-                  </span>
-                  <div className="flex items-center gap-2 text-xs">
-                    <span className="text-slate-500">Total Dispatched:</span>
-                    <span className="font-mono font-bold text-emerald-700">
-                      {realOutwardSum.toLocaleString('en-IN')} M
-                    </span>
-                  </div>
-                </div>
-                <div className="rounded-xl border border-slate-200 overflow-hidden">
-                  <table className="w-full text-left text-xs text-slate-700">
-                    <thead className="bg-slate-50 text-[11px] font-bold text-slate-600 uppercase border-b border-slate-200">
-                      <tr>
-                        <th className="p-3">Challan No</th>
-                        <th className="p-3">JWO No</th>
-                        <th className="p-3">Date</th>
-                        <th className="p-3">Processor</th>
-                        <th className="p-3">Process</th>
-                        <th className="p-3">Vehicle / Transporter</th>
-                        <th className="p-3">LR / Bilty</th>
-                        <th className="p-3 text-right">Dispatched Qty</th>
-                        <th className="p-3 text-center">Stock Status</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-slate-100 font-mono">
-                      {realOutwards.map((out, idx) => (
-                        <tr key={out.id || idx} className="hover:bg-slate-50/50">
-                          <td className="p-3 font-bold text-blue-700">{out.no || out.challanNo || `DC-OUT-${idx + 1}`}</td>
-                          <td className="p-3 font-semibold text-slate-800">{out.jwoNo}</td>
-                          <td className="p-3 font-sans text-slate-600">{out.date || '—'}</td>
-                          <td className="p-3 font-sans font-medium text-slate-800">{out.vendor || '—'}</td>
-                          <td className="p-3 font-sans text-slate-700">{out.process || 'Dyeing'}</td>
-                          <td className="p-3 font-sans text-slate-600">
-                            {[out.vehicleNo, out.transporter].filter(Boolean).join(' / ') || '—'}
-                          </td>
-                          <td className="p-3 text-slate-600">{out.lrNo || '—'}</td>
-                          <td className="p-3 text-right font-bold text-slate-900">
-                            {Number(out.qty || 0).toLocaleString('en-IN')} M
-                          </td>
-                          <td className="p-3 text-center">
-                            <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-50 text-amber-700 border border-amber-200">
-                              External WIP
-                            </span>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-            ) : projectOrders.length > 0 ? (
-              <div className="p-4 rounded-xl border border-blue-200 bg-blue-50/40 space-y-3">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <h4 className="font-bold text-slate-900 text-xs">
-                      Job Work Orders Ready for Outward Dispatch ({projectOrders.length})
-                    </h4>
-                    <p className="text-[11px] text-slate-500 mt-0.5">
-                      Confirm physical vehicle, transporter, and dispatch challan to move stock from Godown to External WIP.
-                    </p>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={handleOpenModal}
-                    className="px-3.5 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs cursor-pointer shadow-2xs flex items-center gap-1.5"
-                  >
-                    <Truck size={14} />
-                    <span>Dispatch Outward Challan</span>
-                  </button>
-                </div>
-                <div className="rounded-lg border border-slate-200 bg-white overflow-hidden">
-                  <table className="w-full text-left text-xs">
-                    <thead className="bg-slate-50 text-[10px] font-bold text-slate-600 uppercase border-b border-slate-200">
-                      <tr>
-                        <th className="p-2.5">JWO No</th>
-                        <th className="p-2.5">Processor</th>
-                        <th className="p-2.5">Process</th>
-                        <th className="p-2.5 text-right">Planned Metres</th>
-                        <th className="p-2.5 text-center">Action</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-slate-100 font-mono">
-                      {projectOrders.map((ord) => (
-                        <tr key={ord.id}>
-                          <td className="p-2.5 font-bold text-blue-700">{ord.jwoNo}</td>
-                          <td className="p-2.5 font-sans font-medium">{ord.vendor || '—'}</td>
-                          <td className="p-2.5 font-sans">{ord.process || '—'}</td>
-                          <td className="p-2.5 text-right font-bold">{Number(ord.plannedQty || 0).toLocaleString('en-IN')} M</td>
-                          <td className="p-2.5 text-center">
-                            <button
-                              type="button"
-                              onClick={() => {
-                                setSelectedJwoId(ord.id);
-                                handleOpenModal();
-                              }}
-                              className="px-2 py-0.5 rounded-md bg-blue-50 text-blue-700 hover:bg-blue-100 font-sans font-bold text-[11px] border border-blue-200 cursor-pointer"
-                            >
-                              Dispatch Now
-                            </button>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-            ) : (
-              <div className="rounded-xl border border-dashed border-slate-300 bg-slate-50/60 p-6 text-center space-y-3">
-                <p className="text-slate-600 text-xs">
-                  No Job Work Order has been generated for this project yet. Please complete <strong>Stage 11: Processing Plan & Vendor Assignment</strong> first.
-                </p>
-                <button
-                  type="button"
-                  onClick={() => onSelectStage && onSelectStage(11)}
-                  className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs shadow-2xs cursor-pointer"
-                >
-                  <span>Go to Stage 11 (Processing Plan)</span>
-                  <ArrowRight size={13} />
-                </button>
-              </div>
-            )}
-          </div>
+          <Stage12JobWorkOutwardWorkspace
+            project={project}
+            stage={stage}
+            onUpdated={() => onSyncPipeline && onSyncPipeline()}
+            onSelectStage={onSelectStage}
+          />
         )}
 
         {/* Stage 13: Processing (Live Vendor WIP Progress) */}
