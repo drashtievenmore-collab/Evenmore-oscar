@@ -5,7 +5,8 @@ import SimpleMasterPage from '../../components/common/SimpleMasterPage';
 // auto-posting matrix, so their code and type are shown but not editable here.
 const ACCOUNT_TYPES = ['Asset', 'Liability', 'Equity', 'Income', 'Expense'].map((t) => ({ value: t, label: t }));
 const isSystem = (row) => Boolean(row?.isSystem);
-const SYSTEM_HINT = 'System account -- used by automatic postings, so this cannot be changed.';
+const INR = new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', minimumFractionDigits: 2 });
+const SYSTEM_HINT ='System account -- used by automatic postings, so this cannot be changed.';
 
 const FIELDS = [
   { key: 'code', label: 'Account Code', required: true, placeholder: 'e.g. 5100', locked: isSystem, lockedHint: SYSTEM_HINT },
@@ -45,6 +46,23 @@ const COLUMNS = [
       if (!r.parent) return '—';
       const p = rows.find((x) => x.id === r.parent);
       return p ? `${p.code} - ${p.name}` : '—';
+    },
+  },
+  {
+    key: 'balance',
+    label: 'Balance',
+    className: 'text-right',
+    render: (r) => {
+      if (r.balance === null || r.balance === undefined) return '—';
+      const n = Number(r.balance) || 0;
+      if (n === 0) return <span className="font-mono text-slate-400">₹0.00</span>;
+      // Ledger convention: positive = Debit, negative = Credit (as in Tally).
+      return (
+        <span className="font-mono font-semibold text-slate-900 whitespace-nowrap">
+          {INR.format(Math.abs(n))}
+          <span className={`ml-1 text-[10px] font-bold ${n > 0 ? 'text-blue-700' : 'text-amber-700'}`}>{n > 0 ? 'Dr' : 'Cr'}</span>
+        </span>
+      );
     },
   },
 ];
