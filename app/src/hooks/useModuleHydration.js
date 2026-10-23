@@ -31,7 +31,7 @@ import { useRecruitmentStore } from '../stores/recruitmentStore';
 import { usePerformanceStore } from '../stores/performanceStore';
 import { usePayrollStore } from '../stores/payrollStore';
 import { usePolicyStore } from '../stores/policyStore';
-import { useTrainingStore } from '../stores/trainingStore';
+// import { useTrainingStore } from '../stores/trainingStore';
 import { useAssetStore } from '../stores/assetStore';
 import { useDocumentStore } from '../stores/documentStore';
 import { useCalendarStore } from '../stores/calendarStore';
@@ -45,7 +45,7 @@ const MODULE_STORES = [
   usePerformanceStore,
   usePayrollStore,
   usePolicyStore,
-  useTrainingStore,
+  // useTrainingStore,
   useAssetStore,
   useDocumentStore,
   useCalendarStore,

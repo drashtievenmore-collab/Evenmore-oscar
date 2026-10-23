@@ -150,8 +150,8 @@ export default function TrainingList({ embedded = false, onBack }) {
 
   return (
     <div className="flex flex-col gap-5">
-      {/* Back button to Training Setup */}
-      {!embedded && (
+      {/* Back button to Training Setup - Commented out */}
+      {/* {!embedded && (
         <button
           type="button"
           onClick={() => (onBack ? onBack() : navigate("/hrms/training"))}
@@ -160,25 +160,25 @@ export default function TrainingList({ embedded = false, onBack }) {
           <ArrowLeft size={16} className="group-hover:-translate-x-0.5 transition-transform" />
           <span>Back to Training Setup</span>
         </button>
-      )}
+      )} */}
 
       <PageHeader
         title="Training Programs"
         subtitle={`${trainings.length} total programs linked to Funnel and Performance`}
         guide={hrmsGuides.trainingList}
-        actions={<>
-          <button
-            type="button"
-            onClick={() => navigate("/hrms/training/training-funnel")}
-            className="px-3.5 py-2 border border-bdr rounded-xl text-[12.5px] font-medium text-slate-700 hover:bg-off transition"
-          >
-            View Funnel &rarr;
-          </button>
-          <Button onClick={() => {
-            setForm({ name: "", trainer: "Unassigned", department: "Engineering", type: "Technical", participants: 10, cost: 25000, start: "18 Oct 2024", end: "19 Oct 2024", status: "Requested" });
-            setAddOpen(true);
-          }}>+ Add Training</Button>
-        </>}
+        // actions={<>
+        //   <button
+        //     type="button"
+        //     onClick={() => navigate("/hrms/training/training-funnel")}
+        //     className="px-3.5 py-2 border border-bdr rounded-xl text-[12.5px] font-medium text-slate-700 hover:bg-off transition"
+        //   >
+        //     View Funnel &rarr;
+        //   </button>
+        //   <Button onClick={() => {
+        //     setForm({ name: "", trainer: "Unassigned", department: "Engineering", type: "Technical", participants: 10, cost: 25000, start: "18 Oct 2024", end: "19 Oct 2024", status: "Requested" });
+        //     setAddOpen(true);
+        //   }}>+ Add Training</Button>
+        // </>}
       />
 
       <FilterBar

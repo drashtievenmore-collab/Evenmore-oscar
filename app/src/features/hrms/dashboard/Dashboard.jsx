@@ -63,7 +63,7 @@ const DEFAULT_REQUEST_TYPES = [
   "Document & Bonafide Certificate",
   "Shift Change Request",
   "Overtime Approval",
-  "Training & Upskilling Request",
+  // "Training & Upskilling Request", // Hidden: Training commented out
   "HR Grievance / Query",
   "Resignation / Separation Request",
 ];

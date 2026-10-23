@@ -83,8 +83,8 @@ export default function Trainers({ embedded = false, onBack }) {
 
   return (
     <div className="flex flex-col gap-5">
-      {/* Back button to Training Setup */}
-      {!embedded && (
+      {/* Back button to Training Setup - Commented out */}
+      {/* {!embedded && (
         <button
           type="button"
           onClick={() => (onBack ? onBack() : navigate("/hrms/training"))}
@@ -93,25 +93,25 @@ export default function Trainers({ embedded = false, onBack }) {
           <ArrowLeft size={16} className="group-hover:-translate-x-0.5 transition-transform" />
           <span>Back to Training Setup</span>
         </button>
-      )}
+      )} */}
 
       <PageHeader
         title="Trainer Directory"
         subtitle={`${trainers.length} registered trainers across departments`}
         guide={hrmsGuides.trainers}
-        actions={<>
-          <button
-            type="button"
-            onClick={() => navigate("/hrms/training/training-funnel")}
-            className="px-3.5 py-2 border border-bdr rounded-xl text-[12.5px] font-medium text-slate-700 hover:bg-off transition"
-          >
-            View Funnel &rarr;
-          </button>
-          <Button onClick={() => {
-            setForm({ name: "", specialization: "Leadership", email: "", phone: "", programs: 1, status: "Active" });
-            setAddOpen(true);
-          }}>+ Add Trainer</Button>
-        </>}
+        // actions={<>
+        //   <button
+        //     type="button"
+        //     onClick={() => navigate("/hrms/training/training-funnel")}
+        //     className="px-3.5 py-2 border border-bdr rounded-xl text-[12.5px] font-medium text-slate-700 hover:bg-off transition"
+        //   >
+        //     View Funnel &rarr;
+        //   </button>
+        //   <Button onClick={() => {
+        //     setForm({ name: "", specialization: "Leadership", email: "", phone: "", programs: 1, status: "Active" });
+        //     setAddOpen(true);
+        //   }}>+ Add Trainer</Button>
+        // </>}
       />
 
       <FilterBar
