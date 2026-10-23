@@ -48,16 +48,17 @@ function normalizeInstruction(item) {
 
 function normalizeEntry(e) {
   if (!e) return null;
-  const meters = Number(e.meters || e.produced || 0);
-  const reject = Number(e.reject_meter || e.rejected || 0);
-  const reprocess = Number(e.reprocess_meter || e.reprocess || 0);
-  const good = e.good_meter !== undefined && e.good_meter !== null
-    ? Number(e.good_meter)
+  const meters = Number(e.meters ?? e.produced ?? 0);
+  const reject = Number(e.rejectMeter ?? e.reject_meter ?? e.rejected ?? e.rejectedQty ?? 0);
+  const reprocess = Number(e.reprocessMeter ?? e.reprocess_meter ?? e.reprocess ?? e.reprocessQty ?? 0);
+  const rawGood = e.goodMeter ?? e.good_meter ?? e.accepted ?? e.acceptedQty;
+  const good = rawGood !== undefined && rawGood !== null && rawGood !== ''
+    ? Number(rawGood)
     : Math.max(0, meters - reject - reprocess);
 
   return {
     id: String(e.id),
-    date: e.entryDate || e.date || '',
+    date: e.entryDate || e.entry_date || e.date || '',
     produced: meters,
     rejected: reject,
     reprocess: reprocess,
@@ -65,9 +66,9 @@ function normalizeEntry(e) {
     status: e.status || 'Submitted',
     by: e.employeeName || e.enteredBy || '—',
     remarks: e.remarks || '',
-    employeeId: e.enteredByEmployeeId ? String(e.enteredByEmployeeId) : '',
-    cumulative: numOrNull(e.cumulative_meter || e.cumulative),
-    balance: numOrNull(e.balance_meter || e.balance),
+    employeeId: e.enteredByEmployeeId ? String(e.enteredByEmployeeId) : (e.entered_by_employee_id ? String(e.entered_by_employee_id) : ''),
+    cumulative: numOrNull(e.cumulativeMeter ?? e.cumulative_meter ?? e.cumulative),
+    balance: numOrNull(e.balanceMeter ?? e.balance_meter ?? e.balance),
   };
 }
 
@@ -309,27 +310,40 @@ export default function DailyProductionPage() {
     try {
       if (editing) {
         const payload = {
+          entry_date: formDate,
           entryDate: formDate,
           meters: numQty,
           reject_meter: numRej,
+          rejectMeter: numRej,
           reprocess_meter: numRep,
+          reprocessMeter: numRep,
           good_meter: modalAccepted,
+          goodMeter: modalAccepted,
           remarks: formRemarks,
           status: actionType,
         };
-        if (empId) payload.enteredByEmployeeId = empId;
+        if (empId) {
+          payload.enteredByEmployeeId = empId;
+          payload.entered_by_employee_id = empId;
+        }
         const updated = await api.patch(`/production/daily-entries/${editing.id}/`, payload);
         const norm = normalizeEntry(updated);
         setEntries((prev) => prev.map((item) => (item.id === norm.id ? norm : item)));
       } else {
         const payload = {
           instructionId: pi.id,
+          instruction_id: pi.id,
           entry_date: formDate,
+          entryDate: formDate,
           meters: numQty,
           reject_meter: numRej,
+          rejectMeter: numRej,
           reprocess_meter: numRep,
+          reprocessMeter: numRep,
           good_meter: modalAccepted,
+          goodMeter: modalAccepted,
           enteredByEmployeeId: empId,
+          entered_by_employee_id: empId,
           remarks: formRemarks,
           status: actionType,
         };
@@ -687,6 +701,7 @@ export default function DailyProductionPage() {
             <TablePagination
               page={page}
               pageSize={pageSize}
+              total={rows.length}
               totalItems={rows.length}
               onPageChange={setPage}
               onPageSizeChange={(sz) => { setPageSize(sz); setPage(1); }}

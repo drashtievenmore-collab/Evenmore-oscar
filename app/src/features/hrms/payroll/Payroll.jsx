@@ -329,7 +329,7 @@ export default function Payroll() {
   const storeLeaves = useAppStore((s) => s.leaves || []);
   const storeEncashments = useAppStore((s) => s.encashments || []);
   const currentUser = useAppStore((s) => s.currentUser) || {
-    name: "Adarsh Gupta",
+    name: "Employee",
     role: "Operations Admin",
     email: "admin@evenmore.io",
   };
@@ -396,7 +396,7 @@ export default function Payroll() {
   const [editDeductions, setEditDeductions] = useState(0);
 
   // Switcher for Own Salary perspective
-  const [activeOwnUser, setActiveOwnUser] = useState(currentUser?.name || "Adarsh Gupta");
+  const [activeOwnUser, setActiveOwnUser] = useState(currentUser?.name || "");
 
   // Dynamic calculations with approved leaves & attendance integration
   const computedEmployeePayrolls = useMemo(() => {

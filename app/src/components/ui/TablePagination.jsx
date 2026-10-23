@@ -15,6 +15,7 @@ import { ChevronLeft, ChevronRight } from 'lucide-react';
  */
 export function TablePagination({
   total = 0,
+  totalItems,
   page = 1,
   pageSize = 10,
   onPageChange,
@@ -23,10 +24,11 @@ export function TablePagination({
   showPageSizeSelector = true,
   className = '',
 }) {
-  const totalPages = Math.max(1, Math.ceil(total / pageSize));
+  const actualTotal = totalItems !== undefined ? totalItems : (total || 0);
+  const totalPages = Math.max(1, Math.ceil(actualTotal / pageSize));
   const safePage = Math.min(Math.max(1, page), totalPages);
-  const startIndex = total > 0 ? (safePage - 1) * pageSize + 1 : 0;
-  const endIndex = Math.min(safePage * pageSize, total);
+  const startIndex = actualTotal > 0 ? (safePage - 1) * pageSize + 1 : 0;
+  const endIndex = Math.min(safePage * pageSize, actualTotal);
 
   // Generate compact page range around current page
   const pageNumbers = [];
@@ -49,7 +51,7 @@ export function TablePagination({
         <span className="font-medium text-slate-500">
           Showing <strong className="text-slate-800 font-semibold">{startIndex}</strong> to{' '}
           <strong className="text-slate-800 font-semibold">{endIndex}</strong> of{' '}
-          <strong className="text-slate-800 font-semibold">{total.toLocaleString('en-IN')}</strong> entries
+          <strong className="text-slate-800 font-semibold">{actualTotal.toLocaleString('en-IN')}</strong> entries
         </span>
 
         {showPageSizeSelector && onPageSizeChange && (

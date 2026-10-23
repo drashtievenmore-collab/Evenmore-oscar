@@ -57,6 +57,7 @@ export function StageDownstreamWorkspace({
   const [plans, setPlans] = useState([]);
   const [orders, setOrders] = useState([]);
   const [invoices, setInvoices] = useState([]);
+  const [agencies, setAgencies] = useState([]);
   const [challans, setChallans] = useState([]);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [submitting, setSubmitting] = useState(false);
@@ -76,10 +77,11 @@ export function StageDownstreamWorkspace({
   const loadData = async () => {
     if (!projectId) return;
     try {
-      const [plansRes, jwoRes, salesRes] = await Promise.allSettled([
+      const [plansRes, jwoRes, salesRes, agenciesRes] = await Promise.allSettled([
         fetchPlans().catch(() => []),
         fetchJWOs().catch(() => []),
         api.get('/sales/invoices/').catch(() => ({ data: [] })),
+        api.get('/masters/agencies/', { query: { page_size: 200 } }),
       ]);
 
       if (plansRes.status === 'fulfilled' && plansRes.value) {
@@ -91,6 +93,12 @@ export function StageDownstreamWorkspace({
       if (salesRes.status === 'fulfilled' && salesRes.value) {
         const invList = salesRes.value?.data || salesRes.value?.results || [];
         setInvoices(Array.isArray(invList) ? invList : []);
+      }
+      if (agenciesRes.status === 'fulfilled' && agenciesRes.value) {
+        const list = Array.isArray(agenciesRes.value)
+          ? agenciesRes.value
+          : agenciesRes.value?.results || [];
+        setAgencies(list);
       }
     } catch (err) {
       console.warn('Error loading downstream workspace data:', err);
@@ -133,23 +141,23 @@ export function StageDownstreamWorkspace({
     setSubmitting(true);
     try {
       if (stageName.includes('Plan')) {
-        await api.post('/jobwork/plans/', {
-          title: `Project ${project?.code || ''} - ${formData.processType} Plan`,
+        await api.post('/jobwork/process-plans/', {
+          date: formData.date,
           process: formData.processType,
-          vendor: formData.processorName || 'Apex Dyeing Mills',
-          plannedQty: Number(formData.quantity) || projectReq,
+          vendor: formData.processorName,
+          expectedQty: Number(formData.quantity) || projectReq,
           status: 'Active',
-          notes: formData.remarks,
-        }).catch(() => null);
+          remarks: formData.remarks,
+        });
         toast.success(`Processing plan created for Project ${project?.code || ''}.`);
       } else if (stageName.includes('Outward')) {
         await api.post('/jobwork/orders/', {
           process: 'Dyeing',
-          vendor: formData.processorName || 'Apex Dyeing Mills',
-          plannedQty: Number(formData.quantity) || allocatedGrey,
-          status: 'In Progress',
+          vendor: formData.processorName,
+          orderDate: formData.date,
+          status: 'In-Process',
           remarks: `Challan: ${formData.challanNo}, Vehicle: ${formData.vehicleNo}`,
-        }).catch(() => null);
+        });
         toast.success(`Job Work Outward Challan ${formData.challanNo || 'DC-OUT-01'} recorded.`);
       } else if (stageName.includes('Inward')) {
         toast.success(`Job Work Inward receipt recorded (${formData.quantity} M).`);
@@ -331,7 +339,7 @@ export function StageDownstreamWorkspace({
                   <tr className="hover:bg-slate-50/50">
                     <td className="p-3 font-mono font-bold text-blue-700">PLN-2026-{project?.code || '001'}</td>
                     <td className="p-3 font-semibold">Dyeing & Washing</td>
-                    <td className="p-3">Apex Dyeing & Processing Mills</td>
+                    <td className="p-3">{agencies[0]?.name || '—'}</td>
                     <td className="p-3 font-mono font-bold">{projectReq.toLocaleString('en-IN')} M</td>
                     <td className="p-3">
                       <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200">
@@ -372,7 +380,7 @@ export function StageDownstreamWorkspace({
                   <tr className="hover:bg-slate-50/50">
                     <td className="p-3 font-mono font-bold text-blue-700">DC-OUT-2026-8812</td>
                     <td className="p-3">2026-10-18</td>
-                    <td className="p-3">Apex Dyeing & Processing Mills</td>
+                    <td className="p-3">{agencies[0]?.name || '—'}</td>
                     <td className="p-3">GJ-05-BX-4921 / Maruti Freight</td>
                     <td className="p-3 font-mono font-bold">{(allocatedGrey || projectReq).toLocaleString('en-IN')} M</td>
                     <td className="p-3">
@@ -430,7 +438,7 @@ export function StageDownstreamWorkspace({
                   <tr className="hover:bg-slate-50/50">
                     <td className="p-3 font-mono font-bold text-teal-700">DC-IN-2026-4401</td>
                     <td className="p-3">2026-10-20</td>
-                    <td className="p-3">Apex Dyeing & Processing Mills</td>
+                    <td className="p-3">{agencies[0]?.name || '—'}</td>
                     <td className="p-3 font-mono font-bold">{(dyeingReceived || projectReq).toLocaleString('en-IN')} M</td>
                     <td className="p-3">12 Rolls</td>
                     <td className="p-3 text-emerald-700 font-bold">-1.2% (Standard Shrinkage)</td>
@@ -593,14 +601,30 @@ export function StageDownstreamWorkspace({
                 <label className="block font-semibold text-slate-700 mb-1">
                   Processor / Party Name
                 </label>
-                <input
-                  type="text"
-                  required
-                  value={formData.processorName}
-                  onChange={(e) => setFormData({ ...formData, processorName: e.target.value })}
-                  placeholder="e.g. Apex Dyeing & Processing Mills"
-                  className="w-full border border-slate-300 rounded-lg p-2 bg-white text-slate-800"
-                />
+                {agencies.length > 0 ? (
+                  <select
+                    required
+                    value={formData.processorName}
+                    onChange={(e) => setFormData({ ...formData, processorName: e.target.value })}
+                    className="w-full border border-slate-300 rounded-lg p-2 bg-white text-slate-800"
+                  >
+                    <option value="">Select a processing agency…</option>
+                    {agencies.map((agency) => (
+                      <option key={agency.id} value={agency.name}>
+                        {agency.name}
+                      </option>
+                    ))}
+                  </select>
+                ) : (
+                  <input
+                    type="text"
+                    required
+                    value={formData.processorName}
+                    onChange={(e) => setFormData({ ...formData, processorName: e.target.value })}
+                    placeholder="Enter processor / agency name"
+                    className="w-full border border-slate-300 rounded-lg p-2 bg-white text-slate-800"
+                  />
+                )}
               </div>
 
               <div className="grid grid-cols-2 gap-3">

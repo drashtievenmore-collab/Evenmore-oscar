@@ -6,8 +6,8 @@ import {
   ArrowLeft, CheckCircle2, FileText, Plus, Search,
   Send, Trash2, Package, RefreshCw, User, AlertTriangle, ShieldAlert,
 } from 'lucide-react';
-import { useDiscountPolicy } from '../../hooks/useDiscountPolicy';
-import { approvalService } from '../../services/domainServices';
+import { useDiscountPolicy, requiredLevel, needsApprovalFor, APPROVER_LABEL } from '../../hooks/useDiscountPolicy';
+import { salesService } from '../../services/domainServices';
 import { useERP } from '../../context/ERPContext';
 import { useCrmStore } from '../../stores/crmStore';
 import { withSampleTeam } from '../crm/common/sampleTeam';
@@ -237,7 +237,7 @@ export default function QuotationComposerPage({ embedded = null } = {}) {
   const savingRef = useRef(false);
   const [saving, setSaving] = useState(false);
   const [pendingId, setPendingId] = useState(() => editQuote?.id || null);
-  const { maxDiscountPct } = useDiscountPolicy();
+  const { policy: discountPolicy, myMaxDiscountPct: maxDiscountPct } = useDiscountPolicy();
   const [discountReason, setDiscountReason] = useState('');
   const [showDiscountWarning, setShowDiscountWarning] = useState(false);
 
@@ -329,7 +329,28 @@ export default function QuotationComposerPage({ embedded = null } = {}) {
     num(docDiscPct),
     ...lines.map((l) => num(l.discPct))
   );
-  const isDiscountExceedsPolicy = effectiveMaxDiscount > maxDiscountPct;
+  // Whose approval this discount needs (the server makes the same decision
+  // when the quotation is sent; this is the early warning).
+  const discountLevel = requiredLevel(effectiveMaxDiscount, discountPolicy);
+  const isDiscountExceedsPolicy = needsApprovalFor(discountLevel, discountPolicy);
+  const discountApprover = APPROVER_LABEL[discountLevel] || 'Sales Manager';
+  const lineApprover = (line) => {
+    const level = requiredLevel(num(line.discPct), discountPolicy);
+    return needsApprovalFor(level, discountPolicy) ? APPROVER_LABEL[level] : null;
+  };
+
+  // Ask the server to open the discount approval for a saved quotation.
+  async function requestDiscountApproval(id) {
+    if (!isDiscountExceedsPolicy || !id || !isServerId(id)) return;
+    try {
+      const res = await salesService.requestQuotationApproval(id, discountReason.trim());
+      if (res?.needsApproval) {
+        showToast?.(res.message || `Sent for approval by ${discountApprover}.`);
+      }
+    } catch (err) {
+      setFormError(err?.message || 'The discount approval request could not be sent.');
+    }
+  }
 
   const creditLimit = num(customer?.creditLimit);
   const outstanding = num(customer?.balance ?? customer?.outstanding);
@@ -459,7 +480,7 @@ export default function QuotationComposerPage({ embedded = null } = {}) {
     if (lines.length === 0) return 'Add at least one item.';
     if (!lines.some((line) => line.fabric && num(line.qty) > 0)) return 'Add at least one item with a name and quantity.';
     if (isDiscountExceedsPolicy && !discountReason.trim()) {
-      return `Discount of ${effectiveMaxDiscount}% exceeds the policy limit of ${maxDiscountPct}%. Please provide a justification reason above.`;
+      return `Discount of ${effectiveMaxDiscount}% is above your limit of ${maxDiscountPct}% and needs approval by the ${discountApprover}. Please give a reason above.`;
     }
     return '';
   }
@@ -483,26 +504,12 @@ export default function QuotationComposerPage({ embedded = null } = {}) {
     // "no longer exists" once that swap happens. So: temp id → list now,
     // server id → detail when the save confirms.
     const saved = addQuotation(buildPayload(status), {
-      onServer: (serverRecord) => {
+      onServer: async (serverRecord) => {
+        // The approval needs the server id, so it is requested once the save lands.
+        await requestDiscountApproval(serverRecord?.id);
         if (!stay && serverRecord?.id) navigate(`/sales/quotations/${serverRecord.id}`, { replace: true });
       },
     });
-    // Submit approval request if discount exceeds policy
-    if (isDiscountExceedsPolicy && discountReason.trim()) {
-      try {
-        await approvalService.createRequest({
-          document_type: 'discount_limit',
-          document_number: saved?.quotationNumber || saved?.id || 'QT-PENDING',
-          document_id: saved?.id,
-          reason: discountReason.trim(),
-          variance_pct: effectiveMaxDiscount,
-          variance_amount: Math.round(totals.docDisc * 100) / 100,
-          urgency: effectiveMaxDiscount > maxDiscountPct * 1.5 ? 'High' : 'Normal',
-        });
-      } catch (err) {
-        console.warn('Approval request could not be submitted:', err);
-      }
-    }
     if (!stay) {
       if (isBackendEnabled() && saved?.id && !isServerId(saved.id)) {
         navigate('/sales/quotations');
@@ -533,22 +540,7 @@ export default function QuotationComposerPage({ embedded = null } = {}) {
         const updated = await updateQuotation(id, buildPayload(keepStatus));
         const number = updated?.quoteNumber || updated?.quotationNumber || editQuote?.quoteNumber || '';
         showToast?.(`Quotation ${number} updated.`);
-        // Submit approval request if discount exceeds policy
-        if (isDiscountExceedsPolicy && discountReason.trim()) {
-          try {
-            await approvalService.createRequest({
-              document_type: 'discount_limit',
-              document_number: updated?.quotationNumber || updated?.id || 'QT-PENDING',
-              document_id: updated?.id,
-              reason: discountReason.trim(),
-              variance_pct: effectiveMaxDiscount,
-              variance_amount: Math.round(totals.docDisc * 100) / 100,
-              urgency: effectiveMaxDiscount > maxDiscountPct * 1.5 ? 'High' : 'Normal',
-            });
-          } catch (err) {
-            console.warn('Approval request could not be submitted:', err);
-          }
-        }
+        await requestDiscountApproval(updated?.id || id);
         finish();
         embedded.onDone(updated || null);
       } else {
@@ -559,22 +551,7 @@ export default function QuotationComposerPage({ embedded = null } = {}) {
             resolved = true;
             const number = serverRecord?.quoteNumber || serverRecord?.quotationNumber || saved?.quoteNumber || '';
             showToast?.(`Quotation ${number} generated.`);
-            // Submit approval request if discount exceeds policy
-            if (isDiscountExceedsPolicy && discountReason.trim()) {
-              try {
-                await approvalService.createRequest({
-                  document_type: 'discount_limit',
-                  document_number: serverRecord?.quotationNumber || serverRecord?.id || 'QT-PENDING',
-                  document_id: serverRecord?.id,
-                  reason: discountReason.trim(),
-                  variance_pct: effectiveMaxDiscount,
-                  variance_amount: Math.round(totals.docDisc * 100) / 100,
-                  urgency: effectiveMaxDiscount > maxDiscountPct * 1.5 ? 'High' : 'Normal',
-                });
-              } catch (err) {
-                console.warn('Approval request could not be submitted:', err);
-              }
-            }
+            await requestDiscountApproval(serverRecord?.id);
             finish();
             embedded.onDone(serverRecord || null);
           },
@@ -830,7 +807,14 @@ export default function QuotationComposerPage({ embedded = null } = {}) {
                           />
                         </td>
                         <td className="py-1.5 pr-2"><input type="number" min="0" step="any" value={line.rate} onChange={(e) => updateLine(line.key, { rate: e.target.value })} className={cellInput} /></td>
-                        <td className="py-1.5 pr-2"><input type="number" min="0" max="100" step="any" value={line.discPct} onChange={(e) => updateLine(line.key, { discPct: e.target.value })} className={cellInput} /></td>
+                        <td className="py-1.5 pr-2">
+                          <input type="number" min="0" max="100" step="any" value={line.discPct} onChange={(e) => updateLine(line.key, { discPct: e.target.value })} className={cellInput} />
+                          {lineApprover(line) && (
+                            <span className="mt-0.5 block whitespace-nowrap text-[10px] font-semibold text-amber-700" title="This line's discount is above your limit">
+                              Needs {lineApprover(line)}
+                            </span>
+                          )}
+                        </td>
                         <td className="py-1.5 pr-2">
                           <select value={line.gstPct} onChange={(e) => updateLine(line.key, { gstPct: e.target.value })} className={cellInput}>
                             {GST_RATES.map((g) => (<option key={g} value={g}>{g}</option>))}
@@ -1048,11 +1032,12 @@ export default function QuotationComposerPage({ embedded = null } = {}) {
             <AlertTriangle className="w-4 h-4 text-amber-600 mt-0.5 shrink-0" />
             <div>
               <p className="text-xs font-bold text-amber-800">
-                Discount Exceeds Approved Limit ({maxDiscountPct}%)
+                Needs approval by {discountApprover} (your limit is {maxDiscountPct}%)
               </p>
               <p className="text-[11px] text-amber-700 mt-0.5">
-                The discount on this quotation ({effectiveMaxDiscount}%) exceeds the policy limit. An approval request
-                will be sent to the Sales Manager when you submit. Please provide a justification below.
+                The discount on this quotation ({effectiveMaxDiscount}%) is above your limit. When you save, it goes
+                to the {discountApprover} in the approvals inbox, and it cannot be sent to the customer until approved.
+                Please give a reason below.
               </p>
             </div>
           </div>

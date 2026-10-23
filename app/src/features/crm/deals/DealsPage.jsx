@@ -43,6 +43,8 @@ import {
 import { loadDeals, buildDeal, EMPTY_DEAL_FORM, getInitialsFromName, getAvatarColorFromName } from '../../../services/dealService';
 import { useCrmStore } from '../../../stores/crmStore';
 import { useERP } from '../../../context/ERPContext';
+import { useAppStore } from '../../../stores/appStore';
+import { api } from '../../../services/api';
 
 // Fallback columns, used only until /crm/deal-stages/ answers. Once the
 // catalogue loads, the board is driven by DealStage rows in `sequence` order,
@@ -61,7 +63,7 @@ const GRID_CLASSES = [
 ];
 const PRODUCTS = ['All Products', 'Diamond Jewelry', 'Gold Ornaments', 'Silver Collection', 'Laser Machine', 'CNC Spindle', 'AMC Service'];
 const SOURCES = ['All Sources', 'Website', 'Referral', 'Walk-in', 'Trade Show', 'Social Media'];
-const USERS = ['All Users', 'Priya Patel', 'Jayesh Patel', 'Kavita Desai', 'Hetal Patel', 'Rohit Sharma', 'Amit Kumar', 'Utsav Faldu', 'Dr. Meera', 'Ankush Jain', 'Nikhil Patil', 'Mr. Kamlesh Dhumadiya'];
+// User list is loaded dynamically from /admin/users/
 
 const STAGE_STYLES = {
   Draft: {
@@ -412,6 +414,7 @@ export default function DealsPage() {
     setEditingDeal(null);
     setFormState({
       ...EMPTY_DEAL_FORM,
+      assignedUser: currentUser?.name || '',
       stage: stageName,
       date: new Date().toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }),
     });
@@ -537,7 +540,7 @@ export default function DealsPage() {
       product: deal.product || 'Diamond Jewelry',
       stage: deal.stage || 'Draft',
       source: deal.source || 'Website',
-      assignedUser: deal.assignedUser || 'Priya Patel',
+      assignedUser: deal.assignedUser || currentUser?.name || '',
       date: deal.date ?? '',
       tag: deal.tag || '',
     });
@@ -957,7 +960,7 @@ export default function DealsPage() {
                   onChange={(e) => setSelectedUser(e.target.value)}
                   className="w-full pl-9 pr-8 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-medium text-slate-700 appearance-none focus:outline-none focus:ring-2 focus:ring-blue-500"
                 >
-                  {USERS.map((u) => (
+                  {usersList.map((u) => (
                     <option key={u} value={u}>
                       {u}
                     </option>
@@ -1557,7 +1560,7 @@ export default function DealsPage() {
                   <input
                     type="text"
                     required
-                    placeholder="e.g. Priya Patel"
+                    placeholder="e.g. Acme Industries"
                     value={formState.client}
                     onChange={(e) => setFormState({ ...formState, client: e.target.value })}
                     className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 text-xs"
@@ -1642,7 +1645,7 @@ export default function DealsPage() {
                     onChange={(e) => setFormState({ ...formState, assignedUser: e.target.value })}
                     className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 text-xs font-medium"
                   >
-                    {USERS.filter((u) => u !== 'All Users').map((u) => (
+                    {usersList.filter((u) => u !== 'All Users').map((u) => (
                       <option key={u} value={u}>
                         {u}
                       </option>

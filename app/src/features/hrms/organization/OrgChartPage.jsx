@@ -37,7 +37,7 @@ function walk(nodes, depth = 0, out = []) {
 }
 
 function roleOf(person) {
-  return person.designation || 'Employee';
+  return person.designation || person.fullRole || person.role || 'Employee';
 }
 
 /** One person and, when expanded, everyone below them (any depth). */

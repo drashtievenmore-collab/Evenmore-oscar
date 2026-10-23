@@ -2566,7 +2566,7 @@ export default function HRAdminPage({ defaultTab }) {
                 <Sparkles size={15} className="text-purple-700 shrink-0" />
                 <span>
                   <b>Current Active Rollover Pool:</b>{" "}
-                  {Object.entries(carriedForwardLeaves || {}).map(([emp, d]) => `${emp}: ${d}d`).join(", ") || "Ayesha Khan: 6d, Priya Patel: 8d, Liam Cooper: 4d"}
+                  {Object.entries(carriedForwardLeaves || {}).map(([emp, d]) => `${emp}: ${d}d`).join(", ") || "Ayesha Khan: 6d, Employee: 8d, Liam Cooper: 4d"}
                 </span>
               </div>
               <span className="text-[11px] font-semibold text-purple-700 bg-white px-2 py-0.5 rounded-md border border-purple-200">

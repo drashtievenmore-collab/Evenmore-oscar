@@ -112,65 +112,73 @@ export function LocationsPage() {
       )}
 
       {/* Grid of Location Cards */}
-      <div className="grid md:grid-cols-2 gap-5">
-        {filtered.map((l) => (
-          <div
-            key={l.id}
-            className="bg-white border border-bdr rounded-xl p-5 shadow-xs hover:border-slate-400 transition-all flex flex-col justify-between"
-          >
-            <div>
-              <div className="flex justify-between items-start">
-                <div className="flex items-center gap-2.5">
-                  <div className="w-9 h-9 rounded-xl bg-off border border-bdr grid place-items-center text-navy shrink-0">
-                    <Building size={17} />
+      {loading ? (
+        <div className="py-16 text-center text-muted text-sm bg-white border border-bdr rounded-xl">
+          Loading locations…
+        </div>
+      ) : filtered.length === 0 ? (
+        <div className="py-16 text-center text-muted text-[13px] bg-white border border-bdr rounded-xl">
+          {q ? `No locations matching "${q}"` : 'No locations found. Add the first location to get started.'}
+        </div>
+      ) : (
+        <div className="grid md:grid-cols-2 gap-5">
+          {filtered.map((l) => (
+            <div
+              key={l.id}
+              className="bg-white border border-bdr rounded-xl p-5 shadow-xs hover:border-slate-400 transition-all flex flex-col justify-between"
+            >
+              <div>
+                <div className="flex justify-between items-start">
+                  <div className="flex items-center gap-2.5">
+                    <div className="w-9 h-9 rounded-xl bg-off border border-bdr grid place-items-center text-navy shrink-0">
+                      <Building size={17} />
+                    </div>
+                    <div>
+                      <h3 className="font-semibold text-[15px] text-slate-900">{l.name}</h3>
+                      <span className="px-2 py-0.5 rounded-full text-[11px] font-medium bg-off border border-bdr text-slate-600">
+                        {l.type}
+                      </span>
+                    </div>
                   </div>
-                  <div>
-                    <h3 className="font-semibold text-[15px] text-slate-900">{l.name}</h3>
-                    <span className="px-2 py-0.5 rounded-full text-[11px] font-medium bg-off border border-bdr text-slate-600">
-                      {l.type}
-                    </span>
+
+                  <div className="flex items-center gap-1">
+                    <button
+                      type="button"
+                      onClick={() => showToast(`Edit ${l.name}`)}
+                      className="w-8 h-8 rounded-lg border border-bdr hover:bg-off grid place-items-center text-muted transition-colors cursor-pointer"
+                      title="Edit"
+                    >
+                      <Edit2 size={14} />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleDelete(l.id, l.name)}
+                      className="w-8 h-8 rounded-lg border border-bdr hover:bg-red-50 text-muted hover:text-red-600 grid place-items-center transition-colors cursor-pointer"
+                      title="Delete"
+                    >
+                      <Trash2 size={14} />
+                    </button>
                   </div>
                 </div>
 
-                <div className="flex items-center gap-1">
-                  <button
-                    type="button"
-                    onClick={() => showToast(`Edit ${l.name}`)}
-                    className="w-8 h-8 rounded-lg border border-bdr hover:bg-off grid place-items-center text-muted transition-colors cursor-pointer"
-                    title="Edit"
-                  >
-                    <Edit2 size={14} />
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => handleDelete(l.id, l.name)}
-                    className="w-8 h-8 rounded-lg border border-bdr hover:bg-red-50 text-muted hover:text-red-600 grid place-items-center transition-colors cursor-pointer"
-                    title="Delete"
-                  >
-                    <Trash2 size={14} />
-                  </button>
+                <div className="text-[13px] text-muted flex items-start gap-1.5 mt-3.5">
+                  <MapPin size={15} className="shrink-0 mt-0.5 text-navy" />
+                  <span>{l.address}</span>
                 </div>
               </div>
 
-              <div className="text-[13px] text-muted flex items-start gap-1.5 mt-3.5">
-                <MapPin size={15} className="shrink-0 mt-0.5 text-navy" />
-                <span>{l.address || 'No address added'}</span>
-              </div>
-            </div>
-
-            <div className="flex flex-wrap gap-2 mt-4 pt-3 border-t border-bdr/60 text-[11px]">
-              {l.timezone && (
+              <div className="flex flex-wrap gap-2 mt-4 pt-3 border-t border-bdr/60 text-[11px]">
                 <span className="px-2.5 py-1 bg-off border border-bdr rounded-full text-slate-700 font-medium">
                   {l.timezone}
                 </span>
-              )}
-              <span className="px-2.5 py-1 bg-off border border-bdr rounded-full text-slate-700 font-medium">
-                {l.count} staff members
-              </span>
+                <span className="px-2.5 py-1 bg-off border border-bdr rounded-full text-slate-700 font-medium">
+                  {l.count || 0} staff members
+                </span>
+              </div>
             </div>
-          </div>
-        ))}
-      </div>
+          ))}
+        </div>
+      )}
 
       {/* Modal: Add Location */}
       <Modal isOpen={isModalOpen} onClose={() => setIsModalOpen(false)} title="Add Office Location">

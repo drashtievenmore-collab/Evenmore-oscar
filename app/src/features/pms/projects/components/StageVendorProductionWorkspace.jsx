@@ -52,12 +52,14 @@ export function StageVendorProductionWorkspace({
   const [instructions, setInstructions] = useState([]);
   const [entries, setEntries] = useState([]);
   const [jobWorkPos, setJobWorkPos] = useState([]);
+  const [agencies, setAgencies] = useState([]);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [submitting, setSubmitting] = useState(false);
 
   const [entryForm, setEntryForm] = useState({
     date: new Date().toISOString().split('T')[0],
     meters: '250',
+    agencyId: '',
     employeeName: 'Ramesh Patel (Weaving Incharge)',
     shift: 'Morning Shift',
     remarks: 'Loom #4 & Loom #5 running at 92% efficiency.',
@@ -66,10 +68,11 @@ export function StageVendorProductionWorkspace({
   const loadData = async () => {
     if (!projectId) return;
     try {
-      const [piRes, dailyRes, poRes] = await Promise.allSettled([
-        api.get('/pms/production-instructions/').catch(() => ({ data: [] })),
-        api.get('/pms/daily-production/').catch(() => ({ data: [] })),
-        api.get('/purchase/orders/').catch(() => ({ data: [] })),
+      const [piRes, dailyRes, poRes, agenciesRes] = await Promise.allSettled([
+        api.get('/production/instructions/', { query: { page_size: 200 } }),
+        api.get('/production/daily-entries/', { query: { page_size: 200 } }),
+        api.get('/purchase/orders/', { query: { page_size: 200 } }),
+        api.get('/masters/agencies/', { query: { page_size: 200 } }),
       ]);
 
       if (piRes.status === 'fulfilled' && piRes.value) {
@@ -83,6 +86,15 @@ export function StageVendorProductionWorkspace({
       if (poRes.status === 'fulfilled' && poRes.value) {
         const list = poRes.value?.data || poRes.value?.results || [];
         setJobWorkPos(Array.isArray(list) ? list : []);
+      }
+      if (agenciesRes.status === 'fulfilled' && agenciesRes.value) {
+        const list = Array.isArray(agenciesRes.value)
+          ? agenciesRes.value
+          : agenciesRes.value?.results || [];
+        setAgencies(list);
+        if (list.length > 0) {
+          setEntryForm((prev) => (prev.agencyId ? prev : { ...prev, agencyId: String(list[0].id) }));
+        }
       }
     } catch (err) {
       console.warn('Error loading vendor production workspace:', err);
@@ -107,29 +119,29 @@ export function StageVendorProductionWorkspace({
   const projectReq = Number(project?.requirementMeters || project?.quantity || 3000);
   const totalProduced = entries.reduce((s, e) => s + (Number(e.meters || e.producedQty) || 0), 0) || 1850;
   const pendingProduction = Math.max(0, projectReq - totalProduced);
+  const selectedAgency = agencies.find((a) => String(a.id) === String(entryForm.agencyId));
 
   const handleSaveTransaction = async (e) => {
     e.preventDefault();
     setSubmitting(true);
     try {
       if (stageName.includes('Daily Production')) {
-        await api.post('/pms/daily-production/', {
-          entryDate: entryForm.date,
+        const instructionId = instructions[0]?.id;
+        if (!instructionId) {
+          throw new Error('No production instruction is available. Create one before recording daily production.');
+        }
+        const agency = agencies.find((a) => String(a.id) === String(entryForm.agencyId));
+        await api.post('/production/daily-entries/', {
+          instructionId,
+          entry_date: entryForm.date,
           meters: Number(entryForm.meters),
-          employeeName: entryForm.employeeName,
-          remarks: `${entryForm.shift}: ${entryForm.remarks}`,
-        }).catch(() => null);
-        toast.success(`Recorded daily production of ${entryForm.meters} M for Vendor A.`);
-      } else if (stageName.includes('Instruction') || stageName.includes('Assign')) {
-        toast.success(`Production instruction and Vendor A assignment updated.`);
-      } else if (stageName.includes('Completion') || stageName.includes('Verification')) {
-        toast.success(`Vendor A production completion verified (${totalProduced} M verified).`);
-      } else if (stageName.includes('Final Job Work PO') || stageName.includes('Production / Job Work PO')) {
-        toast.success(`Final Job Work PO generated for Vendor A based on verified production.`);
-      } else if (stageName.includes('Bill Match')) {
-        toast.success(`Vendor A agency bill matched against verified production.`);
+          remarks: `${agency?.name || 'Unassigned agency'} — ${entryForm.shift}: ${entryForm.remarks}`,
+        });
+        toast.success(`Recorded daily production of ${entryForm.meters} M.`);
       } else {
-        toast.success(`Vendor A payment approval processed.`);
+        // The other stages are updated from the Production / Job Work modules;
+        // there is no endpoint behind this modal in this workspace.
+        throw new Error('This stage is updated from the Production module. No record was saved here.');
       }
 
       setIsModalOpen(false);
@@ -208,7 +220,7 @@ export function StageVendorProductionWorkspace({
 
           <div className="p-3 rounded-xl bg-slate-50/80 border border-slate-200/80">
             <span className="text-[11px] font-semibold text-slate-400 block">Assigned Vendor</span>
-            <span className="font-bold text-slate-800">Vendor A (Outsourced Unit #2)</span>
+            <span className="font-bold text-slate-800">{selectedAgency?.name || 'Not assigned'}</span>
           </div>
         </div>
 
@@ -354,6 +366,22 @@ export function StageVendorProductionWorkspace({
                     className="w-full border border-slate-300 rounded-lg p-2 bg-white text-slate-800 font-mono"
                   />
                 </div>
+              </div>
+
+              <div>
+                <label className="block font-semibold text-slate-700 mb-1">Agency / Unit</label>
+                <select
+                  value={entryForm.agencyId}
+                  onChange={(e) => setEntryForm({ ...entryForm, agencyId: e.target.value })}
+                  className="w-full border border-slate-300 rounded-lg p-2 bg-white text-slate-800"
+                >
+                  <option value="">Select an agency…</option>
+                  {agencies.map((agency) => (
+                    <option key={agency.id} value={agency.id}>
+                      {agency.name}
+                    </option>
+                  ))}
+                </select>
               </div>
 
               <div>

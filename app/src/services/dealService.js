@@ -39,7 +39,7 @@ export const EMPTY_DEAL_FORM = {
   product: 'Diamond Jewelry',
   stage: 'Draft',
   source: 'Website',
-  assignedUser: 'Priya Patel',
+  assignedUser: '',
   date: '15 Sep 2025',
   tag: '',
 };

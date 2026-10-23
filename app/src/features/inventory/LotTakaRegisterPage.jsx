@@ -618,6 +618,21 @@ export default function LotTakaRegisterPage({
     }
   }, [activeLotRecord, detailsTab, loadDrawerTraceability]);
 
+  // Lot cost ledger: every cost posting for the lot, including each
+  // reprocess round as its own line (PDF §08, §09).
+  const [lotCost, setLotCost] = useState(null);
+  const [lotCostError, setLotCostError] = useState(null);
+  useEffect(() => {
+    if (!activeLotRecord || detailsTab !== 'cost') return;
+    let active = true;
+    setLotCost(null);
+    setLotCostError(null);
+    inventoryService.getLotLandedCost(activeLotRecord.lotNo)
+      .then((res) => { if (active) setLotCost(res); })
+      .catch((err) => { if (active) setLotCostError(err?.message || 'Could not load the lot cost.'); });
+    return () => { active = false; };
+  }, [activeLotRecord, detailsTab]);
+
   // Add Lot Modal Form State
   const [addForm, setAddForm] = useState({
     itemId: '',
@@ -760,6 +775,30 @@ export default function LotTakaRegisterPage({
       setIsPipelineFilterActive(false);
       setSelectedPipelineGrn(null);
       setSearchParams({});
+    }
+  };
+
+  // Merge the selected takas into one processing batch (PDF §06).
+  const [mergeLotNumber, setMergeLotNumber] = useState('');
+  const [merging, setMerging] = useState(false);
+  const [mergeMessage, setMergeMessage] = useState('');
+  const handleMergeLots = async () => {
+    const ids = [...selectedRowIds];
+    if (ids.length < 2) return;
+    if (!window.confirm(`Merge ${ids.length} takas into one lot? Their full available quantity moves to the new lot.`)) return;
+    setMerging(true);
+    setMergeMessage('');
+    try {
+      const res = await inventoryService.mergeLots({ lotTakaIds: ids, lotNumber: mergeLotNumber.trim() || undefined });
+      setMergeMessage(res?.message || 'Lots merged.');
+      setSelectedRowIds(new Set());
+      setMergeLotNumber('');
+      fetchData(true);
+    } catch (err) {
+      const problems = err?.payload?.payload?.problems;
+      setMergeMessage(problems?.length ? problems.join(' ') : (err?.message || 'Could not merge the lots.'));
+    } finally {
+      setMerging(false);
     }
   };
 
@@ -1520,6 +1559,31 @@ export default function LotTakaRegisterPage({
             </div>
           ) : (
             <>
+              {selectedRowIds.size >= 2 && (
+                <div className="flex flex-wrap items-center gap-2 border-b border-slate-200 bg-blue-50 px-3 py-2 text-xs">
+                  <span className="font-semibold text-blue-900">{selectedRowIds.size} takas selected</span>
+                  <input
+                    type="text"
+                    value={mergeLotNumber}
+                    onChange={(e) => setMergeLotNumber(e.target.value)}
+                    placeholder="New lot no. (optional)"
+                    className="w-44 rounded border border-slate-300 px-2 py-1"
+                  />
+                  <button
+                    type="button"
+                    disabled={merging}
+                    onClick={handleMergeLots}
+                    className="rounded bg-blue-600 px-3 py-1 font-semibold text-white hover:bg-blue-700 disabled:opacity-50"
+                    title="Same item, same godown, available stock only"
+                  >
+                    {merging ? 'Merging…' : 'Merge lots'}
+                  </button>
+                  <button type="button" onClick={() => setSelectedRowIds(new Set())} className="text-slate-500 hover:underline">
+                    Clear
+                  </button>
+                  {mergeMessage && <span className="font-semibold text-slate-700">{mergeMessage}</span>}
+                </div>
+              )}
               <div className="overflow-x-auto">
                 <table className="w-full text-left text-xs border-collapse">
                   <thead>
@@ -1879,7 +1943,60 @@ export default function LotTakaRegisterPage({
                   >
                     Traceability
                   </button>
+                  <button
+                    onClick={() => setDetailsTab('cost')}
+                    className={`px-2.5 py-1 font-bold text-[11px] rounded-lg transition cursor-pointer ${
+                      detailsTab === 'cost'
+                        ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
+                        : 'text-slate-500 hover:text-slate-800'
+                    }`}
+                  >
+                    Cost
+                  </button>
                 </div>
+
+                {detailsTab === 'cost' && (
+                  <div className="space-y-2 text-[11px]">
+                    {lotCostError && <p className="font-semibold text-rose-600">{lotCostError}</p>}
+                    {!lotCost && !lotCostError && <p className="text-slate-500">Loading lot cost…</p>}
+                    {lotCost && (
+                      <>
+                        <div className="flex flex-wrap gap-4 rounded-lg border border-slate-200 bg-slate-50 p-2">
+                          <span>Total cost <b className="font-mono">₹{lotCost.totalCost}</b></span>
+                          <span>Good metres <b className="font-mono">{lotCost.goodFinishedMeters}</b></span>
+                          <span>Cost per good metre <b className="font-mono">₹{lotCost.costPerMeter}</b></span>
+                          <span>Reprocess <b className="font-mono">₹{lotCost.breakdown?.reprocess}</b></span>
+                        </div>
+                        <div className="overflow-hidden rounded-lg border border-slate-200">
+                          <table className="w-full text-left text-[10.5px]">
+                            <thead className="border-b border-slate-200 bg-slate-50 font-bold uppercase text-slate-600">
+                              <tr>
+                                <th className="px-2 py-2">Date</th>
+                                <th className="px-2 py-2">Cost type</th>
+                                <th className="px-2 py-2">Source</th>
+                                <th className="px-2 py-2 text-right">Metres</th>
+                                <th className="px-2 py-2 text-right">Amount</th>
+                              </tr>
+                            </thead>
+                            <tbody className="divide-y divide-slate-100">
+                              {(lotCost.entries || []).length === 0 ? (
+                                <tr><td colSpan={5} className="px-2 py-3 text-center text-slate-400">No costs posted to this lot yet.</td></tr>
+                              ) : lotCost.entries.map((e) => (
+                                <tr key={e.id} className={e.costType === 'Reprocess' ? 'bg-amber-50/60' : ''}>
+                                  <td className="px-2 py-1.5">{e.date || '-'}</td>
+                                  <td className="px-2 py-1.5 font-semibold">{e.costType}</td>
+                                  <td className="px-2 py-1.5">{e.sourceDocumentNumber || e.sourceDocumentType}{e.remarks ? ` — ${e.remarks}` : ''}</td>
+                                  <td className="px-2 py-1.5 text-right font-mono">{e.quantity}</td>
+                                  <td className="px-2 py-1.5 text-right font-mono">₹{e.amount}</td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      </>
+                    )}
+                  </div>
+                )}
 
                 {/* Tab 1: Stock Movement Table */}
                 {detailsTab === 'movements' && (

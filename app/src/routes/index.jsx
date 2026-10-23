@@ -2,6 +2,7 @@ import React, { lazy, Suspense } from 'react';
 import { createBrowserRouter, RouterProvider, Navigate, useRouteError } from 'react-router-dom';
 import MainLayout from '../components/layout/MainLayout';
 import RequireAuth from './RequireAuth';
+import RequirePermission from './RequirePermission';
 import { useAppStore } from '../stores/appStore';
 import { ErrorBoundary } from '../components/ui/ErrorBoundary';
 import { PageLoadingSkeleton } from '../components/common/PageLoadingSkeleton';
@@ -108,7 +109,6 @@ const HRAdminPage = lazy(() => import('../features/hrms/organization/SimplePages
 const EmployeePortal = lazy(() => import('../features/portal/EmployeePortal'));
 
 // ── ERP — Job Work / Processing (Lazy Loaded) ───────────────────
-const JobWorkSectionPage = lazy(() => import('../features/jobwork/JobWorkSectionPage'));
 const JobWorkOrdersPage = lazy(() => import('../features/jobwork/JobWorkOrdersPage'));
 const JobWorkOrderDetailPage = lazy(() => import('../features/jobwork/JobWorkOrderDetailPage'));
 const JobWorkOutwardPage = lazy(() => import('../features/jobwork/JobWorkOutwardPage'));
@@ -162,7 +162,6 @@ const ZoneRequestsPage = lazy(() => import('../features/inventory/ZoneRequestsPa
 const ValuationAgeingPage = lazy(() => import('../features/inventory/ValuationAgeingPage').then(m => ({ default: m.ValuationAgeingPage })));
 const MonthEndAuditPage = lazy(() => import('../features/inventory/MonthEndAuditPage').then(m => ({ default: m.MonthEndAuditPage })));
 const InventoryDashboardPage = lazy(() => import('../features/inventory/InventoryDashboardPage').then(m => ({ default: m.InventoryDashboardPage })));
-const GenericPage = lazy(() => import('../components/ui/GenericPage'));
 const FabricQualityPage = lazy(() => import('../features/inventory/masters/FabricQualityMasterPage'));
 const DesignMasterPage = lazy(() => import('../features/inventory/masters/textileMasterPages').then(m => ({ default: m.DesignMasterPage })));
 const ShadeMasterPage = lazy(() => import('../features/inventory/masters/ColourShadeMasterPage'));
@@ -190,6 +189,9 @@ const CashBankPage = lazy(() => import('../features/accounts/CashBankPage').then
 const GeneralLedgerPage = lazy(() => import('../features/accounts/GeneralLedgerPage').then(m => ({ default: m.GeneralLedgerPage })));
 const FinancialReportsPage = lazy(() => import('../features/accounts/FinancialReportsPage'));
 const DayBookPage = lazy(() => import('../features/accounts/DayBookPage'));
+const StandaloneNotesPage = lazy(() => import('../features/accounts/StandaloneNotesPage'));
+const LotProfitabilityPage = lazy(() => import('../features/inventory/LotProfitabilityPage'));
+const IncentiveSchemesPage = lazy(() => import('../features/pms/production/IncentiveSchemesPage'));
 
 // ── ERP — Reports & Settings (Lazy Loaded) ────────────────────
 const ReportsPage = lazy(() => import('../features/reports/ReportsPage').then(m => ({ default: m.ReportsPage })));
@@ -311,6 +313,11 @@ const router = createBrowserRouter([
         path: '/',
         element: <MainLayout />,
         children: [
+          // Every screen is wrapped by the same permission map the sidebar
+          // filters with, so a directly typed URL cannot bypass the menu.
+          {
+            element: <RequirePermission />,
+            children: [
           // Root redirect
           { index: true, element: <Navigate to="/dashboard" replace /> },
 
@@ -364,6 +371,9 @@ const router = createBrowserRouter([
       { path: 'pms/production-instructions', element: <Page component={PMSProductionInstructionsPage} /> },
       { path: 'pms/daily-production', element: <Page component={PMSDailyProductionPage} /> },
       { path: 'pms/production-completion', element: <Page component={PMSProductionCompletionPage} /> },
+      { path: 'production/incentives', element: <Page component={IncentiveSchemesPage} title="Incentive Schemes & Calcs" /> },
+      { path: 'pms/incentives', element: <Navigate to="/production/incentives" replace /> },
+      { path: 'hrms/incentives', element: <Navigate to="/production/incentives" replace /> },
 
       // ── Job Work / Processing ─────────────────────────
       { path: 'job-work/process-plan', element: <Page component={ProcessPlanListPage} /> },
@@ -458,6 +468,8 @@ const router = createBrowserRouter([
       { path: 'inventory/service-usage', element: <Page component={ServiceUsagePage} /> },
       { path: 'inventory/zone-requests', element: <Page component={ZoneRequestsPage} /> },
       { path: 'inventory/valuation', element: <Page component={ValuationAgeingPage} /> },
+      { path: 'inventory/lot-costing', element: <Page component={LotProfitabilityPage} title="Lot Costing & Profitability" /> },
+      { path: 'inventory/lot-profitability', element: <Navigate to="/inventory/lot-costing" replace /> },
       { path: 'inventory/audit', element: <Page component={MonthEndAuditPage} /> },
 
       // ── Legacy Root Aliases ───────────────────────────────
@@ -482,6 +494,7 @@ const router = createBrowserRouter([
       { path: 'accounts/day-book', element: <Page component={DayBookPage} title="Day Book & Position" /> },
       { path: 'accounts/cash-bank', element: <Page component={CashBankPage} /> },
       { path: 'accounts/general-ledger', element: <Page component={GeneralLedgerPage} /> },
+      { path: 'accounts/notes', element: <Page component={StandaloneNotesPage} title="Debit / Credit Notes" /> },
       { path: 'accounts/reports', element: <Page component={FinancialReportsPage} /> },
 
       // ── HRMS ──────────────────────────────────────────────
@@ -579,6 +592,8 @@ const router = createBrowserRouter([
 
       // ── Catch-all ─────────────────────────────────────────
       { path: '*', element: <Navigate to="/dashboard" replace /> },
+            ],
+          },
     ],
   },
     ],

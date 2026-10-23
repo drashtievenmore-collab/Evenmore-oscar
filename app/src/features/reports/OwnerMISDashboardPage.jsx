@@ -13,9 +13,10 @@ import {
   IndianRupee,
   AlertCircle,
   FileSpreadsheet,
+  Percent,
 } from 'lucide-react';
 import PageHeader from '../../components/ui/PageHeader';
-import { misService } from '../../services/domainServices';
+import { misService, salesService } from '../../services/domainServices';
 
 const inr = (val) =>
   val != null
@@ -43,6 +44,7 @@ export default function OwnerMISDashboardPage() {
   const [partyData, setPartyData] = useState([]);
   const [designData, setDesignData] = useState([]);
   const [ageingData, setAgeingData] = useState(null);
+  const [discountData, setDiscountData] = useState(null);
 
   // Filters
   const [startDate, setStartDate] = useState('');
@@ -58,12 +60,15 @@ export default function OwnerMISDashboardPage() {
       if (startDate) query.dateFrom = startDate;
       if (endDate) query.dateTo = endDate;
 
-      const [leakRes, partyRes, desRes, ageRes] = await Promise.all([
+      const [leakRes, partyRes, desRes, ageRes, discRes] = await Promise.all([
         misService.getAnnualCommercialLeakage(query),
         misService.getPartyProfitability(query),
         misService.getDesignColourAnalysis(query),
         misService.getStockAgeingMis(query),
+        salesService.getPartyDiscountAnnualReport({ year: startDate ? new Date(startDate).getFullYear() : undefined }),
       ]);
+      setDiscountData(discRes?.data || discRes);
+
 
       // The API returns `grossSales` / `items[]`; the cards and bars read
       // `leakageKpis` / `leakageComponents`.
@@ -173,6 +178,17 @@ export default function OwnerMISDashboardPage() {
         >
           <Layers className="w-4 h-4" />
           Fabric Design & Shade Margins
+        </button>
+        <button
+          onClick={() => setActiveTab('discounts')}
+          className={`pb-3 flex items-center gap-2 border-b-2 transition ${
+            activeTab === 'discounts'
+              ? 'border-indigo-600 text-indigo-600 font-bold'
+              : 'border-transparent text-slate-500 hover:text-slate-800'
+          }`}
+        >
+          <Percent className="w-4 h-4" />
+          Party Discounts Annual
         </button>
         <button
           onClick={() => setActiveTab('ageing')}
@@ -457,6 +473,72 @@ export default function OwnerMISDashboardPage() {
                 </div>
               </div>
             ))}
+          </div>
+        </div>
+      )}
+      {/* TAB 5: PARTY DISCOUNTS ANNUAL REPORT */}
+      {activeTab === 'discounts' && (
+        <div className="space-y-6">
+          <div className="flex items-center justify-between">
+            <h3 className="font-bold text-slate-800 text-sm">
+              Annual Customer Discount Concessions & Limit Adherence ({discountData?.year || new Date().getFullYear()})
+            </h3>
+            <span className="text-xs text-slate-500">
+              {discountData?.parties?.length || 0} parties analyzed
+            </span>
+          </div>
+
+          <div className="bg-white border border-slate-200 rounded-xl overflow-hidden shadow-xs">
+            <div className="overflow-x-auto">
+              <table className="w-full text-left border-collapse text-xs">
+                <thead>
+                  <tr className="bg-slate-50 text-slate-600 uppercase font-semibold text-[10.5px] border-b border-slate-200">
+                    <th className="py-3 px-4">Party Name</th>
+                    <th className="py-3 px-4 text-right">Gross Invoiced Sales</th>
+                    <th className="py-3 px-4 text-right">Total Discount Given</th>
+                    <th className="py-3 px-4 text-center">Effective Rate</th>
+                    <th className="py-3 px-4 text-center">Approved Policy Limit</th>
+                    <th className="py-3 px-4 text-center">Compliance</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {loading ? (
+                    <tr>
+                      <td colSpan={6} className="py-12 text-center text-slate-400">Loading discount report...</td>
+                    </tr>
+                  ) : !discountData?.parties || discountData.parties.length === 0 ? (
+                    <tr>
+                      <td colSpan={6} className="py-12 text-center text-slate-400">No discount data available for this year.</td>
+                    </tr>
+                  ) : (
+                    discountData.parties.map((row) => {
+                      const eff = parseFloat(row.effectiveDiscountPct || 0);
+                      const limit = parseFloat(row.defaultDiscountLimit || 0);
+                      const isExceeded = limit > 0 && eff > limit;
+
+                      return (
+                        <tr key={row.partyId} className="hover:bg-slate-50">
+                          <td className="py-3 px-4 font-semibold text-slate-800">{row.partyName}</td>
+                          <td className="py-3 px-4 text-right font-mono text-slate-700">{inr(row.grossSales)}</td>
+                          <td className="py-3 px-4 text-right font-mono font-bold text-rose-600">{inr(row.totalDiscount)}</td>
+                          <td className="py-3 px-4 text-center font-mono font-bold">{eff.toFixed(2)}%</td>
+                          <td className="py-3 px-4 text-center font-mono text-slate-500">{limit > 0 ? `${limit.toFixed(2)}%` : 'Standard'}</td>
+                          <td className="py-3 px-4 text-center">
+                            <span className={`inline-block px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                              isExceeded 
+                                ? 'bg-rose-50 text-rose-700 border border-rose-200' 
+                                : 'bg-emerald-50 text-emerald-700 border border-emerald-200'
+                            }`}>
+                              {isExceeded ? 'Exceeded Limit' : 'Within Policy'}
+                            </span>
+                          </td>
+                        </tr>
+                      );
+                    })
+                  )}
+                </tbody>
+              </table>
+            </div>
           </div>
         </div>
       )}

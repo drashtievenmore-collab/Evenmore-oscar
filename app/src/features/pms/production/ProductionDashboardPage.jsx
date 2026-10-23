@@ -151,6 +151,11 @@ export default function ProductionDashboardPage() {
         'Balance (m)',
         'Delayed',
         'Missing Today Update',
+        'Accepted (m)',
+        'Rejected (m)',
+        'Reprocess (m)',
+        'Reject %',
+        'Reprocess %',
       ];
       dataRows = rows.map((r) => [
         `"${r.agency || ''}"`,
@@ -163,6 +168,11 @@ export default function ProductionDashboardPage() {
         r.balanceMeters || 0,
         r.delayed || 0,
         r.missingTodayUpdate || 0,
+        r.acceptedMeters || 0,
+        r.rejectedMeters || 0,
+        r.reprocessMeters || 0,
+        r.rejectPct || 0,
+        r.reprocessPct || 0,
       ]);
     } else {
       headers = [
@@ -411,6 +421,7 @@ export default function ProductionDashboardPage() {
                   <th className="py-2.5 px-3 text-right">Cumulative</th>
                   <th className="py-2.5 px-3 text-right">Target Order</th>
                   <th className="py-2.5 px-3 text-right">Balance</th>
+                  <th className="py-2.5 px-3 text-right" title="Share of submitted production: accepted / rejected / sent for reprocess">Quality</th>
                   <th className="py-2.5 px-3 text-center">Delayed</th>
                   <th className="py-2.5 px-3 text-center">Today's Status</th>
                   <th className="py-2.5 px-3 text-right">Action</th>
@@ -419,13 +430,13 @@ export default function ProductionDashboardPage() {
               <tbody className="divide-y divide-slate-100">
                 {loading ? (
                   <tr>
-                    <td colSpan={9} className="py-8 text-center text-slate-400">
+                    <td colSpan={10} className="py-8 text-center text-slate-400">
                       Loading agency production data...
                     </td>
                   </tr>
                 ) : filteredAgencies.length === 0 ? (
                   <tr>
-                    <td colSpan={9} className="py-8 text-center text-slate-400">
+                    <td colSpan={10} className="py-8 text-center text-slate-400">
                       No matching agency records found.
                     </td>
                   </tr>
@@ -465,6 +476,17 @@ export default function ProductionDashboardPage() {
                         </td>
                         <td className="py-3 px-3 text-right font-semibold text-amber-600">
                           {fmtNum(row.balanceMeters)} m
+                        </td>
+                        <td className="py-3 px-3 text-right whitespace-nowrap text-[11px]">
+                          <div className="font-semibold text-emerald-700" title={`${fmtNum(row.acceptedMeters)} m accepted`}>
+                            {Number(row.acceptedPct || 0).toFixed(1)}% ok
+                          </div>
+                          <div className="text-rose-600" title={`${fmtNum(row.rejectedMeters)} m rejected`}>
+                            {Number(row.rejectPct || 0).toFixed(1)}% rej · {fmtNum(row.rejectedMeters)} m
+                          </div>
+                          <div className="text-purple-600" title={`${fmtNum(row.reprocessMeters)} m sent for reprocess`}>
+                            {Number(row.reprocessPct || 0).toFixed(1)}% rep · {fmtNum(row.reprocessMeters)} m
+                          </div>
                         </td>
                         <td className="py-3 px-3 text-center">
                           {isDelayed ? (

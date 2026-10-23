@@ -71,7 +71,7 @@ export function SupplierPaymentInlineSlide({ po, instruction, onClose, onPayment
 
       Promise.all(
         targetPoIds.map((tid) =>
-          api.get(`/accounts/purchase-bills/?purchase_order=${tid}`).catch(() => ({ results: [] }))
+          api.get('/purchase/bills/', { query: { purchaseOrderId: tid } }).catch(() => ({ results: [] }))
         )
       ).then((responses) => {
         if (!active) return;

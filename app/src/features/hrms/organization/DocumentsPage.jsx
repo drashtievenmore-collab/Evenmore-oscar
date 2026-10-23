@@ -1,4 +1,6 @@
-import { useState, useMemo, useRef } from "react";
+import { useState, useMemo, useRef, useEffect } from "react";
+import api from "../../../services/api";
+import { isBackendEnabled } from "../../../services/resourceSync";
 import { useAppStore } from "../../../stores/appStore";
 import { useDocumentStore } from "../../../stores/documentStore";
 import { useDocumentFileUrl, downloadDocumentFile } from "../../../hooks/useDocumentFile";
@@ -72,7 +74,7 @@ export function DocumentsPage() {
   const showToast = useAppStore((s) => s.showToast);
   const employees = useAppStore((s) => s.employees);
   const currentUser = useAppStore((s) => s.currentUser) || {
-    name: "Adarsh Gupta",
+    name: "System Admin",
     role: "Operations Admin",
     email: "admin@evenmore.io",
   };
@@ -95,13 +97,13 @@ export function DocumentsPage() {
 
   // Employee-wise tab state
   const [selectedEmpName, setSelectedEmpName] = useState(
-    employees[0]?.name || "Priya Patel"
+    employees[0]?.name || ""
   );
   const [empSearch, setEmpSearch] = useState("");
   const [empCategoryFilter, setEmpCategoryFilter] = useState("All");
 
   // My Documents user override
-  const [myDocUser, setMyDocUser] = useState(currentUser?.name || "Adarsh Gupta");
+  const [myDocUser, setMyDocUser] = useState(currentUser?.name || "");
   const [myDocCategoryFilter, setMyDocCategoryFilter] = useState("All");
 
   // Modals state
