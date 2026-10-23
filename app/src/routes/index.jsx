@@ -203,6 +203,7 @@ const RolesPage = lazy(() => import('../features/administration/RolesPage'));
 const ClientsPage = lazy(() => import('../features/administration/ClientsPage'));
 const ApprovalsInboxPage = lazy(() => import('../features/administration/ApprovalsInboxPage'));
 const AlertCenterPage = lazy(() => import('../features/administration/AlertCenterPage'));
+const AccountingLogPage = lazy(() => import('../features/accounts/AccountingLogPage'));
 const ITC04ReportPage = lazy(() => import('../features/jobwork/ITC04ReportPage'));
 
 // ── Main Dashboard (Lazy Loaded) ──────────────────────────────
@@ -495,6 +496,7 @@ const router = createBrowserRouter([
       { path: 'accounts/general-ledger', element: <Page component={GeneralLedgerPage} /> },
       { path: 'accounts/notes', element: <Page component={StandaloneNotesPage} title="Debit / Credit Notes" /> },
       { path: 'accounts/reports', element: <Page component={FinancialReportsPage} /> },
+      { path: 'accounts/accounting-log', element: <Page component={AccountingLogPage} title="Accounting Log" /> },
 
       // ── HRMS ──────────────────────────────────────────────
       { path: 'hrms', element: <Navigate to="/hrms/dashboard" replace /> },
@@ -579,6 +581,7 @@ const router = createBrowserRouter([
       { path: 'administration', element: <Navigate to="/administration/settings" replace /> },
       { path: 'administration/approvals', element: <Page component={ApprovalsInboxPage} title="Approvals Inbox" /> },
       { path: 'administration/alerts', element: <Page component={AlertCenterPage} title="Alert Center & Exceptions" /> },
+      { path: 'administration/accounting-log', element: <Navigate to="/accounts/accounting-log" replace /> },
       { path: 'administration/users', element: <Page component={UsersPage} /> },
       { path: 'administration/roles', element: <Page component={RolesPage} /> },
       { path: 'administration/clients', element: <Page component={ClientsPage} /> },
