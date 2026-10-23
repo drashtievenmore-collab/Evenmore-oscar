@@ -219,7 +219,6 @@ export const NAV = [
           { label: 'Production Instructions', icon: ClipboardList, to: '/pms/production-instructions' },
           { label: 'Daily Production', icon: CalendarCheck, to: '/pms/daily-production' },
           { label: 'Production Completion & Verification', icon: CheckCircle2, to: '/pms/production-completion' },
-          { label: 'Incentive Schemes & Calcs', icon: DollarSign, to: '/production/incentives' },
         ],
       },
       {
@@ -367,6 +366,9 @@ export const NAV = [
       { label: 'General Ledger', icon: FileText, to: '/accounts/general-ledger' },
       { label: 'Debit / Credit Notes', icon: Receipt, to: '/accounts/notes' },
       { label: 'Financial Reports', icon: PieChart, to: '/accounts/reports' },
+      // Ledger postings from payroll, incentive, brokerage, expenses, payments.
+      // Admin-only: needs view_audit_logs (Owner / Admin / System Admin).
+      { label: 'Accounting Log', icon: ClipboardList, to: '/accounts/accounting-log', permission: 'view_audit_logs' },
     ],
   },
 
