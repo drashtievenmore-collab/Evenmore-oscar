@@ -219,7 +219,6 @@ export const NAV = [
           { label: 'Production Instructions', icon: ClipboardList, to: '/pms/production-instructions' },
           { label: 'Daily Production', icon: CalendarCheck, to: '/pms/daily-production' },
           { label: 'Production Completion & Verification', icon: CheckCircle2, to: '/pms/production-completion' },
-          { label: 'Incentive Schemes & Calcs', icon: DollarSign, to: '/production/incentives' },
         ],
       },
       {

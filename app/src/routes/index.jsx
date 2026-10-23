@@ -191,7 +191,6 @@ const FinancialReportsPage = lazy(() => import('../features/accounts/FinancialRe
 const DayBookPage = lazy(() => import('../features/accounts/DayBookPage'));
 const StandaloneNotesPage = lazy(() => import('../features/accounts/StandaloneNotesPage'));
 const LotProfitabilityPage = lazy(() => import('../features/inventory/LotProfitabilityPage'));
-const IncentiveSchemesPage = lazy(() => import('../features/pms/production/IncentiveSchemesPage'));
 
 // ── ERP — Reports & Settings (Lazy Loaded) ────────────────────
 const ReportsPage = lazy(() => import('../features/reports/ReportsPage').then(m => ({ default: m.ReportsPage })));
@@ -371,9 +370,9 @@ const router = createBrowserRouter([
       { path: 'pms/production-instructions', element: <Page component={PMSProductionInstructionsPage} /> },
       { path: 'pms/daily-production', element: <Page component={PMSDailyProductionPage} /> },
       { path: 'pms/production-completion', element: <Page component={PMSProductionCompletionPage} /> },
-      { path: 'production/incentives', element: <Page component={IncentiveSchemesPage} title="Incentive Schemes & Calcs" /> },
-      { path: 'pms/incentives', element: <Navigate to="/production/incentives" replace /> },
-      { path: 'hrms/incentives', element: <Navigate to="/production/incentives" replace /> },
+      // Salesperson incentive lives in HRMS only; old links land there.
+      { path: 'production/incentives', element: <Navigate to="/hrms/incentives" replace /> },
+      { path: 'pms/incentives', element: <Navigate to="/hrms/incentives" replace /> },
 
       // ── Job Work / Processing ─────────────────────────
       { path: 'job-work/process-plan', element: <Page component={ProcessPlanListPage} /> },
