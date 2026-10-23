@@ -218,6 +218,7 @@ export const NAV = [
           { label: 'Production Instructions', icon: ClipboardList, to: '/pms/production-instructions' },
           { label: 'Daily Production', icon: CalendarCheck, to: '/pms/daily-production' },
           { label: 'Production Completion & Verification', icon: CheckCircle2, to: '/pms/production-completion' },
+          { label: 'Incentive Schemes & Calcs', icon: DollarSign, to: '/production/incentives' },
         ],
       },
       {
@@ -350,6 +351,7 @@ export const NAV = [
       { label: 'Transfers', icon: ArrowLeftRight, to: '/inventory/transfers' },
       { label: 'Godown / Rack', icon: Warehouse, to: '/inventory/locations' },
       { label: 'Valuation & Ageing', icon: TrendingUp, to: '/inventory/valuation' },
+      { label: 'Lot Costing & Profitability', icon: DollarSign, to: '/inventory/lot-costing' },
       { label: 'Month-End Audit', icon: CalendarCheck, to: '/inventory/audit' },
     ],
   },
@@ -362,6 +364,7 @@ export const NAV = [
       { label: 'Day Book & Position', icon: BookOpen, to: '/accounts/day-book' },
       { label: 'Cash / Bank', icon: Landmark, to: '/accounts/cash-bank' },
       { label: 'General Ledger', icon: FileText, to: '/accounts/general-ledger' },
+      { label: 'Debit / Credit Notes', icon: Receipt, to: '/accounts/notes' },
       { label: 'Financial Reports', icon: PieChart, to: '/accounts/reports' },
     ],
   },

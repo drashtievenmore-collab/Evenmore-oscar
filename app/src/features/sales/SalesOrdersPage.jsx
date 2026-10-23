@@ -4,7 +4,7 @@ import { DataTable } from '../../components/ui/DataTable';
 import { StatusBadge } from '../../components/ui/StatusBadge';
 import { StatCard } from '../../components/ui/StatCard';
 import { Button } from '../../components/ui/Button';
-import { Plus, ShoppingCart, CheckCircle, Truck, Receipt, X, ShieldAlert, Copy, Printer, DollarSign, Clock, CheckCircle2, Maximize2, Minimize2, FileSpreadsheet, Ban, Layers } from 'lucide-react';
+import { Boxes, Plus, ShoppingCart, CheckCircle, Truck, Receipt, X, ShieldAlert, Copy, Printer, DollarSign, Clock, CheckCircle2, Maximize2, Minimize2, FileSpreadsheet, Ban, Layers } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { LineItemEditor } from '../../components/common/LineItemEditor';
 import { DocumentTimeline } from '../../components/common/DocumentTimeline';
@@ -12,6 +12,7 @@ import { RelatedDocumentsCard } from '../../components/common/RelatedDocumentsCa
 import { AutoPOModal } from '../../components/common/AutoPOModal';
 import { PageHeader } from '../../components/common/PageHeader';
 import { PrintSalesOrderModal } from '../../components/common/PrintSalesOrderModal';
+import PickingListModal from './orders/PickingListModal';
 import SalespersonSelect from '../../components/common/SalespersonSelect';
 import { usePmsStore } from '../../stores/pmsStore';
 import { CreateProjectModal } from '../pms/projects/components/CreateProjectModal';
@@ -42,6 +43,7 @@ export const SalesOrdersPage = () => {
     const [showAddModal, setShowAddModal] = useState(false);
     const [isFullscreen, setIsFullscreen] = useState(false);
     const [selectedOrder, setSelectedOrder] = useState(null);
+    const [pickingListOrder, setPickingListOrder] = useState(null);
     const [printSalesOrderTarget, setPrintSalesOrderTarget] = useState(null);
     const [cancelModalTarget, setCancelModalTarget] = useState(null);
     const [selectedCustomerId, setSelectedCustomerId] = useState(customers[0]?.id || '');
@@ -349,6 +351,9 @@ export const SalesOrdersPage = () => {
             <button onClick={() => setPrintSalesOrderTarget(o)} className="p-1 text-muted hover:text-primary hover:bg-soft rounded-lg cursor-pointer transition-colors" title="Print Official Sales Order Confirmation">
               <Printer size={13}/>
             </button>
+            <button onClick={() => setPickingListOrder({ id: o.id, orderNumber: o.orderNumber })} className="p-1 text-muted hover:text-indigo-600 hover:bg-indigo-50 rounded-lg cursor-pointer transition-colors" title="Warehouse Picking List">
+              <Boxes size={13}/>
+            </button>
             <button onClick={() => handleCloneOrder(o)} className="p-1 text-muted hover:text-primary hover:bg-soft rounded-lg cursor-pointer transition-colors" title="Clone / Duplicate this Sales Order">
               <Copy size={13}/>
             </button>
@@ -649,6 +654,9 @@ export const SalesOrdersPage = () => {
               <div className="flex flex-wrap lg:flex-nowrap items-center gap-2">
                 {selectedOrder.stage !== 'Cancelled' && (
                   <>
+                    <Button variant="outline" onClick={() => setPickingListOrder({ id: selectedOrder.id, orderNumber: selectedOrder.orderNumber })}>
+                      <Boxes size={13} className="mr-1 text-indigo-600"/> Picking List
+                    </Button>
                     <Button variant="outline" onClick={() => { handleGenerateProforma(selectedOrder); setSelectedOrder(null); }}>
                       <FileSpreadsheet size={13} className="mr-1 text-blue-600"/> Generate Proforma
                     </Button>
@@ -720,6 +728,13 @@ export const SalesOrdersPage = () => {
       )}
 
       {/* Official Commercial Sales Order Confirmation PDF Voucher */}
+      {pickingListOrder && (
+        <PickingListModal
+          orderId={pickingListOrder.id}
+          orderNumber={pickingListOrder.orderNumber}
+          onClose={() => setPickingListOrder(null)}
+        />
+      )}
       <PrintSalesOrderModal
         isOpen={Boolean(printSalesOrderTarget)}
         onClose={() => setPrintSalesOrderTarget(null)}

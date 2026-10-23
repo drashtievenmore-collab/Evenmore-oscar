@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Search, CheckCircle2, Receipt, Eye, DollarSign, X, Zap, Printer, Clock, AlertCircle, FileText, Plus, Ban, Check, Edit, Lock, ShieldAlert, MapPin } from 'lucide-react';
 import { useERP } from '../../context/ERPContext';
+import { salesService } from '../../services/domainServices';
 import { StatCard } from '../../components/ui/StatCard';
 import { LineItemEditor } from '../../components/common/LineItemEditor';
 import { DocumentTimeline } from '../../components/common/DocumentTimeline';
@@ -67,6 +68,60 @@ export const SalesInvoicesView = ({ invoices = [], onCreateInvoice, searchTerm: 
     // Cancellation & Finalize modals
     const [cancelModalTarget, setCancelModalTarget] = useState(null);
     const [finalizeModalTarget, setFinalizeModalTarget] = useState(null);
+    // E-Invoice & E-Way Bill States (P9)
+    const [einvoiceLoading, setEinvoiceLoading] = useState(false);
+    const [einvoiceFeedback, setEinvoiceFeedback] = useState(null);
+    const [showCancelIrnModal, setShowCancelIrnModal] = useState(false);
+    const [cancelIrnRemarks, setCancelIrnRemarks] = useState('Data Entry Error');
+
+    const handleGenerateIrn = async () => {
+        if (!selectedInvoice?.id) return;
+        setEinvoiceLoading(true);
+        setEinvoiceFeedback(null);
+        try {
+            const res = await salesService.generateInvoiceIRN(selectedInvoice.id);
+            const updated = res?.data || res;
+            setSelectedInvoice(prev => ({ ...prev, ...updated, irn: updated.irn || prev.irn, ackNo: updated.ackNo || updated.ack_no || prev.ackNo, ackDate: updated.ackDate || updated.ack_date || prev.ackDate, einvoiceStatus: 'Generated' }));
+            setEinvoiceFeedback({ type: 'success', text: 'IRN generated successfully (Simulated NIC Sandbox).' });
+        } catch (err) {
+            setEinvoiceFeedback({ type: 'error', text: err?.response?.data?.message || err?.message || 'Failed to generate IRN.' });
+        } finally {
+            setEinvoiceLoading(false);
+        }
+    };
+
+    const handleConfirmCancelIrn = async () => {
+        if (!selectedInvoice?.id) return;
+        setEinvoiceLoading(true);
+        setEinvoiceFeedback(null);
+        try {
+            const res = await salesService.cancelInvoiceIRN(selectedInvoice.id, { reason: '1', remarks: cancelIrnRemarks });
+            const updated = res?.data || res;
+            setSelectedInvoice(prev => ({ ...prev, ...updated, einvoiceStatus: 'Cancelled' }));
+            setShowCancelIrnModal(false);
+            setEinvoiceFeedback({ type: 'success', text: 'IRN cancelled successfully.' });
+        } catch (err) {
+            setEinvoiceFeedback({ type: 'error', text: err?.response?.data?.message || err?.message || 'Failed to cancel IRN.' });
+        } finally {
+            setEinvoiceLoading(false);
+        }
+    };
+
+    const handleGenerateEwayBill = async () => {
+        if (!selectedInvoice?.id) return;
+        setEinvoiceLoading(true);
+        setEinvoiceFeedback(null);
+        try {
+            const res = await salesService.generateInvoiceEwayBill(selectedInvoice.id, { distanceKm: 100 });
+            const updated = res?.data || res;
+            setSelectedInvoice(prev => ({ ...prev, ...updated, ewayBillNumber: updated.ewayBillNumber || updated.eway_bill_number || prev.ewayBillNumber, ewayBillDate: updated.ewayBillDate || updated.eway_bill_date || prev.ewayBillDate }));
+            setEinvoiceFeedback({ type: 'success', text: 'E-Way Bill generated successfully (Simulated NIC Sandbox).' });
+        } catch (err) {
+            setEinvoiceFeedback({ type: 'error', text: err?.response?.data?.message || err?.message || 'Failed to generate E-Way Bill.' });
+        } finally {
+            setEinvoiceLoading(false);
+        }
+    };
     const [errorMessage, setErrorMessage] = useState('');
 
     // Payment Form state
@@ -966,6 +1021,141 @@ export const SalesInvoicesView = ({ invoices = [], onCreateInvoice, searchTerm: 
                                 </div>
                             </div>
 
+                            {/* E-INVOICE & E-WAY BILL PANEL (Simulated §2) */}
+                            <div className="bg-slate-50 p-3.5 rounded-xl border border-slate-200 text-xs space-y-3">
+                                <div className="flex flex-wrap items-center justify-between gap-2 pb-2 border-b border-slate-200">
+                                    <div className="flex items-center gap-2">
+                                        <Zap size={14} className="text-amber-600" />
+                                        <span className="font-bold text-slate-800 uppercase tracking-wide text-[11px]">
+                                            E-Invoice & E-Way Bill Integration
+                                        </span>
+                                        <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-100 text-amber-800 border border-amber-300">
+                                            Simulated (NIC Sandbox)
+                                        </span>
+                                    </div>
+                                    <div className="flex items-center gap-2">
+                                        {einvoiceLoading && (
+                                            <span className="text-slate-400 font-medium text-[11px]">Processing...</span>
+                                        )}
+                                    </div>
+                                </div>
+
+                                {einvoiceFeedback && (
+                                    <div className={`p-2.5 rounded-lg border text-xs flex items-center justify-between gap-2 ${
+                                        einvoiceFeedback.type === 'success' 
+                                            ? 'bg-emerald-50 border-emerald-200 text-emerald-800' 
+                                            : 'bg-rose-50 border-rose-200 text-rose-800'
+                                    }`}>
+                                        <span>{einvoiceFeedback.text}</span>
+                                        <button type="button" onClick={() => setEinvoiceFeedback(null)} className="p-0.5 hover:opacity-70"><X size={12} /></button>
+                                    </div>
+                                )}
+
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                                    {/* IRN Section */}
+                                    <div className="p-3 bg-white rounded-lg border border-slate-200 space-y-2">
+                                        <div className="flex items-center justify-between">
+                                            <span className="font-bold text-slate-700 text-[11px]">INVOICE REFERENCE NUMBER (IRN)</span>
+                                            <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
+                                                selectedInvoice.einvoiceStatus === 'Cancelled'
+                                                    ? 'bg-rose-100 text-rose-800'
+                                                    : (selectedInvoice.irn || selectedInvoice.einvoiceStatus === 'Generated')
+                                                        ? 'bg-emerald-100 text-emerald-800'
+                                                        : 'bg-slate-100 text-slate-600'
+                                            }`}>
+                                                {selectedInvoice.einvoiceStatus || (selectedInvoice.irn ? 'Generated' : 'Not Generated')}
+                                            </span>
+                                        </div>
+
+                                        {selectedInvoice.irn && selectedInvoice.einvoiceStatus !== 'Cancelled' ? (
+                                            <div className="space-y-1.5">
+                                                <p className="font-mono text-[10px] bg-slate-50 p-1.5 rounded border border-slate-200 break-all select-all text-slate-800">
+                                                    {selectedInvoice.irn}
+                                                </p>
+                                                <div className="flex justify-between text-[11px] text-slate-500">
+                                                    <span>Ack No: <strong className="text-slate-700 font-mono">{selectedInvoice.ackNo || selectedInvoice.ack_no || '—'}</strong></span>
+                                                    <span>Ack Date: <strong className="text-slate-700">{selectedInvoice.ackDate || selectedInvoice.ack_date ? new Date(selectedInvoice.ackDate || selectedInvoice.ack_date).toLocaleDateString() : '—'}</strong></span>
+                                                </div>
+                                                <div className="pt-1 flex justify-end">
+                                                    <button
+                                                        type="button"
+                                                        disabled={einvoiceLoading}
+                                                        onClick={() => setShowCancelIrnModal(true)}
+                                                        className="px-2.5 py-1 border border-rose-300 bg-rose-50 hover:bg-rose-100 text-rose-700 font-semibold rounded text-[11px] cursor-pointer"
+                                                    >
+                                                        Cancel IRN
+                                                    </button>
+                                                </div>
+                                            </div>
+                                        ) : (
+                                            <div className="space-y-2">
+                                                <p className="text-[11px] text-slate-500">
+                                                    {selectedInvoice.status === 'Draft' 
+                                                        ? 'Invoice must be finalized before generating IRN.' 
+                                                        : selectedInvoice.einvoiceStatus === 'Cancelled'
+                                                            ? 'This IRN has been cancelled.'
+                                                            : 'Generate statutory e-invoice QR code & 64-character IRN hash.'}
+                                                </p>
+                                                {selectedInvoice.status !== 'Draft' && selectedInvoice.einvoiceStatus !== 'Cancelled' && (
+                                                    <button
+                                                        type="button"
+                                                        disabled={einvoiceLoading}
+                                                        onClick={handleGenerateIrn}
+                                                        className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white font-bold rounded-lg text-[11px] shadow-xs cursor-pointer flex items-center gap-1.5"
+                                                    >
+                                                        <Zap size={12} /> Generate IRN (Simulated)
+                                                    </button>
+                                                )}
+                                            </div>
+                                        )}
+                                    </div>
+
+                                    {/* E-Way Bill Section */}
+                                    <div className="p-3 bg-white rounded-lg border border-slate-200 space-y-2">
+                                        <div className="flex items-center justify-between">
+                                            <span className="font-bold text-slate-700 text-[11px]">E-WAY BILL NUMBER</span>
+                                            <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
+                                                selectedInvoice.ewayBillNumber || selectedInvoice.eway_bill_number
+                                                    ? 'bg-indigo-100 text-indigo-800'
+                                                    : 'bg-slate-100 text-slate-600'
+                                            }`}>
+                                                {selectedInvoice.ewayBillNumber || selectedInvoice.eway_bill_number ? 'Generated' : 'Not Generated'}
+                                            </span>
+                                        </div>
+
+                                        {(selectedInvoice.ewayBillNumber || selectedInvoice.eway_bill_number) ? (
+                                            <div className="space-y-1.5">
+                                                <p className="font-mono text-sm font-bold text-indigo-900 bg-indigo-50/50 p-2 rounded border border-indigo-100">
+                                                    #{selectedInvoice.ewayBillNumber || selectedInvoice.eway_bill_number}
+                                                </p>
+                                                <div className="flex justify-between text-[11px] text-slate-500">
+                                                    <span>Generated: <strong className="text-slate-700">{selectedInvoice.ewayBillDate || selectedInvoice.eway_bill_date ? new Date(selectedInvoice.ewayBillDate || selectedInvoice.eway_bill_date).toLocaleDateString() : '—'}</strong></span>
+                                                    <span>Valid: <strong className="text-slate-700">{selectedInvoice.ewayBillValidUntil || selectedInvoice.eway_bill_valid_until ? new Date(selectedInvoice.ewayBillValidUntil || selectedInvoice.eway_bill_valid_until).toLocaleDateString() : 'Active'}</strong></span>
+                                                </div>
+                                            </div>
+                                        ) : (
+                                            <div className="space-y-2">
+                                                <p className="text-[11px] text-slate-500">
+                                                    {selectedInvoice.status === 'Draft' 
+                                                        ? 'Invoice must be finalized before generating E-Way Bill.' 
+                                                        : 'Generate statutory 12-digit E-Way Bill number for transport manifest.'}
+                                                </p>
+                                                {selectedInvoice.status !== 'Draft' && (
+                                                    <button
+                                                        type="button"
+                                                        disabled={einvoiceLoading}
+                                                        onClick={handleGenerateEwayBill}
+                                                        className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white font-bold rounded-lg text-[11px] shadow-xs cursor-pointer flex items-center gap-1.5"
+                                                    >
+                                                        <Zap size={12} /> Generate E-Way Bill (Simulated)
+                                                    </button>
+                                                )}
+                                            </div>
+                                        )}
+                                    </div>
+                                </div>
+                            </div>
+
                             {/* Related Docs */}
                             <RelatedDocumentsCard documents={getInvoiceRelatedDocs(selectedInvoice)}/>
 
@@ -1035,6 +1225,45 @@ export const SalesInvoicesView = ({ invoices = [], onCreateInvoice, searchTerm: 
                                     Close
                                 </button>
                             </div>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* CANCEL IRN MODAL */}
+            {showCancelIrnModal && (
+                <div className="fixed inset-0 z-60 bg-black/50 backdrop-blur-xs flex items-center justify-center p-3">
+                    <div className="bg-white rounded-2xl border border-slate-200 max-w-md w-full p-5 shadow-2xl text-xs space-y-3">
+                        <h3 className="font-bold text-base text-[#1F2E4A]">Cancel E-Invoice IRN?</h3>
+                        <p className="text-slate-600 text-xs">
+                            Statutory cancellation allows revoking this IRN within 24 hours of generation. Please confirm the reason:
+                        </p>
+                        <select
+                            value={cancelIrnRemarks}
+                            onChange={(e) => setCancelIrnRemarks(e.target.value)}
+                            className="w-full border border-slate-300 rounded-lg p-2 bg-white text-slate-800 text-xs"
+                        >
+                            <option value="Data Entry Error">1 - Data Entry Error</option>
+                            <option value="Duplicate Generation">2 - Duplicate Generation</option>
+                            <option value="Order Cancelled">3 - Order Cancelled</option>
+                            <option value="Other">4 - Other</option>
+                        </select>
+                        <div className="flex justify-end gap-2 pt-2 border-t border-slate-200">
+                            <button
+                                type="button"
+                                onClick={() => setShowCancelIrnModal(false)}
+                                className="px-3 py-1.5 border border-slate-300 hover:bg-slate-100 rounded-lg font-medium text-slate-700 cursor-pointer"
+                            >
+                                Back
+                            </button>
+                            <button
+                                type="button"
+                                disabled={einvoiceLoading}
+                                onClick={handleConfirmCancelIrn}
+                                className="px-4 py-1.5 bg-rose-600 hover:bg-rose-700 text-white font-bold rounded-lg cursor-pointer disabled:opacity-50"
+                            >
+                                {einvoiceLoading ? 'Cancelling...' : 'Confirm Cancel IRN'}
+                            </button>
                         </div>
                     </div>
                 </div>

@@ -123,6 +123,13 @@ export const crmService = {
   getDealDocuments: (dealId) => api.get(`/crm/deals/${dealId}/documents/`),
   addDealDocument: (dealId, data) => api.post(`/crm/deals/${dealId}/documents/`, data || {}),
   deleteDealDocument: (dealId, documentId) => api.delete(`/crm/deals/${dealId}/documents/${documentId}/`),
+  // Contracts actions
+  getContracts: (query) => api.get('/crm/contracts/', { query }),
+  getContract: (id) => api.get(`/crm/contracts/${id}/`),
+  createContract: (data) => api.post('/crm/contracts/', data),
+  updateContract: (id, data) => api.patch(`/crm/contracts/${id}/`, data),
+  printContract: (id) => api.get(`/crm/contracts/${id}/print/`),
+  sendContractForSignature: (id) => api.post(`/crm/contracts/${id}/send-for-signature/`),
 };
 
 // ── Sales pipeline ───────────────────────────────────────────────────────
@@ -346,6 +353,11 @@ export const inventoryService = {
   createZoneRequest: (data) => api.post('/inventory/zone-requests/', data),
   updateZoneRequest: (id, status) => api.patch(`/inventory/zone-requests/${id}/`, { status }),
   createMonthEndAudit: (data) => api.post('/inventory/audits/', data),
+  getAudits: (query) => api.get('/inventory/audits/', { query }),
+  getAudit: (id) => api.get(`/inventory/audits/${id}/`),
+  createAudit: (data) => api.post('/inventory/audits/', data),
+  updateAudit: (id, data) => api.patch(`/inventory/audits/${id}/`, data),
+  postAuditVariances: (id) => api.post(`/inventory/audits/${id}/post_variances/`),
   // Sampling (Phase 3.2)
   getSamples: (query) => api.get('/inventory/samples/', { query }),
   getSample: (id) => api.get(`/inventory/samples/${id}/`),
@@ -382,6 +394,8 @@ export const productionService = {
   getSalespersonDashboard: (query) => api.get('/production/dashboard/salesperson/', { query }),
   getInstructions: (query) => api.get('/production/instructions/', { query }),
   getDailyEntries: (query) => api.get('/production/daily-entries/', { query }),
+  getInstructionProgress: (id) => api.get(`/production/instructions/${id}/progress/`),
+  checkInstructionThreeWayMatch: (id, data) => api.post(`/production/instructions/${id}/three-way-match/`, data),
   // Salesperson Incentives (Phase 3.4) — served under /production/, not /pms/
   getIncentiveSchemes: (query) => api.get('/production/incentive-schemes/', { query }),
   createIncentiveScheme: (data) => api.post('/production/incentive-schemes/', data),
@@ -406,6 +420,12 @@ export const accountingService = {
   getDayBook: (query) => api.get('/accounts/reports/day-book/', { query }),
   getOverdueSummary: (query) => api.get('/accounts/reports/overdue-summary/', { query }),
   getSubLedgers: (query) => api.get('/accounts/reports/sub-ledgers/', { query }),
+  getGSTSummary: (query) => api.get('/accounts/reports/gst-summary/', { query }),
+  getARAPAgeing: (query) => api.get('/accounts/reports/ageing/', { query }),
+  getBudgets: (query) => api.get('/accounts/budgets/', { query }),
+  createBudget: (data) => api.post('/accounts/budgets/', data),
+  updateBudget: (id, data) => api.patch(`/accounts/budgets/${id}/`, data),
+  deleteBudget: (id) => api.delete(`/accounts/budgets/${id}/`),
   getTallyExportUrl: (type, dateFrom, dateTo) => tallyExportUrl(type, dateFrom, dateTo),
   getExcelExportUrl: (register, dateFrom, dateTo) => excelExportUrl(register, dateFrom, dateTo),
   downloadTallyExport: (type, dateFrom, dateTo) =>

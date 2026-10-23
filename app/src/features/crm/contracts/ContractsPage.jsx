@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import {
-  FileText, Plus, Search, Eye, Pencil, Download, Check,
+  FileText, Plus, Search, Eye, Pencil, Download, Check, Printer, Send,
   FileCheck2, Clock, AlertTriangle, XCircle, IndianRupee,
   ChevronLeft, ChevronRight,
 } from 'lucide-react';
@@ -9,6 +9,7 @@ import Modal from '../../../components/ui/Modal';
 import KpiCard from '../../../components/ui/KpiCard';
 import PageHeader from '../../../components/ui/PageHeader';
 import { loadDeals } from '../../../services/dealService';
+import { crmService } from '../../../services/domainServices';
 import {
   CONTRACT_TYPES,
   CONTRACT_TEMPLATES,
@@ -132,6 +133,21 @@ export default function ContractsPage() {
   const [form, setForm] = useState(EMPTY_FORM);
   const [busy, setBusy] = useState(false);
   const [formError, setFormError] = useState('');
+  const handlePrintContract = async (id) => {
+    try {
+      await crmService.printContract(id);
+    } catch {}
+    window.print();
+  };
+
+  const handleSendContract = async (id) => {
+    try {
+      await crmService.sendContractForSignature(id);
+      alert('Contract queued and sent for signature.');
+    } catch (err) {
+      alert(err?.response?.data?.message || err?.message || 'E-signature is not configured on this workspace.');
+    }
+  };
 
   function refresh() {
     try {
@@ -303,6 +319,10 @@ export default function ContractsPage() {
                           to={`/crm/contracts/${encodeURIComponent(contract.id)}`}><Eye size={14} /></Link>
                         <Link className="p-2 rounded-lg border border-slate-200 text-slate-500 hover:bg-slate-100" title="Edit"
                           to={`/crm/contracts/${encodeURIComponent(contract.id)}`}><Pencil size={14} /></Link>
+                        <button type="button" className="p-2 rounded-lg border border-slate-200 text-slate-500 hover:bg-slate-100" title="Print Contract"
+                          onClick={() => handlePrintContract(contract.id)}><Printer size={14} /></button>
+                        <button type="button" className="p-2 rounded-lg border border-slate-200 text-slate-500 hover:bg-slate-100" title="Send for Signature"
+                          onClick={() => handleSendContract(contract.id)}><Send size={14} /></button>
                         <button type="button" className="p-2 rounded-lg border border-slate-200 text-slate-500 hover:bg-slate-100" title="Download"
                           onClick={() => {
                             const text = `${contract.title || contract.contractNumber}\nContract: ${contract.contractNumber}\nCustomer: ${contract.customer}\nDeal: ${contract.dealNumber || contract.dealId}\nStatus: ${getContractDisplayStatus(contract)}\n\n${contract.terms || ''}`;

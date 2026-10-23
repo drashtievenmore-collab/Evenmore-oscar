@@ -188,6 +188,9 @@ const CashBankPage = lazy(() => import('../features/accounts/CashBankPage').then
 const GeneralLedgerPage = lazy(() => import('../features/accounts/GeneralLedgerPage').then(m => ({ default: m.GeneralLedgerPage })));
 const FinancialReportsPage = lazy(() => import('../features/accounts/FinancialReportsPage'));
 const DayBookPage = lazy(() => import('../features/accounts/DayBookPage'));
+const StandaloneNotesPage = lazy(() => import('../features/accounts/StandaloneNotesPage'));
+const LotProfitabilityPage = lazy(() => import('../features/inventory/LotProfitabilityPage'));
+const IncentiveSchemesPage = lazy(() => import('../features/pms/production/IncentiveSchemesPage'));
 
 // ── ERP — Reports & Settings (Lazy Loaded) ────────────────────
 const ReportsPage = lazy(() => import('../features/reports/ReportsPage').then(m => ({ default: m.ReportsPage })));
@@ -367,6 +370,9 @@ const router = createBrowserRouter([
       { path: 'pms/production-instructions', element: <Page component={PMSProductionInstructionsPage} /> },
       { path: 'pms/daily-production', element: <Page component={PMSDailyProductionPage} /> },
       { path: 'pms/production-completion', element: <Page component={PMSProductionCompletionPage} /> },
+      { path: 'production/incentives', element: <Page component={IncentiveSchemesPage} title="Incentive Schemes & Calcs" /> },
+      { path: 'pms/incentives', element: <Navigate to="/production/incentives" replace /> },
+      { path: 'hrms/incentives', element: <Navigate to="/production/incentives" replace /> },
 
       // ── Job Work / Processing ─────────────────────────
       { path: 'job-work/process-plan', element: <Page component={ProcessPlanListPage} /> },
@@ -461,6 +467,8 @@ const router = createBrowserRouter([
       { path: 'inventory/service-usage', element: <Page component={ServiceUsagePage} /> },
       { path: 'inventory/zone-requests', element: <Page component={ZoneRequestsPage} /> },
       { path: 'inventory/valuation', element: <Page component={ValuationAgeingPage} /> },
+      { path: 'inventory/lot-costing', element: <Page component={LotProfitabilityPage} title="Lot Costing & Profitability" /> },
+      { path: 'inventory/lot-profitability', element: <Navigate to="/inventory/lot-costing" replace /> },
       { path: 'inventory/audit', element: <Page component={MonthEndAuditPage} /> },
 
       // ── Legacy Root Aliases ───────────────────────────────
@@ -485,6 +493,7 @@ const router = createBrowserRouter([
       { path: 'accounts/day-book', element: <Page component={DayBookPage} title="Day Book & Position" /> },
       { path: 'accounts/cash-bank', element: <Page component={CashBankPage} /> },
       { path: 'accounts/general-ledger', element: <Page component={GeneralLedgerPage} /> },
+      { path: 'accounts/notes', element: <Page component={StandaloneNotesPage} title="Debit / Credit Notes" /> },
       { path: 'accounts/reports', element: <Page component={FinancialReportsPage} /> },
 
       // ── HRMS ──────────────────────────────────────────────
