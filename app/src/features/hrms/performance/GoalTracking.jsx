@@ -11,6 +11,7 @@ import { useAppStore } from "../../../stores/appStore";
 import { Eye, Pencil, Trash2 } from "lucide-react";
 import PageHeader from "../../../components/ui/PageHeader";
 import { hrmsGuides } from "../../../data/hrms/hrmsGuides";
+import MasterSourceLink from "../../../components/common/MasterSourceLink";
 export default function GoalTracking() {
   const { showToast, employees } = useAppStore();
   const [data, setData] = useState([]);
@@ -146,7 +147,10 @@ export default function GoalTracking() {
   function FormFields() {
     return <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
         <label className="flex flex-col gap-1">
-          <span className="text-[11px] font-medium text-muted">Employee *</span>
+          <span className="flex items-center justify-between">
+            <span className="text-[11px] font-medium text-muted">Employee *</span>
+            <MasterSourceLink source="employees" />
+          </span>
           <select
             value={form.employee}
             onChange={(e) => {

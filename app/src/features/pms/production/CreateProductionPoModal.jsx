@@ -1,6 +1,7 @@
 import React, { useMemo, useState } from 'react';
 import { ShoppingCart, X } from 'lucide-react';
 import { useERP } from '../../../context/ERPContext';
+import MasterSourceLink from '../../../components/common/MasterSourceLink';
 
 const todayISO = () => new Date().toISOString().slice(0, 10);
 const addDays = (iso, n) => {
@@ -86,14 +87,20 @@ export function CreateProductionPoModal({ project, defaultQty, onClose, onCreate
             Project: <strong className="text-slate-800">{project?.code || project?.name}</strong> · saved as Draft. After approval the Production Work Instruction is raised from this PO.
           </div>
           <label className="block">
-            <span className={label}>Vendor / Agency</span>
+            <span className="flex items-baseline justify-between">
+              <span className={label}>Vendor / Agency</span>
+              <MasterSourceLink source="vendors" />
+            </span>
             <select value={vendorId} onChange={(e) => setVendorId(e.target.value)} className={field}>
               <option value="">Select…</option>
               {vendors.map((v) => <option key={v.id} value={v.id}>{v.name}</option>)}
             </select>
           </label>
           <label className="block">
-            <span className={label}>Fabric Item</span>
+            <span className="flex items-baseline justify-between">
+              <span className={label}>Fabric Item</span>
+              <MasterSourceLink source="items" />
+            </span>
             <select value={itemId} onChange={(e) => setItemId(e.target.value)} className={field}>
               <option value="">Select…</option>
               {items.map((i) => <option key={i.id} value={i.id}>{i.name}{i.sku ? ` (${i.sku})` : ''}</option>)}

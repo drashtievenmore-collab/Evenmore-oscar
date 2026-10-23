@@ -13,6 +13,7 @@ function isPdf(file) {
 }
 import { Badge } from "../../../components/hrms/Badge";
 import Modal from "../../../components/ui/Modal";
+import MasterSourceLink from "../../../components/common/MasterSourceLink";
 import PageHeader from "../../../components/ui/PageHeader";
 import { hrmsGuides } from "../../../data/hrms/hrmsGuides";
 import { Avatar } from "../../../components/hrms/Avatar";
@@ -1455,9 +1456,12 @@ export function DocumentsPage() {
               </div>
 
               <div>
-                <label className="block text-[12px] font-semibold text-slate-700 mb-1">
-                  Assigned Scope / Employee
-                </label>
+                <div className="flex items-center justify-between mb-1">
+                  <label className="block text-[12px] font-semibold text-slate-700">
+                    Assigned Scope / Employee
+                  </label>
+                  <MasterSourceLink source="employees" />
+                </div>
                 <select
                   value={editDoc.employee}
                   onChange={(e) => setEditDoc({ ...editDoc, employee: e.target.value })}

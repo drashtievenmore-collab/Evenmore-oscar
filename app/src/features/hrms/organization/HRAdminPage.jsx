@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect } from "react";
 import { hrmsSync, isBackendEnabled, isServerId, pullHrmsSettings, pushHrmsSettings } from '../../../services/hrmsSync';
 import { Link, useSearchParams } from "react-router-dom";
+import MasterSourceLink from "../../../components/common/MasterSourceLink";
 import {
   ShieldCheck,
   Users,
@@ -2788,9 +2789,12 @@ export default function HRAdminPage({ defaultTab }) {
             <form onSubmit={handleCreateTermination} className="flex flex-col gap-4">
               {/* Quick Select Employee from Directory */}
               <div className="bg-slate-50 border border-slate-200 rounded-xl p-3 space-y-1.5">
-                <label className="block text-[11.5px] font-bold text-slate-700">
-                  Select Employee (Auto-fills from Staff Directory)
-                </label>
+                <div className="flex items-center justify-between">
+                  <label className="block text-[11.5px] font-bold text-slate-700">
+                    Select Employee (Auto-fills from Staff Directory)
+                  </label>
+                  <MasterSourceLink source="employees" />
+                </div>
                 <select
                   value={newTermination.employeeId || ""}
                   onChange={(e) => {
@@ -2962,9 +2966,12 @@ export default function HRAdminPage({ defaultTab }) {
             </div>
             <form onSubmit={handleCreateResignation} className="flex flex-col gap-4">
               <div className="bg-slate-50 border border-slate-200 rounded-xl p-3 space-y-1.5">
-                <label className="block text-[11.5px] font-bold text-slate-700">
-                  Select Employee (Auto-fills from Staff Directory)
-                </label>
+                <div className="flex items-center justify-between">
+                  <label className="block text-[11.5px] font-bold text-slate-700">
+                    Select Employee (Auto-fills from Staff Directory)
+                  </label>
+                  <MasterSourceLink source="employees" />
+                </div>
                 <select
                   value={newResignation.employeeId || ""}
                   onChange={(e) => {
@@ -3184,7 +3191,10 @@ export default function HRAdminPage({ defaultTab }) {
                 </div>
               </div>
               <div>
-                <label className="block text-[12px] font-semibold text-slate-700 mb-1.5">Assign Lead Investigator</label>
+                <div className="flex items-center justify-between mb-1.5">
+                  <label className="block text-[12px] font-semibold text-slate-700">Assign Lead Investigator</label>
+                  <MasterSourceLink source="employees" />
+                </div>
                 <select
                   value={newComplaint.assignedInvestigator}
                   onChange={(e) => setNewComplaint({ ...newComplaint, assignedInvestigator: e.target.value })}

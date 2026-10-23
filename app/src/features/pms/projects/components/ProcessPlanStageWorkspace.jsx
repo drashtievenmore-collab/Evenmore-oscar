@@ -37,6 +37,7 @@ import {
 import { getGreyStockAllocation } from '../../../../services/pmsSync';
 import { usePmsStore } from '../../../../stores/pmsStore';
 import { useJobWorkLookups } from '../../../jobwork/ProcessPlanListPage';
+import MasterSourceLink from '../../../../components/common/MasterSourceLink';
 
 const n = (v) => Number(v || 0).toLocaleString('en-IN', { maximumFractionDigits: 2 });
 const todayISO = () => new Date().toISOString().slice(0, 10);
@@ -899,9 +900,12 @@ export function ProcessPlanStageWorkspace({
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
             {/* 1. Processor / Vendor */}
             <div className="sm:col-span-2">
-              <label className="block font-bold text-slate-700 mb-1">
-                Processor / Vendor <span className="text-rose-500">*</span>
-              </label>
+              <div className="flex items-center justify-between mb-1">
+                <label className="block font-bold text-slate-700">
+                  Processor / Vendor <span className="text-rose-500">*</span>
+                </label>
+                <MasterSourceLink source="vendors" />
+              </div>
               <select
                 value={form.processor}
                 onChange={(e) => setForm((p) => ({ ...p, processor: e.target.value }))}
@@ -918,9 +922,12 @@ export function ProcessPlanStageWorkspace({
 
             {/* 2. Process Type */}
             <div>
-              <label className="block font-bold text-slate-700 mb-1">
-                Process Type <span className="text-rose-500">*</span>
-              </label>
+              <div className="flex items-center justify-between mb-1">
+                <label className="block font-bold text-slate-700">
+                  Process Type <span className="text-rose-500">*</span>
+                </label>
+                <MasterSourceLink source="processes" />
+              </div>
               <select
                 value={form.process}
                 onChange={handleProcessChange}
@@ -1008,9 +1015,12 @@ export function ProcessPlanStageWorkspace({
 
             {/* 7. Responsible Production Coordinator */}
             <div>
-              <label className="block font-bold text-slate-700 mb-1">
-                Production Coordinator
-              </label>
+              <div className="flex items-center justify-between mb-1">
+                <label className="block font-bold text-slate-700">
+                  Production Coordinator
+                </label>
+                <MasterSourceLink source="employees" />
+              </div>
               <select
                 value={form.assignedCoordinator}
                 onChange={(e) => setForm((p) => ({ ...p, assignedCoordinator: e.target.value }))}

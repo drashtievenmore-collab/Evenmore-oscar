@@ -1,10 +1,12 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { useERP } from "../../../context/ERPContext";
 import { useCrmStore } from '../../../stores/crmStore';
 import { loadForms, findForm, getActiveFormId, LEAD_FORM } from '../../../services/crmForms';
 import { defaultLeadFormSections, TEXTILE_FABRIC_OPTIONS, LEGACY_FABRIC_OPTIONS } from '../../../data/crm/leadFormSchema';
 import { matchKnownLeadField } from './leadColumns';
 import { CalendarDays, ChevronDown, Clock3, ImagePlus, Plus, X, Building2, ShieldCheck, Percent } from "lucide-react";
 import { salesService } from "../../../services/domainServices";
+import MasterSourceLink from "../../../components/common/MasterSourceLink";
 
 /** Shipped Lead Source options — only these are offered for new selection. */
 export const DEFAULT_LEAD_SOURCES = [
@@ -19,9 +21,11 @@ export const DEFAULT_LEAD_SOURCES = [
  * existing rows never render blank or lose data on save.
  */
 export function leadSourceOptions(sources, current) {
-  const rows = [...(sources || [])];
+  // Sources deactivated under CRM Setup -> Lead Sources are not offered for
+  // new selection (a lead already carrying one keeps it, see below).
+  const rows = (sources || []).filter((s) => s?.isActive !== false);
   for (const name of DEFAULT_LEAD_SOURCES) {
-    if (!rows.some((s) => String(s?.name ?? '').toLowerCase() === name.toLowerCase())) {
+    if (!(sources || []).some((s) => String(s?.name ?? '').toLowerCase() === name.toLowerCase())) {
       rows.push({ id: name, name });
     }
   }
@@ -46,7 +50,7 @@ function withFabricDefaults(sections) {
         && opts.length === LEGACY_FABRIC_OPTIONS.length
         && LEGACY_FABRIC_OPTIONS.every((o) => opts.includes(o));
       if (opts.length > 0 && !isLegacy) return field;
-      return { ...field, options: [...TEXTILE_FABRIC_OPTIONS] };
+      return { ...field, options: [] };
     }),
   }));
 }
@@ -219,6 +223,18 @@ function DropdownField({ field, sources, userOptions, value, onChange }) {
 function UserField({ field, userOptions, value, onChange }) {
   const isLeadUsers = field.id === "lead-users" || field.label?.toLowerCase().includes("lead users");
 
+  // Deduplicate users so duplicate roles do not cause duplicate dropdown entries
+  const uniqueUsers = useMemo(() => {
+    const seen = new Set();
+    return (userOptions || []).filter((m) => {
+      if (!m) return false;
+      const key = String(m.id || m.name || '').toLowerCase();
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+  }, [userOptions]);
+
   if (isLeadUsers) {
     // Multi-value user selector
     const selected = Array.isArray(value) ? value : [];
@@ -244,7 +260,7 @@ function UserField({ field, userOptions, value, onChange }) {
           style={{ flex: 1, minWidth: 120 }}
         >
           <option value="">{field.placeholder || "Select Users"}</option>
-          {userOptions.filter((m) => !selected.includes(m.name)).map((m) => (
+          {uniqueUsers.filter((m) => !selected.includes(m.name)).map((m) => (
             <option key={m.id} value={m.name}>{m.name}</option>
           ))}
         </select>
@@ -255,7 +271,7 @@ function UserField({ field, userOptions, value, onChange }) {
   return (
     <select value={value} onChange={(e) => onChange(e.target.value)}>
       <option value="">{field.placeholder || "Select User"}</option>
-      {userOptions.map((m) => (
+      {uniqueUsers.map((m) => (
         <option key={m.id} value={m.id}>{m.name}</option>
       ))}
     </select>
@@ -265,47 +281,174 @@ function UserField({ field, userOptions, value, onChange }) {
 function MultiSelectField({ field, value, onChange }) {
   const selected = Array.isArray(value) ? value : [];
   const isFabric = matchKnownLeadField(field)?.kind === 'products';
-  const options = Array.isArray(field.options) && field.options.length > 0
-    ? field.options
-    : isFabric
-      ? [...TEXTILE_FABRIC_OPTIONS]
-      : ["Option 1", "Option 2", "Option 3"];
+  const { items = [], fabrics = [] } = useERP() || {};
 
-  const toggle = (opt) =>
-    onChange(selected.includes(opt) ? selected.filter((o) => o !== opt) : [...selected, opt]);
+  // Real product/fabric data from ERP masters + any custom choices configured on field
+  const availableOptions = useMemo(() => {
+    const seen = new Set();
+    const result = [];
+    const add = (val) => {
+      const trimmed = String(val || '').trim();
+      if (!trimmed) return;
+      const lower = trimmed.toLowerCase();
+      if (!seen.has(lower)) {
+        seen.add(lower);
+        result.push(trimmed);
+      }
+    };
+
+    if (Array.isArray(field.options)) {
+      field.options.forEach(add);
+    }
+
+    if (isFabric) {
+      (fabrics || []).forEach((f) => add(f.name));
+      (items || []).forEach((i) => add(i.name));
+    }
+
+    selected.forEach(add);
+    return result;
+  }, [field.options, isFabric, fabrics, items, selected]);
+
+  const [isOpen, setIsOpen] = useState(false);
+  const [search, setSearch] = useState("");
+  const containerRef = useRef(null);
+  const inputRef = useRef(null);
+
+  useEffect(() => {
+    function handleClickOutside(e) {
+      if (containerRef.current && !containerRef.current.contains(e.target)) {
+        setIsOpen(false);
+      }
+    }
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
+
+  const toggleOption = (opt) => {
+    if (selected.includes(opt)) {
+      onChange(selected.filter((o) => o !== opt));
+    } else {
+      onChange([...selected, opt]);
+    }
+    setSearch("");
+  };
+
+  const removeOption = (e, opt) => {
+    e.stopPropagation();
+    onChange(selected.filter((o) => o !== opt));
+  };
+
+  const handleAddNew = () => {
+    const trimmed = search.trim();
+    if (!trimmed) return;
+    if (!selected.includes(trimmed)) {
+      onChange([...selected, trimmed]);
+    }
+    setSearch("");
+  };
+
+  const filteredOptions = availableOptions.filter((opt) =>
+    opt.toLowerCase().includes(search.toLowerCase())
+  );
+
+  const canAddNew = search.trim() && !availableOptions.some((o) => o.toLowerCase() === search.trim().toLowerCase());
 
   return (
-    <div className="multi-value-select">
-      <div className="token-field token-field-button">
-        <div className="token-field-values">
-          {selected.map((opt) => (
-            <span
-              key={opt}
-              className="token-chip"
-              onClick={() => toggle(opt)}
-              role="button"
-              tabIndex={0}
-              onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") toggle(opt); }}
-            >
-              {opt}<X size={12} />
-            </span>
-          ))}
-          {selected.length === 0 && <span className="token-placeholder">{field.placeholder || "Select options"}</span>}
-        </div>
-        <ChevronDown size={16} className="token-chevron" />
-      </div>
-      <div style={{ display: "flex", flexWrap: "wrap", gap: 4, marginTop: 4 }}>
-        {options.filter((o) => !selected.includes(o)).map((opt) => (
-          <button
-            key={opt}
-            type="button"
-            onClick={() => toggle(opt)}
-            style={{ fontSize: 11, padding: "2px 10px", border: "1px solid #e2e8f0", borderRadius: 99, background: "#f8fafc", cursor: "pointer" }}
+    <div className="relative w-full" ref={containerRef}>
+      <div
+        className={`min-h-[40px] w-full px-3 py-1.5 border rounded-lg bg-white flex flex-wrap items-center gap-1.5 cursor-pointer transition ${
+          isOpen ? 'border-blue-500 ring-2 ring-blue-100' : 'border-slate-300 hover:border-slate-400'
+        }`}
+        onClick={() => {
+          setIsOpen(true);
+          inputRef.current?.focus();
+        }}
+      >
+        {selected.map((item) => (
+          <span
+            key={item}
+            className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-50 text-blue-700 border border-blue-200"
           >
-            {opt}
-          </button>
+            {item}
+            <button
+              type="button"
+              onClick={(e) => removeOption(e, item)}
+              className="hover:text-blue-900 rounded-full focus:outline-none"
+            >
+              <X size={12} />
+            </button>
+          </span>
         ))}
+
+        <input
+          ref={inputRef}
+          type="text"
+          className="flex-1 min-w-[120px] text-xs bg-transparent border-none outline-none focus:ring-0 text-slate-800 placeholder-slate-400 p-0"
+          placeholder={selected.length === 0 ? (field.placeholder || "Search or type products...") : "Add more..."}
+          value={search}
+          onChange={(e) => {
+            setSearch(e.target.value);
+            if (!isOpen) setIsOpen(true);
+          }}
+          onFocus={() => setIsOpen(true)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') {
+              e.preventDefault();
+              if (canAddNew && filteredOptions.length === 0) {
+                handleAddNew();
+              } else if (filteredOptions.length > 0 && search.trim()) {
+                toggleOption(filteredOptions[0]);
+              } else if (canAddNew) {
+                handleAddNew();
+              }
+            } else if (e.key === 'Backspace' && !search && selected.length > 0) {
+              onChange(selected.slice(0, -1));
+            } else if (e.key === 'Escape') {
+              setIsOpen(false);
+            }
+          }}
+        />
+
+        <div className="ml-auto flex items-center pl-1 text-slate-400">
+          <ChevronDown size={16} className={`transition-transform duration-200 ${isOpen ? 'rotate-180' : ''}`} />
+        </div>
       </div>
+
+      {isOpen && (
+        <div className="absolute z-50 left-0 right-0 mt-1 max-h-60 overflow-y-auto bg-white border border-slate-200 rounded-lg shadow-lg py-1">
+          {canAddNew && (
+            <div
+              className="px-3 py-2 text-xs font-semibold text-blue-600 hover:bg-blue-50 cursor-pointer flex items-center gap-1.5 border-b border-slate-100"
+              onClick={handleAddNew}
+            >
+              <Plus size={14} /> Add &ldquo;{search.trim()}&rdquo; as new product
+            </div>
+          )}
+
+          {filteredOptions.length === 0 && !canAddNew ? (
+            <div className="px-3 py-3 text-xs text-slate-400 text-center">
+              No products found
+            </div>
+          ) : (
+            filteredOptions.map((opt) => {
+              const isSelected = selected.includes(opt);
+              return (
+                <div
+                  key={opt}
+                  className={`px-3 py-2 text-xs cursor-pointer flex items-center justify-between transition ${
+                    isSelected ? 'bg-blue-50 text-blue-800 font-medium' : 'text-slate-700 hover:bg-slate-50'
+                  }`}
+                  onClick={() => toggleOption(opt)}
+                >
+                  <span>{opt}</span>
+                  {isSelected && <span className="text-blue-600 text-xs font-bold">&#10003;</span>}
+                </div>
+              );
+            })
+          )}
+        </div>
+      )}
     </div>
   );
 }
@@ -447,9 +590,29 @@ export function DynamicField({ field, values, onChange, sources, userOptions }) 
     );
   }
 
+  // Master-backed fields get a "+ Add / Manage" link to where their options live.
+  const lowerLabel = String(field.label || "").toLowerCase();
+  const isSourceField = field.id === "lead-source" || lowerLabel.includes("source");
+  const isOwnerField = field.id === "lead-owner" || lowerLabel.includes("owner");
+  const masterSource =
+    field.type === "User" || (field.type === "Dropdown" && !isSourceField && isOwnerField)
+      ? "users"
+      : field.type === "Dropdown" && isSourceField
+        ? "leadSources"
+        : field.type === "Multi Select" && matchKnownLeadField(field)?.kind === "products"
+          ? "items"
+          : null;
+
   return (
     <label className={`lead-create-field${isWide ? " lead-create-field-wide" : ""}`}>
-      <span>{field.label}{field.required && " *"}</span>
+      {masterSource ? (
+        <span className="flex items-center justify-between gap-2">
+          <span>{field.label}{field.required && " *"}</span>
+          <MasterSourceLink source={masterSource} />
+        </span>
+      ) : (
+        <span>{field.label}{field.required && " *"}</span>
+      )}
       {inner}
       {field.helpText && <small className="lead-create-help">{field.helpText}</small>}
     </label>
@@ -627,9 +790,12 @@ export default function CreateLeadModal({ isOpen, onClose, onCreate, onEditLayou
                 </div>
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
                   <div>
-                    <label className="block text-xs font-semibold text-slate-700 mb-1">
-                      Select Broker <span className="text-rose-500">*</span>
-                    </label>
+                    <div className="flex items-center justify-between mb-1">
+                      <label className="block text-xs font-semibold text-slate-700">
+                        Select Broker <span className="text-rose-500">*</span>
+                      </label>
+                      <MasterSourceLink source="brokers" />
+                    </div>
                     <select
                       value={values.broker_id || ''}
                       onChange={(e) => {

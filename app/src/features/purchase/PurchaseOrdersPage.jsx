@@ -34,6 +34,7 @@ import PageHeader from '../../components/ui/PageHeader';
 import { api } from '../../services/api';
 import { fabricMasterSync } from '../../services/fabricMasterSync';
 import UomSelect from '../../components/common/UomSelect';
+import MasterSourceLink from '../../components/common/MasterSourceLink';
 import useUnits from '../../hooks/useUnits';
 import { formatQty, formatUnitTotals, sumByUnit, unitKey, resolveUnit } from '../../utils/uom';
 
@@ -1376,7 +1377,10 @@ export const PurchaseOrdersPage = () => {
               </div>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
-                  <label className="block font-semibold text-slate-700 mb-1">Vendor / Supplier *</label>
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="block font-semibold text-slate-700">Vendor / Supplier *</label>
+                    <MasterSourceLink source="vendors" />
+                  </div>
                   <select value={selectedVendorId} onChange={(e) => setSelectedVendorId(e.target.value)} className="w-full border border-slate-300 rounded-lg p-2 bg-white text-slate-800 font-medium">
                     {vendors.map((v) => (
                       <option key={v.id} value={v.id}>{v.name} ({v.code}) - Terms: {v.paymentTerms}</option>
@@ -1423,9 +1427,19 @@ export const PurchaseOrdersPage = () => {
                     <thead>
                       <tr className="bg-slate-50 border-b border-slate-200 text-[10.5px] font-bold uppercase tracking-wide text-slate-400">
                         <th className="px-3 py-2.5 w-10 text-center">#</th>
-                        <th className="px-3 py-2.5">Fabric *</th>
+                        <th className="px-3 py-2.5">
+                          <div className="flex items-center justify-between gap-2">
+                            <span>Fabric *</span>
+                            <MasterSourceLink source="fabricVariants" className="normal-case tracking-normal" />
+                          </div>
+                        </th>
                         <th className="px-3 py-2.5 text-center w-32">Order Qty *</th>
-                        <th className="px-3 py-2.5 w-28">UOM *</th>
+                        <th className="px-3 py-2.5 w-28">
+                          <div className="flex items-center justify-between gap-1">
+                            <span>UOM *</span>
+                            <MasterSourceLink source="uom" label="+ Manage" className="normal-case tracking-normal" />
+                          </div>
+                        </th>
                         <th className="px-3 py-2.5 text-right w-36">Rate (₹ / Unit) *</th>
                         <th className="px-3 py-2.5 text-right w-36">Amount (₹)</th>
                         <th className="w-12 px-2 py-2.5 text-center"></th>

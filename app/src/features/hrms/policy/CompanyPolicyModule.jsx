@@ -49,6 +49,7 @@ import { Badge } from "../../../components/hrms/Badge";
 import Modal from "../../../components/ui/Modal";
 import PageHeader from "../../../components/ui/PageHeader";
 import { hrmsGuides } from "../../../data/hrms/hrmsGuides";
+import MasterSourceLink from "../../../components/common/MasterSourceLink";
 
 // Category icon helper
 function getCategoryIcon(catName) {
@@ -1696,9 +1697,12 @@ export function CompanyPolicyModule({ forcedSection }) {
           {/* Category & Owner Dept */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
             <div>
-              <label className="block text-[12px] font-semibold text-slate-700 mb-1.5">
-                Category
-              </label>
+              <div className="flex items-center justify-between mb-1.5">
+                <label className="block text-[12px] font-semibold text-slate-700">
+                  Category
+                </label>
+                <MasterSourceLink source="policyCategories" />
+              </div>
               <select
                 value={formFields.category}
                 onChange={(e) => setFormFields({ ...formFields, category: e.target.value })}

@@ -31,9 +31,11 @@ import {
   Bell,
   History,
 } from 'lucide-react';
+import { SignatureSlot, useDocumentSignatures } from '../../components/common/SignatureSlot';
 import { inventoryService } from '../../services/domainServices';
 import { useERP } from '../../context/ERPContext';
 import PageInfoButton from '../../components/ui/PageInfoButton';
+import MasterSourceLink from '../../components/common/MasterSourceLink';
 
 // Indian Currency Helper
 function formatINR(val) {
@@ -267,6 +269,7 @@ export function StockPositionPage() {
   const [viewModalRecord, setViewModalRecord] = useState(null); // #12 View (Eye)
   const [returnModalRecord, setReturnModalRecord] = useState(null); // #13 Return (Arrow)
   const [printModalRecord, setPrintModalRecord] = useState(null); // #14 Print (Printer)
+  const sampleIssueSigs = useDocumentSignatures('SampleIssue', printModalRecord?.id || printModalRecord?.issueNo, `Sample Issue Slip ${printModalRecord?.issueNo || ''}`);
   const [historyModalRecord, setHistoryModalRecord] = useState(null); // View History Audit
   const [isSampleModalOpen, setIsSampleModalOpen] = useState(false); // #10 + Issue Sample
   const [isThresholdModalOpen, setIsThresholdModalOpen] = useState(false);
@@ -2210,13 +2213,18 @@ export function StockPositionPage() {
 
               {/* Signatures */}
               <div className="flex items-center justify-between pt-10 border-t border-slate-200 text-[10px] text-slate-400 font-semibold uppercase">
-                <div className="text-center">
-                  <div className="w-32 border-b border-slate-300 mb-1" />
-                  <span>Authorized Signatory</span>
+                <div className="text-center w-44 normal-case font-normal">
+                  <div className="border-b border-slate-300 mb-1 pb-1">
+                    <SignatureSlot doc={sampleIssueSigs} signatory="authorized" label="Authorized Signatory" modalType="authorized" className="h-10" />
+                  </div>
+                  <span className="uppercase font-semibold">Authorized Signatory</span>
                 </div>
-                <div className="text-center">
-                  <div className="w-32 border-b border-slate-300 mb-1" />
-                  <span>Receiver&apos;s Signature</span>
+                <div className="text-center w-44 normal-case font-normal">
+                  <div className="border-b border-slate-300 mb-1 pb-1">
+                    <SignatureSlot doc={sampleIssueSigs} signatory="receiver" label="Receiver's Signature" modalType="receiver" className="h-10"
+                      defaultName={printModalRecord.customer || ''} defaultDesignation="Receiver" />
+                  </div>
+                  <span className="uppercase font-semibold">Receiver&apos;s Signature</span>
                 </div>
               </div>
 
@@ -2419,9 +2427,12 @@ export function StockPositionPage() {
 
               {/* Customer selection */}
               <div>
-                <label className="block font-bold text-slate-700 mb-1">
-                  Customer / Recipient <span className="text-rose-500">*</span>
-                </label>
+                <div className="flex items-center justify-between mb-1">
+                  <label className="block font-bold text-slate-700">
+                    Customer / Recipient <span className="text-rose-500">*</span>
+                  </label>
+                  <MasterSourceLink source="customers" />
+                </div>
                 <div className="space-y-1">
                   <select
                     value={customers.some((c) => c.name === sampleForm.customer) ? sampleForm.customer : (sampleForm.customer ? '__other__' : '')}
@@ -2457,9 +2468,12 @@ export function StockPositionPage() {
 
               {/* Fabric Item Selection */}
               <div>
-                <label className="block font-bold text-slate-700 mb-1">
-                  Fabric Item / Variant <span className="text-rose-500">*</span>
-                </label>
+                <div className="flex items-center justify-between mb-1">
+                  <label className="block font-bold text-slate-700">
+                    Fabric Item / Variant <span className="text-rose-500">*</span>
+                  </label>
+                  <MasterSourceLink source="items" />
+                </div>
                 <select
                   required
                   value={sampleForm.itemId}
@@ -2570,7 +2584,10 @@ export function StockPositionPage() {
               {/* Source Godown & Expected Return Date */}
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="block font-bold text-slate-700 mb-1">Source Godown</label>
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="block font-bold text-slate-700">Source Godown</label>
+                    <MasterSourceLink source="godowns" />
+                  </div>
                   <select
                     value={sampleForm.locationId}
                     onChange={(e) => setSampleForm({ ...sampleForm, locationId: e.target.value })}

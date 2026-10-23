@@ -7,6 +7,7 @@ import { formatDeadline, formatAuditDate, STATUSES } from './taskAllocationStore
 import { useCrmStore } from '../../../../stores/crmStore';
 import { useAppStore } from '../../../../stores/appStore';
 import { describeError } from '../../../../services/crmSync';
+import MasterSourceLink from '../../../../components/common/MasterSourceLink';
 
 const LEAD_TASK_STATUSES = ['Open', 'In Progress', 'Waiting', 'Completed'];
 
@@ -211,7 +212,10 @@ export default function TaskAllocationDetailPage() {
           </div>
 
           <div className="bg-white rounded-xl border border-slate-200/70 shadow-sm p-6">
-            <h3 className="text-[13px] font-bold text-slate-900 mb-3">Reassign</h3>
+            <div className="flex items-center justify-between mb-3">
+              <h3 className="text-[13px] font-bold text-slate-900">Reassign</h3>
+              <MasterSourceLink source="users" />
+            </div>
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
               <select value={reassignTo} onChange={(e) => setReassignTo(e.target.value)} className="px-3.5 py-2.5 bg-white border border-slate-200 rounded-lg text-[13px] text-slate-700 focus:outline-none focus:border-blue-400">
                 <option value="">Select employee</option>

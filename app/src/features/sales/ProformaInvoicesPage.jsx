@@ -34,6 +34,7 @@ import {
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { LineItemEditor } from '../../components/common/LineItemEditor';
+import MasterSourceLink from '../../components/common/MasterSourceLink';
 import { PageHeader } from '../../components/common/PageHeader';
 import { PrintProformaInvoiceModal } from '../../components/common/PrintProformaInvoiceModal';
 
@@ -658,7 +659,10 @@ export const ProformaInvoicesPage = () => {
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                 {/* Customer Account */}
                 <div>
-                  <label className="font-semibold text-slate-700 block mb-1">Customer Account *</label>
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="font-semibold text-slate-700 block">Customer Account *</label>
+                    <MasterSourceLink source="customers" />
+                  </div>
                   <select
                     required
                     value={selectedCustomerId}

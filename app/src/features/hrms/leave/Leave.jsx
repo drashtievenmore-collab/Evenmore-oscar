@@ -7,6 +7,7 @@ import Modal from "../../../components/ui/Modal";
 import PageHeader from "../../../components/ui/PageHeader";
 import { hrmsGuides } from "../../../data/hrms/hrmsGuides";
 import { Avatar } from "../../../components/hrms/Avatar";
+import MasterSourceLink from "../../../components/common/MasterSourceLink";
 import {
   Calendar,
   Search,
@@ -440,7 +441,10 @@ export default function Leave() {
 
           <div className="space-y-3.5">
             <div>
-              <label className="text-[12px] font-semibold text-slate-700 block mb-1">Applying Employee</label>
+              <div className="flex items-center justify-between mb-1">
+                <label className="text-[12px] font-semibold text-slate-700 block">Applying Employee</label>
+                <MasterSourceLink source="employees" />
+              </div>
               <select
                 value={form.employeeName}
                 onChange={(e) => setForm({ ...form, employeeName: e.target.value })}
@@ -1131,7 +1135,10 @@ export default function Leave() {
       >
         <div style={{ display: "grid", gap: 14 }}>
           <div className="form-group">
-            <label className="form-label">Applying Employee</label>
+            <div className="flex items-center justify-between">
+              <label className="form-label">Applying Employee</label>
+              <MasterSourceLink source="employees" />
+            </div>
             <select
               className="form-select"
               value={form.employeeName}
@@ -1191,7 +1198,10 @@ export default function Leave() {
           )}
 
           <div className="form-group">
-            <label className="form-label">Assign Work Delegate</label>
+            <div className="flex items-center justify-between">
+              <label className="form-label">Assign Work Delegate</label>
+              <MasterSourceLink source="employees" />
+            </div>
             <select
               className="form-select"
               value={form.delegate}
@@ -1367,7 +1377,10 @@ export default function Leave() {
       >
         <div style={{ display: "grid", gap: 14 }}>
           <div className="form-group">
-            <label className="form-label">Employee</label>
+            <div className="flex items-center justify-between">
+              <label className="form-label">Employee</label>
+              <MasterSourceLink source="employees" />
+            </div>
             <select
               className="form-select"
               value={encashForm.employeeName}
@@ -1465,7 +1478,10 @@ export default function Leave() {
       >
         <div style={{ display: "grid", gap: 14 }}>
           <div className="form-group">
-            <label className="form-label">Employee</label>
+            <div className="flex items-center justify-between">
+              <label className="form-label">Employee</label>
+              <MasterSourceLink source="employees" />
+            </div>
             <select
               className="form-select"
               value={compOffForm.employeeName}

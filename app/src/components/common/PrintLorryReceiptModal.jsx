@@ -1,8 +1,31 @@
 import React, { useEffect, useState } from 'react';
-import { Printer, Truck, X } from 'lucide-react';
+import { PenTool, Printer, ShieldCheck, Truck, X } from 'lucide-react';
 import { useERP } from '../../context/ERPContext';
 import { api } from '../../services/api';
+import DigitalSignatureModal from './DigitalSignatureModal';
 import { dash, fmtDate, fmtMoney, fmtNum, fmtAddress } from './printDocUtils';
+
+const SIGNATORIES = [
+  { key: 'consignor', label: 'Consignor (sign)', modalType: 'authorized', designation: 'Consignor — Authorized Signatory' },
+  { key: 'driver', label: 'Driver / Transporter (sign)', modalType: 'receiver', designation: 'Driver / Transporter' },
+  { key: 'consignee', label: 'Consignee (receipt stamp & sign)', modalType: 'receiver', designation: 'Consignee — Received in good condition' },
+];
+
+/** A saved e-signature as it appears on the printed LR. */
+function SignatureMark({ sig }) {
+  return (
+    <div className="h-14 flex flex-col items-center justify-end">
+      {sig.type === 'digital_stamp' ? (
+        <div className="border border-emerald-600 text-emerald-800 rounded px-2 py-0.5 text-[9px] leading-tight">
+          <div className="flex items-center justify-center gap-1 font-bold"><ShieldCheck size={10} /> E-SIGNED</div>
+          <div className="font-bold text-[10px]">{sig.name}</div>
+        </div>
+      ) : (
+        <img src={sig.signatureData} alt={`Signature of ${sig.name}`} className="max-h-12 max-w-[160px] object-contain" />
+      )}
+    </div>
+  );
+}
 
 const TRIP_TYPE_LABEL = {
   JOBWORK_OUT: 'Job Work Outward',
@@ -23,6 +46,27 @@ export function PrintLorryReceiptModal({ isOpen, onClose, tripId }) {
   const [trip, setTrip] = useState(null);
   const [transporter, setTransporter] = useState(null);
   const [error, setError] = useState('');
+  const [signing, setSigning] = useState(null); // signatory key whose pad is open
+  const [savingSig, setSavingSig] = useState(false);
+
+  const saveSignature = async (key, signature) => {
+    setSavingSig(true);
+    try {
+      const updated = await api.post(`/inventory/trips/${tripId}/sign/`, { signatoryType: key, signature });
+      setTrip((prev) => ({ ...prev, signatures: updated?.signatures || {} }));
+    } finally {
+      setSavingSig(false);
+    }
+  };
+
+  const clearSignature = async (key) => {
+    if (!window.confirm('Remove this signature?')) return;
+    try {
+      await saveSignature(key, null);
+    } catch (err) {
+      setError(err?.message || 'Could not remove the signature.');
+    }
+  };
 
   useEffect(() => {
     if (!isOpen || !tripId) return undefined;
@@ -132,7 +176,7 @@ export function PrintLorryReceiptModal({ isOpen, onClose, tripId }) {
                   {materials.map((m, i) => (
                     <tr key={m.id || i}>
                       <td className={`${cell} text-center`}>{i + 1}</td>
-                      <td className={cell}>{dash(m.itemName)}</td>
+                      <td className={cell}>{m.itemName || (m.lotNumber ? `Fabric roll — Lot ${m.lotNumber}` : '—')}</td>
                       <td className={`${cell} font-mono text-center`}>{[m.lotNumber, m.takaNumber].filter(Boolean).join(' / ') || '—'}</td>
                       <td className={`${cell} text-center`}>1 roll</td>
                       <td className={`${cell} text-right font-mono`}>{fmtNum(m.quantity)}</td>
@@ -163,16 +207,52 @@ export function PrintLorryReceiptModal({ isOpen, onClose, tripId }) {
               </div>
               {trip.remarks && <div className="border border-slate-400 p-2">Remarks: {trip.remarks}</div>}
 
-              <div className="grid grid-cols-3 gap-6 pt-10 text-center">
-                <div className="border-t border-slate-500 pt-1">Consignor (sign)</div>
-                <div className="border-t border-slate-500 pt-1">Driver / Transporter (sign)</div>
-                <div className="border-t border-slate-500 pt-1">Consignee (receipt stamp &amp; sign)</div>
+              <div className="grid grid-cols-3 gap-6 pt-4 text-center">
+                {SIGNATORIES.map(({ key, label }) => {
+                  const sig = trip.signatures?.[key];
+                  return (
+                    <div key={key}>
+                      {sig ? <SignatureMark sig={sig} /> : (
+                        <div className="h-14 flex items-end justify-center pb-1 no-print">
+                          <button type="button" onClick={() => setSigning(key)}
+                            className="px-2.5 py-1 rounded border border-dashed border-blue-400 text-blue-700 hover:bg-blue-50 text-[10px] font-bold inline-flex items-center gap-1">
+                            <PenTool size={11} /> Sign digitally
+                          </button>
+                        </div>
+                      )}
+                      {!sig && <div className="h-14 hidden print:block" />}
+                      <div className="border-t border-slate-500 pt-1">{label}</div>
+                      {sig && (
+                        <div className="text-[9px] text-slate-500 leading-tight">
+                          {sig.name}{sig.designation ? `, ${sig.designation}` : ''}
+                          <br />{sig.signedAt ? new Date(sig.signedAt).toLocaleString('en-IN') : ''}
+                          <button type="button" onClick={() => clearSignature(key)} className="ml-1 text-rose-600 hover:underline no-print">remove</button>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
               </div>
               <div className="text-[9px] text-slate-500 text-center">Company copy of the consignment; the LR number is issued by the transporter.</div>
             </div>
           </div>
         )}
       </div>
+      {signing && (() => {
+        const s = SIGNATORIES.find((x) => x.key === signing);
+        return (
+          <DigitalSignatureModal
+            isOpen
+            onClose={() => setSigning(null)}
+            signatoryType={s.modalType}
+            documentTitle={`Lorry Receipt ${trip?.lrNumber || trip?.tripNumber || ''} — ${s.label}`}
+            defaultName={s.key === 'driver' ? (trip?.driverName || '') : s.key === 'consignor' ? (companyProfile?.name || '') : ''}
+            defaultDesignation={s.designation}
+            onSave={(sig) => saveSignature(s.key, sig)}
+            isSaving={savingSig}
+          />
+        );
+      })()}
     </div>
   );
 }

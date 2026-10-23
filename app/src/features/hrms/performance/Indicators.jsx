@@ -10,6 +10,7 @@ import { Button } from "../../../components/hrms/Button";
 import { Eye, Pencil, Trash2, Star, Target, Sliders, Layers } from "lucide-react";
 import PageHeader from "../../../components/ui/PageHeader";
 import { hrmsGuides } from "../../../data/hrms/hrmsGuides";
+import MasterSourceLink from "../../../components/common/MasterSourceLink";
 
 export default function Indicators() {
   const showToast = useAppStore((s) => s.showToast);
@@ -320,7 +321,10 @@ export default function Indicators() {
         </label>
 
         <label className="flex flex-col gap-1">
-          <span className="text-[11px] font-medium text-slate-500">Employee Assignment</span>
+          <span className="flex items-center justify-between">
+            <span className="text-[11px] font-medium text-slate-500">Employee Assignment</span>
+            <MasterSourceLink source="employees" />
+          </span>
           <select
             value={form.assignedEmployee}
             onChange={(e) => setForm({ ...form, assignedEmployee: e.target.value })}

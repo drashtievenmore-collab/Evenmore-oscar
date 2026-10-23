@@ -4,6 +4,7 @@ import { Modal } from '../../../../components/ui/Modal';
 import { Button } from '../../../../components/ui/Button';
 import { usePmsStore } from '../../../../stores/pmsStore';
 import { PMS_DURATION_UNITS } from '../../../../services/pmsSync';
+import MasterSourceLink from '../../../../components/common/MasterSourceLink';
 
 const fieldClass =
   'w-full text-xs rounded-lg border border-[#dce5f4] bg-white px-3 py-2 text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-100 focus:border-blue-400';
@@ -164,9 +165,12 @@ export function AddDynamicStageModal({ isOpen, onClose, project, onAdded }) {
         {/* Optional template quick-pick */}
         {stageConfigs.length > 0 && (
           <div>
-            <label className={labelClass} htmlFor="pms-dyn-template">
-              Pick from Template (Optional)
-            </label>
+            <div className="flex items-center justify-between mb-1.5">
+              <label className={labelClass + ' mb-0'} htmlFor="pms-dyn-template">
+                Pick from Template (Optional)
+              </label>
+              <MasterSourceLink source="pmsSettings" />
+            </div>
             <select id="pms-dyn-template" className={fieldClass} onChange={handleTemplateSelect} defaultValue="">
               <option value="">Custom dynamic stage (enter details below)…</option>
               {stageConfigs

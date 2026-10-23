@@ -5,6 +5,7 @@ import { Button } from '../../../../components/ui/Button';
 import { usePmsStore, getLatestDocument } from '../../../../stores/pmsStore';
 import { uploadFileToBackend } from '../../../../services/fileUploadService';
 import { isBackendEnabled } from '../../../../services/resourceSync';
+import MasterSourceLink from '../../../../components/common/MasterSourceLink';
 
 /**
  * UploadProofModal — register the next version of a design proof.
@@ -361,9 +362,12 @@ export function UploadProofModal({ isOpen, onClose, project, stage, onUploaded }
         </div>
 
         <div>
-          <label className={labelClass} htmlFor="proof-by">
-            Uploaded by <span className="text-rose-500">*</span>
-          </label>
+          <div className="flex items-center justify-between mb-1.5">
+            <label className={labelClass + ' mb-0'} htmlFor="proof-by">
+              Uploaded by <span className="text-rose-500">*</span>
+            </label>
+            <MasterSourceLink source="users" />
+          </div>
           <select
             id="proof-by"
             className={fieldClass}

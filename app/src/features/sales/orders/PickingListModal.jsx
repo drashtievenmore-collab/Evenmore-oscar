@@ -11,9 +11,11 @@ import {
   User,
   Calendar,
 } from 'lucide-react';
+import { SignatureSlot, useDocumentSignatures } from '../../../components/common/SignatureSlot';
 import { salesService } from '../../../services/domainServices';
 
 export default function PickingListModal({ orderId, orderNumber, onClose }) {
+  const docSigs = useDocumentSignatures('PickingList', orderId, `Picking List ${orderNumber || ''}`);
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -165,11 +167,17 @@ export default function PickingListModal({ orderId, orderNumber, onClose }) {
 
               {/* Picking Sign-off Section */}
               <div className="grid grid-cols-2 gap-8 pt-8 mt-6 border-t border-slate-200 text-xs">
-                <div className="border-t border-dashed border-slate-400 pt-2 text-center text-slate-500">
-                  Warehouse Picker Signature & Date
+                <div>
+                  <SignatureSlot doc={docSigs} signatory="picker" label="Warehouse Picker" modalType="authorized" className="h-10" defaultDesignation="Warehouse Picker" />
+                  <div className="border-t border-dashed border-slate-400 pt-2 text-center text-slate-500">
+                    Warehouse Picker Signature & Date
+                  </div>
                 </div>
-                <div className="border-t border-dashed border-slate-400 pt-2 text-center text-slate-500">
-                  Vehicle Driver / Transporter Sign & LR Date
+                <div>
+                  <SignatureSlot doc={docSigs} signatory="driver" label="Vehicle Driver / Transporter" modalType="receiver" className="h-10" defaultDesignation="Driver / Transporter" />
+                  <div className="border-t border-dashed border-slate-400 pt-2 text-center text-slate-500">
+                    Vehicle Driver / Transporter Sign & LR Date
+                  </div>
                 </div>
               </div>
             </>

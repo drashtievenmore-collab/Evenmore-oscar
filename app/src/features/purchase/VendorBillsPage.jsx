@@ -5,6 +5,7 @@ import { StatusBadge } from '../../components/ui/StatusBadge';
 import { Button } from '../../components/ui/Button';
 import { PageHeader } from '../../components/common/PageHeader';
 import TablePagination from '../../components/ui/TablePagination';
+import MasterSourceLink from '../../components/common/MasterSourceLink';
 import { Plus, X, Eye, Pencil, Trash2, Send, Upload } from 'lucide-react';
 import { toISODate, getCurrentISODate } from '../../utils/dateUtils';
 
@@ -373,7 +374,10 @@ export const VendorBillsPage = () => {
               )}
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
                 <div>
-                  <label className="block font-semibold text-slate-700 mb-1">Vendor *</label>
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="block font-semibold text-slate-700">Vendor *</label>
+                    <MasterSourceLink source="vendors" />
+                  </div>
                   <select value={fVendorId} onChange={(ev) => setFVendorId(ev.target.value)} className="w-full border border-slate-300 rounded-lg p-2 bg-white text-slate-800 font-medium">
                     <option value="">-- Select vendor --</option>
                     {vendors.map((v) => (
@@ -424,7 +428,12 @@ export const VendorBillsPage = () => {
                     <thead className="bg-slate-50 border-b border-slate-200 text-slate-500 uppercase tracking-wider">
                       <tr>
                         <th className="py-2 px-2 w-8">#</th>
-                        <th className="py-2 px-2 text-left">Fabric</th>
+                        <th className="py-2 px-2 text-left">
+                          <div className="flex items-center justify-between gap-2">
+                            <span>Fabric</span>
+                            <MasterSourceLink source="items" className="normal-case tracking-normal" />
+                          </div>
+                        </th>
                         <th className="py-2 px-2 w-24">Billed Qty (M)</th>
                         <th className="py-2 px-2 w-24">Rate</th>
                         <th className="py-2 px-2 w-28 text-right">Amount</th>

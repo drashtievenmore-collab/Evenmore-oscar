@@ -5,6 +5,7 @@ import { usePmsStore, nextProjectId, getProjectManagers } from '../../../../stor
 import { useERP } from '../../../../context/ERPContext';
 import { formatCurrency } from '../../../../utils/currencyUtils';
 import { AlertCircle, Link2, PackageCheck } from 'lucide-react';
+import MasterSourceLink from '../../../../components/common/MasterSourceLink';
 
 /**
  * CreateProjectModal — turns a confirmed CRM/ERP sales order into a project.
@@ -266,9 +267,12 @@ export function CreateProjectModal({ isOpen, onClose, onCreated, initialOrderNum
 
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
           <div>
-            <label className={labelClass} htmlFor="pms-pm">
-              Project Manager{managers.length > 0 && <span className="text-rose-500"> *</span>}
-            </label>
+            <div className="flex items-center justify-between mb-1.5">
+              <label className={labelClass + ' mb-0'} htmlFor="pms-pm">
+                Project Manager{managers.length > 0 && <span className="text-rose-500"> *</span>}
+              </label>
+              <MasterSourceLink source="users" />
+            </div>
             <select
               id="pms-pm"
               className={fieldClass}

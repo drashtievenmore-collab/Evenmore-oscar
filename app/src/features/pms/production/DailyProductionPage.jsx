@@ -9,6 +9,7 @@ import { Button } from '../../../components/ui/Button';
 import PageHeader from '../../../components/ui/PageHeader';
 import TablePagination from '../../../components/ui/TablePagination';
 import { api } from '../../../services/api';
+import MasterSourceLink from '../../../components/common/MasterSourceLink';
 import { statusPill, isLockedStatus, errorText, fmtNum, listOf } from './productionStatus';
 
 const fmt = fmtNum;
@@ -800,7 +801,10 @@ export default function DailyProductionPage() {
               )}
 
               <label className="block">
-                <span className="text-xs font-semibold text-slate-700">Entered By Employee</span>
+                <span className="flex items-center justify-between">
+                  <span className="text-xs font-semibold text-slate-700">Entered By Employee</span>
+                  <MasterSourceLink source="employees" />
+                </span>
                 <select
                   value={formEmployeeId}
                   onChange={(e) => setFormEmployeeId(e.target.value)}

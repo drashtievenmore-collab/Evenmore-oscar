@@ -1,5 +1,6 @@
 import React, { useEffect } from 'react';
 import { X, Printer, CheckCircle2, FileText, AlertTriangle, Building2 } from 'lucide-react';
+import { SignatureSlot, useDocumentSignatures } from '../../../components/common/SignatureSlot';
 import { useERP } from '../../../context/ERPContext';
 
 function fmtM(n) {
@@ -21,6 +22,7 @@ function fmtDate(d) {
 }
 
 export function PrintProductionCompletionModal({ isOpen, onClose, completionData, detail }) {
+  const docSigs = useDocumentSignatures('ProductionCompletion', completionData?.id || completionData?.piNo || detail?.id, `Production Completion ${completionData?.piNo || detail?.instructionNumber || ''}`);
   const { companyProfile } = useERP();
   const companyName = companyProfile?.name || 'OSCAR TEXTILES & APPAREL ERP';
   const companyAddress = companyProfile?.address || 'MIDC Industrial Area, Weaving & Processing Zone, India';
@@ -271,19 +273,25 @@ export function PrintProductionCompletionModal({ isOpen, onClose, completionData
             {/* Official Signatures Grid */}
             <div className="pt-8 grid grid-cols-3 gap-6 text-center border-t border-slate-200">
               <div className="space-y-1">
-                <div className="h-10 border-b border-dashed border-slate-300" />
+                <div className="border-b border-dashed border-slate-300 pb-1">
+                  <SignatureSlot doc={docSigs} signatory="supervisor" label="Floor Supervisor" modalType="authorized" className="h-10" defaultDesignation="Floor Supervisor" />
+                </div>
                 <p className="font-bold text-slate-800 text-xs">Floor Supervisor</p>
                 <p className="text-[10px] text-slate-400">Daily Production Signatory</p>
               </div>
 
               <div className="space-y-1">
-                <div className="h-10 border-b border-dashed border-slate-300" />
+                <div className="border-b border-dashed border-slate-300 pb-1">
+                  <SignatureSlot doc={docSigs} signatory="qc" label="QC Verification Manager" modalType="authorized" className="h-10" defaultDesignation="QC Verification Manager" />
+                </div>
                 <p className="font-bold text-slate-800 text-xs">QC Verification Manager</p>
                 <p className="text-[10px] text-slate-400">Quality Inspection Officer</p>
               </div>
 
               <div className="space-y-1">
-                <div className="h-10 border-b border-dashed border-slate-300" />
+                <div className="border-b border-dashed border-slate-300 pb-1">
+                  <SignatureSlot doc={docSigs} signatory="commercial" label="Commercial Authority" modalType="authorized" className="h-10" defaultDesignation="Commercial Authority" />
+                </div>
                 <p className="font-bold text-slate-800 text-xs">Commercial Authority</p>
                 <p className="text-[10px] text-slate-400">Accounts & Procurement Desk</p>
               </div>

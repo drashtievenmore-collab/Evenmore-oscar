@@ -2,6 +2,7 @@ import DealDetailView from './DealDetailView';
 import CrmKpiCard from '../common/CrmKpiCard';
 import Modal from '../../../components/ui/Modal';
 import PageHeader from '../../../components/ui/PageHeader';
+import MasterSourceLink from '../../../components/common/MasterSourceLink';
 import React, { useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import {
@@ -162,6 +163,50 @@ function getStageStyle(name) {
   return STAGE_STYLES[name] || { ...NEUTRAL_STAGE_STYLE, title: name };
 }
 
+function getEffectiveDealStage(deal, quotations, allLeads) {
+  if (!deal) return 'Draft';
+  if (deal.stage === 'Lost' || deal.tag === 'Lost') return 'Lost';
+
+  // Check direct link to quotations
+  const linkedQuotes = (quotations || []).filter((qt) => {
+    if (deal.id && (String(qt.dealId) === String(deal.id) || String(qt.crmDeal) === String(deal.id) || String(qt.dealReference) === String(deal.id))) return true;
+    if (deal.leadId && String(qt.leadId) === String(deal.leadId)) return true;
+    if (deal.name && qt.dealName && qt.dealName.toLowerCase() === deal.name.toLowerCase()) return true;
+    return false;
+  });
+
+  if (linkedQuotes.length > 0) {
+    const hasWon = linkedQuotes.some((qt) => ['Accepted', 'Approved', 'Converted', 'Confirmed', 'Invoiced'].includes(qt.status));
+    if (hasWon) return 'Won';
+    const hasRejected = linkedQuotes.some((qt) => qt.status === 'Rejected');
+    if (hasRejected) return 'Open';
+    const hasSent = linkedQuotes.some((qt) => ['Sent', 'Viewed'].includes(qt.status));
+    if (hasSent) return 'Sent';
+    return 'Draft';
+  }
+
+  // If deal has a lead, check lead's status/quotations
+  if (deal.leadId) {
+    const lead = (allLeads || []).find((l) => String(l.id) === String(deal.leadId));
+    if (lead) {
+      if (lead.isConverted || Boolean(lead.convertedAt)) return 'Won';
+      const leadQuotes = (quotations || []).filter((qt) => String(qt.leadId) === String(lead.id) || (qt.leadName && qt.leadName === lead.name));
+      if (leadQuotes.length > 0) {
+        const hasWon = leadQuotes.some((qt) => ['Accepted', 'Approved', 'Converted', 'Confirmed', 'Invoiced'].includes(qt.status));
+        if (hasWon) return 'Won';
+        const hasRejected = leadQuotes.some((qt) => qt.status === 'Rejected');
+        if (hasRejected) return 'Open';
+        const hasSent = leadQuotes.some((qt) => ['Sent', 'Viewed'].includes(qt.status));
+        if (hasSent) return 'Sent';
+        return 'Draft';
+      }
+    }
+  }
+
+  if (deal.stage === 'Won') return 'Won';
+  return 'Draft';
+}
+
 export default function DealsPage() {
   const { addQuotation, addSalesOrder, customers, quotations } = useERP() || {};
   const navigate = useNavigate();
@@ -169,6 +214,8 @@ export default function DealsPage() {
   const dealStages = useCrmStore((s) => s.dealStages);
   const leadStages = useCrmStore((s) => s.stages);
   const allLeads = useCrmStore((s) => s.leads);
+  const teamMembers = useCrmStore((s) => s.teamMembers);
+  const currentUser = useAppStore((s) => s.currentUser);
   const [deals, setDeals] = useState([]);
 
   useEffect(() => { setDeals(storeDeals); }, [storeDeals]);
@@ -206,7 +253,7 @@ export default function DealsPage() {
   const [editingDeal, setEditingDeal] = useState(null);
   const [dealToDelete, setDealToDelete] = useState(null);
   const [toastMessage, setToastMessage] = useState(null);
-  const [dragOverStage, setDragOverStage] = useState(null);
+
   const [formState, setFormState] = useState(EMPTY_DEAL_FORM);
   const [formError, setFormError] = useState('');
   const [showFilters, setShowFilters] = useState(false);
@@ -227,6 +274,15 @@ export default function DealsPage() {
     setToastMessage(msg);
     setTimeout(() => setToastMessage(null), 3500);
   };
+
+  // Assignable users from the CRM team roster, plus any name already on a deal
+  // so the filter can still find deals assigned to someone no longer listed.
+  const usersList = useMemo(() => {
+    const names = new Set();
+    (Array.isArray(teamMembers) ? teamMembers : []).forEach((m) => m?.name && names.add(m.name));
+    deals.forEach((d) => d.assignedUser && names.add(d.assignedUser));
+    return ['All Users', ...[...names].sort((a, b) => a.localeCompare(b))];
+  }, [teamMembers, deals]);
 
   const filteredDeals = useMemo(() => {
     const q = searchQuery.trim().toLowerCase();
@@ -990,6 +1046,11 @@ export default function DealsPage() {
           </div>
         )}
 
+        <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-blue-50/70 border border-blue-200/60 text-[11px] text-blue-700">
+          <FileText size={12} className="shrink-0 text-blue-600" />
+          <span>Automated Lifecycle: Incoming Lead/Deal › <strong>Draft</strong> • Quotation Sent › <strong>Sent</strong> • Quotation Approved › <strong>Won</strong> • Quotation Rejected › <strong>Open</strong></span>
+        </div>
+
         <div className="flex flex-col sm:flex-row items-center justify-between gap-3 pt-1">
           <div className="relative flex-1 w-full">
             <Search size={15} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" />
@@ -1009,14 +1070,13 @@ export default function DealsPage() {
         <div className={`flex snap-x snap-mandatory lg:grid ${gridClass} lg:snap-none gap-4 items-start overflow-x-auto pb-4 pt-1`}>
           {pipelineStages.map((column) => {
             const st = column.key;
-            const items = filteredDeals.filter((d) => d.stage === st);
+            const items = filteredDeals.filter((d) => getEffectiveDealStage(d, quotations, allLeads) === st);
             const leadItems = column.isLost
               ? (leadsByStage.Lost || [])
               : (leadsByStage[st] || []);
             const stageStyle = getStageStyle(st);
             const StageIcon = stageStyle.icon;
             const totalStageAmount = items.reduce((sum, d) => sum + (Number(d.price) || 0), 0);
-            const isDragOver = dragOverStage === st;
             const isExpanded = Boolean(expandedColumns[st]);
             const visibleItems = isExpanded ? items : items.slice(0, 3);
             const visibleLeadItems = isExpanded ? leadItems : leadItems.slice(0, 3);
@@ -1026,22 +1086,7 @@ export default function DealsPage() {
             return (
               <div
                 key={st}
-                onDragOver={(e) => {
-                  e.preventDefault();
-                  setDragOverStage(st);
-                }}
-                onDragLeave={() => setDragOverStage(null)}
-                onDrop={(e) => {
-                  e.preventDefault();
-                  setDragOverStage(null);
-                  const droppedId = e.dataTransfer.getData('text/plain');
-                  if (droppedId) {
-                    handleMoveStage(droppedId, st);
-                  }
-                }}
-                className={`min-w-[280px] max-w-[320px] shrink-0 lg:shrink snap-start lg:min-w-auto lg:max-w-none border rounded-2xl p-3.5 flex flex-col space-y-3 transition-all duration-200 shadow-2xs relative ${
-                  isDragOver ? 'ring-2 ring-blue-500/40 border-blue-400' : ''
-                }`}
+                className="min-w-[280px] max-w-[320px] shrink-0 lg:shrink snap-start lg:min-w-auto lg:max-w-none border rounded-2xl p-3.5 flex flex-col space-y-3 transition-all duration-200 shadow-2xs relative"
                 style={{
                   backgroundColor: 'var(--soft, #edf2f8)',
                   borderColor: 'var(--border, #dce5f4)',
@@ -1089,7 +1134,6 @@ export default function DealsPage() {
                       return (
                         <div
                           key={deal.id}
-                          draggable={true}
                           tabIndex={0}
                           role="link"
                           aria-label={`View deal ${deal.name}`}
@@ -1099,10 +1143,7 @@ export default function DealsPage() {
                           onKeyDown={(event) => {
                             if (event.target === event.currentTarget && event.key === 'Enter') handleOpenDealDetail(deal);
                           }}
-                          onDragStart={(e) => {
-                            e.dataTransfer.setData('text/plain', deal.id);
-                          }}
-                          className="bg-white border border-slate-200 hover:border-blue-400 rounded-xl p-3.5 shadow-2xs hover:shadow-md transition-all cursor-grab active:cursor-grabbing relative group space-y-2.5"
+                          className="bg-white border border-slate-200 hover:border-blue-400 rounded-xl p-3.5 shadow-2xs hover:shadow-md transition-all cursor-pointer relative group space-y-2.5"
                         >
                           {/* Deal Header */}
                           <div className="flex items-start justify-between gap-2">
@@ -1137,21 +1178,7 @@ export default function DealsPage() {
                                     <span>View Deal</span>
                                   </button>
 
-                                  <div className="px-3.5 py-1 text-[10px] uppercase font-bold text-slate-400 border-t border-slate-100 mt-1">
-                                    Move to
-                                  </div>
-                                  <div className="grid grid-cols-2 gap-1 px-2 pb-1">
-                                    {STAGES.filter((s) => s !== deal.stage).map((s) => (
-                                      <button
-                                        key={s}
-                                        type="button"
-                                        onClick={() => handleMoveStage(deal.id, s)}
-                                        className="px-2 py-1 text-[11px] font-semibold text-slate-600 hover:bg-slate-100 rounded text-left truncate cursor-pointer"
-                                      >
-                                        → {s}
-                                      </button>
-                                    ))}
-                                  </div>
+
 
                                   <div className="px-3.5 py-1 text-[10px] uppercase font-bold text-slate-400 border-t border-slate-100 mt-1">
                                     ERP Conversion
@@ -1609,7 +1636,10 @@ export default function DealsPage() {
                 </div>
 
                 <div>
-                  <label className="block font-semibold text-slate-700 mb-1">Stage</label>
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="block font-semibold text-slate-700">Stage</label>
+                    <MasterSourceLink source="dealStages" />
+                  </div>
                   <select
                     value={formState.stage}
                     onChange={(e) => setFormState({ ...formState, stage: e.target.value })}
@@ -1639,7 +1669,10 @@ export default function DealsPage() {
                 </div>
 
                 <div>
-                  <label className="block font-semibold text-slate-700 mb-1">Assigned User</label>
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="block font-semibold text-slate-700">Assigned User</label>
+                    <MasterSourceLink source="users" />
+                  </div>
                   <select
                     value={formState.assignedUser}
                     onChange={(e) => setFormState({ ...formState, assignedUser: e.target.value })}

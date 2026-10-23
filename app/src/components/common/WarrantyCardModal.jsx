@@ -1,9 +1,11 @@
 import React, { useEffect } from 'react';
 import { X, Printer, ShieldCheck, FileCheck, Award, Send, Check } from 'lucide-react';
+import { SignatureSlot, useDocumentSignatures } from './SignatureSlot';
 import { formatDisplayDate, getWarrantyStatusStyle, formatWarrantyPeriod } from '../../utils/warrantyUtils';
 import { useERP } from '../../context/ERPContext';
 
 export const WarrantyCardModal = ({ isOpen, onClose, warrantyCard, onSend = null }) => {
+    const docSigs = useDocumentSignatures('WarrantyCard', warrantyCard?.id, `Warranty Card ${warrantyCard?.cardNumber || ''}`);
     // [PHASE-2E.1] company identity flows from companyProfile (was hardcoded Horizon US strings)
     const { companyProfile } = useERP();
     const companyName = companyProfile?.name || 'Horizon Enterprise Logistics';
@@ -294,8 +296,10 @@ export const WarrantyCardModal = ({ isOpen, onClose, warrantyCard, onSend = null
                             <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block">
                                 Quality Assurance / Authorized Signatory
                             </span>
-                            <div className="h-9 border-b border-slate-300 flex items-end pb-1 font-mono text-xs text-slate-800 font-bold">
-                                {warrantyCard.authorizedBy || 'Horizon Quality Assurance Dept.'}
+                            <div className="border-b border-slate-300 pb-1">
+                                <SignatureSlot doc={docSigs} signatory="authorized" label="Quality Assurance / Authorized Signatory" modalType="authorized" className="h-10"
+                                    defaultName={warrantyCard.authorizedBy || ''} defaultDesignation="Quality Assurance — Authorized Signatory"
+                                    placeholder={<span className="font-mono text-xs text-slate-800 font-bold">{warrantyCard.authorizedBy || 'Horizon Quality Assurance Dept.'}</span>} />
                             </div>
                             <p className="text-[10px] text-slate-400">
                                 Equipment inspected, serialized, and authorized under warranty standards.
@@ -306,8 +310,10 @@ export const WarrantyCardModal = ({ isOpen, onClose, warrantyCard, onSend = null
                             <span className="text-[10px] font-bold text-emerald-800 uppercase tracking-wider block">
                                 Customer Verification & Acknowledgment
                             </span>
-                            <div className="h-9 border-b border-emerald-300 flex items-end pb-1 font-mono text-xs text-emerald-900">
-                                {warrantyCard.customerName} (Authorized Receiver)
+                            <div className="border-b border-emerald-300 pb-1">
+                                <SignatureSlot doc={docSigs} signatory="customer" label="Customer Verification & Acknowledgment" modalType="receiver" className="h-10"
+                                    defaultName={warrantyCard.customerName || ''} defaultDesignation="Authorized Receiver"
+                                    placeholder={<span className="font-mono text-xs text-emerald-900">{warrantyCard.customerName} (Authorized Receiver)</span>} />
                             </div>
                             <p className="text-[10px] text-slate-400">
                                 Received in intact condition with complete component registry.

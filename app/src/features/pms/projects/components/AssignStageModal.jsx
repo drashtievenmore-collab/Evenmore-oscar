@@ -9,6 +9,7 @@ import {
   durationToMs,
 } from '../../../../stores/pmsStore';
 import { PMS_DURATION_UNITS } from '../../../../services/pmsSync';
+import MasterSourceLink from '../../../../components/common/MasterSourceLink';
 
 /**
  * AssignStageModal — assign a stage to a department, team and employee.
@@ -222,15 +223,18 @@ export function AssignStageModal({ isOpen, onClose, project, initialStageId = nu
               <label className={labelClass + ' mb-0'} htmlFor="assign-user">
                 Assigned Employee <span className="text-rose-500">*</span>
               </label>
-              <label className="flex items-center gap-1 text-[10px] text-slate-500 cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={showAllStaff}
-                  onChange={(e) => setShowAllStaff(e.target.checked)}
-                  className="accent-blue-600"
-                />
-                show all staff
-              </label>
+              <div className="flex items-center gap-2">
+                <label className="flex items-center gap-1 text-[10px] text-slate-500 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={showAllStaff}
+                    onChange={(e) => setShowAllStaff(e.target.checked)}
+                    className="accent-blue-600"
+                  />
+                  show all staff
+                </label>
+                <MasterSourceLink source="users" />
+              </div>
             </div>
             <select
               id="assign-user"

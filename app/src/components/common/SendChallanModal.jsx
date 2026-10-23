@@ -207,7 +207,7 @@ export const SendChallanModal = ({
                         </button>
                         <button
                             type="submit"
-                            disabled={isSending || (!attachChallan && !attachWarranty)}
+                            disabled={isSending || !attachChallan}
                             className="px-5 py-2 text-xs font-bold text-white bg-blue-600 hover:bg-blue-500 disabled:opacity-50 rounded-lg shadow-sm transition-colors cursor-pointer flex items-center gap-1.5"
                         >
                             <Send size={13} /> {isSending ? 'Sending Consignment...' : 'Send Consignment Documents'}

@@ -26,6 +26,7 @@ import {
   errorMessage,
 } from '../../services/jobWorkSync';
 import PageHeader from '../../components/ui/PageHeader';
+import MasterSourceLink from '../../components/common/MasterSourceLink';
 
 const TABS = ['Plan Details', 'Job Work Orders', 'Material Requirement', 'Timeline', 'Charges', 'Documents', 'Remarks'];
 
@@ -983,7 +984,10 @@ export default function ProcessPlanDetailPage() {
                 />
               </div>
               <div>
-                <label className="mb-1 block font-semibold text-slate-600">Vendor</label>
+                <div className="mb-1 flex items-center justify-between">
+                  <label className="block font-semibold text-slate-600">Vendor</label>
+                  <MasterSourceLink source="vendors" />
+                </div>
                 <select
                   required
                   value={createForm.vendor}
@@ -997,7 +1001,10 @@ export default function ProcessPlanDetailPage() {
                 </select>
               </div>
               <div>
-                <label className="mb-1 block font-semibold text-slate-600">Process</label>
+                <div className="mb-1 flex items-center justify-between">
+                  <label className="block font-semibold text-slate-600">Process</label>
+                  <MasterSourceLink source="processes" />
+                </div>
                 <select
                   required
                   value={createForm.process}
@@ -1119,7 +1126,10 @@ export default function ProcessPlanDetailPage() {
                 <input type="date" required value={editForm.orderDate} onChange={(e) => setEditForm({ ...editForm, orderDate: e.target.value })} className="w-full rounded-lg border border-slate-200 px-3 py-2 outline-none focus:border-blue-400" />
               </div>
               <div>
-                <label className="mb-1 block font-semibold text-slate-600">Vendor</label>
+                <div className="mb-1 flex items-center justify-between">
+                  <label className="block font-semibold text-slate-600">Vendor</label>
+                  <MasterSourceLink source="vendors" />
+                </div>
                 <select value={editForm.vendor} onChange={(e) => setEditForm({ ...editForm, vendor: e.target.value })} className="w-full rounded-lg border border-slate-200 px-3 py-2 outline-none focus:border-blue-400">
                   {vendorChoices.map((v) => (<option key={v} value={v}>{v}</option>))}
                 </select>
