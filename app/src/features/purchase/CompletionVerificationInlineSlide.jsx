@@ -32,6 +32,7 @@ import {
 import { api } from '../../services/api';
 import { useERP } from '../../context/ERPContext';
 import { useAppStore } from '../../stores/appStore';
+import MasterSourceLink from '../../components/common/MasterSourceLink';
 import { PrintProductionCompletionModal } from '../pms/production/PrintProductionCompletionModal';
 
 function fmtM(n) {
@@ -493,9 +494,12 @@ export function CompletionVerificationInlineSlide({
               </div>
 
               <div>
-                <label className="block text-[11px] font-bold text-slate-700 mb-1">
-                  Verified By <span className="text-rose-500">*</span>
-                </label>
+                <div className="flex items-center justify-between mb-1">
+                  <label className="block text-[11px] font-bold text-slate-700">
+                    Verified By <span className="text-rose-500">*</span>
+                  </label>
+                  <MasterSourceLink source="employees" />
+                </div>
                 <select
                   required
                   value={verifiedByEmployeeId}

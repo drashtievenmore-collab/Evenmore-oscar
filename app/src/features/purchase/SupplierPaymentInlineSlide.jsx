@@ -16,6 +16,7 @@ import {
 } from 'lucide-react';
 import { api } from '../../services/api';
 import { useERP } from '../../context/ERPContext';
+import MasterSourceLink from '../../components/common/MasterSourceLink';
 
 function numIN(val) {
   const n = Number(val) || 0;
@@ -338,9 +339,12 @@ export function SupplierPaymentInlineSlide({ po, instruction, onClose, onPayment
             </div>
             {payMode !== 'Cash' && (
               <div className="min-w-0">
-                <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1 truncate" title="Company Bank Account">
-                  Bank Account *
-                </label>
+                <div className="flex items-center justify-between gap-1 mb-1">
+                  <label className="block text-[10px] font-bold text-slate-500 uppercase truncate min-w-0" title="Company Bank Account">
+                    Bank Account *
+                  </label>
+                  <MasterSourceLink source="cashBank" />
+                </div>
                 <select
                   required
                   value={bankAccountId}

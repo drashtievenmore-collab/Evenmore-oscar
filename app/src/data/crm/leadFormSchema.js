@@ -57,7 +57,7 @@ export function createFieldFromType(type, seed = Date.now()) {
 // Dump data for the textile catalogue: the Products/Fabric ("Febric")
 // multi-select ships with these options instead of the old medical-device
 // placeholders.
-export const TEXTILE_FABRIC_OPTIONS = ["Cotton", "Denim", "Nylon"];
+export const TEXTILE_FABRIC_OPTIONS = [];
 
 // The previous placeholder set — saved forms still carrying exactly these
 // are healed to the textile set on read (see CreateLeadModal).
@@ -84,7 +84,7 @@ export const defaultLeadFormSections = [
       createField("industry", "Single Line", { label: "Industry", placeholder: "Enter industry" }),
       createField("lead-owner", "User", { label: "Lead Owner", placeholder: "Select User", showInList: true }),
       createField("created-on", "Date", { label: "Created On", placeholder: "Select created date" }),
-      createField("products", "Multi Select", { label: "Products", placeholder: "Select Products", options: [...TEXTILE_FABRIC_OPTIONS] }),
+      createField("products", "Multi Select", { label: "Products", placeholder: "Select Products", options: [] }),
       createField("lead-users", "User", { label: "Lead Users", placeholder: "Select Users" }),
       createField("task-date", "Date", { label: "Task Date (Optional)", placeholder: "dd-mm-yyyy", helpText: "Leave blank to allocate the first form task immediately." }),
       createField("task-time", "Single Line", { label: "Task Time (Optional)", placeholder: "--:--", helpText: "Optional time for the scheduled task." }),

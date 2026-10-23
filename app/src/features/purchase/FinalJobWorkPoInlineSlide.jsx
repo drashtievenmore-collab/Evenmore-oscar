@@ -30,6 +30,7 @@ import {
   FileCheck2,
   Paperclip,
 } from 'lucide-react';
+import { SignatureSlot, useDocumentSignatures } from '../../components/common/SignatureSlot';
 import { api } from '../../services/api';
 import { useERP } from '../../context/ERPContext';
 import { useAppStore } from '../../stores/appStore';
@@ -75,6 +76,7 @@ export function FinalJobWorkPoInlineSlide({
 
   // Form Fields
   const [poNumber, setPoNumber] = useState('');
+  const poSigs = useDocumentSignatures('FinalJobWorkPO', propInstruction?.id || po?.id, `Final Job Work PO ${poNumber}`);
   const [poDate, setPoDate] = useState(() => new Date().toISOString().slice(0, 10));
   const [expectedCompletionDate, setExpectedCompletionDate] = useState(() => {
     const d = new Date();
@@ -1134,7 +1136,10 @@ export function FinalJobWorkPoInlineSlide({
                   {remarks && <p className="mt-1 font-semibold text-slate-800">Remarks: {remarks}</p>}
                 </div>
                 <div className="flex flex-col justify-end items-end text-right">
-                  <div className="border-b border-slate-300 w-48 mb-1 pb-8"></div>
+                  <div className="border-b border-slate-300 w-48 mb-1 pb-1">
+                    <SignatureSlot doc={poSigs} signatory="authorized" label="Authorized Signatory" modalType="authorized" className="h-10"
+                      defaultName={currentUser?.name || ''} defaultDesignation="Authorized Signatory — Commercial Operations" />
+                  </div>
                   <span className="font-bold text-slate-900">Authorized Signatory</span>
                   <span className="text-[10px] text-slate-400">OSCAR ERP Commercial Operations</span>
                 </div>

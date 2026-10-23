@@ -11,6 +11,7 @@ import PageHeader from '../../../components/ui/PageHeader';
 import TablePagination from '../../../components/ui/TablePagination';
 import KpiCard from '../../../components/ui/KpiCard';
 import { api } from '../../../services/api';
+import MasterSourceLink from '../../../components/common/MasterSourceLink';
 import {
   PRODUCTION_STATUSES, ACTIVE_STATUSES, statusPill, canApprove, canStart,
   canEditInstruction, errorText, fmtNum, listOf,
@@ -569,7 +570,10 @@ export default function ProductionInstructionsPage() {
                     </select>
                   </div>
                   <div>
-                    <label className="block font-semibold text-slate-700 mb-1">Assigned Employee *</label>
+                    <div className="flex items-center justify-between mb-1">
+                      <label className="block font-semibold text-slate-700">Assigned Employee *</label>
+                      <MasterSourceLink source="employees" />
+                    </div>
                     <select
                       required
                       value={assignedEmployeeId}
@@ -875,7 +879,10 @@ export default function ProductionInstructionsPage() {
                   </select>
                 </div>
                 <div>
-                  <label className="block font-semibold text-slate-700 mb-1">Assigned Employee *</label>
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="block font-semibold text-slate-700">Assigned Employee *</label>
+                    <MasterSourceLink source="employees" />
+                  </div>
                   <select required value={editEmployee} onChange={(e) => setEditEmployee(e.target.value)} className="w-full border border-slate-300 rounded-lg p-2 bg-white text-slate-800 font-medium">
                     <option value="">Select Employee...</option>
                     {editEmployee && !employees.some((em) => String(em.id) === editEmployee) && (

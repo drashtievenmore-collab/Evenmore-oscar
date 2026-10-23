@@ -7,6 +7,7 @@ import {
   validateDelayEntry,
   DELAY_REASON_CATEGORIES,
 } from '../../../../stores/pmsStore';
+import MasterSourceLink from '../../../../components/common/MasterSourceLink';
 
 /**
  * LogDelayModal — log a delay, revise its recovery plan, or resolve it.
@@ -208,7 +209,10 @@ export function LogDelayModal({ isOpen, onClose, row, mode = 'log' }) {
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div>
-                <label className={labelClass} htmlFor="delay-owner">Responsible person</label>
+                <div className="flex items-center justify-between mb-1.5">
+                  <label className={labelClass + ' mb-0'} htmlFor="delay-owner">Responsible person</label>
+                  <MasterSourceLink source="users" />
+                </div>
                 <select
                   id="delay-owner"
                   className={fieldClass}

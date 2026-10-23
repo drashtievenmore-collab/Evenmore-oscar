@@ -2,6 +2,7 @@ import { useState, useMemo, useEffect, useCallback } from 'react';
 import { Avatar } from "../../../components/hrms/Avatar";
 import { useNavigate } from 'react-router-dom';
 import { useAppStore } from '../../../stores/appStore';
+import MasterSourceLink from '../../../components/common/MasterSourceLink';
 import {
   Download,
   Search,
@@ -466,7 +467,10 @@ export function OrgChartPage() {
               />
             </div>
             <div>
-              <label className="block text-[12.5px] font-semibold text-slate-700 mb-1.5">Department Head</label>
+              <div className="flex items-center justify-between mb-1.5">
+                <label className="block text-[12.5px] font-semibold text-slate-700">Department Head</label>
+                <MasterSourceLink source="employees" />
+              </div>
               <select
                 value={newDept.headEmployeeId}
                 onChange={(e) => setNewDept({ ...newDept, headEmployeeId: e.target.value })}

@@ -42,6 +42,7 @@ import {
 import { api } from '../../services/api';
 import PageHeader from '../../components/ui/PageHeader';
 import DigitalSignatureModal from '../../components/common/DigitalSignatureModal';
+import MasterSourceLink from '../../components/common/MasterSourceLink';
 import { PrintJobWorkChallanModal } from '../../components/common/PrintJobWorkChallanModal';
 
 const TABS = [
@@ -2994,7 +2995,10 @@ export default function JobWorkOrderDetailPage() {
             </div>
             <form onSubmit={handleSaveLoss} className="mt-4 space-y-3 text-[12px]">
               <div>
-                <label className="block font-semibold text-slate-600 mb-1">Loss Reason *</label>
+                <div className="flex items-center justify-between mb-1">
+                  <label className="block font-semibold text-slate-600">Loss Reason *</label>
+                  <MasterSourceLink source="lossReasons" />
+                </div>
                 <select
                   required
                   value={lossForm.lossReasonId}

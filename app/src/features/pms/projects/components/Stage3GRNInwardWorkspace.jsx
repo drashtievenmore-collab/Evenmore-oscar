@@ -23,6 +23,7 @@ import { api } from '../../../../services/api';
 import { getProjectPurchaseOrders } from '../../../../services/pmsSync';
 import { usePmsStore } from '../../../../stores/pmsStore';
 import { useERP } from '../../../../context/ERPContext';
+import MasterSourceLink from '../../../../components/common/MasterSourceLink';
 import { useNavigate } from 'react-router-dom';
 import { TablePagination } from '../../../../components/ui/TablePagination';
 
@@ -603,9 +604,12 @@ export function Stage3GRNInwardWorkspace({
               </div>
 
               <div>
-                <label className="block font-bold text-slate-700 mb-1">
-                  Destination Godown / Location <span className="text-rose-500">*</span>
-                </label>
+                <div className="flex items-center justify-between mb-1">
+                  <label className="block font-bold text-slate-700">
+                    Destination Godown / Location <span className="text-rose-500">*</span>
+                  </label>
+                  <MasterSourceLink source="godowns" />
+                </div>
                 <select
                   required
                   value={grnForm.locationId}

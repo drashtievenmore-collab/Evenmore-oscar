@@ -6,6 +6,7 @@ import { StatCard } from '../../components/ui/StatCard';
 import { Button } from '../../components/ui/Button';
 import { Plus, ArrowLeftRight, CheckCircle2, User, X, Truck, MapPin, Trash2, Ban } from 'lucide-react';
 import { PageHeader } from '../../components/common/PageHeader';
+import MasterSourceLink from '../../components/common/MasterSourceLink';
 import { api } from '../../services/api';
 
 const transfersGuide = {
@@ -193,14 +194,20 @@ export const TransfersPage = () => {
             <form onSubmit={handleCreate} className="space-y-4 mt-4 overflow-y-auto pr-1 flex-1">
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
                 <div>
-                  <label className="block font-semibold text-slate-700 mb-1">Source Location *</label>
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="block font-semibold text-slate-700">Source Location *</label>
+                    <MasterSourceLink source="godowns" />
+                  </div>
                   <select required value={sourceLocId} onChange={(e) => { setSourceLocId(e.target.value); setLines([emptyLine()]); }} className="w-full border border-slate-300 rounded-lg p-2 bg-white text-slate-800">
                     <option value="">Select source</option>
                     {locations.map((loc) => (<option key={loc.id} value={loc.id}>{loc.name}{loc.code ? ` (${loc.code})` : ''}</option>))}
                   </select>
                 </div>
                 <div>
-                  <label className="block font-semibold text-slate-700 mb-1">Destination Location *</label>
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="block font-semibold text-slate-700">Destination Location *</label>
+                    <MasterSourceLink source="godowns" />
+                  </div>
                   <select required value={destLocId} onChange={(e) => setDestLocId(e.target.value)} className="w-full border border-slate-300 rounded-lg p-2 bg-white text-slate-800">
                     <option value="">Select destination</option>
                     {locations.filter((l) => l.id !== sourceLocId).map((loc) => (<option key={loc.id} value={loc.id}>{loc.name}{loc.code ? ` (${loc.code})` : ''}</option>))}
@@ -226,7 +233,10 @@ export const TransfersPage = () => {
                     return (<div key={line.key} className="border border-[#dce5f4] rounded-xl p-3 space-y-2">
                       <div className="grid grid-cols-1 sm:grid-cols-[1fr_140px_32px] gap-2 items-end">
                         <div>
-                          <label className="block text-slate-600 mb-1">Item *</label>
+                          <div className="flex items-center justify-between mb-1">
+                            <label className="block text-slate-600">Item *</label>
+                            <MasterSourceLink source="items" />
+                          </div>
                           <select value={line.itemId} onChange={(e) => updateLine(line.key, { itemId: e.target.value, takas: {}, qty: '' })} className="w-full border border-slate-300 rounded-lg p-2 bg-white">
                             <option value="">Select item</option>
                             {items.filter((i) => i.itemKind !== 'Service').map((i) => (<option key={i.id} value={i.id}>{i.sku} — {i.name}</option>))}

@@ -23,6 +23,7 @@ import {
 import { inventoryService } from '../../../services/domainServices';
 import { useERP } from '../../../context/ERPContext';
 import PageInfoButton from '../../../components/ui/PageInfoButton';
+import MasterSourceLink from '../../../components/common/MasterSourceLink';
 
 export default function QCInspectionRegisterPage() {
   const { vendors = [], items = [], locations = [] } = useERP();
@@ -954,6 +955,8 @@ export default function QCInspectionRegisterPage() {
                           Select defect from Defect Master and assign 4-point penalty value
                         </p>
                       </div>
+                      <div className="flex items-center gap-2">
+                      <MasterSourceLink source="defects" />
                       <button
                         type="button"
                         onClick={() =>
@@ -973,6 +976,7 @@ export default function QCInspectionRegisterPage() {
                       >
                         <Plus size={13} /> Add Defect
                       </button>
+                      </div>
                     </div>
 
                     {astmDefects.length > 0 ? (
@@ -1161,7 +1165,10 @@ export default function QCInspectionRegisterPage() {
                     </div>
 
                     <div className="col-span-2">
-                      <label className="block text-slate-700 font-medium mb-1">Supplier / Vendor *</label>
+                      <div className="flex items-center justify-between mb-1">
+                        <label className="block text-slate-700 font-medium">Supplier / Vendor *</label>
+                        <MasterSourceLink source="vendors" />
+                      </div>
                       <select
                         value={newSupplier}
                         onChange={(e) => setNewSupplier(e.target.value)}
@@ -1178,7 +1185,10 @@ export default function QCInspectionRegisterPage() {
                     </div>
 
                     <div>
-                      <label className="block text-slate-700 font-medium mb-1">Item Code / Fabric *</label>
+                      <div className="flex items-center justify-between mb-1">
+                        <label className="block text-slate-700 font-medium">Item Code / Fabric *</label>
+                        <MasterSourceLink source="items" />
+                      </div>
                       <select
                         value={newItemCode}
                         onChange={(e) => {
@@ -1210,7 +1220,10 @@ export default function QCInspectionRegisterPage() {
                     </div>
 
                     <div>
-                      <label className="block text-slate-700 font-medium mb-1">Receiving Godown *</label>
+                      <div className="flex items-center justify-between mb-1">
+                        <label className="block text-slate-700 font-medium">Receiving Godown *</label>
+                        <MasterSourceLink source="godowns" />
+                      </div>
                       <select
                         value={newLocationId}
                         onChange={(e) => setNewLocationId(e.target.value)}

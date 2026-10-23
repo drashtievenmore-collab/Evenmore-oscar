@@ -1,6 +1,8 @@
 import React, { useEffect } from 'react';
 import { X, Printer, CheckCircle2, ShieldCheck, FileText } from 'lucide-react';
+import { SignatureSlot, useDocumentSignatures } from './SignatureSlot';
 export const PrintBillModal = ({ isOpen, onClose, bill, balanceDue = 0, }) => {
+  const docSigs = useDocumentSignatures('PurchaseBill', bill?.id, `Bill ${bill?.billNumber || bill?.number || ""}`);
     // UX only: Esc dismisses. No logic changes.
     useEffect(() => {
         if (!isOpen) return;
@@ -228,8 +230,9 @@ export const PrintBillModal = ({ isOpen, onClose, bill, balanceDue = 0, }) => {
           {/* Legal Signatures & Authorization Blocks */}
           <div className="pt-8 border-t border-slate-300 grid grid-cols-2 gap-12 text-center text-xs">
             <div className="space-y-8">
-              <div className="border-b border-slate-400 pb-1 h-12 flex items-end justify-center">
-                <span className="font-mono text-slate-400 text-[10px] italic">GRN Intake Verified & Stamped</span>
+              <div className="border-b border-slate-400 pb-1">
+                <SignatureSlot doc={docSigs} signatory="inspector" label="GRN Intake Verification" modalType="authorized" defaultDesignation="Warehouse Receiving Dock Inspector"
+                  placeholder={<span className="font-mono text-slate-400 text-[10px] italic">GRN Intake Verified & Stamped</span>} />
               </div>
               <div>
                 <p className="font-bold text-slate-900">Warehouse Receiving Dock Inspector</p>
@@ -238,8 +241,9 @@ export const PrintBillModal = ({ isOpen, onClose, bill, balanceDue = 0, }) => {
             </div>
 
             <div className="space-y-8">
-              <div className="border-b border-slate-400 pb-1 h-12 flex items-end justify-center">
-                <span className="font-mono text-slate-400 text-[10px] italic">Accounts Payable Authorization</span>
+              <div className="border-b border-slate-400 pb-1">
+                <SignatureSlot doc={docSigs} signatory="authorized" label="Accounts Payable Authorization" modalType="authorized" defaultDesignation="Corporate Finance & Comptroller"
+                  placeholder={<span className="font-mono text-slate-400 text-[10px] italic">Accounts Payable Authorization</span>} />
               </div>
               <div>
                 <p className="font-bold text-slate-900">Corporate Finance & Comptroller</p>

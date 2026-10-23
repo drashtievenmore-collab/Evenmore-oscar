@@ -14,6 +14,7 @@ import {
 import InfoBanner from "../common/InfoBanner";
 import PageHeader from "../../../components/ui/PageHeader";
 import StageTasksGuideModal from "./StageTasksGuideModal";
+import MasterSourceLink from "../../../components/common/MasterSourceLink";
 import { useCrmStore } from "../../../stores/crmStore";
 import { syncCollection } from "../../../services/crmCollections";
 
@@ -833,7 +834,12 @@ export default function LeadStageTasks({ leadForms = [] }) {
                     <table className="w-full min-w-[900px] lg:min-w-0 text-left text-xs border-collapse">
                       <thead>
                         <tr className="bg-white border-b border-slate-100 text-[11px] font-bold text-slate-800 uppercase tracking-wider">
-                          <th className="px-3 py-3 w-64">TASK</th>
+                          <th className="px-3 py-3 w-64">
+                            <div className="flex items-center justify-between gap-2">
+                              <span>TASK</span>
+                              <MasterSourceLink source="leadTasks" className="normal-case tracking-normal" />
+                            </div>
+                          </th>
                           <th className="px-3 py-3">ROLE</th>
                           <th className="px-3 py-3 w-28">ORDER</th>
                           <th className="px-3 py-3 w-24 text-center">REQUIRED</th>
@@ -1068,9 +1074,12 @@ export default function LeadStageTasks({ leadForms = [] }) {
                 </div>
               )}
               <div>
-                <label className="block text-xs font-semibold text-slate-700 mb-1">
-                  Task Name <span className="text-rose-500">*</span>
-                </label>
+                <div className="flex items-center justify-between mb-1">
+                  <label className="block text-xs font-semibold text-slate-700">
+                    Task Name <span className="text-rose-500">*</span>
+                  </label>
+                  <MasterSourceLink source="leadTasks" />
+                </div>
                 <select
                   autoFocus
                   value={masterTask.name}

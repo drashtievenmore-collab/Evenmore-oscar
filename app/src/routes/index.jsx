@@ -37,6 +37,8 @@ const DealsPage = lazy(() => import('../features/crm/deals/DealsPage'));
 //   Route `crm/user-allocation` and its sidebar entry were dropped; restore both if needed.
 // const UserAllocationPage = lazy(() => import('../features/crm/allocation/UserAllocationPage'));
 const CRMSystemSetupPage = lazy(() => import('../features/crm/setup/CRMSystemSetupPage'));
+const DealStagesPage = lazy(() => import('../features/crm/setup/DealStagesPage'));
+const LeadSourcesPage = lazy(() => import('../features/crm/setup/LeadSourcesPage'));
 // [REMOVED] CRM Reports concept removed from the CRM module.
 //   `features/crm/reports/CRMReportsPage.jsx` is kept per the no-delete rule.
 //   Route `crm/reports` and its sidebar entry were dropped; restore both if needed.
@@ -204,6 +206,8 @@ const ClientsPage = lazy(() => import('../features/administration/ClientsPage'))
 const ApprovalsInboxPage = lazy(() => import('../features/administration/ApprovalsInboxPage'));
 const AlertCenterPage = lazy(() => import('../features/administration/AlertCenterPage'));
 const AccountingLogPage = lazy(() => import('../features/accounts/AccountingLogPage'));
+const ChartOfAccountsPage = lazy(() => import('../features/accounts/ChartOfAccountsPage'));
+const ExpenseCategoriesPage = lazy(() => import('../features/accounts/ExpenseCategoriesPage'));
 const ITC04ReportPage = lazy(() => import('../features/jobwork/ITC04ReportPage'));
 
 // ── Main Dashboard (Lazy Loaded) ──────────────────────────────
@@ -354,6 +358,8 @@ const router = createBrowserRouter([
       { path: 'crm/deals', element: <Page component={DealsPage} /> },
       // [REMOVED] `crm/user-allocation` — User Tracking concept removed from the CRM module.
       { path: 'crm/system-setup', element: <Page component={CRMSystemSetupPage} /> },
+      { path: 'crm/deal-stages', element: <Page component={DealStagesPage} title="Deal Stages" /> },
+      { path: 'crm/lead-sources', element: <Page component={LeadSourcesPage} title="Lead Sources" /> },
       // [REMOVED] `crm/reports` — CRM Reports concept removed from the CRM module.
       { path: 'crm/quotations', element: <Page component={QuotationsPage} /> },
 
@@ -497,6 +503,8 @@ const router = createBrowserRouter([
       { path: 'accounts/notes', element: <Page component={StandaloneNotesPage} title="Debit / Credit Notes" /> },
       { path: 'accounts/reports', element: <Page component={FinancialReportsPage} /> },
       { path: 'accounts/accounting-log', element: <Page component={AccountingLogPage} title="Accounting Log" /> },
+      { path: 'accounts/chart-of-accounts', element: <Page component={ChartOfAccountsPage} title="Chart of Accounts" /> },
+      { path: 'accounts/expense-categories', element: <Page component={ExpenseCategoriesPage} title="Expense Categories" /> },
 
       // ── HRMS ──────────────────────────────────────────────
       { path: 'hrms', element: <Navigate to="/hrms/dashboard" replace /> },

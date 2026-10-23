@@ -19,6 +19,7 @@ import {
 
 import { fabricMasterSync, isBackendEnabled, describeError } from '../../../services/fabricMasterSync';
 import PageInfoButton from '../../../components/ui/PageInfoButton';
+import MasterSourceLink from '../../../components/common/MasterSourceLink';
 
 const PER_PAGE = 10;
 
@@ -786,9 +787,12 @@ export default function FabricQualityMasterPage() {
                       />
                     </div>
                     <div>
-                      <label className="block font-semibold text-slate-700 mb-1">
-                        Default UOM <span className="text-rose-500">*</span>
-                      </label>
+                      <div className="flex items-center justify-between mb-1">
+                        <label className="block font-semibold text-slate-700">
+                          Default UOM <span className="text-rose-500">*</span>
+                        </label>
+                        <MasterSourceLink source="uom" />
+                      </div>
                       <select
                         value={form.uomId || form.uom}
                         onChange={(e) => {
@@ -814,7 +818,10 @@ export default function FabricQualityMasterPage() {
 
                   {/* Row 4: Fabric Type */}
                   <div>
-                    <label className="block font-semibold text-slate-700 mb-1">Fabric Type</label>
+                    <div className="flex items-center justify-between mb-1">
+                      <label className="block font-semibold text-slate-700">Fabric Type</label>
+                      <MasterSourceLink source="fabricTypes" />
+                    </div>
                     <select
                       value={form.fabricTypeId}
                       onChange={(e) => {

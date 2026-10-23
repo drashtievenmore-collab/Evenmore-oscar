@@ -6,6 +6,7 @@ import {
 } from 'lucide-react';
 import { api } from '../../services/api';
 import { useERP } from '../../context/ERPContext';
+import MasterSourceLink from '../../components/common/MasterSourceLink';
 
 const fmtM = (n) => (n === null || n === undefined || n === '' ? '—' : `${Number(n).toLocaleString('en-IN', { maximumFractionDigits: 2 })} M`);
 const fmtINR = (n) => (n === null || n === undefined || n === '' ? '₹ 0.00' : `₹ ${Number(n).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`);
@@ -533,7 +534,10 @@ export default function GenerateFinalJobWorkPOModal({
 
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-[11px] font-bold text-slate-600 mb-1">Agency / Vendor <span className="text-rose-500">*</span></label>
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="block text-[11px] font-bold text-slate-600">Agency / Vendor <span className="text-rose-500">*</span></label>
+                    <MasterSourceLink source="vendors" />
+                  </div>
                   <select
                     required
                     value={vendorId}
@@ -550,7 +554,10 @@ export default function GenerateFinalJobWorkPOModal({
                 </div>
 
                 <div>
-                  <label className="block text-[11px] font-bold text-slate-600 mb-1">Assigned Employee</label>
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="block text-[11px] font-bold text-slate-600">Assigned Employee</label>
+                    <MasterSourceLink source="employees" />
+                  </div>
                   <select
                     value={assignedEmployeeId}
                     onChange={(e) => setAssignedEmployeeId(e.target.value)}

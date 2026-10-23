@@ -3245,22 +3245,47 @@ img { display: block; max-width: 100%; }
 .row-more.open { background: var(--soft); color: var(--primary); }
 
 .pinned-indicator {
-  width: 26px;
-  height: 26px;
+  width: 24px;
+  height: 24px;
   border: 1px solid transparent;
   background: transparent;
   border-radius: 6px;
-  color: var(--text-secondary);
-  display: inline-grid;
-  place-items: center;
+  color: #94a3b8;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   cursor: pointer;
+  opacity: 0;
+  transition: all 0.15s ease-in-out;
+  flex-shrink: 0;
 }
-.pinned-indicator.active {
-  border-color: #bfdbfe;
-  background: #eff6ff;
+
+tr:hover .pinned-indicator,
+.lead-grid-card:hover .pinned-indicator {
+  opacity: 0.55;
+}
+
+.pinned-indicator:hover {
+  opacity: 1 !important;
   color: #2563eb;
+  background: #eff6ff;
+  border-color: #bfdbfe;
+  transform: scale(1.1);
 }
-.pinned-indicator:hover { background: var(--primary-subtle); }
+
+.pinned-indicator.active {
+  opacity: 1;
+  color: #2563eb;
+  background: #eff6ff;
+  border-color: #bfdbfe;
+  transform: rotate(45deg);
+}
+
+.pinned-indicator.active:hover {
+  background: #dbeafe;
+  color: #1d4ed8;
+  transform: rotate(45deg) scale(1.1);
+}
 
 .table-inline-input {
   width: 100%;

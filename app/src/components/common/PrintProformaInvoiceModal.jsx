@@ -1,5 +1,6 @@
 import React, { useEffect } from 'react';
 import { X, Printer, FileSpreadsheet, Clock, Info } from 'lucide-react';
+import { SignatureSlot, useDocumentSignatures } from './SignatureSlot';
 import { useERP } from '../../context/ERPContext';
 
 export const PrintProformaInvoiceModal = ({
@@ -7,6 +8,7 @@ export const PrintProformaInvoiceModal = ({
   onClose,
   proforma,
 }) => {
+  const docSigs = useDocumentSignatures('ProformaInvoice', proforma?.id, `Proforma Invoice ${proforma?.proformaNumber || ''}`);
   // [PHASE-2E.1] company profile drives letterhead; GSTIN was hardcoded 29AABCU9912E1Z8
   const { companyProfile } = useERP();
   const companyName = companyProfile?.name || 'EVENMORE ERP MEDICAL & SYSTEMS';
@@ -294,12 +296,16 @@ export const PrintProformaInvoiceModal = ({
           <div className="grid grid-cols-2 gap-12 pt-6 border-t border-slate-200 text-center text-xs">
             <div className="space-y-10">
               <p className="text-slate-400 uppercase text-[10px] font-bold">Prepared By / Sales Account Exec</p>
-              <div className="border-b border-slate-300 w-3/4 mx-auto" />
+              <div className="border-b border-slate-300 w-3/4 mx-auto pb-1">
+                <SignatureSlot doc={docSigs} signatory="prepared" label="Prepared By / Sales Account Exec" modalType="authorized" defaultDesignation="Sales Account Executive" />
+              </div>
               <p className="font-semibold text-slate-700 text-[11px]">Commercial Operations Desk</p>
             </div>
             <div className="space-y-10">
               <p className="text-slate-400 uppercase text-[10px] font-bold">Authorized Signatory & Seal</p>
-              <div className="border-b border-slate-300 w-3/4 mx-auto" />
+              <div className="border-b border-slate-300 w-3/4 mx-auto pb-1">
+                <SignatureSlot doc={docSigs} signatory="authorized" label="Authorized Signatory & Seal" modalType="authorized" defaultName={companyName} />
+              </div>
               <p className="font-semibold text-slate-700 text-[11px]">{companyName}</p>
             </div>
           </div>

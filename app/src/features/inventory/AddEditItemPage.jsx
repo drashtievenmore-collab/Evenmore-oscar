@@ -1,8 +1,10 @@
-import React, { useState, useEffect, useMemo, useRef } from 'react';
+import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { resolveUnit } from '../../utils/uom';
 import { useParams, useNavigate, Link, useLocation } from 'react-router-dom';
 import { useERP } from '../../context/ERPContext';
 import { Button } from '../../components/ui/Button';
+import MasterSourceLink, { useMasterDataRefresh } from '../../components/common/MasterSourceLink';
+import { fabricMasterSync } from '../../services/fabricMasterSync';
 import {
   ChevronRight,
   ChevronDown,
@@ -104,6 +106,46 @@ export const AddEditItemPage = () => {
   const [fabricColor, setFabricColor] = useState('');
   const [fabricWidth, setFabricWidth] = useState('');
   const [fabricGsm, setFabricGsm] = useState('');
+
+  // Quality / Design / Colour options come from the Fabric Masters. Items store
+  // the master's *name* (plain text on the item), so options are names.
+  const [fabricMasters, setFabricMasters] = useState({ qualities: [], designs: [], shades: [], loaded: false });
+  const loadFabricMasters = useCallback(async () => {
+    const [qualities, designs, shades] = await Promise.all([
+      fabricMasterSync.pull('fabricQualities'),
+      fabricMasterSync.pull('designs'),
+      fabricMasterSync.pull('shades'),
+    ]);
+    const activeNames = (rows) => [...new Set((rows || [])
+      .filter((r) => r.isActive !== false && r.is_active !== false)
+      .map((r) => String(r.name || '').trim())
+      .filter(Boolean))]
+      .sort((a, b) => a.localeCompare(b));
+    setFabricMasters({
+      qualities: activeNames(qualities),
+      designs: activeNames(designs),
+      shades: activeNames(shades),
+      loaded: true,
+    });
+  }, []);
+  useEffect(() => { loadFabricMasters(); }, [loadFabricMasters]);
+  useMasterDataRefresh(loadFabricMasters, ['fabricQualities', 'designs', 'shades']);
+
+  // Master names as <option>s. A saved value that is no longer in the master
+  // (renamed, inactive, legacy) is still listed so editing never drops it.
+  const renderMasterOptions = (list, current, emptyText) => {
+    const options = current && !list.includes(current) ? [...list, current] : list;
+    return (
+      <>
+        {list.length === 0 && (
+          <option value="__none__" disabled>{fabricMasters.loaded ? emptyText : 'Loading…'}</option>
+        )}
+        {options.map((v) => (
+          <option key={v} value={v}>{list.includes(v) ? v : `${v} (not in master)`}</option>
+        ))}
+      </>
+    );
+  };
 
   // Fabric trades by length — lock units of measure for Fabric items. An item
   // already in a length unit ("Mtr") keeps it; otherwise use the base length unit.
@@ -867,9 +909,12 @@ export const AddEditItemPage = () => {
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-xs font-semibold text-slate-700 mb-1">
-                    Category
-                  </label>
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="block text-xs font-semibold text-slate-700">
+                      Category
+                    </label>
+                    <MasterSourceLink source="categories" />
+                  </div>
                   <select
                     value={category}
                     onChange={(e) => handleCategoryChange(e.target.value)}
@@ -883,9 +928,12 @@ export const AddEditItemPage = () => {
                   </select>
                 </div>
                 <div>
-                  <label className="block text-xs font-semibold text-slate-700 mb-1">
-                    Primary Vendor
-                  </label>
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="block text-xs font-semibold text-slate-700">
+                      Primary Vendor
+                    </label>
+                    <MasterSourceLink source="vendors" />
+                  </div>
                   <select
                     value={vendor}
                     onChange={(e) => setVendor(e.target.value)}
@@ -909,9 +957,12 @@ export const AddEditItemPage = () => {
                   </span>
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                     <div>
-                      <label className="block text-xs font-semibold text-slate-700 mb-1">
-                        Fabric Quality *
-                      </label>
+                      <div className="flex items-center justify-between mb-1">
+                        <label className="block text-xs font-semibold text-slate-700">
+                          Fabric Quality *
+                        </label>
+                        <MasterSourceLink source="fabricQualities" />
+                      </div>
                       <select
                         required
                         value={fabricQuality}
@@ -919,46 +970,43 @@ export const AddEditItemPage = () => {
                         className="w-full h-10 border border-slate-200 rounded-xl px-3 bg-white text-slate-800 text-xs focus:outline-none focus:border-blue-600 focus:ring-2 focus:ring-blue-500/20"
                       >
                         <option value="">Select quality…</option>
-                        {['Cotton', 'Polyester', 'Viscose', 'Silk', 'Linen', 'Rayon', 'Nylon', 'Blend', 'Denim', 'Other'].map((q) => (
-                          <option key={q} value={q}>{q}</option>
-                        ))}
+                        {renderMasterOptions(fabricMasters.qualities, fabricQuality, 'No fabric qualities yet — use + Add / Manage')}
                       </select>
                     </div>
                     <div>
-                      <label className="block text-xs font-semibold text-slate-700 mb-1">
-                        Design
-                      </label>
+                      <div className="flex items-center justify-between mb-1">
+                        <label className="block text-xs font-semibold text-slate-700">
+                          Design
+                        </label>
+                        <MasterSourceLink source="designs" />
+                      </div>
                       <select
                         value={fabricDesign}
                         onChange={(e) => setFabricDesign(e.target.value)}
                         className="w-full h-10 border border-slate-200 rounded-xl px-3 bg-white text-slate-800 text-xs focus:outline-none focus:border-blue-600 focus:ring-2 focus:ring-blue-500/20"
                       >
                         <option value="">Select design…</option>
-                        {['Plain', 'Solid', 'Printed', 'Dyed', 'Jacquard', 'Checks', 'Stripes', 'Dobby', 'Twill', 'Satin'].map((d) => (
-                          <option key={d} value={d}>{d}</option>
-                        ))}
+                        {renderMasterOptions(fabricMasters.designs, fabricDesign, 'No designs yet — use + Add / Manage')}
                       </select>
                     </div>
                   </div>
                   <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                     <div>
-                      <label className="block text-xs font-semibold text-slate-700 mb-1">
-                        Color
-                      </label>
+                      <div className="flex items-center justify-between mb-1">
+                        <label className="block text-xs font-semibold text-slate-700">
+                          Color
+                        </label>
+                        <MasterSourceLink source="shades" />
+                      </div>
                       <div className="relative">
-                        <input
-                          type="text"
-                          list="fabric-color-options"
+                        <select
                           value={fabricColor}
                           onChange={(e) => setFabricColor(e.target.value)}
-                          className="w-full h-10 border border-slate-200 rounded-xl px-3 bg-white text-slate-800 text-xs focus:outline-none focus:border-blue-600 focus:ring-2 focus:ring-blue-500/20"
-                          placeholder="e.g. White, Black, Blue"
-                        />
-                        <datalist id="fabric-color-options">
-                          {['White', 'Black', 'Blue', 'Red', 'Grey', 'Green', 'Yellow', 'Pink', 'Orange', 'Purple', 'Brown', 'Beige', 'Navy', 'Maroon', 'Cream'].map((c) => (
-                            <option key={c} value={c} />
-                          ))}
-                        </datalist>
+                          className="w-full h-10 border border-slate-200 rounded-xl pl-3 pr-8 bg-white text-slate-800 text-xs focus:outline-none focus:border-blue-600 focus:ring-2 focus:ring-blue-500/20"
+                        >
+                          <option value="">Select colour…</option>
+                          {renderMasterOptions(fabricMasters.shades, fabricColor, 'No colours / shades yet — use + Add / Manage')}
+                        </select>
                         <Palette size={14} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
                       </div>
                     </div>
@@ -1012,9 +1060,12 @@ export const AddEditItemPage = () => {
 
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                   <div>
-                    <label className="block text-[11px] font-medium text-slate-600 mb-1">
-                      Purchase Unit
-                    </label>
+                    <div className="flex items-center justify-between mb-1">
+                      <label className="block text-[11px] font-medium text-slate-600">
+                        Purchase Unit
+                      </label>
+                      <MasterSourceLink source="uom" />
+                    </div>
                     <select
                       value={purchaseUnit}
                       onChange={(e) => setPurchaseUnit(e.target.value)}
@@ -1033,9 +1084,12 @@ export const AddEditItemPage = () => {
                   </div>
 
                   <div>
-                    <label className="block text-[11px] font-medium text-slate-600 mb-1">
-                      Sales Unit
-                    </label>
+                    <div className="flex items-center justify-between mb-1">
+                      <label className="block text-[11px] font-medium text-slate-600">
+                        Sales Unit
+                      </label>
+                      <MasterSourceLink source="uom" />
+                    </div>
                     <select
                       value={salesUnit}
                       onChange={(e) => {
@@ -1665,7 +1719,7 @@ export const AddEditItemPage = () => {
                     Default Warehouse & Storage Location
                   </label>
                   <Link
-                    to="/stock/locations"
+                    to="/inventory/locations"
                     className="text-[11px] text-blue-600 hover:text-blue-800 font-semibold hover:underline"
                   >
                     Manage Locations
@@ -2182,7 +2236,10 @@ export const AddEditItemPage = () => {
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-xs font-semibold text-slate-700 mb-1">Fabric Quality <span className="text-rose-500">*</span></label>
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="block text-xs font-semibold text-slate-700">Fabric Quality <span className="text-rose-500">*</span></label>
+                    <MasterSourceLink source="fabricQualities" />
+                  </div>
                   <select
                     required
                     value={fabricQuality}
@@ -2190,38 +2247,38 @@ export const AddEditItemPage = () => {
                     className="w-full h-10 border border-slate-200 rounded-xl px-3 bg-white text-slate-800 text-xs focus:outline-none focus:border-blue-600 focus:ring-2 focus:ring-blue-500/20"
                   >
                     <option value="">Select fabric quality</option>
-                    {['Cotton', 'Polyester', 'Viscose', 'Silk', 'Linen', 'Rayon', 'Nylon', 'Blend', 'Denim', 'Other'].map((q) => (
-                      <option key={q} value={q}>{q}</option>
-                    ))}
+                    {renderMasterOptions(fabricMasters.qualities, fabricQuality, 'No fabric qualities yet — use + Add / Manage')}
                   </select>
                 </div>
                 <div>
-                  <label className="block text-xs font-semibold text-slate-700 mb-1">Design</label>
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="block text-xs font-semibold text-slate-700">Design</label>
+                    <MasterSourceLink source="designs" />
+                  </div>
                   <select
                     value={fabricDesign}
                     onChange={(e) => setFabricDesign(e.target.value)}
                     className="w-full h-10 border border-slate-200 rounded-xl px-3 bg-white text-slate-800 text-xs focus:outline-none focus:border-blue-600 focus:ring-2 focus:ring-blue-500/20"
                   >
-                    <option value="">Select design (Plain, Printed, Solid, etc..)</option>
-                    {['Plain', 'Solid', 'Printed', 'Dyed', 'Jacquard', 'Checks', 'Stripes', 'Dobby', 'Twill', 'Satin'].map((d) => (
-                      <option key={d} value={d}>{d}</option>
-                    ))}
+                    <option value="">Select design</option>
+                    {renderMasterOptions(fabricMasters.designs, fabricDesign, 'No designs yet — use + Add / Manage')}
                   </select>
                 </div>
               </div>
 
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                 <div>
-                  <label className="block text-xs font-semibold text-slate-700 mb-1">Colour</label>
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="block text-xs font-semibold text-slate-700">Colour</label>
+                    <MasterSourceLink source="shades" />
+                  </div>
                   <select
                     value={fabricColor}
                     onChange={(e) => setFabricColor(e.target.value)}
                     className="w-full h-10 border border-slate-200 rounded-xl px-3 bg-white text-slate-800 text-xs focus:outline-none focus:border-blue-600 focus:ring-2 focus:ring-blue-500/20"
                   >
                     <option value="">Select colour</option>
-                    {['White', 'Black', 'Blue', 'Red', 'Grey', 'Green', 'Yellow', 'Pink', 'Orange', 'Purple', 'Brown', 'Beige', 'Navy', 'Maroon', 'Cream'].map((c) => (
-                      <option key={c} value={c}>{c}</option>
-                    ))}
+                    {renderMasterOptions(fabricMasters.shades, fabricColor, 'No colours / shades yet — use + Add / Manage')}
                   </select>
                 </div>
                 <div>

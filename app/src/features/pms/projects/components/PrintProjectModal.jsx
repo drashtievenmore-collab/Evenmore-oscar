@@ -1,5 +1,6 @@
 import React, { useEffect } from 'react';
 import { X, Printer, CheckCircle2, GitBranch, Calendar, User, Package, Layers, IndianRupee } from 'lucide-react';
+import { SignatureSlot, useDocumentSignatures } from '../../../../components/common/SignatureSlot';
 import { useERP } from '../../../../context/ERPContext';
 import { formatCurrency } from '../../../../utils/currencyUtils';
 
@@ -16,6 +17,7 @@ function fmtDate(d) {
 }
 
 export function PrintProjectModal({ isOpen, onClose, project }) {
+  const docSigs = useDocumentSignatures('PmsProject', project?.id, `Project ${project?.code || ''}`);
   const { companyProfile } = useERP();
   const companyName = companyProfile?.name || 'OSCAR TEXTILES & APPAREL ERP';
   const companyAddress = companyProfile?.address || 'MIDC Industrial Area, Weaving & Processing Zone, India';
@@ -252,19 +254,25 @@ export function PrintProjectModal({ isOpen, onClose, project }) {
             {/* Official Signatures Grid */}
             <div className="pt-8 grid grid-cols-3 gap-6 text-center border-t border-slate-200">
               <div className="space-y-1">
-                <div className="h-10 border-b border-dashed border-slate-300" />
+                <div className="border-b border-dashed border-slate-300 pb-1">
+                  <SignatureSlot doc={docSigs} signatory="manager" label="Project Manager" modalType="authorized" className="h-10" defaultDesignation="Project Manager" />
+                </div>
                 <p className="font-bold text-slate-800 text-xs">Project Manager</p>
                 <p className="text-[10px] text-slate-400">PMS Operations</p>
               </div>
 
               <div className="space-y-1">
-                <div className="h-10 border-b border-dashed border-slate-300" />
+                <div className="border-b border-dashed border-slate-300 pb-1">
+                  <SignatureSlot doc={docSigs} signatory="production" label="Production In-Charge" modalType="authorized" className="h-10" defaultDesignation="Production In-Charge" />
+                </div>
                 <p className="font-bold text-slate-800 text-xs">Production In-Charge</p>
                 <p className="text-[10px] text-slate-400">Weaving & Mill Coordination</p>
               </div>
 
               <div className="space-y-1">
-                <div className="h-10 border-b border-dashed border-slate-300" />
+                <div className="border-b border-dashed border-slate-300 pb-1">
+                  <SignatureSlot doc={docSigs} signatory="commercial" label="Commercial Controller" modalType="authorized" className="h-10" defaultDesignation="Commercial Controller" />
+                </div>
                 <p className="font-bold text-slate-800 text-xs">Commercial Controller</p>
                 <p className="text-[10px] text-slate-400">Audited & Approved</p>
               </div>

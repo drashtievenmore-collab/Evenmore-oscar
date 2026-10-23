@@ -7,6 +7,7 @@ import { api } from '../../services/api';
 import { useERP } from '../../context/ERPContext';
 import PageHeader from '../../components/ui/PageHeader';
 import TablePagination from '../../components/ui/TablePagination';
+import MasterSourceLink from '../../components/common/MasterSourceLink';
 
 const statusPill = (s) =>
   s === 'Completed'
@@ -378,7 +379,10 @@ export default function JobWorkOrdersPage() {
             <form onSubmit={handleCreateSubmit} className="p-5 space-y-3.5 text-xs">
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-slate-700 font-semibold mb-1">Vendor / Processor *</label>
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="block text-slate-700 font-semibold">Vendor / Processor *</label>
+                    <MasterSourceLink source="processors" />
+                  </div>
                   <select
                     required
                     value={modalVendor}
@@ -393,7 +397,10 @@ export default function JobWorkOrdersPage() {
                 </div>
 
                 <div>
-                  <label className="block text-slate-700 font-semibold mb-1">Process Type *</label>
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="block text-slate-700 font-semibold">Process Type *</label>
+                    <MasterSourceLink source="processes" />
+                  </div>
                   <select
                     required
                     value={modalProcess}
@@ -407,7 +414,10 @@ export default function JobWorkOrdersPage() {
                 </div>
 
                 <div>
-                  <label className="block text-slate-700 font-semibold mb-1">Fabric Item *</label>
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="block text-slate-700 font-semibold">Fabric Item *</label>
+                    <MasterSourceLink source="items" />
+                  </div>
                   <select
                     required
                     value={modalFabric}
