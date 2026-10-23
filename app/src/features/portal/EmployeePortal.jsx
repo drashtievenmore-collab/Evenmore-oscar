@@ -66,6 +66,11 @@ import {
 } from '../../services/upgradeService';
 import { NOTIFICATION_EVENT } from '../../services/crmEventNotifications';
 
+// Career & Milestones (transfers, promotions, warnings, awards) is not in the
+// Oscar letter pad scope. Kept for reference, do not delete: set to true (and
+// re-enable the routes in oscar-backend/apps/hrms/urls.py) to bring it back.
+const CAREER_MILESTONES_ENABLED = false;
+
 const PORTAL_DOC_CATEGORIES = [
   'Identity',
   'Contract',
@@ -294,10 +299,19 @@ export default function EmployeePortal() {
   const [myWarnings, setMyWarnings] = useState([]);
   const [myAwards, setMyAwards] = useState([]);
 
-  const empTarget = currentEmployee?.id || currentEmployee?.employeeCode || employeeCode || employeeName;
+  // The lifecycle endpoints filter on the employee UUID, so only a linked
+  // Employee record can be queried — codes/names (or the 'EMP-SELF'
+  // placeholder) are rejected by the backend with a 400.
+  const empTarget = CAREER_MILESTONES_ENABLED ? currentEmployee?.id || null : null;
 
   useEffect(() => {
-    if (!empTarget) return;
+    if (!empTarget) {
+      setMyTransfers([]);
+      setMyPromotions([]);
+      setMyWarnings([]);
+      setMyAwards([]);
+      return;
+    }
 
     let cancelled = false;
     const loadCareer = () => {
@@ -1623,7 +1637,7 @@ export default function EmployeePortal() {
       </div>
 
       {/* Recognition & Milestone Notification Banner */}
-      {(myAwards.length > 0 || myPromotions.length > 0) && (
+      {CAREER_MILESTONES_ENABLED && (myAwards.length > 0 || myPromotions.length > 0) && (
         <div className="bg-gradient-to-r from-amber-500/10 via-amber-400/5 to-emerald-500/10 border border-amber-300 dark:border-amber-700/50 rounded-2xl p-4 flex items-center justify-between gap-4 flex-wrap">
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 rounded-xl bg-amber-500 text-white flex items-center justify-center shadow-sm shrink-0">
@@ -1729,7 +1743,9 @@ export default function EmployeePortal() {
             { id: 'ASSET', label: 'Assets & IT', count: unifiedRequests.filter((r) => r.requestType === 'ASSET').length },
             { id: 'GENERAL', label: 'Other Requirements', count: unifiedRequests.filter((r) => r.requestType === 'GENERAL').length },
             { id: 'RESIGNATION', label: 'Resignation & Exit', count: unifiedRequests.filter((r) => r.requestType === 'RESIGNATION').length },
-            { id: 'CAREER', label: 'Career & Milestones', count: myTransfers.length + myPromotions.length + myWarnings.length + myAwards.length },
+            ...(CAREER_MILESTONES_ENABLED
+              ? [{ id: 'CAREER', label: 'Career & Milestones', count: myTransfers.length + myPromotions.length + myWarnings.length + myAwards.length }]
+              : []),
           ].map((tab) => (
             <button
               key={tab.id}
@@ -1751,7 +1767,7 @@ export default function EmployeePortal() {
 
         {/* Requests or Career Table */}
         <div className="overflow-x-auto">
-          {activeTab === 'CAREER' ? (
+          {CAREER_MILESTONES_ENABLED && activeTab === 'CAREER' ? (
             <div className="p-6 space-y-6">
               {/* Promotions */}
               <div>

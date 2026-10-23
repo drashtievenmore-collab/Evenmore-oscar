@@ -640,6 +640,8 @@ export const holdIncentivePayout = (id, reason) => api.post(`/hrms/incentives/${
 export const releaseIncentivePayout = (id) => api.post(`/hrms/incentives/${id}/release/`, {});
 export const approveIncentivePayout = (id) => api.post(`/hrms/incentives/${id}/approve/`, {});
 export const markIncentivePaid = (id) => api.post(`/hrms/incentives/${id}/mark-paid/`, {});
+export const createIncentiveScheme = (data) => api.post('/hrms/incentive-schemes/', data);
+export const updateIncentiveScheme = (id, data) => api.patch(`/hrms/incentive-schemes/${id}/`, data);
 
 export const approveBrokerCommission = (id) => api.post(`/hrms/broker-commissions/${id}/approve/`, {});
 export const markBrokerCommissionPayable = (id) => api.post(`/hrms/broker-commissions/${id}/mark-payable/`, {});

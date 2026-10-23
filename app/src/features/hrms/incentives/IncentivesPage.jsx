@@ -5,7 +5,6 @@ import {
   DollarSign,
   AlertCircle,
   CheckCircle2,
-  Clock,
   Filter,
   RefreshCw,
   Plus,
@@ -14,10 +13,98 @@ import {
   Check,
   Ban,
   Settings,
+  Pencil,
+  X,
 } from "lucide-react";
 import PageHeader from "../../../components/ui/PageHeader";
 import { MetricCard } from "../../../components/hrms/MetricCard";
 import { useIncentiveStore } from "../../../stores/incentiveStore";
+import { describeError } from "../../../services/resourceSync";
+
+const BASIS_LABELS = {
+  INVOICE: "Invoice Value",
+  COLLECTION: "Payment Collection",
+  GROSS_PROFIT: "Gross Profit",
+};
+
+// How the rate is applied. Maps onto the scheme's slab_type + slabs
+// (pms.IncentiveScheme / compute_scheme_incentive).
+const RATE_MODES = {
+  flat: "Flat % on all sales",
+  slab: "Slab: whole sales at the rate of the slab reached",
+  tiered: "Tiered: each band earns its own rate",
+};
+
+const DEFAULT_SLABS = [
+  { min: 0, max: 1000000, rate_pct: 1.0 },
+  { min: 1000000, max: 2500000, rate_pct: 1.5 },
+  { min: 2500000, max: "", rate_pct: 2.0 },
+];
+
+const emptyScheme = () => ({
+  id: null,
+  name: "",
+  description: "",
+  basis: "INVOICE",
+  mode: "tiered",
+  ratePct: 1.5,
+  slabs: DEFAULT_SLABS.map((s) => ({ ...s })),
+  holdUnpaidInvoices: false,
+  excludeGst: true,
+  payoutAfterDays: 90,
+  isActive: true,
+});
+
+const schemeToForm = (s) => {
+  const slabs = Array.isArray(s.slabs) ? s.slabs : [];
+  return {
+    id: s.id,
+    name: s.name || "",
+    description: s.description || "",
+    basis: s.basis || "INVOICE",
+    mode: s.slabType === "TIERED" ? "tiered" : slabs.length ? "slab" : "flat",
+    ratePct: Number(s.ratePct || 0),
+    slabs: slabs.length
+      ? slabs.map((sl) => ({ min: sl.min ?? 0, max: sl.max ?? "", rate_pct: sl.rate_pct ?? sl.rate ?? 0 }))
+      : DEFAULT_SLABS.map((sl) => ({ ...sl })),
+    holdUnpaidInvoices: Boolean(s.holdUnpaidInvoices),
+    excludeGst: Boolean(s.excludeGst),
+    payoutAfterDays: s.payoutAfterDays ?? 90,
+    isActive: Boolean(s.isActive),
+  };
+};
+
+const formToPayload = (f) => {
+  const slabs =
+    f.mode === "flat"
+      ? []
+      : f.slabs.map((sl) => ({
+          min: Number(sl.min) || 0,
+          max: sl.max === "" || sl.max === null ? null : Number(sl.max),
+          rate_pct: Number(sl.rate_pct) || 0,
+        }));
+  return {
+    id: f.id || undefined,
+    name: f.name.trim(),
+    description: f.description || null,
+    periodType: "Quarterly",
+    basis: f.basis,
+    slabType: f.mode === "tiered" ? "TIERED" : "FLAT",
+    ratePct: Number(f.ratePct) || 0,
+    slabs,
+    holdUnpaidInvoices: f.holdUnpaidInvoices,
+    excludeGst: f.excludeGst,
+    payoutAfterDays: Math.max(0, parseInt(f.payoutAfterDays, 10) || 0),
+    isActive: f.isActive,
+  };
+};
+
+const describeRate = (s) => {
+  const slabs = Array.isArray(s.slabs) ? s.slabs : [];
+  if (!slabs.length) return `${Number(s.ratePct || 0)}% flat`;
+  const rates = slabs.map((sl) => `${Number(sl.rate_pct ?? sl.rate ?? 0)}%`).join(" / ");
+  return `${s.slabType === "TIERED" ? "Tiered" : "Slab"} ${rates}`;
+};
 
 export default function IncentivesPage() {
   const {
@@ -25,6 +112,7 @@ export default function IncentivesPage() {
     schemes,
     loading,
     error,
+    quarterlyReport,
     hydrate,
     calculateQuarterlyIncentive,
     approveIncentive,
@@ -32,39 +120,38 @@ export default function IncentivesPage() {
     releasePayout,
     markPaid,
     saveScheme,
+    clearError,
   } = useIncentiveStore();
 
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("ALL");
   const [calculating, setCalculating] = useState(false);
   const [calcQuarter, setCalcQuarter] = useState(1);
-  const [calcYear, setCalcYear] = useState(new Date().getFullYear());
+  const [calcYear, setCalcYear] = useState(() => {
+    const now = new Date();
+    // Financial year starts in April: Jan-Mar belong to the previous FY.
+    return now.getMonth() < 3 ? now.getFullYear() - 1 : now.getFullYear();
+  });
   const [isCalcModalOpen, setIsCalcModalOpen] = useState(false);
   const [isSchemeModalOpen, setIsSchemeModalOpen] = useState(false);
   const [isHoldModalOpen, setIsHoldModalOpen] = useState(false);
   const [selectedAccrual, setSelectedAccrual] = useState(null);
   const [holdReason, setHoldReason] = useState("");
-
-  // New Scheme Form State
-  const [schemeForm, setSchemeForm] = useState({
-    name: "Quarterly Standard Slab",
-    basis: "INVOICE_VALUE",
-    frequency: "QUARTERLY",
-    slab_type: "TIERED",
-    flat_rate_percent: 1.5,
-    slabs: [
-      { min_amount: 0, max_amount: 1000000, rate_percent: 1.0 },
-      { min_amount: 1000001, max_amount: 2500000, rate_percent: 1.5 },
-      { min_amount: 2500001, max_amount: 999999999, rate_percent: 2.0 },
-    ],
-    deduct_returns: true,
-    deduct_bad_debts: true,
-    description: "Standard tiered slabs with deduction for credit notes and bad debts",
-  });
+  const [schemeForm, setSchemeForm] = useState(emptyScheme);
+  const [savingScheme, setSavingScheme] = useState(false);
+  const [schemeError, setSchemeError] = useState("");
 
   useEffect(() => {
     hydrate();
   }, [hydrate]);
+
+  const runAction = async (fn) => {
+    try {
+      await fn();
+    } catch (err) {
+      console.error(err);
+    }
+  };
 
   const handleCalculate = async () => {
     setCalculating(true);
@@ -90,6 +177,37 @@ export default function IncentivesPage() {
     }
   };
 
+  const openSchemeModal = (scheme) => {
+    setSchemeForm(scheme ? schemeToForm(scheme) : emptyScheme());
+    setSchemeError("");
+    setIsSchemeModalOpen(true);
+  };
+
+  const handleSaveScheme = async () => {
+    if (!schemeForm.name.trim()) {
+      setSchemeError("Give the scheme a name.");
+      return;
+    }
+    setSavingScheme(true);
+    setSchemeError("");
+    try {
+      await saveScheme(formToPayload(schemeForm));
+      setIsSchemeModalOpen(false);
+    } catch (err) {
+      setSchemeError(describeError(err) || "The scheme could not be saved.");
+    } finally {
+      setSavingScheme(false);
+    }
+  };
+
+  const toggleSchemeActive = (scheme) =>
+    runAction(() => saveScheme({ id: scheme.id, isActive: !scheme.isActive }));
+
+  const updateSlab = (idx, field, value) => {
+    const slabs = schemeForm.slabs.map((sl, i) => (i === idx ? { ...sl, [field]: value } : sl));
+    setSchemeForm({ ...schemeForm, slabs });
+  };
+
   const filteredAccruals = useMemo(() => {
     return (accruals || []).filter((item) => {
       const matchSearch =
@@ -109,13 +227,12 @@ export default function IncentivesPage() {
     let paid = 0;
 
     (accruals || []).forEach((a) => {
+      if (a.status === "REVERSED") return;
       gross += Number(a.gross_sales || a.grossSales || 0);
       returns += Number(a.returns_deduction || a.returnsDeduction || 0);
       net += Number(a.net_eligible_sales || a.netEligibleSales || 0);
       incentive += Number(a.calculated_incentive || a.calculatedIncentive || 0);
-      if (a.status === "PAID") {
-        paid += Number(a.calculated_incentive || a.calculatedIncentive || 0);
-      }
+      paid += Number(a.paidAmount || 0);
     });
 
     return { gross, returns, net, incentive, paid };
@@ -132,24 +249,28 @@ export default function IncentivesPage() {
         return <span className="px-2.5 py-0.5 rounded-full text-xs font-medium bg-red-100 text-red-800 dark:bg-red-950/40 dark:text-red-400">Held</span>;
       case "ACCRUED":
         return <span className="px-2.5 py-0.5 rounded-full text-xs font-medium bg-amber-100 text-amber-800 dark:bg-amber-950/40 dark:text-amber-400">Accrued</span>;
+      case "REVERSED":
+        return <span className="px-2.5 py-0.5 rounded-full text-xs font-medium bg-neutral-200 text-neutral-700 dark:bg-neutral-800 dark:text-neutral-400 line-through">Reversed</span>;
       default:
         return <span className="px-2.5 py-0.5 rounded-full text-xs font-medium bg-neutral-100 text-neutral-800 dark:bg-neutral-800 dark:text-neutral-300">Draft</span>;
     }
   };
 
+  const skipped = quarterlyReport?.skipped || [];
+
   return (
     <div className="space-y-6 p-6">
       <PageHeader
         title="Salesperson Incentive Management"
-        description="Configure tiered incentive slabs, calculate quarterly payouts net of returns, and control release/hold workflows (Scope §12)."
+        subtitle="Configure incentive schemes, calculate quarterly payouts net of returns, and control approve / hold / payout (Scope §12). Incentive is paid outside payroll."
         actions={
           <div className="flex items-center gap-3">
             <button
-              onClick={() => setIsSchemeModalOpen(true)}
+              onClick={() => openSchemeModal(null)}
               className="inline-flex items-center gap-2 px-3 py-2 text-sm font-medium border border-border rounded-lg bg-card hover:bg-soft transition"
             >
-              <Settings className="w-4 h-4 text-muted" />
-              Slab Scheme Setup
+              <Plus className="w-4 h-4 text-muted" />
+              New Scheme
             </button>
             <button
               onClick={() => setIsCalcModalOpen(true)}
@@ -162,38 +283,109 @@ export default function IncentivesPage() {
         }
       />
 
+      {error && (
+        <div className="flex items-start gap-3 p-3 rounded-lg border border-red-200 bg-red-50 text-sm text-red-700 dark:bg-red-950/30 dark:border-red-900 dark:text-red-400">
+          <AlertCircle className="w-4 h-4 mt-0.5 shrink-0" />
+          <span className="flex-1">{error}</span>
+          <button onClick={clearError} title="Dismiss" className="shrink-0">
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+      )}
+
+      {quarterlyReport && (
+        <div className="p-3 rounded-lg border border-border bg-soft text-sm text-text">
+          <b>{quarterlyReport.period_name || quarterlyReport.periodName}:</b> calculated {quarterlyReport.count} salesperson
+          {quarterlyReport.count === 1 ? "" : "s"}.
+          {skipped.length > 0 && (
+            <span className="text-muted">
+              {" "}Left unchanged (already approved / paid / reversed):{" "}
+              {skipped.map((s) => `${s.employeeName} (${s.status})`).join(", ")}.
+            </span>
+          )}
+        </div>
+      )}
+
       {/* Metric Cards */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
-        <MetricCard
-          label="Gross Eligible Sales"
-          value={`₹${stats.gross.toLocaleString("en-IN")}`}
-          sub="Quarterly aggregated"
-          icon={TrendingUp}
-        />
-        <MetricCard
-          label="Deducted Returns"
-          value={`₹${stats.returns.toLocaleString("en-IN")}`}
-          sub="Sales returns & credit notes"
-          icon={ShieldAlert}
-        />
-        <MetricCard
-          label="Net Incentive Base"
-          value={`₹${stats.net.toLocaleString("en-IN")}`}
-          sub="Sales after return cuts"
-          icon={DollarSign}
-        />
-        <MetricCard
-          label="Calculated Accrual"
-          value={`₹${stats.incentive.toLocaleString("en-IN")}`}
-          sub="Total commission earned"
-          icon={Award}
-        />
-        <MetricCard
-          label="Disbursed / Paid"
-          value={`₹${stats.paid.toLocaleString("en-IN")}`}
-          sub="Settled to bank/salary"
-          icon={CheckCircle2}
-        />
+        <MetricCard label="Gross Eligible Sales" value={`₹${stats.gross.toLocaleString("en-IN")}`} sub="Quarterly aggregated" icon={TrendingUp} />
+        <MetricCard label="Deducted Returns" value={`₹${stats.returns.toLocaleString("en-IN")}`} sub="Sales returns & credit notes" icon={ShieldAlert} />
+        <MetricCard label="Net Incentive Base" value={`₹${stats.net.toLocaleString("en-IN")}`} sub="Base the rate applies to" icon={DollarSign} />
+        <MetricCard label="Calculated Accrual" value={`₹${stats.incentive.toLocaleString("en-IN")}`} sub="Total incentive earned" icon={Award} />
+        <MetricCard label="Disbursed / Paid" value={`₹${stats.paid.toLocaleString("en-IN")}`} sub="Paid out to salespersons" icon={CheckCircle2} />
+      </div>
+
+      {/* Schemes */}
+      <div className="bg-card border border-border rounded-xl shadow-2xs overflow-hidden">
+        <div className="flex items-center justify-between px-4 py-3 border-b border-border">
+          <div className="flex items-center gap-2 text-sm font-semibold text-text">
+            <Settings className="w-4 h-4 text-muted" /> Incentive Schemes
+          </div>
+          <span className="text-xs text-muted">Every active quarterly scheme is applied when you calculate a quarter.</span>
+        </div>
+        {(schemes || []).length === 0 ? (
+          <div className="px-4 py-6 text-sm text-center text-muted">
+            No schemes yet. Click "New Scheme" to set the incentive rate.
+          </div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-left text-sm">
+              <thead className="bg-soft border-b border-border text-xs font-semibold text-muted uppercase tracking-wider">
+                <tr>
+                  <th className="py-2.5 px-4">Scheme</th>
+                  <th className="py-2.5 px-4">Basis</th>
+                  <th className="py-2.5 px-4">Rate</th>
+                  <th className="py-2.5 px-4">Rules</th>
+                  <th className="py-2.5 px-4 text-center">Status</th>
+                  <th className="py-2.5 px-4 text-right">Actions</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-border">
+                {schemes.map((s) => (
+                  <tr key={s.id} className="hover:bg-soft/50 transition">
+                    <td className="py-2.5 px-4">
+                      <div className="font-medium text-text">{s.name}</div>
+                      {s.periodType && s.periodType !== "Quarterly" && (
+                        <div className="text-[11px] text-amber-600">{s.periodType}: not used by quarterly calculation</div>
+                      )}
+                    </td>
+                    <td className="py-2.5 px-4 text-text">{BASIS_LABELS[s.basis] || s.basis}</td>
+                    <td className="py-2.5 px-4 text-text">{describeRate(s)}</td>
+                    <td className="py-2.5 px-4 text-xs text-muted">
+                      {[
+                        `Paid ${s.payoutAfterDays ?? 90} days after customer payment`,
+                        s.holdUnpaidInvoices && "Holds unpaid share",
+                        s.excludeGst && "Excl. GST",
+                      ].filter(Boolean).join(" · ")}
+                    </td>
+                    <td className="py-2.5 px-4 text-center">
+                      <button
+                        onClick={() => toggleSchemeActive(s)}
+                        title={s.isActive ? "Deactivate" : "Activate"}
+                        className={`px-2.5 py-0.5 rounded-full text-xs font-medium ${
+                          s.isActive
+                            ? "bg-emerald-100 text-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-400"
+                            : "bg-neutral-100 text-neutral-600 dark:bg-neutral-800 dark:text-neutral-400"
+                        }`}
+                      >
+                        {s.isActive ? "Active" : "Inactive"}
+                      </button>
+                    </td>
+                    <td className="py-2.5 px-4 text-right">
+                      <button
+                        onClick={() => openSchemeModal(s)}
+                        title="Edit scheme"
+                        className="p-1.5 text-muted hover:text-text hover:bg-soft rounded transition"
+                      >
+                        <Pencil className="w-4 h-4" />
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
       </div>
 
       {/* Filter and Search Bar */}
@@ -208,17 +400,15 @@ export default function IncentivesPage() {
             className="w-full pl-9 pr-4 py-2 text-sm bg-soft border border-border rounded-lg focus:outline-none focus:ring-1 focus:ring-primary"
           />
         </div>
-        <div className="flex items-center gap-2 w-full sm:w-auto">
+        <div className="flex items-center gap-2 w-full sm:w-auto flex-wrap">
           <Filter className="w-4 h-4 text-muted" />
           <span className="text-xs font-medium text-muted">Status:</span>
-          {["ALL", "ACCRUED", "APPROVED", "PAID", "HELD"].map((st) => (
+          {["ALL", "ACCRUED", "APPROVED", "PAID", "HELD", "REVERSED"].map((st) => (
             <button
               key={st}
               onClick={() => setStatusFilter(st)}
               className={`px-3 py-1.5 text-xs font-medium rounded-lg transition ${
-                statusFilter === st
-                  ? "bg-primary text-white"
-                  : "bg-soft text-muted hover:text-text border border-border"
+                statusFilter === st ? "bg-primary text-white" : "bg-soft text-muted hover:text-text border border-border"
               }`}
             >
               {st}
@@ -248,7 +438,7 @@ export default function IncentivesPage() {
               {filteredAccruals.length === 0 ? (
                 <tr>
                   <td colSpan="9" className="py-12 text-center text-muted">
-                    No incentive accruals found. Click "Calculate Quarterly" to evaluate active salesperson commissions.
+                    {loading ? "Loading…" : 'No incentive accruals found. Click "Calculate Quarterly" to evaluate salesperson incentives.'}
                   </td>
                 </tr>
               ) : (
@@ -258,8 +448,9 @@ export default function IncentivesPage() {
                       <div className="font-medium text-text">{row.employeeName || row.employee?.name || "Salesperson"}</div>
                       <div className="text-xs text-muted">{row.employeeCode || row.employee?.employee_code || "—"}</div>
                     </td>
-                    <td className="py-3 px-4 font-medium text-text">
-                      {row.period_name || row.periodName}
+                    <td className="py-3 px-4">
+                      <div className="font-medium text-text">{row.period_name || row.periodName}</div>
+                      {row.schemeName && <div className="text-xs text-muted">{row.schemeName}</div>}
                     </td>
                     <td className="py-3 px-4 text-right text-text">
                       ₹{Number(row.gross_sales || row.grossSales || 0).toLocaleString("en-IN")}
@@ -270,17 +461,20 @@ export default function IncentivesPage() {
                     <td className="py-3 px-4 text-right font-medium text-text">
                       ₹{Number(row.net_eligible_sales || row.netEligibleSales || 0).toLocaleString("en-IN")}
                     </td>
-                    <td className="py-3 px-4 text-center font-semibold text-text">
-                      {row.applicable_rate || row.applicableRate}%
-                    </td>
+                    <td className="py-3 px-4 text-center font-semibold text-text">{row.applicable_rate || row.applicableRate}%</td>
                     <td className="py-3 px-4 text-right font-bold text-emerald-600 dark:text-emerald-400">
                       ₹{Number(row.calculated_incentive || row.calculatedIncentive || 0).toLocaleString("en-IN")}
+                      {row.status === "APPROVED" && (
+                        <div className="text-[11px] font-medium text-muted">
+                          Payable now ₹{Number(row.payableNow || 0).toLocaleString("en-IN")}
+                        </div>
+                      )}
                     </td>
                     <td className="py-3 px-4 text-center">
                       {getStatusBadge(row.status)}
-                      {row.hold_reason && (
-                        <div className="text-[11px] text-red-500 truncate max-w-[120px] mt-0.5" title={row.hold_reason}>
-                          {row.hold_reason}
+                      {(row.hold_reason || row.holdReason) && (
+                        <div className="text-[11px] text-red-500 truncate max-w-[140px] mt-0.5" title={row.hold_reason || row.holdReason}>
+                          {row.hold_reason || row.holdReason}
                         </div>
                       )}
                     </td>
@@ -289,8 +483,8 @@ export default function IncentivesPage() {
                         {row.status === "ACCRUED" && (
                           <>
                             <button
-                              onClick={() => approveIncentive(row.id)}
-                              title="Approve for Payroll Payout"
+                              onClick={() => runAction(() => approveIncentive(row.id))}
+                              title="Approve"
                               className="p-1.5 text-emerald-600 hover:bg-emerald-50 rounded dark:hover:bg-emerald-950/50 transition"
                             >
                               <Check className="w-4 h-4" />
@@ -309,16 +503,16 @@ export default function IncentivesPage() {
                         )}
                         {row.status === "HELD" && (
                           <button
-                            onClick={() => releasePayout(row.id)}
+                            onClick={() => runAction(() => releasePayout(row.id))}
                             title="Release Hold"
                             className="px-2 py-1 text-xs font-medium text-amber-700 bg-amber-50 hover:bg-amber-100 rounded dark:bg-amber-950/40 dark:text-amber-400 transition"
                           >
                             Release
                           </button>
                         )}
-                        {row.status === "APPROVED" && (
+                        {row.status === "APPROVED" && Number(row.payableNow || 0) > 0 && (
                           <button
-                            onClick={() => markPaid(row.id)}
+                            onClick={() => runAction(() => markPaid(row.id))}
                             title="Mark as Paid"
                             className="px-2 py-1 text-xs font-medium text-blue-700 bg-blue-50 hover:bg-blue-100 rounded dark:bg-blue-950/40 dark:text-blue-400 transition"
                           >
@@ -339,9 +533,10 @@ export default function IncentivesPage() {
       {isCalcModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
           <div className="bg-card border border-border rounded-xl shadow-lg w-full max-w-md p-6 space-y-4">
-            <h3 className="text-lg font-bold text-text">Trigger Quarterly Incentive Calculation</h3>
+            <h3 className="text-lg font-bold text-text">Calculate Quarterly Incentive</h3>
             <p className="text-sm text-muted">
-              Scans sales invoices and deducted credit notes/returns for all active salespersons for the period and applies slab schemes.
+              Takes the quarter's invoices and returns for every salesperson named on them and applies each active quarterly
+              scheme. Rows already approved or paid are left as they are.
             </p>
             <div className="grid grid-cols-2 gap-4">
               <div>
@@ -358,13 +553,16 @@ export default function IncentivesPage() {
                 </select>
               </div>
               <div>
-                <label className="text-xs font-semibold text-muted uppercase">Financial Year</label>
+                <label className="text-xs font-semibold text-muted uppercase">Financial Year (start)</label>
                 <input
                   type="number"
                   value={calcYear}
                   onChange={(e) => setCalcYear(Number(e.target.value))}
                   className="w-full mt-1.5 p-2 bg-soft border border-border rounded-lg text-sm text-text"
                 />
+                <div className="text-[11px] text-muted mt-1">
+                  FY {calcYear}-{String((calcYear + 1) % 100).padStart(2, "0")}
+                </div>
               </div>
             </div>
             <div className="flex justify-end gap-3 pt-3">
@@ -395,7 +593,8 @@ export default function IncentivesPage() {
               <AlertCircle className="w-5 h-5" /> Hold Incentive Payout
             </h3>
             <p className="text-sm text-muted">
-              Place a managerial hold on <b>{selectedAccrual?.employeeName}</b>'s incentive payout due to overdue customer accounts, returns, or pending verification.
+              Place a managerial hold on <b>{selectedAccrual?.employeeName}</b>'s incentive payout due to overdue customer
+              accounts, returns, or pending verification.
             </p>
             <div>
               <label className="text-xs font-semibold text-muted uppercase">Reason for Hold</label>
@@ -432,10 +631,15 @@ export default function IncentivesPage() {
       {isSchemeModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
           <div className="bg-card border border-border rounded-xl shadow-lg w-full max-w-xl p-6 space-y-4 max-h-[90vh] overflow-y-auto">
-            <h3 className="text-lg font-bold text-text">Incentive Slab Scheme Configuration</h3>
+            <h3 className="text-lg font-bold text-text">{schemeForm.id ? "Edit Incentive Scheme" : "New Incentive Scheme"}</h3>
             <p className="text-sm text-muted">
-              Configure tiered sales brackets and deduction rules per Oscar Letter Pad §12.
+              Quarterly salesperson incentive (Oscar Letter Pad §12). Sales returns and credit notes are always deducted.
             </p>
+            {schemeError && (
+              <div className="p-2.5 rounded-lg border border-red-200 bg-red-50 text-sm text-red-700 dark:bg-red-950/30 dark:border-red-900 dark:text-red-400">
+                {schemeError}
+              </div>
+            )}
             <div className="space-y-3">
               <div>
                 <label className="text-xs font-semibold text-muted uppercase">Scheme Name</label>
@@ -443,6 +647,7 @@ export default function IncentivesPage() {
                   type="text"
                   value={schemeForm.name}
                   onChange={(e) => setSchemeForm({ ...schemeForm, name: e.target.value })}
+                  placeholder="e.g. Quarterly Standard Slab"
                   className="w-full mt-1 p-2 bg-soft border border-border rounded-lg text-sm text-text"
                 />
               </div>
@@ -454,91 +659,132 @@ export default function IncentivesPage() {
                     onChange={(e) => setSchemeForm({ ...schemeForm, basis: e.target.value })}
                     className="w-full mt-1 p-2 bg-soft border border-border rounded-lg text-sm text-text"
                   >
-                    <option value="INVOICE_VALUE">Invoice Value</option>
-                    <option value="COLLECTIONS">Payment Collections</option>
-                    <option value="GROSS_PROFIT">Gross Profit Margin</option>
+                    {Object.entries(BASIS_LABELS).map(([value, label]) => (
+                      <option key={value} value={value}>{label}</option>
+                    ))}
                   </select>
                 </div>
                 <div>
-                  <label className="text-xs font-semibold text-muted uppercase">Slab Structure</label>
+                  <label className="text-xs font-semibold text-muted uppercase">Rate Structure</label>
                   <select
-                    value={schemeForm.slab_type}
-                    onChange={(e) => setSchemeForm({ ...schemeForm, slab_type: e.target.value })}
+                    value={schemeForm.mode}
+                    onChange={(e) => setSchemeForm({ ...schemeForm, mode: e.target.value })}
                     className="w-full mt-1 p-2 bg-soft border border-border rounded-lg text-sm text-text"
                   >
-                    <option value="TIERED">Tiered Sales Thresholds</option>
-                    <option value="FLAT">Flat % Rate</option>
+                    {Object.entries(RATE_MODES).map(([value, label]) => (
+                      <option key={value} value={value}>{label}</option>
+                    ))}
                   </select>
                 </div>
               </div>
 
-              {schemeForm.slab_type === "TIERED" ? (
+              {schemeForm.mode === "flat" ? (
+                <div>
+                  <label className="text-xs font-semibold text-muted uppercase">Flat Rate (%)</label>
+                  <input
+                    type="number"
+                    step="0.1"
+                    value={schemeForm.ratePct}
+                    onChange={(e) => setSchemeForm({ ...schemeForm, ratePct: e.target.value })}
+                    className="w-full mt-1 p-2 bg-soft border border-border rounded-lg text-sm text-text"
+                  />
+                </div>
+              ) : (
                 <div className="space-y-2">
-                  <label className="text-xs font-semibold text-muted uppercase">Tier Brackets</label>
+                  <label className="text-xs font-semibold text-muted uppercase">Sales Brackets (₹) — leave the last "Max" empty for no limit</label>
                   {schemeForm.slabs.map((slab, idx) => (
                     <div key={idx} className="flex items-center gap-2">
                       <span className="text-xs text-muted w-12">Tier {idx + 1}:</span>
                       <input
                         type="number"
                         placeholder="Min"
-                        value={slab.min_amount}
-                        onChange={(e) => {
-                          const updated = [...schemeForm.slabs];
-                          updated[idx].min_amount = Number(e.target.value);
-                          setSchemeForm({ ...schemeForm, slabs: updated });
-                        }}
-                        className="w-32 p-1.5 bg-soft border border-border rounded text-xs text-text"
+                        value={slab.min}
+                        onChange={(e) => updateSlab(idx, "min", e.target.value)}
+                        className="w-28 p-1.5 bg-soft border border-border rounded text-xs text-text"
                       />
                       <span className="text-xs text-muted">to</span>
                       <input
                         type="number"
-                        placeholder="Max"
-                        value={slab.max_amount}
-                        onChange={(e) => {
-                          const updated = [...schemeForm.slabs];
-                          updated[idx].max_amount = Number(e.target.value);
-                          setSchemeForm({ ...schemeForm, slabs: updated });
-                        }}
-                        className="w-32 p-1.5 bg-soft border border-border rounded text-xs text-text"
+                        placeholder="No limit"
+                        value={slab.max ?? ""}
+                        onChange={(e) => updateSlab(idx, "max", e.target.value)}
+                        className="w-28 p-1.5 bg-soft border border-border rounded text-xs text-text"
                       />
                       <input
                         type="number"
                         step="0.1"
                         placeholder="%"
-                        value={slab.rate_percent}
-                        onChange={(e) => {
-                          const updated = [...schemeForm.slabs];
-                          updated[idx].rate_percent = Number(e.target.value);
-                          setSchemeForm({ ...schemeForm, slabs: updated });
-                        }}
-                        className="w-20 p-1.5 bg-soft border border-border rounded text-xs text-text font-bold"
+                        value={slab.rate_pct}
+                        onChange={(e) => updateSlab(idx, "rate_pct", e.target.value)}
+                        className="w-16 p-1.5 bg-soft border border-border rounded text-xs text-text font-bold"
                       />
                       <span className="text-xs text-muted">%</span>
+                      {schemeForm.slabs.length > 1 && (
+                        <button
+                          onClick={() => setSchemeForm({ ...schemeForm, slabs: schemeForm.slabs.filter((_, i) => i !== idx) })}
+                          title="Remove tier"
+                          className="p-1 text-muted hover:text-red-600"
+                        >
+                          <X className="w-3.5 h-3.5" />
+                        </button>
+                      )}
                     </div>
                   ))}
-                </div>
-              ) : (
-                <div>
-                  <label className="text-xs font-semibold text-muted uppercase">Flat Rate (%)</label>
-                  <input
-                    type="number"
-                    step="0.1"
-                    value={schemeForm.flat_rate_percent}
-                    onChange={(e) => setSchemeForm({ ...schemeForm, flat_rate_percent: Number(e.target.value) })}
-                    className="w-full mt-1 p-2 bg-soft border border-border rounded-lg text-sm text-text"
-                  />
+                  <button
+                    onClick={() => {
+                      const last = schemeForm.slabs[schemeForm.slabs.length - 1];
+                      const start = last && last.max !== "" && last.max !== null ? Number(last.max) : 0;
+                      setSchemeForm({ ...schemeForm, slabs: [...schemeForm.slabs, { min: start, max: "", rate_pct: 0 }] });
+                    }}
+                    className="inline-flex items-center gap-1 text-xs font-medium text-primary hover:underline"
+                  >
+                    <Plus className="w-3.5 h-3.5" /> Add tier
+                  </button>
                 </div>
               )}
 
-              <div className="flex items-center gap-4 pt-2">
+              <div>
+                <label className="text-xs font-semibold text-muted uppercase">Pay incentive after (days from customer payment)</label>
+                <input
+                  type="number"
+                  min="0"
+                  step="1"
+                  value={schemeForm.payoutAfterDays}
+                  onChange={(e) => setSchemeForm({ ...schemeForm, payoutAfterDays: e.target.value })}
+                  className="w-full mt-1 p-2 bg-soft border border-border rounded-lg text-sm text-text"
+                />
+                <div className="text-[11px] text-muted mt-1">
+                  Each customer payment releases its share of the incentive once it is this many days old. Default 90.
+                </div>
+              </div>
+
+              <div className="space-y-2 pt-2">
                 <label className="flex items-center gap-2 text-sm text-text">
                   <input
                     type="checkbox"
-                    checked={schemeForm.deduct_returns}
-                    onChange={(e) => setSchemeForm({ ...schemeForm, deduct_returns: e.target.checked })}
+                    checked={schemeForm.holdUnpaidInvoices}
+                    onChange={(e) => setSchemeForm({ ...schemeForm, holdUnpaidInvoices: e.target.checked })}
                     className="rounded border-border"
                   />
-                  Deduct Sales Returns / Credit Notes
+                  Hold the share of unpaid invoices (released automatically as the customer pays)
+                </label>
+                <label className="flex items-center gap-2 text-sm text-text">
+                  <input
+                    type="checkbox"
+                    checked={schemeForm.excludeGst}
+                    onChange={(e) => setSchemeForm({ ...schemeForm, excludeGst: e.target.checked })}
+                    className="rounded border-border"
+                  />
+                  Exclude GST from the sales base
+                </label>
+                <label className="flex items-center gap-2 text-sm text-text">
+                  <input
+                    type="checkbox"
+                    checked={schemeForm.isActive}
+                    onChange={(e) => setSchemeForm({ ...schemeForm, isActive: e.target.checked })}
+                    className="rounded border-border"
+                  />
+                  Active
                 </label>
               </div>
             </div>
@@ -550,12 +796,11 @@ export default function IncentivesPage() {
                 Close
               </button>
               <button
-                onClick={() => {
-                  saveScheme(schemeForm);
-                  setIsSchemeModalOpen(false);
-                }}
-                className="px-4 py-2 text-sm font-medium text-white bg-primary rounded-lg hover:bg-primary/90"
+                disabled={savingScheme}
+                onClick={handleSaveScheme}
+                className="px-4 py-2 text-sm font-medium text-white bg-primary rounded-lg hover:bg-primary/90 flex items-center gap-2"
               >
+                {savingScheme && <RefreshCw className="w-4 h-4 animate-spin" />}
                 Save Scheme
               </button>
             </div>

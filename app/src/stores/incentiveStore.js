@@ -1,16 +1,24 @@
 import { create } from "zustand";
 import { lazyStore } from "../services/lazyModules";
 import {
-  writeThrough,
   pullTracked,
   calculateQuarterlyIncentive as apiCalculateQuarterly,
   holdIncentivePayout as apiHoldPayout,
   releaseIncentivePayout as apiReleasePayout,
   approveIncentivePayout as apiApprovePayout,
   markIncentivePaid as apiMarkPaid,
+  createIncentiveScheme as apiCreateScheme,
+  updateIncentiveScheme as apiUpdateScheme,
 } from "../services/hrmsSync";
 
 const useIncentiveStoreBase = create((set, get) => ({
+  // Re-read the rows after an action: the backend owns the resulting status.
+  refreshAccruals: async () => {
+    const fresh = await pullTracked("incentives");
+    if (fresh) set({ accruals: fresh });
+    return fresh;
+  },
+
   schemes: [],
   accruals: [],
   quarterlyReport: null,
@@ -64,9 +72,7 @@ const useIncentiveStoreBase = create((set, get) => ({
   holdPayout: async (id, reason = "Management hold") => {
     try {
       const updated = await apiHoldPayout(id, reason);
-      set((s) => ({
-        accruals: s.accruals.map((a) => (a.id === id ? { ...a, status: "HELD", hold_reason: reason, holdReason: reason } : a)),
-      }));
+      await get().refreshAccruals();
       return updated;
     } catch (err) {
       set({ error: err?.message || "Failed to hold payout" });
@@ -77,9 +83,7 @@ const useIncentiveStoreBase = create((set, get) => ({
   releasePayout: async (id) => {
     try {
       const updated = await apiReleasePayout(id);
-      set((s) => ({
-        accruals: s.accruals.map((a) => (a.id === id ? { ...a, status: "ACCRUED", hold_reason: "", holdReason: "" } : a)),
-      }));
+      await get().refreshAccruals();
       return updated;
     } catch (err) {
       set({ error: err?.message || "Failed to release payout" });
@@ -90,9 +94,7 @@ const useIncentiveStoreBase = create((set, get) => ({
   approveIncentive: async (id) => {
     try {
       const updated = await apiApprovePayout(id);
-      set((s) => ({
-        accruals: s.accruals.map((a) => (a.id === id ? { ...a, status: "APPROVED" } : a)),
-      }));
+      await get().refreshAccruals();
       return updated;
     } catch (err) {
       set({ error: err?.message || "Failed to approve payout" });
@@ -103,9 +105,7 @@ const useIncentiveStoreBase = create((set, get) => ({
   markPaid: async (id) => {
     try {
       const updated = await apiMarkPaid(id);
-      set((s) => ({
-        accruals: s.accruals.map((a) => (a.id === id ? { ...a, status: "PAID" } : a)),
-      }));
+      await get().refreshAccruals();
       return updated;
     } catch (err) {
       set({ error: err?.message || "Failed to mark paid" });
@@ -113,15 +113,17 @@ const useIncentiveStoreBase = create((set, get) => ({
     }
   },
 
+  // Saves straight to the canonical scheme (pms.IncentiveScheme) and throws
+  // on a validation error so the form can show it.
   saveScheme: async (scheme) => {
-    const current = get().schemes;
-    const exists = current.find((s) => s.id === scheme.id);
-    const updatedList = exists
-      ? current.map((s) => (s.id === scheme.id ? { ...s, ...scheme } : s))
-      : [...current, { ...scheme, id: scheme.id || `SCHEME-${Date.now()}` }];
-    set({ schemes: updatedList });
-    writeThrough("incentiveSchemes", updatedList);
+    const { id, ...payload } = scheme;
+    const saved = id ? await apiUpdateScheme(id, payload) : await apiCreateScheme(payload);
+    const fresh = await pullTracked("incentiveSchemes");
+    if (fresh) set({ schemes: fresh });
+    return saved;
   },
+
+  clearError: () => set({ error: null }),
 }));
 
 export const useIncentiveStore = lazyStore(useIncentiveStoreBase, "incentives");
