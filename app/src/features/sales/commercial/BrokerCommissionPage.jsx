@@ -29,6 +29,7 @@ import { salesService, crmService } from '../../../services/domainServices';
 import PageInfoButton from '../../../components/ui/PageInfoButton';
 import TablePagination from '../../../components/ui/TablePagination';
 import MasterSourceLink from '../../../components/common/MasterSourceLink';
+import KpiCard from '../../../components/ui/KpiCard';
 
 export default function BrokerCommissionPage() {
   // Navigation tabs: 'leads' (default) | 'register' | 'statement' | 'analytics'
@@ -510,7 +511,7 @@ export default function BrokerCommissionPage() {
   };
 
   return (
-    <div className="p-6 max-w-7xl mx-auto space-y-6">
+    <div className="space-y-6">
       {/* Top Header */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 pb-4 border-b border-slate-200">
         <div>

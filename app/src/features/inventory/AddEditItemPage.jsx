@@ -175,7 +175,7 @@ export const AddEditItemPage = () => {
   const [lotNumber, setLotNumber] = useState('');
   const [manufactureDate, setManufactureDate] = useState('');
   const [expiryDate, setExpiryDate] = useState('');
-  const [taxRate, setTaxRate] = useState('18');
+  const [taxRate, setTaxRate] = useState('5');
   // ── [PHASE-2E.1] GST compliance: HSN (goods) / SAC (services) per item ──
   const [hsnCode, setHsnCode] = useState('');
   const [sacCode, setSacCode] = useState('');
@@ -302,7 +302,7 @@ export const AddEditItemPage = () => {
       setLotNumber(existingItem.lotNumber || '');
       setManufactureDate(existingItem.manufactureDate || '');
       setExpiryDate(existingItem.expiryDate || '');
-      setTaxRate(existingItem.taxRate !== undefined ? String(existingItem.taxRate) : '18');
+      setTaxRate(existingItem.taxRate !== undefined ? String(existingItem.taxRate) : (existingItem.taxPct !== undefined ? String(existingItem.taxPct) : '5'));
       // [PHASE-2E.1] load HSN/SAC on edit
       setHsnCode(existingItem.hsnCode || '');
       setSacCode(existingItem.sacCode || '');
@@ -692,7 +692,8 @@ export const AddEditItemPage = () => {
       lotNumber: trackingMode === 'Batch' ? lotNumber : undefined,
       manufactureDate: trackingMode === 'Batch' ? manufactureDate : undefined,
       expiryDate: trackingMode === 'Batch' ? expiryDate : undefined,
-      taxRate: parseFloat(taxRate) || 18,
+      taxRate: !isNaN(parseFloat(taxRate)) ? parseFloat(taxRate) : 5,
+      tax_pct: !isNaN(parseFloat(taxRate)) ? parseFloat(taxRate) : 5,
       // [PHASE-2E.1] GST compliance codes — HSN for goods, SAC for services
       hsnCode: hsnCode.trim() || (itemKind === 'Service' ? '' : undefined),
       sacCode: sacCode.trim() || (itemKind === 'Service' ? undefined : ''),

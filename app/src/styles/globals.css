@@ -706,7 +706,11 @@ body {
   transition: background 0.3s ease, color 0.3s ease;
 }
 
-button, input, select, textarea { font: inherit; }
+/* Layered so Tailwind text-* utilities on form controls still win; unlayered,
+   this reset overrode every font size set on an input, select or button. */
+@layer base {
+  button, input, select, textarea { font: inherit; }
+}
 button { cursor: pointer; }
 a { text-decoration: none; color: inherit; }
 img { display: block; max-width: 100%; }

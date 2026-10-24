@@ -9,6 +9,7 @@ import {
   Layers, ClipboardList, Cog, Boxes, RotateCcw, Ban, HelpCircle, Loader2, RefreshCw,
 } from 'lucide-react';
 import PageInfoButton from '../../components/ui/PageInfoButton';
+import KpiCard from '../../components/ui/KpiCard';
 
 /*
  * Business position dashboard. Every figure comes from
@@ -87,18 +88,24 @@ function ChangeBadge({ pct }) {
 
 function KpiTile({ icon: Icon, label, value, pct, vs, tileBg, iconBg, iconColor }) {
   return (
-    <div className="rounded-xl p-3" style={{ background: tileBg }}>
+    <div
+      className="kpi-std group relative flex min-w-0 flex-col justify-between overflow-hidden border border-slate-200/90 rounded-xl p-3 transition-all duration-200 hover:-translate-y-0.5 hover:shadow-md"
+      style={{ background: tileBg }}
+    >
       <div className="flex items-center gap-2">
-        <span className="grid h-8 w-8 shrink-0 place-items-center rounded-lg" style={{ background: iconBg, color: iconColor }}>
+        <span
+          className="grid h-8 w-8 shrink-0 place-items-center rounded-lg shadow-2xs"
+          style={{ background: iconBg, color: iconColor }}
+        >
           <Icon size={17} />
         </span>
-        <span className="text-[11.5px] font-semibold leading-tight text-slate-600">{label}</span>
+        <span className="text-[11px] font-bold uppercase tracking-wider text-slate-700 truncate">{label}</span>
       </div>
-      <div className="mt-2 text-[17px] font-extrabold tracking-tight text-[#17294e]">{value}</div>
-      <div className="mt-1 text-[11px] font-bold">
+      <div className="mt-2 text-[18px] font-extrabold tracking-tight text-[#17294e]">{value}</div>
+      <div className="mt-1 flex items-center justify-between text-[11px]">
         <ChangeBadge pct={pct} />
+        <span className="text-[10px] font-medium text-slate-500">vs. {vs}</span>
       </div>
-      <div className="mt-0.5 text-[10.5px] font-medium text-slate-500">vs. {vs}</div>
     </div>
   );
 }

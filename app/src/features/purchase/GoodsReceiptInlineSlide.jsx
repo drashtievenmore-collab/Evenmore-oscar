@@ -125,14 +125,25 @@ export function GoodsReceiptInlineSlide({ po, delivery, onClose, onReceiptSaved,
         ...prev,
         supplierChallanNo: delivery.supplierChallanNo || prev.supplierChallanNo,
         supplierChallanDate: delivery.supplierChallanDate || prev.supplierChallanDate,
-        lines: prev.lines.map((l) => ({
-          ...l,
-          receivedQty: hasDQty ? dQty : l.receivedQty,
-          takas: (l.takas || []).map((t) => ({
-            ...t,
-            qty: hasDQty ? dQty : t.qty,
-          })),
-        })),
+        lines: prev.lines.map((l) => {
+          let lineTargetQty = l.receivedQty;
+          if (hasDQty) {
+            if (prev.lines.length === 1) {
+              lineTargetQty = dQty;
+            } else {
+              // For multi-item PO, preserve line ordered quantity instead of applying total shipment sum to each line
+              lineTargetQty = l.orderedQty ? Math.min(Number(l.orderedQty), dQty) : l.receivedQty;
+            }
+          }
+          return {
+            ...l,
+            receivedQty: lineTargetQty,
+            takas: (l.takas || []).map((t) => ({
+              ...t,
+              qty: lineTargetQty,
+            })),
+          };
+        }),
       }));
     }
   }, [delivery]);

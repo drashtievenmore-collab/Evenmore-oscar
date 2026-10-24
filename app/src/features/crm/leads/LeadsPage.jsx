@@ -23,7 +23,8 @@ import {
 } from './LeadRowActionModals';
 import { useNavigate } from 'react-router-dom';
 import { useAppStore } from '../../../stores/appStore';
-import { Users, UserPlus, Clock, TrendingUp, Plus, Upload } from 'lucide-react';
+import { Users, UserPlus, Clock, TrendingUp, Plus, Upload, AlertTriangle, X } from 'lucide-react';
+import { fetchLiveLeadFormId, isLeadFormSwitchedOn } from '../../../services/crmForms';
 import { useCrmStore } from '../../../stores/crmStore';
 import { useLeadDetailStore } from '../../../stores/leadDetailStore';
 import { bulkMarkLeadsLost as bulkMarkLeadsLostRequest, describeError, isServerId, markLeadLost as markLeadLostRequest } from '../../../services/crmSync';
@@ -243,6 +244,7 @@ export default function LeadsPage() {
   // Create-while-saving guard + inline backend error for the create modal.
   const [isCreating, setIsCreating] = useState(false);
   const [createError, setCreateError] = useState('');
+  const [showNoFormAlert, setShowNoFormAlert] = useState(false);
   const [showLeadTour, setShowLeadTour] = useState(false);
   const [isPrintOpen, setIsPrintOpen] = useState(false);
   const [isGuideOpen, setIsGuideOpen] = useState(false);
@@ -712,7 +714,23 @@ export default function LeadsPage() {
     setIsPrintOpen(false);
   }
 
-  function openCreateLeadModal() {
+  // Asks the server at click time: an admin may have switched every lead form
+  // off since this page loaded. Offline, the loaded forms decide.
+  async function leadFormIsOn() {
+    try {
+      return Boolean(await fetchLiveLeadFormId());
+    } catch {
+      return isLeadFormSwitchedOn();
+    }
+  }
+
+  async function openCreateLeadModal() {
+    // Every form is switched off in Manage Lead Create Forms: ask the user to
+    // turn one on instead of opening an arbitrary form.
+    if (!(await leadFormIsOn())) {
+      setShowNoFormAlert(true);
+      return;
+    }
     setCreateError('');
     setIsModalOpen(true);
   }
@@ -900,7 +918,11 @@ export default function LeadsPage() {
     navigate('/crm/leads/form-builder');
   }
 
-  function openLeadCreateForm() {
+  async function openLeadCreateForm() {
+    if (!(await leadFormIsOn())) {
+      setShowNoFormAlert(true);
+      return;
+    }
     navigate('/crm/leads/create-form');
   }
 
@@ -1269,6 +1291,49 @@ export default function LeadsPage() {
         onCreate={handleCreateLead}
         onEditLayout={() => { setIsModalOpen(false); setShowLeadTour(false); navigate('/crm/leads/form-builder'); }}
       />
+      {showNoFormAlert && (
+        <div className="modal-overlay" role="presentation" onClick={() => setShowNoFormAlert(false)}>
+          <section
+            role="alertdialog"
+            aria-modal="true"
+            aria-labelledby="no-lead-form-title"
+            onClick={(e) => e.stopPropagation()}
+            className="relative w-full max-w-md rounded-2xl bg-white p-6 shadow-xl text-center"
+          >
+            <button
+              type="button"
+              onClick={() => setShowNoFormAlert(false)}
+              className="absolute right-3 top-3 p-1.5 rounded-lg text-slate-400 hover:bg-slate-100"
+              aria-label="Close"
+            >
+              <X size={18} />
+            </button>
+            <div className="mx-auto mb-3 grid h-12 w-12 place-items-center rounded-full bg-amber-100 text-amber-600">
+              <AlertTriangle size={24} />
+            </div>
+            <h3 id="no-lead-form-title" className="text-base font-bold text-slate-900">Turn on a Lead Create Form first</h3>
+            <p className="mt-1.5 text-sm text-slate-500">
+              All lead create forms are switched off. Switch one on in Manage Lead Create Forms, then create the lead.
+            </p>
+            <div className="mt-5 flex justify-center gap-2">
+              <button
+                type="button"
+                onClick={() => setShowNoFormAlert(false)}
+                className="px-4 py-2 rounded-lg border border-slate-300 bg-white text-sm font-semibold text-slate-700 hover:bg-slate-50"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={() => { setShowNoFormAlert(false); navigate('/crm/leads/forms'); }}
+                className="px-4 py-2 rounded-lg bg-blue-600 text-sm font-semibold text-white hover:bg-blue-700"
+              >
+                Go to Lead Create Forms
+              </button>
+            </div>
+          </section>
+        </div>
+      )}
       <LeadGuideModal isOpen={isGuideOpen} onClose={() => setIsGuideOpen(false)} />
       <CreateLeadTaskModal
         isOpen={quickAction?.type === 'task'}

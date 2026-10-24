@@ -81,7 +81,17 @@ export default function QuotationDetailPage() {
   const totals = useMemo(() => {
     const qty = items.reduce((s, it) => s + num(it.qty ?? it.quantity), 0);
     const subtotal = items.reduce((s, it) => s + num(it.qty ?? it.quantity) * num(it.rate ?? it.price), 0);
-    return { count: items.length, qty, subtotal };
+    const gst = quote?.taxAmount != null
+      ? num(quote.taxAmount)
+      : Math.max(0, num(quote?.amount) - subtotal);
+    const rateSet = new Set(items.map((it) => it.tax ?? it.taxRate ?? it.gstPct).filter((x) => x != null));
+    const rates = Array.from(rateSet);
+    const effectivePct = rates.length === 1
+      ? `${rates[0]}%`
+      : rates.length > 1
+        ? `${rates.join('%, ')}%`
+        : (subtotal > 0 ? `${((gst / subtotal) * 100).toFixed(0)}%` : '5%');
+    return { count: items.length, qty, subtotal, gst, effectivePct };
   }, [items]);
 
   const activity = Array.isArray(quote?.activity) ? quote.activity : [];
@@ -312,7 +322,7 @@ export default function QuotationDetailPage() {
               <div className="flex justify-between gap-3"><dt className="text-slate-500">Total Items</dt><dd className="font-semibold text-slate-900">{totals.count} Items</dd></div>
               <div className="flex justify-between gap-3"><dt className="text-slate-500">Total Quantity</dt><dd className="font-semibold text-slate-900">{totals.qty.toLocaleString('en-IN')} M</dd></div>
               <div className="flex justify-between gap-3"><dt className="text-slate-500">Subtotal</dt><dd className="font-mono font-semibold">{inr(totals.subtotal)}</dd></div>
-              <div className="flex justify-between gap-3"><dt className="text-slate-500">GST (5%)</dt><dd className="font-mono font-semibold">{inr(Math.max(0, num(quote.amount) - totals.subtotal))}</dd></div>
+              <div className="flex justify-between gap-3"><dt className="text-slate-500">GST ({totals.effectivePct})</dt><dd className="font-mono font-semibold">{inr(totals.gst)}</dd></div>
               <div className="flex justify-between items-center gap-3 bg-emerald-50 border border-emerald-100 rounded-xl px-3 py-2.5">
                 <dt className="font-bold text-slate-900">Grand Total</dt>
                 <dd className="font-mono font-extrabold text-emerald-700 text-sm">{inr(quote.amount || 0)}</dd>

@@ -10,6 +10,7 @@
  * Which form the builder currently has open stays in the browser: that is a
  * per-tab editing position, not part of the form.
  */
+import { api } from './api';
 import { useCrmStore } from '../stores/crmStore';
 import { isBackendEnabled, isServerId } from './resourceSync';
 
@@ -161,6 +162,50 @@ export function getActiveFormId(key = 'activeLeadFormId') {
   } catch {
     return null;
   }
+}
+
+// ---------------------------------------------------------------------------
+// The live lead form: which form Create Lead renders, for every user. It is
+// the server's `isActive` flag (at most one lead form), not browser storage,
+// so switching every form off in Manage Lead Create Forms blocks Create Lead
+// on every machine.
+// ---------------------------------------------------------------------------
+
+function applyLiveLeadForm(formId) {
+  const id = formId == null ? null : String(formId);
+  useCrmStore.setState((state) => ({
+    forms: (state.forms || []).map((form) => (
+      (form.kind || LEAD_FORM) === LEAD_FORM ? { ...form, isActive: id !== null && String(form.id) === id } : form
+    )),
+  }));
+}
+
+/** The switched-on lead form id from the loaded forms, or null when all are off. */
+export function getLiveLeadFormId() {
+  const live = (useCrmStore.getState().forms || [])
+    .find((form) => (form.kind || LEAD_FORM) === LEAD_FORM && form.isActive);
+  return live ? String(live.id) : null;
+}
+
+/** Ask the server which lead form is live (another user may have changed it). */
+export async function fetchLiveLeadFormId() {
+  const res = await api.get('/crm/forms/active/', { query: { kind: LEAD_FORM } });
+  const id = res?.formId ?? res?.data?.formId ?? null;
+  applyLiveLeadForm(id);
+  return id;
+}
+
+/** Switch one lead form on for everyone; `null` switches them all off. */
+export async function setLiveLeadForm(formId) {
+  const res = await api.post('/crm/forms/set-active/', { formId: formId || null, kind: LEAD_FORM });
+  const id = res?.formId ?? res?.data?.formId ?? null;
+  applyLiveLeadForm(id);
+  return id;
+}
+
+/** True when a lead form is switched on in Manage Lead Create Forms. */
+export function isLeadFormSwitchedOn() {
+  return getLiveLeadFormId() !== null;
 }
 
 export function setActiveFormId(formId, key = 'activeLeadFormId') {

@@ -359,8 +359,19 @@ export function Stage2SupplierDeliveryWorkspace({
 
               <div>
                 <span className="text-[10.5px] font-semibold text-slate-400 block uppercase">Fabric Quality</span>
-                <p className="font-bold text-slate-800 truncate mt-0.5">{primaryFabric?.name || primaryFabric?.description || activePo.fabricName || 'Grey Fabric'}</p>
-                <p className="text-[10px] text-slate-500">{primaryFabric?.uom || 'Mtr'} · {primaryFabric?.gsm ? `${primaryFabric.gsm} GSM` : 'Standard'}</p>
+                {poLineItems.length > 1 ? (
+                  <>
+                    <p className="font-bold text-blue-700 truncate mt-0.5" title={poLineItems.map((l) => l.name || l.fabric || l.description).filter(Boolean).join(', ')}>
+                      {poLineItems.length} Fabric Qualities
+                    </p>
+                    <p className="text-[10px] text-slate-500">Multi-item PO ({poLineItems.length} items)</p>
+                  </>
+                ) : (
+                  <>
+                    <p className="font-bold text-slate-800 truncate mt-0.5">{primaryFabric?.name || primaryFabric?.description || activePo.fabricName || 'Grey Fabric'}</p>
+                    <p className="text-[10px] text-slate-500">{primaryFabric?.uom || 'Mtr'} · {primaryFabric?.gsm ? `${primaryFabric.gsm} GSM` : 'Standard'}</p>
+                  </>
+                )}
               </div>
 
               <div>
@@ -373,10 +384,21 @@ export function Stage2SupplierDeliveryWorkspace({
 
               <div>
                 <span className="text-[10.5px] font-semibold text-slate-400 block uppercase">Unit Rate</span>
-                <p className="font-mono font-bold text-slate-800 text-sm mt-0.5">
-                  ₹{Number(primaryFabric?.rate || activePo.rate || 0).toLocaleString('en-IN')}
-                </p>
-                <p className="text-[10px] text-slate-400">Per meter rate</p>
+                {poLineItems.length > 1 ? (
+                  <>
+                    <p className="font-mono font-bold text-slate-800 text-sm mt-0.5">
+                      Various Rates
+                    </p>
+                    <p className="text-[10px] text-slate-400">See line items breakdown below</p>
+                  </>
+                ) : (
+                  <>
+                    <p className="font-mono font-bold text-slate-800 text-sm mt-0.5">
+                      ₹{Number(primaryFabric?.rate || activePo.rate || 0).toLocaleString('en-IN')}
+                    </p>
+                    <p className="text-[10px] text-slate-400">Per meter rate</p>
+                  </>
+                )}
               </div>
 
               <div>
@@ -393,6 +415,61 @@ export function Stage2SupplierDeliveryWorkspace({
                 <p className="text-[10px] text-indigo-600 font-mono">{project?.code || 'PRJ-STOCK'}</p>
               </div>
             </div>
+
+            {poLineItems.length > 0 && (
+              <div className="mt-4 pt-4 border-t border-slate-100">
+                <div className="flex items-center justify-between mb-2">
+                  <h4 className="text-[11px] font-extrabold text-slate-700 uppercase tracking-wider flex items-center gap-1.5">
+                    <Layers size={13} className="text-blue-600" />
+                    Fabric Line Items ({poLineItems.length})
+                  </h4>
+                  <span className="text-[11px] font-semibold text-slate-500">
+                    Total: <strong className="font-mono text-slate-900">{totalOrderedQty.toLocaleString('en-IN')} M</strong> · <strong className="font-mono text-slate-900">₹{Number(activePo.total || activePo.amount || 0).toLocaleString('en-IN')}</strong>
+                  </span>
+                </div>
+
+                <div className="overflow-x-auto rounded-xl border border-slate-200">
+                  <table className="w-full text-left text-xs border-collapse">
+                    <thead className="bg-slate-50 text-[10.5px] font-bold text-slate-500 uppercase border-b border-slate-200">
+                      <tr>
+                        <th className="py-2.5 px-3 w-10">#</th>
+                        <th className="py-2.5 px-3">Fabric Quality / Description</th>
+                        <th className="py-2.5 px-3 text-right">Ordered Qty</th>
+                        <th className="py-2.5 px-3 text-right">Agreed Rate</th>
+                        <th className="py-2.5 px-3 text-right">Line Total</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100 bg-white">
+                      {poLineItems.map((item, idx) => {
+                        const name = item.name || item.itemName || item.fabric || item.description || `Fabric ${idx + 1}`;
+                        const qty = Number(item.qty || item.quantity || 0);
+                        const rate = Number(item.rate || item.unitPrice || 0);
+                        const total = Number(item.amount || qty * rate);
+                        const uom = item.uom || item.stockUom || 'Mtr';
+                        return (
+                          <tr key={item.id || idx} className="hover:bg-slate-50/70">
+                            <td className="py-2.5 px-3 font-mono text-slate-400 text-[11px]">{idx + 1}</td>
+                            <td className="py-2.5 px-3">
+                              <span className="font-bold text-slate-800">{name}</span>
+                              {item.gsm && <span className="ml-2 text-[10px] text-slate-400 font-mono">{item.gsm} GSM</span>}
+                            </td>
+                            <td className="py-2.5 px-3 text-right font-mono font-bold text-slate-900">
+                              {qty.toLocaleString('en-IN')} <span className="text-[10px] font-normal text-slate-500">{uom}</span>
+                            </td>
+                            <td className="py-2.5 px-3 text-right font-mono font-semibold text-slate-700">
+                              ₹{rate.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}/{uom}
+                            </td>
+                            <td className="py-2.5 px-3 text-right font-mono font-bold text-slate-900">
+                              ₹{total.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
           </div>
         ) : (
           <div className="mt-5 p-4 rounded-xl border border-dashed border-amber-300 bg-amber-50 text-xs text-amber-800 flex items-center justify-between">

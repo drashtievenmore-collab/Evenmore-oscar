@@ -768,10 +768,10 @@ export default function ColourShadeMasterPage() {
 
       {/* ── Sub-header: Breadcrumb & Toolbar ── */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pt-1">
-        {/* Breadcrumb: Fabric Masters > Colour / Shade Master */}
+        {/* Breadcrumb: Inventory > Colour / Shade Master */}
         <div className="flex items-center gap-2 text-xs text-slate-600 font-medium">
           <Layers className="w-4 h-4 text-[#1e60f2]" />
-          <span>Fabric Masters</span>
+          <span>Inventory</span>
           <span className="text-slate-300 font-bold">&gt;</span>
           <span className="text-slate-800 font-semibold">Colour / Shade Master</span>
         </div>
@@ -1145,7 +1145,7 @@ export default function ColourShadeMasterPage() {
               <div className="flex items-center justify-between gap-3 mt-3 pt-2">
                 <div className="flex items-center gap-2 text-xs text-slate-600 font-medium">
                   <Layers className="w-4 h-4 text-[#1e60f2]" />
-                  <span>Fabric Masters</span>
+                  <span>Inventory</span>
                   <span className="text-slate-300 font-bold">&gt;</span>
                   <span>Colour / Shade Master</span>
                   <span className="text-slate-300 font-bold">&gt;</span>

@@ -46,6 +46,7 @@ import { useNavigate, useLocation, useSearchParams } from 'react-router-dom';
 import QRCode from 'qrcode';
 import { TakaTagLabel } from './TakaTagPrintPage';
 import PageInfoButton from '../../components/ui/PageInfoButton';
+import KpiCard from '../../components/ui/KpiCard';
 import MasterSourceLink from '../../components/common/MasterSourceLink';
 
 // Helper for Indian Currency formatting
@@ -1081,7 +1082,7 @@ export default function LotTakaRegisterPage({
   const summary = data?.summaryCards || {};
 
   return (
-    <div className={isEmbedded ? "bg-[#f8fafc] text-slate-800 p-2 sm:p-4 space-y-4" : "min-h-screen bg-[#f8fafc] text-slate-800 p-4 sm:p-6 space-y-4"}>
+    <div className={isEmbedded ? "space-y-4 p-1" : "space-y-4"}>
       {/* ── TOP HEADER (Image 1) ────────────────────────────────────────────── */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-white p-4 rounded-xl border border-slate-200/90 shadow-xs">
         <div className="flex items-center gap-3">

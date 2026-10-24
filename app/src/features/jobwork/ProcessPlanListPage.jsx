@@ -692,7 +692,7 @@ export function ProcessPlanForm({
   }
 
   return (
-    <div className="min-h-[calc(100vh-62px)] bg-[#f4f7fb] p-4 md:p-6 space-y-4">
+    <div className="space-y-4">
       {/* Page Title */}
       <PageHeader
         title={title || (isEdit ? `Edit Process Plan — ${form.planNo}` : 'Create Process Plan')}

@@ -47,8 +47,17 @@ export default function SendQuotationModal({
   const items = useMemo(() => (Array.isArray(quotation?.items) ? quotation.items : []), [quotation]);
   const totals = useMemo(() => {
     const subtotal = items.reduce((s, it) => s + num(it.qty ?? it.quantity) * num(it.rate ?? it.price), 0);
-    const gst = Math.max(0, num(quotation?.amount) - subtotal);
-    return { subtotal, gst, grand: num(quotation?.amount) || subtotal + gst };
+    const gst = quotation?.taxAmount != null
+      ? num(quotation.taxAmount)
+      : Math.max(0, num(quotation?.amount) - subtotal);
+    const rateSet = new Set(items.map((it) => it.tax ?? it.taxRate ?? it.gstPct).filter((x) => x != null));
+    const rates = Array.from(rateSet);
+    const effectivePct = rates.length === 1
+      ? `${rates[0]}%`
+      : rates.length > 1
+        ? `${rates.join('%, ')}%`
+        : (subtotal > 0 ? `${((gst / subtotal) * 100).toFixed(0)}%` : '5%');
+    return { subtotal, gst, grand: num(quotation?.amount) || subtotal + gst, effectivePct };
   }, [items, quotation]);
 
   function addEmail(value) {
@@ -451,7 +460,7 @@ export default function SendQuotationModal({
                 </table>
                 <dl className="text-[11px] mt-2 space-y-0.5">
                   <div className="flex justify-between text-slate-600"><dt>Subtotal</dt><dd className="font-mono">{inr(totals.subtotal)}</dd></div>
-                  <div className="flex justify-between text-slate-600"><dt>GST (5%)</dt><dd className="font-mono">{inr(totals.gst)}</dd></div>
+                  <div className="flex justify-between text-slate-600"><dt>GST ({totals.effectivePct})</dt><dd className="font-mono">{inr(totals.gst)}</dd></div>
                   <div className="flex justify-between font-bold text-slate-900"><dt>Grand Total</dt><dd className="font-mono">{inr(totals.grand)}</dd></div>
                 </dl>
               </div>

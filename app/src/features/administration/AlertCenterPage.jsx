@@ -14,6 +14,7 @@ import {
   ShieldAlert,
 } from 'lucide-react';
 import PageHeader from '../../components/ui/PageHeader';
+import KpiCard from '../../components/ui/KpiCard';
 import { alertService } from '../../services/domainServices';
 
 const SEVERITY_PILL = {
@@ -147,7 +148,7 @@ export default function AlertCenterPage() {
   }, [incidents]);
 
   return (
-    <div className="p-6 space-y-6 max-w-7xl mx-auto">
+    <div className="space-y-6">
       <PageHeader
         title="Alert Center & Operational Exceptions"
         subtitle="Automated background monitoring for production delays, loss variances, and commercial exceptions."
@@ -161,44 +162,36 @@ export default function AlertCenterPage() {
         </button>
       </PageHeader>
 
-      {/* KPI Cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm flex items-center gap-3">
-          <div className="p-2.5 rounded-lg bg-rose-50 text-rose-600">
-            <AlertTriangle className="w-6 h-6" />
-          </div>
-          <div>
-            <div className="text-2xl font-bold text-slate-800">{kpis.active}</div>
-            <div className="text-xs text-slate-500 font-medium">Active Incidents</div>
-          </div>
-        </div>
-        <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm flex items-center gap-3">
-          <div className="p-2.5 rounded-lg bg-red-100 text-red-700">
-            <ShieldAlert className="w-6 h-6" />
-          </div>
-          <div>
-            <div className="text-2xl font-bold text-red-700">{kpis.critical}</div>
-            <div className="text-xs text-red-600 font-medium">Critical Priority</div>
-          </div>
-        </div>
-        <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm flex items-center gap-3">
-          <div className="p-2.5 rounded-lg bg-amber-50 text-amber-600">
-            <Clock className="w-6 h-6" />
-          </div>
-          <div>
-            <div className="text-2xl font-bold text-slate-800">{kpis.acknowledged}</div>
-            <div className="text-xs text-slate-500 font-medium">Acknowledged</div>
-          </div>
-        </div>
-        <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm flex items-center gap-3">
-          <div className="p-2.5 rounded-lg bg-emerald-50 text-emerald-600">
-            <CheckCircle2 className="w-6 h-6" />
-          </div>
-          <div>
-            <div className="text-2xl font-bold text-slate-800">{kpis.resolved}</div>
-            <div className="text-xs text-slate-500 font-medium">Resolved Incidents</div>
-          </div>
-        </div>
+      {/* KPI Cards (Standardized CRM KpiCard) */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3.5">
+        <KpiCard
+          label="Active Incidents"
+          value={kpis.active}
+          icon={AlertTriangle}
+          tone="rose"
+          sub="Requires immediate attention"
+        />
+        <KpiCard
+          label="Critical Priority"
+          value={kpis.critical}
+          icon={ShieldAlert}
+          tone="rose"
+          sub="Immediate action required"
+        />
+        <KpiCard
+          label="Acknowledged"
+          value={kpis.acknowledged}
+          icon={Clock}
+          tone="amber"
+          sub="Under operational review"
+        />
+        <KpiCard
+          label="Resolved Incidents"
+          value={kpis.resolved}
+          icon={CheckCircle2}
+          tone="emerald"
+          sub="Successfully cleared"
+        />
       </div>
 
       {/* Tabs */}

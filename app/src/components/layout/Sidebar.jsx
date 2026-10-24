@@ -9,6 +9,7 @@ import {
   ShoppingCart,
   Package,
   Layers,
+  Palette,
   Landmark,
   UserCheck,
   BarChart3,
@@ -304,18 +305,10 @@ export const NAV = [
     children: [
       { label: 'Dashboard', icon: Home, to: '/inventory/dashboard' },
       { label: 'Total Inventory', icon: Package, to: '/inventory/items' },
-      {
-        label: 'Fabric Masters',
-        icon: Spool,
-        defaultOpen: false,
-        navigateOnOpen: true,
-        children: [
-          { label: 'Fabric Quality Master', to: '/inventory/fabric/quality', dot: true },
-          { label: 'Design Master', to: '/inventory/fabric/design' },
-          { label: 'Colour / Shade Master', to: '/inventory/fabric/colour' },
-          { label: 'Textile Operations Masters', to: '/inventory/masters/textile' },
-        ],
-      },
+      { label: 'Fabric Quality Master', icon: Spool, to: '/inventory/fabric/quality' },
+      { label: 'Design Master', icon: Layers, to: '/inventory/fabric/design' },
+      { label: 'Colour / Shade Master', icon: Palette, to: '/inventory/fabric/colour' },
+      { label: 'Textile Operations Masters', icon: Wrench, to: '/inventory/masters/textile' },
       { label: 'Fabric Item / Variant Master', icon: Boxes, to: '/inventory/fabric/variants' },
       {
         label: 'Categories',

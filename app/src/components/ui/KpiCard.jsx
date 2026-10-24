@@ -63,14 +63,64 @@ const tones = {
     iconShadow: 'rgba(234, 88, 12, 0.35)',
     label: '#c2410c',
   },
+  indigo: {
+    cardBg: 'linear-gradient(135deg, #eef2ff 0%, #f8faff 55%, #ffffff 100%)',
+    border: '#c7d2fe',
+    accent: 'linear-gradient(180deg, #818cf8 0%, #4f46e5 100%)',
+    iconBg: 'linear-gradient(135deg, #6366f1 0%, #4338ca 100%)',
+    iconShadow: 'rgba(79, 70, 229, 0.35)',
+    label: '#4338ca',
+  },
+  cyan: {
+    cardBg: 'linear-gradient(135deg, #ecfeff 0%, #f6feff 55%, #ffffff 100%)',
+    border: '#a5f3fc',
+    accent: 'linear-gradient(180deg, #22d3ee 0%, #0891b2 100%)',
+    iconBg: 'linear-gradient(135deg, #06b6d4 0%, #0e7490 100%)',
+    iconShadow: 'rgba(8, 145, 178, 0.35)',
+    label: '#0e7490',
+  },
+  slate: {
+    cardBg: 'linear-gradient(135deg, #f8fafc 0%, #f1f5f9 55%, #ffffff 100%)',
+    border: '#cbd5e1',
+    accent: 'linear-gradient(180deg, #94a3b8 0%, #475569 100%)',
+    iconBg: 'linear-gradient(135deg, #64748b 0%, #334155 100%)',
+    iconShadow: 'rgba(71, 85, 105, 0.35)',
+    label: '#334155',
+  },
 };
 
-export default function KpiCard({ label, value, icon: Icon, symbol, tone = 'blue', children }) {
+// Aliases for intuitive colors
+tones.green = tones.emerald;
+tones.red = tones.rose;
+tones.yellow = tones.amber;
+tones.violet = tones.purple;
+tones.gray = tones.slate;
+
+export default function KpiCard({
+  label,
+  value,
+  icon: Icon,
+  symbol,
+  tone = 'blue',
+  sub,
+  subtext,
+  subtitle,
+  unit,
+  onClick,
+  className = '',
+  children,
+}) {
   const palette = tones[tone] || tones.blue;
+  const secondaryText = sub || subtext || subtitle;
 
   return (
     <article
-      className="kpi-std group relative flex min-w-0 items-center overflow-hidden border transition-all duration-200 hover:-translate-y-1 hover:shadow-xl hover:shadow-slate-900/10"
+      onClick={onClick}
+      role={onClick ? 'button' : undefined}
+      tabIndex={onClick ? 0 : undefined}
+      className={`kpi-std group relative flex min-w-0 items-center overflow-hidden border transition-all duration-200 hover:-translate-y-1 hover:shadow-xl hover:shadow-slate-900/10 ${
+        onClick ? 'cursor-pointer select-none' : ''
+      } ${className}`}
       style={{ background: palette.cardBg, borderColor: palette.border }}
     >
       {/* Gradient accent bar */}
@@ -87,15 +137,30 @@ export default function KpiCard({ label, value, icon: Icon, symbol, tone = 'blue
         {Icon ? <Icon size={22} strokeWidth={2.1} aria-hidden="true" /> : <span className="text-xl font-extrabold">{symbol}</span>}
       </span>
 
-      <div className="min-w-0">
+      <div className="min-w-0 flex-1">
         <span
-          className="block text-[11px] font-bold uppercase leading-4 tracking-[0.06em]"
+          className="block text-[11px] font-bold uppercase leading-4 tracking-[0.06em] truncate"
           style={{ color: palette.label }}
+          title={label}
         >
           {label}
         </span>
-        <strong className="block break-words text-[22px] font-extrabold leading-6 text-slate-900">{value}</strong>
+        <div className="flex items-baseline gap-1">
+          <strong className="block break-words text-[22px] font-extrabold leading-6 text-slate-900">
+            {value}
+          </strong>
+          {unit && (
+            <span className="text-xs font-semibold text-slate-500">
+              {unit}
+            </span>
+          )}
+        </div>
         {children}
+        {!children && secondaryText && (
+          <span className="mt-0.5 block truncate text-[11px] font-medium text-slate-500" title={secondaryText}>
+            {secondaryText}
+          </span>
+        )}
       </div>
     </article>
   );

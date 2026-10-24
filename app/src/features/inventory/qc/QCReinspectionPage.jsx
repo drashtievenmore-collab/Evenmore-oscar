@@ -1,1165 +1,436 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import { Link } from 'react-router-dom';
 import {
-  RefreshCw,
-  Search,
-  Filter,
-  Plus,
-  Eye,
   CheckCircle2,
-  AlertTriangle,
-  Clock,
   RotateCcw,
-  Save,
-  Check,
-  ChevronLeft,
-  ChevronRight,
-  X,
-  Layers,
-  ArrowRight,
-  Info,
-  Calendar,
-  ShieldCheck,
-  FileText,
+  XCircle,
   Truck,
   Inbox,
-  PauseCircle,
-  XCircle,
+  ClipboardCheck,
+  ChevronRight,
+  ChevronLeft,
+  Search,
+  Plus,
+  X,
+  Loader2,
+  AlertTriangle,
 } from 'lucide-react';
+import { api } from '../../../services/api';
 import { inventoryService } from '../../../services/domainServices';
-import { useERP } from '../../../context/ERPContext';
 import PageInfoButton from '../../../components/ui/PageInfoButton';
-import MasterSourceLink from '../../../components/common/MasterSourceLink';
+
+/*
+ * Reprocess cycle, as the requirement lays it out:
+ *   QC fail -> reprocess order -> send to processor -> receive -> QC again
+ *   -> Pass / Repeat / Reject.
+ * Each step is a tab; each row carries the one action that moves it on.
+ * Orders are created from QC disposition or Job Work > Reprocess.
+ */
+const STEPS = [
+  { key: 'toSend', label: 'To Send', hint: 'Reprocess order created', statuses: ['Pending'], icon: Inbox, tone: 'amber' },
+  { key: 'atProcessor', label: 'At Processor', hint: 'Fabric sent, awaiting return', statuses: ['Sent to Vendor', 'In Process'], icon: Truck, tone: 'blue' },
+  { key: 'readyForQc', label: 'Ready for QC', hint: 'Received back, inspect again', statuses: ['Received'], icon: ClipboardCheck, tone: 'purple' },
+  { key: 'done', label: 'Done', hint: 'Reinspection approved', statuses: ['Completed'], icon: CheckCircle2, tone: 'emerald' },
+];
+
+const TONES = {
+  amber: { active: 'border-amber-400 bg-amber-50', icon: 'bg-amber-100 text-amber-700', pill: 'bg-amber-50 text-amber-700 border-amber-200' },
+  blue: { active: 'border-blue-400 bg-blue-50', icon: 'bg-blue-100 text-blue-700', pill: 'bg-blue-50 text-blue-700 border-blue-200' },
+  purple: { active: 'border-purple-400 bg-purple-50', icon: 'bg-purple-100 text-purple-700', pill: 'bg-purple-50 text-purple-700 border-purple-200' },
+  emerald: { active: 'border-emerald-400 bg-emerald-50', icon: 'bg-emerald-100 text-emerald-700', pill: 'bg-emerald-50 text-emerald-700 border-emerald-200' },
+};
+
+const PAGE_SIZE = 10;
+const fmt = (n) => Number(n || 0).toLocaleString('en-IN', { maximumFractionDigits: 2 });
+const stepOf = (status) => STEPS.find((s) => s.statuses.includes(status)) || STEPS[0];
+const errText = (err, fallback) => err?.response?.data?.detail || err?.message || fallback;
 
 export default function QCReinspectionPage() {
-  const { vendors = [], items = [] } = useERP();
-
-  // Active Tab
-  const [activeTab, setActiveTab] = useState('Pending Reprocess'); // 'Pending Reprocess' | 'Sent for Reprocess' | 'Received from Reprocess' | 'Reinspection'
-
-  // Loading & Data
-  const [loading, setLoading] = useState(true);
   const [records, setRecords] = useState([]);
-  const [filtersData, setFiltersData] = useState({
-    vendors: [],
-    statuses: ['All', 'Pending', 'In Progress', 'Completed'],
-    items: [],
-  });
-
-  // Filters State
-  const [fromDate, setFromDate] = useState(() => {
-    const d = new Date();
-    d.setDate(1);
-    return d.toISOString().split('T')[0];
-  });
-  const [toDate, setToDate] = useState(() => new Date().toISOString().split('T')[0]);
+  const [loading, setLoading] = useState(true);
+  const [activeStep, setActiveStep] = useState('toSend');
+  const [search, setSearch] = useState('');
   const [vendorFilter, setVendorFilter] = useState('All');
-  const [statusFilter, setStatusFilter] = useState('All');
-  const [itemFilter, setItemFilter] = useState('All');
+  const [page, setPage] = useState(1);
+  const [busyId, setBusyId] = useState(null);
+  const [qcRow, setQcRow] = useState(null);
+  const [toast, setToast] = useState(null);
 
-  // Pagination & Selection
-  const [currentPage, setCurrentPage] = useState(1);
-  const [selectedIds, setSelectedIds] = useState(new Set());
-  const PAGE_SIZE = 10;
-
-  // Active Selected Inspection for Bottom Entry Form
-  const [activeItem, setActiveItem] = useState(null);
-
-  // Bottom Form State (Reinspection Entry & Result)
-  const [entryReprocessNo, setEntryReprocessNo] = useState('');
-  const [entrySourceQcNo, setEntrySourceQcNo] = useState('');
-  const [entryItemCode, setEntryItemCode] = useState('');
-  const [entryFabricItem, setEntryFabricItem] = useState('');
-  const [entryLotNo, setEntryLotNo] = useState('');
-  const [entryVendor, setEntryVendor] = useState('');
-  const [entryMeasurements, setEntryMeasurements] = useState([]);
-
-  // Disposition Quantities
-  const [goodQty, setGoodQty] = useState('0');
-  const [holdQty, setHoldQty] = useState('0');
-  const [reprocessQty, setReprocessQty] = useState('0');
-  const [rejectedQty, setRejectedQty] = useState('0');
-  const [remarks, setRemarks] = useState('');
-
-  // Modals & Action State
-  const [showNewModal, setShowNewModal] = useState(false);
-  const [savingDraft, setSavingDraft] = useState(false);
-  const [approving, setApproving] = useState(false);
-  const [toastMsg, setToastMsg] = useState(null);
-
-  // New Reinspection Form
-  const [newSourceQcNo, setNewSourceQcNo] = useState('');
-  const [newVendor, setNewVendor] = useState('');
-  const [newItemCode, setNewItemCode] = useState('');
-  const [newFabricItem, setNewFabricItem] = useState('');
-  const [newLotNo, setNewLotNo] = useState('');
-  const [newSentQty, setNewSentQty] = useState('');
-  const [newDate, setNewDate] = useState(() => new Date().toISOString().split('T')[0]);
-  const [newReason, setNewReason] = useState('Shade variation reprocessing');
-  const [creating, setCreating] = useState(false);
-
-  // Fetch Reinspection Records
   const fetchRecords = useCallback(async () => {
     setLoading(true);
     try {
-      const res = await inventoryService.getQCReinspection({
-        tab: activeTab,
-        from_date: fromDate || undefined,
-        to_date: toDate || undefined,
-        vendor: vendorFilter !== 'All' ? vendorFilter : undefined,
-        status: statusFilter !== 'All' ? statusFilter : undefined,
-        item_code: itemFilter !== 'All' ? itemFilter : undefined,
-      });
-
-      const list = (res && res.data ? res.data.records : res?.records) || [];
-      setRecords(list);
-
-      if (res && res.data?.filters) {
-        setFiltersData((prev) => ({
-          ...prev,
-          vendors: res.data.filters.vendors || [],
-          items: res.data.filters.items || [],
-        }));
-      }
-
-      // Auto-select first row if none selected or if activeItem not in new list
-      if (list.length > 0) {
-        loadRowIntoEntry(list[0]);
-      } else {
-        clearEntryForm();
-      }
+      // "All" skips the server's tab filter; rows are grouped by step here.
+      const res = await inventoryService.getQCReinspection({ tab: 'All' });
+      const list = (res?.data ? res.data.records : res?.records) || [];
+      setRecords(list.filter((r) => r.status !== 'Cancelled'));
     } catch (err) {
-      console.warn('Backend /inventory/qc/reinspection/ call failed:', err);
       setRecords([]);
-      clearEntryForm();
+      setToast({ type: 'error', text: errText(err, 'Could not load reprocess orders.') });
     } finally {
       setLoading(false);
     }
-  }, [activeTab, fromDate, toDate, vendorFilter, statusFilter, itemFilter]);
+  }, []);
+
+  useEffect(() => { fetchRecords(); }, [fetchRecords]);
 
   useEffect(() => {
-    fetchRecords();
-  }, [fetchRecords]);
+    if (!toast) return undefined;
+    const t = setTimeout(() => setToast(null), 5000);
+    return () => clearTimeout(t);
+  }, [toast]);
 
-  // Toast Auto-hide
-  useEffect(() => {
-    if (toastMsg) {
-      const timer = setTimeout(() => setToastMsg(null), 4000);
-      return () => clearTimeout(timer);
-    }
-  }, [toastMsg]);
+  useEffect(() => { setPage(1); }, [activeStep, search, vendorFilter]);
 
-  // Load a table row into the bottom inspection panels
-  const loadRowIntoEntry = (row) => {
-    setActiveItem(row);
-    setEntryReprocessNo(row.reprocessNo || '');
-    setEntrySourceQcNo(row.sourceQcNo || '');
-    setEntryItemCode(row.itemCode || '');
-    setEntryFabricItem(row.fabricItem || '');
-    setEntryLotNo(row.lotNo || '');
-    setEntryVendor(row.vendor || '');
-    setEntryMeasurements(
-      row.measurements && row.measurements.length > 0
-        ? row.measurements
-        : (row.sentQty || row.receivedQty)
-          ? [{ srNo: 1, takaNo: 1, actualQty: Number(row.sentQty || row.receivedQty || 0), width: row.width ?? null, remarks: '-' }]
-          : []
-    );
+  const vendors = useMemo(
+    () => [...new Set(records.map((r) => r.vendor).filter(Boolean))].sort(),
+    [records]
+  );
 
-    const totalQ = row.sentQty || row.receivedQty || 0;
-    if (row.goodQty || row.holdQty || row.reprocessQty || row.rejectedQty) {
-      setGoodQty(String(row.goodQty || 0));
-      setHoldQty(String(row.holdQty || 0));
-      setReprocessQty(String(row.reprocessQty || 0));
-      setRejectedQty(String(row.rejectedQty || 0));
-    } else {
-      // Default to 100% good on inspect
-      setGoodQty(String(totalQ));
-      setHoldQty('0');
-      setReprocessQty('0');
-      setRejectedQty('0');
-    }
-
-    setRemarks(row.remarks || '');
-  };
-
-  const clearEntryForm = () => {
-    setActiveItem(null);
-    setEntryReprocessNo('');
-    setEntrySourceQcNo('');
-    setEntryItemCode('');
-    setEntryFabricItem('');
-    setEntryLotNo('');
-    setEntryVendor('');
-    setEntryMeasurements([]);
-    setGoodQty('0');
-    setHoldQty('0');
-    setReprocessQty('0');
-    setRejectedQty('0');
-    setRemarks('');
-  };
-
-  // Math & Reconciliation for active inspection
-  const totalTargetQty = Number(activeItem?.sentQty || activeItem?.receivedQty || 0);
-  const numGood = Number(goodQty) || 0;
-  const numHold = Number(holdQty) || 0;
-  const numReprocess = Number(reprocessQty) || 0;
-  const numRejected = Number(rejectedQty) || 0;
-  const sumDisposition = numGood + numHold + numReprocess + numRejected;
-  const isReconciled = totalTargetQty > 0 && Math.abs(sumDisposition - totalTargetQty) < 0.001;
-
-  const pctGood = totalTargetQty > 0 ? ((numGood / totalTargetQty) * 100).toFixed(1) : '0.0';
-  const pctHold = totalTargetQty > 0 ? ((numHold / totalTargetQty) * 100).toFixed(1) : '0.0';
-  const pctReprocess = totalTargetQty > 0 ? ((numReprocess / totalTargetQty) * 100).toFixed(1) : '0.0';
-  const pctRejected = totalTargetQty > 0 ? ((numRejected / totalTargetQty) * 100).toFixed(1) : '0.0';
-
-  // Pagination
-  const totalPages = Math.max(1, Math.ceil(records.length / PAGE_SIZE));
-  const paginatedRows = useMemo(() => {
-    const start = (currentPage - 1) * PAGE_SIZE;
-    return records.slice(start, start + PAGE_SIZE);
-  }, [records, currentPage]);
-
-  const handleSelectAll = (e) => {
-    if (e.target.checked) setSelectedIds(new Set(paginatedRows.map((r) => r.id)));
-    else setSelectedIds(new Set());
-  };
-
-  const handleToggleSelect = (id) => {
-    setSelectedIds((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
+  const stepTotals = useMemo(() => {
+    const totals = Object.fromEntries(STEPS.map((s) => [s.key, { count: 0, qty: 0 }]));
+    records.forEach((r) => {
+      const t = totals[stepOf(r.status).key];
+      t.count += 1;
+      t.qty += Number(r.sentQty || 0);
     });
-  };
+    return totals;
+  }, [records]);
 
-  // Save as Draft
-  const handleSaveDraft = async () => {
-    if (!activeItem) {
-      alert('Please select an inspection record first.');
+  const rows = useMemo(() => {
+    const step = STEPS.find((s) => s.key === activeStep);
+    const q = search.trim().toLowerCase();
+    return records.filter((r) => {
+      if (!step.statuses.includes(r.status)) return false;
+      if (vendorFilter !== 'All' && r.vendor !== vendorFilter) return false;
+      if (!q) return true;
+      return [r.reprocessNo, r.sourceQcNo, r.fabricItem, r.lotNo, r.vendor, r.jwoNo]
+        .some((v) => String(v || '').toLowerCase().includes(q));
+    });
+  }, [records, activeStep, search, vendorFilter]);
+
+  const totalPages = Math.max(1, Math.ceil(rows.length / PAGE_SIZE));
+  const pageRows = rows.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
+
+  const moveTo = async (row, status, doneText) => {
+    if (!row.jwoId) {
+      setToast({ type: 'error', text: `${row.reprocessNo} has no job work order, so its status cannot change here.` });
       return;
     }
-    setSavingDraft(true);
+    setBusyId(row.id);
     try {
-      const res = await inventoryService.saveQCReinspectionDisposition({
-        reprocessId: activeItem.id,
-        isDraft: true,
-        goodQty: numGood,
-        holdQty: numHold,
-        reprocessQty: numReprocess,
-        rejectedQty: numRejected,
-        measurements: entryMeasurements,
-        remarks,
-      });
-      setToastMsg(res?.data?.message || 'Reinspection saved as draft.');
+      await api.patch(`/jobwork/orders/${row.jwoId}/reprocesses/${row.id}/`, { status });
+      setToast({ type: 'success', text: `${row.reprocessNo} ${doneText}.` });
       await fetchRecords();
     } catch (err) {
-      alert('Could not save draft: ' + (err.response?.data?.detail || err.message));
+      setToast({ type: 'error', text: errText(err, 'Could not update the reprocess order.') });
     } finally {
-      setSavingDraft(false);
+      setBusyId(null);
     }
   };
 
-  // Approve & Update Stock
-  const handleApproveAndUpdateStock = async () => {
-    if (!activeItem) {
-      alert('Please select an inspection record first.');
-      return;
-    }
-    if (!isReconciled) {
-      alert(
-        `Quantity mismatch: Sent/Inspected Qty (${totalTargetQty} m) must equal Good (${numGood}) + Hold (${numHold}) + Reprocess (${numReprocess}) + Rejected (${numRejected}) = ${sumDisposition} m.`
-      );
-      return;
-    }
-
-    setApproving(true);
-    try {
-      const res = await inventoryService.saveQCReinspectionDisposition({
-        reprocessId: activeItem.id,
-        isDraft: false,
-        goodQty: numGood,
-        holdQty: numHold,
-        reprocessQty: numReprocess,
-        rejectedQty: numRejected,
-        measurements: entryMeasurements,
-        remarks,
-      });
-      setToastMsg(res?.data?.message || 'Reinspection approved! Stock Ledger and Stock Position updated.');
-      await fetchRecords();
-    } catch (err) {
-      alert('Could not approve reinspection: ' + (err.response?.data?.detail || err.message));
-    } finally {
-      setApproving(false);
-    }
-  };
-
-  // Create New Reinspection
-  const handleCreateNewReinspection = async (e) => {
-    e.preventDefault();
-    if (!newSentQty || Number(newSentQty) <= 0) {
-      alert('Please enter a valid quantity.');
-      return;
-    }
-    setCreating(true);
-    try {
-      const res = await inventoryService.createQCReinspection({
-        sourceQcNo: newSourceQcNo || 'QC-001',
-        vendor: newVendor || (vendors[0]?.name || 'Processor'),
-        itemCode: newItemCode || (items[0]?.sku || 'COT-60S-001'),
-        fabricItem: newFabricItem || (items[0]?.name || 'Cotton 60s'),
-        sentQty: newSentQty,
-        date: newDate,
-        reason: newReason,
-      });
-      setToastMsg(res?.data?.message || 'Reinspection record created successfully.');
-      setShowNewModal(false);
-      setNewSentQty('');
-      await fetchRecords();
-    } catch (err) {
-      alert('Could not create record: ' + (err.response?.data?.detail || err.message));
-    } finally {
-      setCreating(false);
-    }
-  };
-
-  // Status Badge Helper
-  const renderStatusBadge = (st) => {
-    const s = (st || '').toLowerCase();
-    if (s === 'completed') {
+  const renderAction = (r) => {
+    const busy = busyId === r.id;
+    const base = 'inline-flex items-center gap-1 rounded-lg px-3 py-1.5 text-xs font-semibold transition disabled:opacity-50';
+    if (r.status === 'Pending') {
       return (
-        <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200">
-          Completed
-        </span>
+        <button type="button" disabled={busy} onClick={() => moveTo(r, 'Sent to Vendor', 'sent to processor')} className={`${base} bg-amber-500 text-white hover:bg-amber-600`}>
+          {busy ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Truck className="w-3.5 h-3.5" />} Send to Processor
+        </button>
       );
     }
-    if (s === 'in progress') {
+    if (r.status === 'Sent to Vendor' || r.status === 'In Process') {
       return (
-        <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold bg-sky-50 text-sky-700 border border-sky-200">
-          In Progress
-        </span>
+        <button type="button" disabled={busy} onClick={() => moveTo(r, 'Received', 'marked received')} className={`${base} bg-blue-600 text-white hover:bg-blue-700`}>
+          {busy ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Inbox className="w-3.5 h-3.5" />} Mark Received
+        </button>
+      );
+    }
+    if (r.status === 'Received') {
+      return (
+        <button type="button" onClick={() => setQcRow(r)} className={`${base} bg-purple-600 text-white hover:bg-purple-700`}>
+          <ClipboardCheck className="w-3.5 h-3.5" /> QC Again
+        </button>
       );
     }
     return (
-      <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold bg-orange-50 text-orange-700 border border-orange-200">
-        Pending
-      </span>
+      <button type="button" onClick={() => setQcRow(r)} className={`${base} border border-slate-300 bg-white text-slate-700 hover:bg-slate-50`}>
+        View Result
+      </button>
     );
   };
 
   return (
-    <div className="min-h-screen bg-slate-50 text-slate-800 p-4 md:p-6 space-y-6">
-      {/* Toast */}
-      {toastMsg && (
-        <div className="fixed top-4 right-4 z-50 bg-emerald-600 text-white px-4 py-2.5 rounded-lg shadow-lg flex items-center space-x-2 text-sm font-medium animate-in fade-in slide-in-from-top-2">
-          <CheckCircle2 className="w-5 h-5" />
-          <span>{toastMsg}</span>
+    <div className="space-y-5">
+      {toast && (
+        <div className={`fixed top-4 right-4 z-50 max-w-md px-4 py-2.5 rounded-lg shadow-lg flex items-start gap-2 text-sm font-medium text-white ${toast.type === 'error' ? 'bg-rose-600' : 'bg-emerald-600'}`}>
+          {toast.type === 'error' ? <AlertTriangle className="w-5 h-5 shrink-0" /> : <CheckCircle2 className="w-5 h-5 shrink-0" />}
+          <span>{toast.text}</span>
         </div>
       )}
 
-      {/* TOP HEADER */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 bg-white p-5 rounded-xl border border-slate-200 shadow-sm">
+      {/* Header */}
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 bg-white p-5 rounded-xl border border-slate-200 shadow-sm">
         <div>
-          <div className="flex items-center space-x-3">
-            <div className="w-8 h-8 rounded-full bg-pink-600 text-white font-bold flex items-center justify-center text-sm shadow-xs">
-              5
-            </div>
-            <div>
-              <div className="flex items-center gap-2">
-                <h1 className="text-xl font-bold text-slate-900">Reinspection / Reprocess</h1>
-                <PageInfoButton title="Reinspection / Reprocess" />
+          <div className="flex items-center gap-2">
+            <h1 className="text-xl font-bold text-slate-900">Reinspection / Reprocess</h1>
+            <PageInfoButton title="Reinspection / Reprocess" />
+          </div>
+          <p className="text-xs text-slate-500 mt-0.5">
+            Fabric that failed QC goes to the processor, comes back, and is inspected again: Pass, Repeat or Reject.
+          </p>
+        </div>
+        <Link
+          to="/job-work/reprocess"
+          className="inline-flex items-center gap-1.5 self-start md:self-auto rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-xs font-semibold text-blue-700 hover:bg-blue-100"
+        >
+          <Plus className="w-4 h-4" /> New Reprocess Order
+        </Link>
+      </div>
+
+      {/* Step tabs: the reprocess cycle, left to right */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+        {STEPS.map((s, i) => {
+          const t = stepTotals[s.key];
+          const tone = TONES[s.tone];
+          const Icon = s.icon;
+          const active = activeStep === s.key;
+          return (
+            <button
+              key={s.key}
+              type="button"
+              onClick={() => setActiveStep(s.key)}
+              className={`relative text-left rounded-xl border-2 p-3.5 transition ${active ? tone.active : 'border-slate-200 bg-white hover:border-slate-300'}`}
+            >
+              <div className="flex items-center gap-3">
+                <span className={`grid h-9 w-9 place-items-center rounded-lg ${tone.icon}`}><Icon className="w-5 h-5" /></span>
+                <div className="min-w-0">
+                  <p className="text-[11px] font-semibold text-slate-500">Step {i + 1}</p>
+                  <p className="text-sm font-bold text-slate-900">{s.label}</p>
+                </div>
+                <span className="ml-auto text-2xl font-extrabold text-slate-900">{t.count}</span>
               </div>
-              <p className="text-xs text-slate-500 mt-0.5">
-                Track reprocessed fabric and record re-inspection results.
-              </p>
-            </div>
-          </div>
-        </div>
-
-        <div className="flex items-center space-x-2 text-xs text-slate-500 font-medium">
-          <span>QC (Quality Check)</span>
-          <span>&gt;</span>
-          <span className="text-pink-600 font-semibold">Reinspection / Reprocess</span>
-        </div>
+              <p className="mt-2 text-[11px] text-slate-500">{s.hint} · <span className="font-semibold text-slate-700">{fmt(t.qty)} m</span></p>
+              {i < STEPS.length - 1 && (
+                <ChevronRight className="hidden lg:block absolute -right-[13px] top-1/2 -translate-y-1/2 w-5 h-5 text-slate-300 bg-slate-50 rounded-full" />
+              )}
+            </button>
+          );
+        })}
       </div>
 
-      {/* TABS BAR (Matching reference: Pending Reprocess | Sent for Reprocess | Received from Reprocess | Reinspection) */}
-      <div className="bg-white p-1 rounded-xl border border-slate-200 shadow-2xs flex flex-wrap gap-1">
-        {[
-          'Pending Reprocess',
-          'Sent for Reprocess',
-          'Received from Reprocess',
-          'Reinspection',
-        ].map((tab) => (
-          <button
-            key={tab}
-            onClick={() => setActiveTab(tab)}
-            className={`flex-1 py-2 px-4 rounded-lg text-xs font-semibold transition ${
-              activeTab === tab
-                ? 'bg-blue-50 text-blue-700 shadow-2xs border border-blue-200'
-                : 'text-slate-600 hover:text-slate-900 hover:bg-slate-50'
-            }`}
-          >
-            {tab}
-          </button>
-        ))}
-      </div>
-
-      {/* FILTER BAR & + NEW REINSPECTION BUTTON */}
-      <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm flex flex-col md:flex-row md:items-center justify-between gap-3 text-xs">
-        <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 flex-1">
-          <div>
-            <label className="block text-slate-600 font-medium mb-1">From Date</label>
-            <input
-              type="date"
-              value={fromDate}
-              onChange={(e) => setFromDate(e.target.value)}
-              className="w-full px-2.5 py-1.5 border border-slate-200 rounded-lg bg-slate-50 text-slate-700 focus:bg-white text-xs"
-            />
-          </div>
-
-          <div>
-            <label className="block text-slate-600 font-medium mb-1">To Date</label>
-            <input
-              type="date"
-              value={toDate}
-              onChange={(e) => setToDate(e.target.value)}
-              className="w-full px-2.5 py-1.5 border border-slate-200 rounded-lg bg-slate-50 text-slate-700 focus:bg-white text-xs"
-            />
-          </div>
-
-          <div>
-            <label className="block text-slate-600 font-medium mb-1">Vendor / Processor</label>
-            <select
-              value={vendorFilter}
-              onChange={(e) => setVendorFilter(e.target.value)}
-              className="w-full px-2.5 py-1.5 border border-slate-200 rounded-lg bg-slate-50 text-slate-700 focus:bg-white text-xs"
-            >
-              <option value="All">All</option>
-              {filtersData.vendors.map((v) => (
-                <option key={v} value={v}>
-                  {v}
-                </option>
-              ))}
-            </select>
-          </div>
-
-          <div>
-            <label className="block text-slate-600 font-medium mb-1">QC Status</label>
-            <select
-              value={statusFilter}
-              onChange={(e) => setStatusFilter(e.target.value)}
-              className="w-full px-2.5 py-1.5 border border-slate-200 rounded-lg bg-slate-50 text-slate-700 focus:bg-white text-xs"
-            >
-              {filtersData.statuses.map((s) => (
-                <option key={s} value={s}>
-                  {s}
-                </option>
-              ))}
-            </select>
-          </div>
-
-          <div>
-            <label className="block text-slate-600 font-medium mb-1">Item Code</label>
-            <select
-              value={itemFilter}
-              onChange={(e) => setItemFilter(e.target.value)}
-              className="w-full px-2.5 py-1.5 border border-slate-200 rounded-lg bg-slate-50 text-slate-700 focus:bg-white text-xs"
-            >
-              <option value="All">All</option>
-              {filtersData.items.map((it) => (
-                <option key={it} value={it}>
-                  {it}
-                </option>
-              ))}
-            </select>
-          </div>
-        </div>
-
-        <div className="flex items-center space-x-2 pt-2 md:pt-0">
-          <button
-            onClick={fetchRecords}
-            className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-semibold shadow-2xs transition"
-          >
-            Apply
-          </button>
-
-          <button
-            onClick={() => setShowNewModal(true)}
-            className="px-3.5 py-2 bg-white hover:bg-blue-50 text-blue-600 border border-blue-300 rounded-lg text-xs font-semibold flex items-center space-x-1.5 shadow-2xs transition"
-          >
-            <Plus className="w-4 h-4" />
-            <span>+ New Reinspection</span>
-          </button>
-        </div>
-      </div>
-
-      {/* REINSPECTION REGISTER TABLE */}
+      {/* List */}
       <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+        <div className="flex flex-col sm:flex-row gap-2 sm:items-center justify-between p-3 border-b border-slate-200">
+          <div className="relative sm:w-72">
+            <Search className="w-4 h-4 text-slate-400 absolute left-2.5 top-1/2 -translate-y-1/2" />
+            <input
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Search reprocess no, GRN, fabric, lot..."
+              className="w-full pl-8 pr-3 py-1.5 text-xs border border-slate-300 rounded-lg bg-white"
+            />
+          </div>
+          <select
+            value={vendorFilter}
+            onChange={(e) => setVendorFilter(e.target.value)}
+            className="sm:w-56 px-2.5 py-1.5 text-xs border border-slate-300 rounded-lg bg-white"
+          >
+            <option value="All">All processors</option>
+            {vendors.map((v) => <option key={v} value={v}>{v}</option>)}
+          </select>
+        </div>
+
         <div className="overflow-x-auto">
-          <table className="w-full text-left text-xs whitespace-nowrap">
-            <thead className="bg-slate-50 text-slate-600 font-semibold border-b border-slate-200">
+          <table className="w-full text-xs text-left whitespace-nowrap">
+            <thead className="bg-slate-50 text-slate-500 font-semibold border-b border-slate-200">
               <tr>
-                <th className="p-3 w-8">
-                  <input
-                    type="checkbox"
-                    checked={paginatedRows.length > 0 && selectedIds.size === paginatedRows.length}
-                    onChange={handleSelectAll}
-                    className="rounded border-slate-300 text-blue-600"
-                  />
-                </th>
                 <th className="p-3">Reprocess No.</th>
                 <th className="p-3">Date</th>
-                <th className="p-3">Source QC No.</th>
-                <th className="p-3">Item Code</th>
-                <th className="p-3">Fabric Item</th>
-                <th className="p-3 text-right">Sent Qty (m)</th>
-                <th className="p-3 text-right">Received Qty (m)</th>
-                <th className="p-3 text-right">Pending Qty (m)</th>
-                <th className="p-3">Vendor / Processor</th>
-                <th className="p-3 text-center">Reinspection Status</th>
-                <th className="p-3 text-center">Action</th>
+                <th className="p-3">Source (GRN / Inward)</th>
+                <th className="p-3">Fabric</th>
+                <th className="p-3">Lot</th>
+                <th className="p-3">Processor</th>
+                <th className="p-3 text-right">Qty (m)</th>
+                <th className="p-3">Status</th>
+                <th className="p-3 text-right">Next Step</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-slate-100 text-slate-700">
+            <tbody className="divide-y divide-slate-100">
               {loading ? (
-                <tr>
-                  <td colSpan="12" className="p-8 text-center text-slate-400">
-                    <RefreshCw className="w-5 h-5 animate-spin mx-auto mb-2 text-pink-600" />
-                    <span>Loading reprocess / reinspection entries...</span>
-                  </td>
-                </tr>
-              ) : paginatedRows.length === 0 ? (
-                <tr>
-                  <td colSpan="12" className="p-10 text-center text-slate-400">
-                    <div className="max-w-md mx-auto space-y-2">
-                      <div className="w-10 h-10 bg-slate-100 rounded-full flex items-center justify-center mx-auto text-slate-400">
-                        <CheckCircle2 className="w-5 h-5" />
-                      </div>
-                      <p className="text-sm font-semibold text-slate-700">No reprocess items found in this tab</p>
-                      <p className="text-xs text-slate-500">
-                        Fabric flagged for reprocessing appears here. You can also log a new reinspection with "+ New Reinspection".
-                      </p>
-                    </div>
-                  </td>
-                </tr>
+                <tr><td colSpan={9} className="p-8 text-center text-slate-500"><Loader2 className="w-5 h-5 animate-spin inline mr-2" />Loading...</td></tr>
+              ) : pageRows.length === 0 ? (
+                <tr><td colSpan={9} className="p-10 text-center text-slate-400">Nothing in this step.</td></tr>
               ) : (
-                paginatedRows.map((r) => {
-                  const isSelected = activeItem?.id === r.id;
-                  return (
-                    <tr
-                      key={r.id}
-                      onClick={() => loadRowIntoEntry(r)}
-                      className={`cursor-pointer transition-colors ${
-                        isSelected ? 'bg-blue-50/60 font-medium' : 'hover:bg-slate-50'
-                      }`}
-                    >
-                      <td className="p-3" onClick={(e) => e.stopPropagation()}>
-                        <input
-                          type="checkbox"
-                          checked={selectedIds.has(r.id)}
-                          onChange={() => handleToggleSelect(r.id)}
-                          className="rounded border-slate-300 text-blue-600"
-                        />
-                      </td>
-                      <td className="p-3 font-semibold text-blue-700">{r.reprocessNo}</td>
-                      <td className="p-3 text-slate-600">{r.date}</td>
-                      <td className="p-3 font-mono text-slate-700">{r.sourceQcNo}</td>
-                      <td className="p-3 font-mono text-slate-600">{r.itemCode}</td>
-                      <td className="p-3 font-medium text-slate-800">{r.fabricItem}</td>
-                      <td className="p-3 text-right font-medium">{r.sentQty}</td>
-                      <td className="p-3 text-right font-medium">{r.receivedQty}</td>
-                      <td className="p-3 text-right font-semibold text-amber-700">{r.pendingQty}</td>
-                      <td className="p-3 text-slate-800">{r.vendor}</td>
-                      <td className="p-3 text-center">{renderStatusBadge(r.reinspectionStatus)}</td>
-                      <td className="p-3 text-center" onClick={(e) => e.stopPropagation()}>
-                        {r.reinspectionStatus === 'Completed' ? (
-                          <button
-                            onClick={() => loadRowIntoEntry(r)}
-                            className="px-3 py-1 bg-white hover:bg-slate-50 text-blue-700 border border-blue-200 rounded text-xs font-semibold shadow-2xs"
-                          >
-                            View
-                          </button>
-                        ) : (
-                          <button
-                            onClick={() => loadRowIntoEntry(r)}
-                            className="px-3 py-1 bg-blue-600 hover:bg-blue-700 text-white rounded text-xs font-semibold shadow-2xs"
-                          >
-                            Inspect
-                          </button>
-                        )}
-                      </td>
-                    </tr>
-                  );
-                })
+                pageRows.map((r) => (
+                  <tr key={r.id} className="hover:bg-slate-50/60">
+                    <td className="p-3 font-semibold text-blue-700">{r.reprocessNo}</td>
+                    <td className="p-3 text-slate-600">{r.date}</td>
+                    <td className="p-3 font-mono text-slate-700">{r.sourceQcNo || '—'}</td>
+                    <td className="p-3 text-slate-800">{r.fabricItem || '—'}</td>
+                    <td className="p-3 font-mono text-slate-600">{r.lotNo || '—'}</td>
+                    <td className="p-3 text-slate-800">{r.vendor || '—'}</td>
+                    <td className="p-3 text-right font-semibold">{fmt(r.sentQty)}</td>
+                    <td className="p-3">
+                      <span className={`inline-block rounded-full border px-2 py-0.5 text-[11px] font-semibold ${TONES[stepOf(r.status).tone].pill}`}>{r.status}</span>
+                    </td>
+                    <td className="p-3 text-right">{renderAction(r)}</td>
+                  </tr>
+                ))
               )}
             </tbody>
           </table>
         </div>
 
-        {/* Footer */}
-        <div className="p-4 bg-slate-50 border-t border-slate-200 flex items-center justify-between text-xs text-slate-600">
-          <div>Showing {records.length ? 1 : 0} to {records.length} of {records.length} entries</div>
-          <div className="flex items-center space-x-1">
-            <button
-              disabled={currentPage <= 1}
-              onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
-              className="p-1.5 rounded border bg-white disabled:opacity-40"
-            >
-              <ChevronLeft className="w-4 h-4" />
-            </button>
-            <span className="px-2 py-0.5 rounded bg-blue-600 text-white text-xs font-bold">1</span>
-            <button
-              disabled={currentPage >= totalPages}
-              onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
-              className="p-1.5 rounded border bg-white disabled:opacity-40"
-            >
-              <ChevronRight className="w-4 h-4" />
-            </button>
+        <div className="flex items-center justify-between p-3 border-t border-slate-200 text-xs text-slate-500">
+          <span>{rows.length} record{rows.length === 1 ? '' : 's'}</span>
+          <div className="flex items-center gap-1">
+            <button type="button" disabled={page <= 1} onClick={() => setPage((p) => p - 1)} className="p-1.5 rounded border border-slate-200 bg-white disabled:opacity-40"><ChevronLeft className="w-4 h-4" /></button>
+            <span className="px-2 font-semibold text-slate-700">{page} / {totalPages}</span>
+            <button type="button" disabled={page >= totalPages} onClick={() => setPage((p) => p + 1)} className="p-1.5 rounded border border-slate-200 bg-white disabled:opacity-40"><ChevronRight className="w-4 h-4" /></button>
           </div>
         </div>
       </div>
 
-      {/* ── 6-STEP WORKFLOW GUIDE: "How It Works – Reinspection / Reprocess (Step by Step)" ── */}
-      <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-5 space-y-4">
-        <div>
-          <h2 className="text-base font-bold text-slate-900">
-            How It Works – Reinspection / Reprocess (Step by Step)
-          </h2>
-          <p className="text-xs text-slate-500 mt-0.5">
-            Standard closed-loop procedure linking QC Flags, Job Work Outward/Inward, and final inventory posting.
-          </p>
-        </div>
+      {qcRow && (
+        <QcAgainModal
+          row={qcRow}
+          onClose={() => setQcRow(null)}
+          onDone={async (text) => {
+            setQcRow(null);
+            setToast({ type: 'success', text });
+            await fetchRecords();
+          }}
+        />
+      )}
+    </div>
+  );
+}
 
-        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3 text-xs">
-          {/* Step 1 */}
-          <div className="p-3 bg-slate-50 rounded-xl border border-slate-200 space-y-1.5">
-            <div className="flex items-center space-x-1.5 text-blue-700">
-              <span className="w-5 h-5 rounded-full bg-blue-600 text-white font-bold flex items-center justify-center text-[10px]">
-                1
-              </span>
-              <span className="font-bold text-slate-900 text-[11px]">QC Flags Fabric</span>
-            </div>
-            <p className="text-[11px] text-slate-500 leading-tight">
-              During QC inspection, fabric is marked for Reprocess with quantity and reason.
-            </p>
-          </div>
+/* QC Again: split the returned quantity into Pass / Repeat / Reject. */
+function QcAgainModal({ row, onClose, onDone }) {
+  const readOnly = row.status === 'Completed';
+  const total = Number(row.sentQty || 0);
+  const hasSaved = row.goodQty || row.reprocessQty || row.rejectedQty;
+  const [pass, setPass] = useState(String(hasSaved ? row.goodQty : total));
+  const [repeat, setRepeat] = useState(String(row.reprocessQty || 0));
+  const [reject, setReject] = useState(String(row.rejectedQty || 0));
+  const [remarks, setRemarks] = useState(row.remarks || '');
+  const [saving, setSaving] = useState(null);
+  const [error, setError] = useState('');
 
-          {/* Step 2 */}
-          <div className="p-3 bg-slate-50 rounded-xl border border-slate-200 space-y-1.5">
-            <div className="flex items-center space-x-1.5 text-emerald-700">
-              <span className="w-5 h-5 rounded-full bg-emerald-600 text-white font-bold flex items-center justify-center text-[10px]">
-                2
-              </span>
-              <span className="font-bold text-slate-900 text-[11px]">Create Reprocess Job</span>
-            </div>
-            <p className="text-[11px] text-slate-500 leading-tight">
-              Create reprocess order from existing Reprocess module (Processing / Job Work).
-            </p>
-          </div>
+  const nPass = Number(pass) || 0;
+  const nRepeat = Number(repeat) || 0;
+  const nReject = Number(reject) || 0;
+  const sum = nPass + nRepeat + nReject;
+  const balanced = total > 0 && Math.abs(sum - total) < 0.001;
 
-          {/* Step 3 */}
-          <div className="p-3 bg-slate-50 rounded-xl border border-slate-200 space-y-1.5">
-            <div className="flex items-center space-x-1.5 text-amber-700">
-              <span className="w-5 h-5 rounded-full bg-amber-600 text-white font-bold flex items-center justify-center text-[10px]">
-                3
-              </span>
-              <span className="font-bold text-slate-900 text-[11px]">Send for Reprocess</span>
-            </div>
-            <p className="text-[11px] text-slate-500 leading-tight">
-              Send fabric to vendor/processor through Job Work Outward (challan).
-            </p>
-          </div>
+  const submit = async (isDraft) => {
+    if (!isDraft && !balanced) {
+      setError(`Pass + Repeat + Reject must equal ${fmt(total)} m (now ${fmt(sum)} m).`);
+      return;
+    }
+    setError('');
+    setSaving(isDraft ? 'draft' : 'approve');
+    try {
+      const res = await inventoryService.saveQCReinspectionDisposition({
+        reprocessId: row.id,
+        isDraft,
+        goodQty: nPass,
+        holdQty: 0,
+        reprocessQty: nRepeat,
+        rejectedQty: nReject,
+        measurements: row.measurements || [],
+        remarks,
+      });
+      await onDone(res?.data?.message || res?.message || (isDraft ? 'Draft saved.' : 'Reinspection approved.'));
+    } catch (err) {
+      setError(errText(err, 'Could not save the reinspection.'));
+    } finally {
+      setSaving(null);
+    }
+  };
 
-          {/* Step 4 */}
-          <div className="p-3 bg-slate-50 rounded-xl border border-slate-200 space-y-1.5">
-            <div className="flex items-center space-x-1.5 text-purple-700">
-              <span className="w-5 h-5 rounded-full bg-purple-600 text-white font-bold flex items-center justify-center text-[10px]">
-                4
-              </span>
-              <span className="font-bold text-slate-900 text-[11px]">Receive from Reprocess</span>
-            </div>
-            <p className="text-[11px] text-slate-500 leading-tight">
-              Record returned fabric through Job Work Inward with actual received quantity and lot/taka details.
-            </p>
-          </div>
+  const fields = [
+    { label: 'Pass', hint: 'Good stock, back to godown', value: pass, set: setPass, n: nPass, icon: CheckCircle2, cls: 'border-emerald-200 bg-emerald-50/60 text-emerald-700' },
+    { label: 'Repeat', hint: 'Send for reprocess again', value: repeat, set: setRepeat, n: nRepeat, icon: RotateCcw, cls: 'border-purple-200 bg-purple-50/60 text-purple-700' },
+    { label: 'Reject', hint: 'To Reject / Scrap', value: reject, set: setReject, n: nReject, icon: XCircle, cls: 'border-rose-200 bg-rose-50/60 text-rose-700' },
+  ];
 
-          {/* Step 5 */}
-          <div className="p-3 bg-pink-50 rounded-xl border border-pink-200 space-y-1.5">
-            <div className="flex items-center space-x-1.5 text-pink-700">
-              <span className="w-5 h-5 rounded-full bg-pink-600 text-white font-bold flex items-center justify-center text-[10px]">
-                5
-              </span>
-              <span className="font-bold text-pink-900 text-[11px]">Re-Inspect & Record</span>
-            </div>
-            <p className="text-[11px] text-pink-700 leading-tight font-medium">
-              Re-inspect received fabric and record final result as Good / Hold / Reprocess / Rejected.
-            </p>
-          </div>
-
-          {/* Step 6 */}
-          <div className="p-3 bg-emerald-50 rounded-xl border border-emerald-200 space-y-1.5">
-            <div className="flex items-center space-x-1.5 text-emerald-700">
-              <span className="w-5 h-5 rounded-full bg-emerald-600 text-white font-bold flex items-center justify-center text-[10px]">
-                6
-              </span>
-              <span className="font-bold text-emerald-900 text-[11px]">Approve & Post</span>
-            </div>
-            <p className="text-[11px] text-emerald-700 leading-tight font-medium">
-              Approve reinspection result to update Stock Ledger and Stock Position automatically.
-            </p>
-          </div>
-        </div>
-      </div>
-
-      {/* ── BOTTOM PANELS: 2. Reinspection Entry | 3. Reinspection Result | 4. Audit Trail & Notes ── */}
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-5">
-        {/* Panel 2: Reinspection Entry (After Receive) — 4 cols */}
-        <div className="lg:col-span-4 bg-white p-4 rounded-xl border border-slate-200 shadow-sm space-y-3">
-          <div className="flex items-center space-x-2">
-            <span className="w-6 h-6 rounded-full bg-blue-600 text-white font-bold flex items-center justify-center text-xs">
-              2
-            </span>
-            <h3 className="font-bold text-slate-900 text-sm">Reinspection Entry (After Receive)</h3>
-          </div>
-
-          <div className="grid grid-cols-2 gap-2.5 text-xs">
-            <div>
-              <label className="block text-slate-500 font-medium mb-1">Reprocess No.</label>
-              <input
-                type="text"
-                value={entryReprocessNo}
-                onChange={(e) => setEntryReprocessNo(e.target.value)}
-                placeholder="RP-003"
-                className="w-full px-2.5 py-1.5 border border-slate-200 rounded-lg bg-slate-50 text-slate-800 font-semibold"
-              />
-            </div>
-            <div>
-              <label className="block text-slate-500 font-medium mb-1">Source QC No.</label>
-              <input
-                type="text"
-                value={entrySourceQcNo}
-                onChange={(e) => setEntrySourceQcNo(e.target.value)}
-                placeholder="QC-005"
-                className="w-full px-2.5 py-1.5 border border-slate-200 rounded-lg bg-slate-50 text-slate-800 font-mono"
-              />
-            </div>
-
-            <div className="col-span-2">
-              <label className="block text-slate-500 font-medium mb-1">Item Code</label>
-              <input
-                type="text"
-                value={entryItemCode}
-                onChange={(e) => setEntryItemCode(e.target.value)}
-                placeholder="COT-60S-002"
-                className="w-full px-2.5 py-1.5 border border-slate-200 rounded-lg bg-slate-50 text-slate-800 font-mono"
-              />
-            </div>
-
-            <div className="col-span-2">
-              <label className="block text-slate-500 font-medium mb-1">Fabric Item</label>
-              <input
-                type="text"
-                value={entryFabricItem}
-                onChange={(e) => setEntryFabricItem(e.target.value)}
-                placeholder="Cotton 60s - Stripe - Black"
-                className="w-full px-2.5 py-1.5 border border-slate-200 rounded-lg bg-slate-50 text-slate-800 font-medium"
-              />
-            </div>
-
-            <div>
-              <label className="block text-slate-500 font-medium mb-1">Lot No.</label>
-              <input
-                type="text"
-                value={entryLotNo}
-                onChange={(e) => setEntryLotNo(e.target.value)}
-                placeholder="LT-030"
-                className="w-full px-2.5 py-1.5 border border-slate-200 rounded-lg bg-slate-50 text-slate-800 font-mono"
-              />
-            </div>
-
-            <div>
-              <label className="block text-slate-500 font-medium mb-1">Vendor / Processor</label>
-              <input
-                type="text"
-                value={entryVendor}
-                onChange={(e) => setEntryVendor(e.target.value)}
-                placeholder="Fine Dye"
-                className="w-full px-2.5 py-1.5 border border-slate-200 rounded-lg bg-slate-50 text-slate-800"
-              />
-            </div>
-          </div>
-
-          {/* Measurement Details Table */}
-          <div className="space-y-1 pt-1">
-            <span className="font-semibold text-slate-800 text-xs block">Measurement Details</span>
-            <div className="border border-slate-200 rounded-lg overflow-hidden text-xs">
-              <table className="w-full text-left">
-                <thead className="bg-slate-50 border-b border-slate-200 text-slate-600 font-semibold">
-                  <tr>
-                    <th className="p-2">Sr. No.</th>
-                    <th className="p-2">Taka No.</th>
-                    <th className="p-2 text-right">Actual Qty (m)</th>
-                    <th className="p-2 text-right">Width (cm)</th>
-                    <th className="p-2">Remarks</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-100 text-slate-700">
-                  {entryMeasurements.length === 0 ? (
-                    <tr>
-                      <td colSpan="5" className="p-3 text-center text-slate-400">
-                        No roll measurements entered
-                      </td>
-                    </tr>
-                  ) : (
-                    entryMeasurements.map((m, idx) => (
-                      <tr key={idx}>
-                        <td className="p-2 text-slate-500">{m.srNo || idx + 1}</td>
-                        <td className="p-2 font-medium">{m.takaNo || idx + 1}</td>
-                        <td className="p-2 text-right font-medium">{m.actualQty}</td>
-                        <td className="p-2 text-right">{m.width ? m.width : '—'}</td>
-                        <td className="p-2 text-slate-500">{m.remarks || '-'}</td>
-                      </tr>
-                    ))
-                  )}
-                </tbody>
-              </table>
-            </div>
-          </div>
-        </div>
-
-        {/* Panel 3: Reinspection Result — 5 cols */}
-        <div className="lg:col-span-5 bg-white p-4 rounded-xl border border-slate-200 shadow-sm space-y-3">
-          <div className="flex items-center space-x-2">
-            <span className="w-6 h-6 rounded-full bg-pink-600 text-white font-bold flex items-center justify-center text-xs">
-              3
-            </span>
-            <h3 className="font-bold text-slate-900 text-sm">Reinspection Result</h3>
-          </div>
-
-          {/* 4 Cards Grid */}
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 text-xs">
-            <div className="p-2.5 bg-emerald-50 border border-emerald-200 rounded-xl space-y-0.5">
-              <div className="flex items-center space-x-1 text-emerald-700 font-bold text-xs">
-                <CheckCircle2 className="w-3.5 h-3.5" />
-                <span>Good Qty</span>
-              </div>
-              <input
-                type="number"
-                step="0.01"
-                min="0"
-                value={goodQty}
-                onChange={(e) => setGoodQty(e.target.value)}
-                className="w-full text-sm font-bold text-emerald-800 bg-white border border-emerald-300 rounded px-1.5 py-0.5"
-              />
-              <span className="text-[10px] text-emerald-600 font-semibold">{pctGood}%</span>
-            </div>
-
-            <div className="p-2.5 bg-amber-50 border border-amber-200 rounded-xl space-y-0.5">
-              <div className="flex items-center space-x-1 text-amber-700 font-bold text-xs">
-                <PauseCircle className="w-3.5 h-3.5" />
-                <span>Hold Qty</span>
-              </div>
-              <input
-                type="number"
-                step="0.01"
-                min="0"
-                value={holdQty}
-                onChange={(e) => setHoldQty(e.target.value)}
-                className="w-full text-sm font-bold text-amber-800 bg-white border border-amber-300 rounded px-1.5 py-0.5"
-              />
-              <span className="text-[10px] text-amber-600 font-semibold">{pctHold}%</span>
-            </div>
-
-            <div className="p-2.5 bg-purple-50 border border-purple-200 rounded-xl space-y-0.5">
-              <div className="flex items-center space-x-1 text-purple-700 font-bold text-xs">
-                <RotateCcw className="w-3.5 h-3.5" />
-                <span>Reprocess Qty</span>
-              </div>
-              <input
-                type="number"
-                step="0.01"
-                min="0"
-                value={reprocessQty}
-                onChange={(e) => setReprocessQty(e.target.value)}
-                className="w-full text-sm font-bold text-purple-800 bg-white border border-purple-300 rounded px-1.5 py-0.5"
-              />
-              <span className="text-[10px] text-purple-600 font-semibold">{pctReprocess}%</span>
-            </div>
-
-            <div className="p-2.5 bg-red-50 border border-red-200 rounded-xl space-y-0.5">
-              <div className="flex items-center space-x-1 text-red-700 font-bold text-xs">
-                <XCircle className="w-3.5 h-3.5" />
-                <span>Rejected Qty</span>
-              </div>
-              <input
-                type="number"
-                step="0.01"
-                min="0"
-                value={rejectedQty}
-                onChange={(e) => setRejectedQty(e.target.value)}
-                className="w-full text-sm font-bold text-red-800 bg-white border border-red-300 rounded px-1.5 py-0.5"
-              />
-              <span className="text-[10px] text-red-600 font-semibold">{pctRejected}%</span>
-            </div>
-          </div>
-
-          {/* Total Reconciliation Bar */}
-          <div
-            className={`p-2.5 rounded-xl border flex items-center justify-between gap-2 text-xs transition ${
-              isReconciled
-                ? 'bg-emerald-50 border-emerald-200 text-emerald-800'
-                : 'bg-amber-50 border-amber-300 text-amber-800'
-            }`}
-          >
-            <div>
-              <span className="font-bold">Total Inspected Qty: </span>
-              <span className="font-mono font-bold">{totalTargetQty} m</span>
-            </div>
-            {isReconciled ? (
-              <span className="px-2 py-0.5 rounded bg-emerald-600 text-white font-bold text-[10px] flex items-center space-x-1 shadow-2xs">
-                <Check className="w-3 h-3" />
-                <span>Quantity Reconciled</span>
-              </span>
-            ) : (
-              <span className="px-2 py-0.5 rounded bg-amber-600 text-white font-bold text-[10px] flex items-center space-x-1 shadow-2xs">
-                <AlertTriangle className="w-3 h-3" />
-                <span>Diff: {(totalTargetQty - sumDisposition).toFixed(2)} m</span>
-              </span>
-            )}
-          </div>
-
-          {/* Remarks */}
+  return (
+    <div className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-4">
+      <div className="bg-white rounded-xl shadow-xl border border-slate-200 w-full max-w-xl">
+        <div className="flex items-center justify-between px-5 py-3.5 border-b border-slate-200">
           <div>
-            <label className="block text-slate-700 font-semibold text-xs mb-1">Remarks</label>
+            <h3 className="font-bold text-slate-900">{readOnly ? 'Reinspection Result' : 'QC Again'} · {row.reprocessNo}</h3>
+            <p className="text-xs text-slate-500">
+              {row.fabricItem || '—'} · Lot {row.lotNo || '—'} · {row.vendor || '—'} · <span className="font-semibold text-slate-700">{fmt(total)} m</span>
+            </p>
+          </div>
+          <button type="button" onClick={onClose} className="p-1.5 rounded-lg text-slate-400 hover:bg-slate-100"><X className="w-5 h-5" /></button>
+        </div>
+
+        <div className="p-5 space-y-4">
+          <div className="grid grid-cols-3 gap-3">
+            {fields.map((f) => {
+              const Icon = f.icon;
+              return (
+                <div key={f.label} className={`rounded-xl border p-3 space-y-1.5 ${f.cls}`}>
+                  <div className="flex items-center gap-1.5 text-xs font-bold"><Icon className="w-4 h-4" />{f.label}</div>
+                  <input
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    disabled={readOnly}
+                    value={f.value}
+                    onChange={(e) => f.set(e.target.value)}
+                    className="w-full rounded-lg border border-slate-300 bg-white px-2 py-1.5 text-sm font-bold text-slate-900 disabled:bg-slate-50"
+                  />
+                  <p className="text-[10.5px] text-slate-500 leading-tight">{f.hint}</p>
+                </div>
+              );
+            })}
+          </div>
+
+          <div className={`flex items-center justify-between rounded-lg border px-3 py-2 text-xs ${balanced ? 'border-emerald-200 bg-emerald-50 text-emerald-800' : 'border-amber-300 bg-amber-50 text-amber-800'}`}>
+            <span>Pass + Repeat + Reject = <strong>{fmt(sum)} m</strong> of {fmt(total)} m</span>
+            <span className="font-semibold">{balanced ? 'Balanced' : `Diff ${fmt(total - sum)} m`}</span>
+          </div>
+
+          {nRepeat > 0 && !readOnly && (
+            <p className="text-[11px] text-purple-700">A new reprocess order for {fmt(nRepeat)} m will be created in "To Send".</p>
+          )}
+
+          <div>
+            <label className="block text-xs font-semibold text-slate-600 mb-1">Remarks</label>
             <textarea
-              rows="2"
+              rows={2}
+              disabled={readOnly}
               value={remarks}
               onChange={(e) => setRemarks(e.target.value)}
-              placeholder="Fabric quality improved after reprocess..."
-              className="w-full p-2 text-xs border border-slate-300 rounded-lg bg-white focus:outline-hidden focus:ring-1 focus:ring-blue-500"
+              placeholder="e.g. Shade corrected after re-dyeing"
+              className="w-full rounded-lg border border-slate-300 bg-white p-2 text-xs disabled:bg-slate-50"
             />
           </div>
 
-          {/* Actions */}
-          <div className="flex items-center justify-end space-x-2 pt-1">
-            <button
-              disabled={savingDraft || approving}
-              onClick={handleSaveDraft}
-              className="px-3 py-1.5 bg-white hover:bg-slate-50 text-slate-700 border border-slate-300 rounded-lg text-xs font-semibold flex items-center space-x-1 shadow-2xs"
-            >
-              <Save className="w-3.5 h-3.5 text-slate-500" />
-              <span>{savingDraft ? 'Saving Draft...' : 'Save as Draft'}</span>
-            </button>
-
-            <button
-              disabled={approving || savingDraft || !isReconciled}
-              onClick={handleApproveAndUpdateStock}
-              className="px-4 py-1.5 bg-blue-600 hover:bg-blue-700 disabled:bg-slate-300 text-white rounded-lg text-xs font-bold flex items-center space-x-1.5 shadow-xs"
-            >
-              <Check className="w-3.5 h-3.5" />
-              <span>{approving ? 'Posting Stock Updates...' : 'Approve & Update Stock'}</span>
-            </button>
-          </div>
+          {error && <p className="text-xs font-semibold text-rose-600">{error}</p>}
         </div>
 
-        {/* Panel 4: Audit Trail & Important Notes — 3 cols */}
-        <div className="lg:col-span-3 space-y-3">
-          {/* Audit Trail */}
-          <div className="bg-white p-3.5 rounded-xl border border-slate-200 shadow-sm space-y-2">
-            <div className="flex items-center space-x-1.5">
-              <span className="w-5 h-5 rounded-full bg-blue-600 text-white font-bold flex items-center justify-center text-[10px]">
-                4
-              </span>
-              <h4 className="font-bold text-slate-900 text-xs">Audit Trail</h4>
-            </div>
-
-            <div className="overflow-x-auto text-[11px]">
-              <table className="w-full text-left">
-                <thead className="bg-slate-50 text-slate-500 font-semibold border-b">
-                  <tr>
-                    <th className="py-1 px-1.5">Date & Time</th>
-                    <th className="py-1 px-1.5">Action</th>
-                    <th className="py-1 px-1.5">User</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-100 text-slate-600">
-                  {(activeItem?.auditTrail || []).length > 0 ? (
-                    activeItem.auditTrail.map((a, idx) => (
-                      <tr key={idx}>
-                        <td className="py-1 px-1.5 font-mono text-[10px]">{a.dateTime}</td>
-                        <td className="py-1 px-1.5 font-semibold text-blue-700">{a.action}</td>
-                        <td className="py-1 px-1.5">{a.user}</td>
-                      </tr>
-                    ))
-                  ) : (
-                    <tr>
-                      <td colSpan="3" className="py-2 text-center text-slate-400">
-                        Select a row above to see audit history
-                      </td>
-                    </tr>
-                  )}
-                </tbody>
-              </table>
-            </div>
-          </div>
-
-          {/* Important Notes */}
-          <div className="bg-blue-50/60 p-3.5 rounded-xl border border-blue-200 text-xs space-y-1.5 text-blue-900">
-            <div className="flex items-center space-x-1.5 font-bold text-blue-800">
-              <Info className="w-4 h-4 shrink-0" />
-              <span>Important Notes</span>
-            </div>
-            <ul className="text-[11px] text-blue-800/90 space-y-1 list-disc pl-3.5 leading-tight">
-              <li>This screen tracks QC reinspection for fabric that was sent for reprocess.</li>
-              <li>Linked with existing modules: Job Work / Processing &gt; Reprocess, Job Work Outward and Job Work Inward.</li>
-              <li>Sent Qty = Received Qty + Pending Qty.</li>
-              <li>Reinspection disposition (Good + Hold + Reprocess + Rejected) must always equal the inspected quantity.</li>
-              <li>After approval, Stock Ledger and Stock Position are updated automatically.</li>
-            </ul>
-          </div>
+        <div className="flex justify-end gap-2 px-5 py-3.5 border-t border-slate-200 bg-slate-50 rounded-b-xl">
+          <button type="button" onClick={onClose} className="px-4 py-2 rounded-lg border border-slate-300 bg-white text-xs font-semibold text-slate-700 hover:bg-slate-50">
+            {readOnly ? 'Close' : 'Cancel'}
+          </button>
+          {!readOnly && (
+            <>
+              <button type="button" disabled={!!saving} onClick={() => submit(true)} className="px-4 py-2 rounded-lg border border-slate-300 bg-white text-xs font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-50">
+                {saving === 'draft' ? 'Saving...' : 'Save Draft'}
+              </button>
+              <button type="button" disabled={!!saving || !balanced} onClick={() => submit(false)} className="px-4 py-2 rounded-lg bg-blue-600 text-xs font-bold text-white hover:bg-blue-700 disabled:bg-slate-300">
+                {saving === 'approve' ? 'Posting...' : 'Approve & Update Stock'}
+              </button>
+            </>
+          )}
         </div>
       </div>
-
-      {/* ── MODAL: + NEW REINSPECTION ENTRY ── */}
-      {showNewModal && (
-        <div className="fixed inset-0 z-50 bg-black/40 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-white rounded-xl shadow-xl border border-slate-200 w-full max-w-lg overflow-hidden animate-in fade-in zoom-in-95">
-            <div className="flex items-center justify-between p-4 border-b border-slate-200 bg-slate-50">
-              <h3 className="text-base font-bold text-slate-900">Create New Reinspection Entry</h3>
-              <button
-                onClick={() => setShowNewModal(false)}
-                className="p-1 text-slate-400 hover:text-slate-600 rounded-lg hover:bg-slate-200"
-              >
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-
-            <form onSubmit={handleCreateNewReinspection} className="p-5 space-y-3.5 text-xs">
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-slate-700 font-medium mb-1">Source QC No. *</label>
-                  <input
-                    type="text"
-                    required
-                    placeholder="e.g. QC-005"
-                    value={newSourceQcNo}
-                    onChange={(e) => setNewSourceQcNo(e.target.value)}
-                    className="w-full px-3 py-1.5 border border-slate-300 rounded-lg bg-white text-slate-800"
-                  />
-                </div>
-
-                <div>
-                  <div className="flex items-center justify-between mb-1">
-                    <label className="block text-slate-700 font-medium">Vendor / Processor *</label>
-                    <MasterSourceLink source="vendors" />
-                  </div>
-                  <select
-                    required
-                    value={newVendor}
-                    onChange={(e) => setNewVendor(e.target.value)}
-                    className="w-full px-3 py-1.5 border border-slate-300 rounded-lg bg-white text-slate-800"
-                  >
-                    <option value="">Select Vendor</option>
-                    {vendors.map((v) => (
-                      <option key={v.id} value={v.name}>
-                        {v.name}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-
-                <div>
-                  <div className="flex items-center justify-between mb-1">
-                    <label className="block text-slate-700 font-medium">Item Code / Fabric *</label>
-                    <MasterSourceLink source="items" />
-                  </div>
-                  <select
-                    required
-                    value={newItemCode}
-                    onChange={(e) => {
-                      const sel = items.find((it) => it.sku === e.target.value);
-                      setNewItemCode(e.target.value);
-                      if (sel) setNewFabricItem(sel.name);
-                    }}
-                    className="w-full px-3 py-1.5 border border-slate-300 rounded-lg bg-white text-slate-800"
-                  >
-                    <option value="">Select Fabric Item</option>
-                    {items.map((it) => (
-                      <option key={it.id} value={it.sku}>
-                        {it.sku} — {it.name}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-
-                <div>
-                  <label className="block text-slate-700 font-medium mb-1">Fabric Description</label>
-                  <input
-                    type="text"
-                    value={newFabricItem}
-                    onChange={(e) => setNewFabricItem(e.target.value)}
-                    placeholder="Cotton 60s"
-                    className="w-full px-3 py-1.5 border border-slate-300 rounded-lg bg-slate-50 text-slate-800"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-slate-700 font-medium mb-1">Sent Quantity (m) *</label>
-                  <input
-                    type="number"
-                    step="0.01"
-                    min="0.1"
-                    required
-                    placeholder="e.g. 25"
-                    value={newSentQty}
-                    onChange={(e) => setNewSentQty(e.target.value)}
-                    className="w-full px-3 py-1.5 border border-slate-300 rounded-lg bg-white text-slate-800 font-semibold"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-slate-700 font-medium mb-1">Date</label>
-                  <input
-                    type="date"
-                    value={newDate}
-                    onChange={(e) => setNewDate(e.target.value)}
-                    className="w-full px-3 py-1.5 border border-slate-300 rounded-lg bg-white text-slate-800"
-                  />
-                </div>
-
-                <div className="col-span-2">
-                  <label className="block text-slate-700 font-medium mb-1">Reprocess Reason</label>
-                  <input
-                    type="text"
-                    value={newReason}
-                    onChange={(e) => setNewReason(e.target.value)}
-                    placeholder="e.g. Shade variation reprocessing"
-                    className="w-full px-3 py-1.5 border border-slate-300 rounded-lg bg-white text-slate-800"
-                  />
-                </div>
-              </div>
-
-              <div className="flex items-center justify-end space-x-2 pt-2 border-t border-slate-200">
-                <button
-                  type="button"
-                  onClick={() => setShowNewModal(false)}
-                  className="px-4 py-2 border border-slate-300 text-slate-700 rounded-lg text-xs font-medium hover:bg-slate-50"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  disabled={creating}
-                  className="px-5 py-2 bg-pink-600 hover:bg-pink-700 disabled:opacity-50 text-white rounded-lg text-xs font-semibold shadow-xs"
-                >
-                  {creating ? 'Saving...' : 'Create Entry'}
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
     </div>
   );
 }

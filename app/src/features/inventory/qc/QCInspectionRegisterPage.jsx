@@ -462,7 +462,7 @@ export default function QCInspectionRegisterPage() {
   };
 
   return (
-    <div className="min-h-screen bg-slate-50 text-slate-800 p-4 md:p-6 space-y-6">
+    <div className="space-y-6">
       {/* Toast Notification */}
       {toastMsg && (
         <div className="fixed top-4 right-4 z-50 bg-emerald-600 text-white px-4 py-2.5 rounded-lg shadow-lg flex items-center space-x-2 text-sm font-medium animate-in fade-in slide-in-from-top-2">

@@ -17,7 +17,7 @@ const createEmptyLine = () => ({
   qty: 1,
   rate: 0,
   discount: 0,
-  tax: 18,
+  tax: 5,
   amount: 0,
   isUserModified: false,
 });
@@ -88,8 +88,8 @@ export const LineItemEditor = ({ items = [], onChange, type = 'sales', readOnly 
             qty: 1,
             rate: unitRate,
             discount: 0,
-            tax: 18,
-            amount: Math.round(unitRate * 1.18 * 100) / 100,
+            tax: 5,
+            amount: Math.round(unitRate * (1 + (Number(defaultItem.taxRate ?? defaultItem.taxPct ?? 5) / 100)) * 100) / 100,
             isUserModified: false,
             // [PHASE-2A] propagate weight-item config (steel by kg) onto the transaction line
             isWeightItem: Boolean(defaultItem.isWeightItem),
@@ -111,7 +111,8 @@ export const LineItemEditor = ({ items = [], onChange, type = 'sales', readOnly 
                   : 0;
                 const childQty = (bp.requiredQty || 1) * 1;
                 const childGross = childQty * childRate;
-                const childAmount = Math.round(childGross * 1.18 * 100) / 100;
+                const childTax = childItem && (childItem.taxRate !== undefined || childItem.taxPct !== undefined) ? Number(childItem.taxRate ?? childItem.taxPct) : Number(defaultItem.taxRate ?? defaultItem.taxPct ?? 5);
+                const childAmount = Math.round(childGross * (1 + childTax / 100) * 100) / 100;
 
                 return {
                     id: `li-bom-${Date.now()}-${Math.floor(Math.random() * 100000)}`,
@@ -125,7 +126,7 @@ export const LineItemEditor = ({ items = [], onChange, type = 'sales', readOnly 
                     qty: childQty,
                     rate: childRate,
                     discount: 0,
-                    tax: 18,
+                    tax: childTax,
                     amount: childAmount,
                     isBomGenerated: true,
                     isBomPart: true,
@@ -167,8 +168,8 @@ export const LineItemEditor = ({ items = [], onChange, type = 'sales', readOnly 
                 qty: 1,
                 rate: unitRate,
                 discount: 0,
-                tax: 18,
-                amount: Math.round(unitRate * 1.18 * 100) / 100,
+                tax: 5,
+                amount: Math.round(unitRate * (1 + (Number(defaultItem.taxRate ?? defaultItem.taxPct ?? 5) / 100)) * 100) / 100,
                 isBomGenerated: true,
                 isBomPart: true,
                 isUserModified: true,
@@ -220,7 +221,11 @@ export const LineItemEditor = ({ items = [], onChange, type = 'sales', readOnly 
         const lineId = current.id || `li-${Date.now()}-${Math.floor(Math.random() * 10000)}`;
         const qty = current.qty || 1;
         const discount = current.discount || 0;
-        const tax = current.tax ?? 18;
+        const tax = selected.taxRate !== undefined && selected.taxRate !== null
+            ? Number(selected.taxRate)
+            : (selected.taxPct !== undefined && selected.taxPct !== null
+                ? Number(selected.taxPct)
+                : (current.tax !== undefined && current.tax !== null ? Number(current.tax) : 5));
         const gross = qty * unitRate;
         const afterDisc = gross * (1 - discount / 100);
         const amount = Math.round(afterDisc * (1 + tax / 100) * 100) / 100;
@@ -236,6 +241,7 @@ export const LineItemEditor = ({ items = [], onChange, type = 'sales', readOnly 
             // The item's configured unit; a compatible unit can be picked on the line.
             uom: (type === 'sales' ? selected.salesUnit : selected.purchaseUnit) || selected.uom || current.uom || '',
             rate: unitRate,
+            tax,
             amount,
             isUserModified: false,
             // [PHASE-2A] propagate weight-item config (steel by kg) onto the transaction line
@@ -278,7 +284,8 @@ export const LineItemEditor = ({ items = [], onChange, type = 'sales', readOnly 
                   : 0;
                 const childQty = (bp.requiredQty || 1) * qty;
                 const childGross = childQty * childRate;
-                const childAmount = Math.round(childGross * (1 + tax / 100) * 100) / 100;
+                const childTax = childItem && (childItem.taxRate !== undefined || childItem.taxPct !== undefined) ? Number(childItem.taxRate ?? childItem.taxPct) : tax;
+                const childAmount = Math.round(childGross * (1 + childTax / 100) * 100) / 100;
 
                 return {
                     id: `li-bom-${Date.now()}-${Math.floor(Math.random() * 100000)}`,
@@ -292,7 +299,7 @@ export const LineItemEditor = ({ items = [], onChange, type = 'sales', readOnly 
                     qty: childQty,
                     rate: childRate,
                     discount: 0,
-                    tax: 18,
+                    tax: childTax,
                     amount: childAmount,
                     isBomGenerated: true,
                     isBomPart: true,
@@ -405,7 +412,7 @@ export const LineItemEditor = ({ items = [], onChange, type = 'sales', readOnly 
     const totalDiscount = displayItems.reduce((acc, it) => acc + ((Number(it.qty) || 0) * (Number(it.rate) || 0) * ((Number(it.discount) || 0) / 100)), 0);
     const totalTax = displayItems.reduce((acc, it) => {
         const grossAfterDisc = ((Number(it.qty) || 0) * (Number(it.rate) || 0)) * (1 - ((Number(it.discount) || 0) / 100));
-        return acc + (grossAfterDisc * (((it.tax !== undefined ? Number(it.tax) : 18)) / 100));
+        return acc + (grossAfterDisc * (((it.tax !== undefined && it.tax !== null ? Number(it.tax) : 5)) / 100));
     }, 0);
     const grandTotal = Math.round((subtotal - totalDiscount + totalTax) * 100) / 100;
 
@@ -736,12 +743,12 @@ export const LineItemEditor = ({ items = [], onChange, type = 'sales', readOnly 
                             type="number"
                             min="0"
                             max="100"
-                            value={item.tax ?? 18}
+                            value={item.tax ?? 5}
                             onChange={(e) => handleFieldChange(index, 'tax', Number(e.target.value))}
                             className="w-14 text-center text-xs font-semibold px-2 py-1.5 rounded-lg border border-border bg-card text-text focus:outline-none focus:border-primary transition"
                           />
                         ) : (
-                          <span className="text-text">{item.tax ?? 18}%</span>
+                          <span className="text-text">{item.tax ?? 5}%</span>
                         )}
                       </td>
 

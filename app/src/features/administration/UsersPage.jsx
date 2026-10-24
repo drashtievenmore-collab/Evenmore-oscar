@@ -422,7 +422,7 @@ export function UsersPage() {
   };
 
   return (
-    <div className="min-h-screen text-slate-800 p-4 md:p-7 space-y-6" style={{ backgroundColor: 'var(--page, #f6f9ff)', color: 'var(--text)' }}>
+    <div className="space-y-6">
       {/* ── Toast Notification ─────────────────────────────────── */}
       {toastMessage && (
         <div className="fixed top-4 right-4 left-4 sm:left-auto sm:top-6 sm:right-6 z-50 bg-[#0f172a] text-white px-4 py-3 rounded-xl shadow-2xl flex items-center gap-3 border border-slate-700 animate-in fade-in slide-in-from-top-4 duration-200">

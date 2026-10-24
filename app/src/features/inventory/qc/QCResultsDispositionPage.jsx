@@ -16,7 +16,6 @@ import {
   ArrowRight,
   Info,
   Calendar,
-  ShieldCheck,
   PauseCircle,
   RotateCcw,
 } from 'lucide-react';
@@ -208,6 +207,9 @@ export default function QCResultsDispositionPage() {
   const numRejected = Number(rejectedQty) || 0;
   const sumDisposition = numGood + numHold + numReprocess + numRejected;
   const isReconciled = numInspected > 0 && Math.abs(sumDisposition - numInspected) < 0.001;
+  // The backend only accepts a disposition while QC is still open; once it is
+  // approved the stock has already moved and the split can no longer change.
+  const isLocked = !['Pending', 'Draft', 'On Hold', 'In Progress'].includes(status);
 
   // Percentage calculations
   const pctGood = numInspected > 0 ? ((numGood / numInspected) * 100).toFixed(1) : '0.0';
@@ -319,7 +321,7 @@ export default function QCResultsDispositionPage() {
   };
 
   return (
-    <div className="min-h-screen bg-slate-50 text-slate-800 p-4 md:p-6 space-y-6">
+    <div className="space-y-6">
       {/* Toast */}
       {toastMsg && (
         <div className="fixed top-4 right-4 z-50 bg-emerald-600 text-white px-4 py-2.5 rounded-lg shadow-lg flex items-center space-x-2 text-sm font-medium animate-in fade-in slide-in-from-top-2">
@@ -538,6 +540,7 @@ export default function QCResultsDispositionPage() {
                     min="0"
                     value={inspectedQty}
                     onChange={(e) => setInspectedQty(e.target.value)}
+                    disabled={isLocked}
                     className="w-full px-2.5 py-1.5 border border-blue-300 rounded-lg bg-blue-50/50 text-blue-900 font-bold"
                   />
                   <span className="text-slate-500 text-xs font-semibold">m</span>
@@ -656,6 +659,16 @@ export default function QCResultsDispositionPage() {
           <div className="lg:col-span-6 space-y-4">
             <h2 className="text-sm font-bold text-slate-900">QC Result & Disposition</h2>
 
+            {isLocked && (
+              <div className="p-2.5 bg-slate-50 border border-slate-200 rounded-lg text-xs text-slate-600 flex items-start gap-2">
+                <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0" />
+                <span>
+                  This QC is already <strong>{status}</strong> and its stock has been posted. To send fabric to
+                  reprocess now, use <strong>QC → Reinspection / Reprocess</strong>, or pick an inspection that is still pending.
+                </span>
+              </div>
+            )}
+
             {/* 4 Disposition Cards Grid */}
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
               {/* Good Qty */}
@@ -671,6 +684,7 @@ export default function QCResultsDispositionPage() {
                     min="0"
                     value={goodQty}
                     onChange={(e) => setGoodQty(e.target.value)}
+                    disabled={isLocked}
                     className="w-full text-base font-extrabold text-emerald-800 bg-white border border-emerald-300 rounded px-1.5 py-0.5"
                   />
                   <span className="text-xs font-semibold text-emerald-700">m</span>
@@ -691,6 +705,7 @@ export default function QCResultsDispositionPage() {
                     min="0"
                     value={holdQty}
                     onChange={(e) => setHoldQty(e.target.value)}
+                    disabled={isLocked}
                     className="w-full text-base font-extrabold text-amber-800 bg-white border border-amber-300 rounded px-1.5 py-0.5"
                   />
                   <span className="text-xs font-semibold text-amber-700">m</span>
@@ -711,6 +726,7 @@ export default function QCResultsDispositionPage() {
                     min="0"
                     value={reprocessQty}
                     onChange={(e) => setReprocessQty(e.target.value)}
+                    disabled={isLocked}
                     className="w-full text-base font-extrabold text-purple-800 bg-white border border-purple-300 rounded px-1.5 py-0.5"
                   />
                   <span className="text-xs font-semibold text-purple-700">m</span>
@@ -720,6 +736,7 @@ export default function QCResultsDispositionPage() {
                   <select
                     value={jwoId}
                     onChange={(e) => setJwoId(e.target.value)}
+                    disabled={isLocked}
                     className="w-full text-xs bg-white border border-purple-300 rounded px-1.5 py-1 text-purple-800"
                   >
                     <option value="">Job work order *</option>
@@ -743,6 +760,7 @@ export default function QCResultsDispositionPage() {
                     min="0"
                     value={rejectedQty}
                     onChange={(e) => setRejectedQty(e.target.value)}
+                    disabled={isLocked}
                     className="w-full text-base font-extrabold text-red-800 bg-white border border-red-300 rounded px-1.5 py-0.5"
                   />
                   <span className="text-xs font-semibold text-red-700">m</span>
@@ -798,7 +816,7 @@ export default function QCResultsDispositionPage() {
             <div className="flex items-center justify-end space-x-3 pt-2">
               <button
                 type="button"
-                disabled={savingDraft || approving}
+                disabled={isLocked || savingDraft || approving}
                 onClick={handleSaveDraft}
                 className="px-4 py-2 bg-white hover:bg-slate-50 text-slate-700 border border-slate-300 rounded-lg text-xs font-semibold flex items-center space-x-1.5 shadow-2xs transition disabled:opacity-50"
               >
@@ -808,7 +826,7 @@ export default function QCResultsDispositionPage() {
 
               <button
                 type="button"
-                disabled={approving || savingDraft || !isReconciled}
+                disabled={isLocked || approving || savingDraft || !isReconciled}
                 onClick={handleApproveAndUpdateStock}
                 className="px-5 py-2 bg-blue-600 hover:bg-blue-700 disabled:bg-slate-300 disabled:cursor-not-allowed text-white rounded-lg text-xs font-bold flex items-center space-x-2 shadow-xs transition"
               >
@@ -816,151 +834,6 @@ export default function QCResultsDispositionPage() {
                 <span>{approving ? 'Posting Stock Updates...' : 'Approve & Update Stock'}</span>
               </button>
             </div>
-          </div>
-        </div>
-      </div>
-
-      {/* ── 9 STEP WORKFLOW GUIDE: "How It Works — QC Results & Disposition" ── */}
-      <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-5 space-y-4">
-        <div>
-          <h2 className="text-base font-bold text-slate-900">
-            How It Works — QC Results & Disposition (Step by Step)
-          </h2>
-          <p className="text-xs text-slate-500 mt-0.5">
-            Follow this structured procedure for inspecting received fabric and segregating inventory.
-          </p>
-        </div>
-
-        {/* 9 Steps Grid */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-9 gap-3 text-xs">
-          {/* Step 1 */}
-          <div className="p-3 bg-slate-50 rounded-xl border border-slate-200 space-y-1.5">
-            <div className="flex items-center space-x-1.5">
-              <span className="w-5 h-5 rounded-full bg-blue-600 text-white font-bold flex items-center justify-center text-[10px]">
-                1
-              </span>
-              <span className="font-bold text-slate-900 text-[11px]">Review Source</span>
-            </div>
-            <p className="text-[11px] text-slate-500 leading-tight">
-              Verify QC No, source type, supplier, item, lot/taka and received quantity.
-            </p>
-          </div>
-
-          {/* Step 2 */}
-          <div className="p-3 bg-slate-50 rounded-xl border border-slate-200 space-y-1.5">
-            <div className="flex items-center space-x-1.5">
-              <span className="w-5 h-5 rounded-full bg-blue-600 text-white font-bold flex items-center justify-center text-[10px]">
-                2
-              </span>
-              <span className="font-bold text-slate-900 text-[11px]">Enter Measures</span>
-            </div>
-            <p className="text-[11px] text-slate-500 leading-tight">
-              Add actual measurements for each taka/roll (optional) and verify width/weight.
-            </p>
-          </div>
-
-          {/* Step 3 */}
-          <div className="p-3 bg-slate-50 rounded-xl border border-slate-200 space-y-1.5">
-            <div className="flex items-center space-x-1.5">
-              <span className="w-5 h-5 rounded-full bg-blue-600 text-white font-bold flex items-center justify-center text-[10px]">
-                3
-              </span>
-              <span className="font-bold text-slate-900 text-[11px]">Set Disposition</span>
-            </div>
-            <p className="text-[11px] text-slate-500 leading-tight">
-              Split inspected quantity into Good / Hold / Reprocess / Rejected buckets.
-            </p>
-          </div>
-
-          {/* Step 4 */}
-          <div className="p-3 bg-slate-50 rounded-xl border border-slate-200 space-y-1.5">
-            <div className="flex items-center space-x-1.5">
-              <span className="w-5 h-5 rounded-full bg-blue-600 text-white font-bold flex items-center justify-center text-[10px]">
-                4
-              </span>
-              <span className="font-bold text-slate-900 text-[11px]">Save as Draft</span>
-            </div>
-            <p className="text-[11px] text-slate-500 leading-tight">
-              Save as Draft if inspection is not final. Stock will not be updated.
-            </p>
-          </div>
-
-          {/* Step 5 */}
-          <div className="p-3 bg-blue-50/70 rounded-xl border border-blue-200 space-y-1.5">
-            <div className="flex items-center space-x-1.5">
-              <span className="w-5 h-5 rounded-full bg-blue-600 text-white font-bold flex items-center justify-center text-[10px]">
-                5
-              </span>
-              <span className="font-bold text-blue-900 text-[11px]">Approve & Post</span>
-            </div>
-            <p className="text-[11px] text-blue-700 leading-tight font-medium">
-              Click Approve & Update Stock to post the result to Stock Ledger and Stock Position.
-            </p>
-          </div>
-
-          {/* Step 6 */}
-          <div className="p-3 bg-amber-50/70 rounded-xl border border-amber-200 space-y-1.5">
-            <div className="flex items-center space-x-1.5">
-              <span className="w-5 h-5 rounded-full bg-amber-600 text-white font-bold flex items-center justify-center text-[10px]">
-                6
-              </span>
-              <span className="font-bold text-amber-900 text-[11px]">Hold Stock</span>
-            </div>
-            <p className="text-[11px] text-amber-700 leading-tight">
-              Hold quantity will remain in QC Hold stock until review/decision can be taken later.
-            </p>
-          </div>
-
-          {/* Step 7 */}
-          <div className="p-3 bg-purple-50/70 rounded-xl border border-purple-200 space-y-1.5">
-            <div className="flex items-center space-x-1.5">
-              <span className="w-5 h-5 rounded-full bg-purple-600 text-white font-bold flex items-center justify-center text-[10px]">
-                7
-              </span>
-              <span className="font-bold text-purple-900 text-[11px]">Reprocess</span>
-            </div>
-            <p className="text-[11px] text-purple-700 leading-tight">
-              Reprocess quantity will route to Job Work / Processing &gt; Reprocess.
-            </p>
-          </div>
-
-          {/* Step 8 */}
-          <div className="p-3 bg-red-50/70 rounded-xl border border-red-200 space-y-1.5">
-            <div className="flex items-center space-x-1.5">
-              <span className="w-5 h-5 rounded-full bg-red-600 text-white font-bold flex items-center justify-center text-[10px]">
-                8
-              </span>
-              <span className="font-bold text-red-900 text-[11px]">Rejected Stock</span>
-            </div>
-            <p className="text-[11px] text-red-700 leading-tight">
-              Rejected quantity is segregated. Supplier return or debit note can be initiated.
-            </p>
-          </div>
-
-          {/* Step 9 */}
-          <div className="p-3 bg-slate-50 rounded-xl border border-slate-200 space-y-1.5">
-            <div className="flex items-center space-x-1.5">
-              <span className="w-5 h-5 rounded-full bg-blue-600 text-white font-bold flex items-center justify-center text-[10px]">
-                9
-              </span>
-              <span className="font-bold text-slate-900 text-[11px]">Audit Trail</span>
-            </div>
-            <p className="text-[11px] text-slate-500 leading-tight">
-              System logs inspector timestamp, user signature, and disposition decisions.
-            </p>
-          </div>
-        </div>
-
-        {/* Bottom Alert Banner */}
-        <div className="bg-slate-100 p-3.5 rounded-xl border border-slate-200 flex flex-col md:flex-row md:items-center justify-between gap-2 text-xs">
-          <div className="flex items-start md:items-center space-x-2 text-slate-700">
-            <ShieldCheck className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5 md:mt-0" />
-            <span>
-              <strong>Important:</strong> Good Qty + Hold Qty + Reprocess Qty + Rejected Qty must always equal Inspected Qty. Once approved, the disposition is posted to Stock Ledger and Stock Position automatically.
-            </span>
-          </div>
-          <div className="text-[11px] text-slate-400 shrink-0 italic">
-            Zero mock data — backed by real GoodsReceipt records.
           </div>
         </div>
       </div>
