@@ -1,12 +1,17 @@
 import { create } from "zustand";
 import { lazyStore } from "../services/lazyModules";
 import {
-  writeThrough,
+  hrmsSync,
   pullTracked,
   pullFlexibility,
   pushFlexibility,
   pullTodayPunch,
   recordPunch,
+  formatClock12,
+  saveAttendanceDay,
+  approveRegularization,
+  rejectRegularization,
+  isServerId,
 } from "../services/hrmsSync";
 
 function formatSeconds(secs) {
@@ -14,6 +19,28 @@ function formatSeconds(secs) {
   const h = Math.floor(secs / 3600);
   const m = Math.floor((secs % 3600) / 60);
   return `${String(h).padStart(2, "0")}h ${String(m).padStart(2, "0")}m`;
+}
+
+/** `09:30`, `09:30:00` or an ISO instant → local `HH:MM`; `''` otherwise. */
+function toClock(value) {
+  if (!value || value === "—") return "";
+  const text = String(value);
+  if (text.includes("T")) {
+    const d = new Date(text);
+    if (Number.isNaN(d.getTime())) return "";
+    return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
+  }
+  const m = text.match(/^(\d{1,2}):(\d{2})/);
+  return m ? `${m[1].padStart(2, "0")}:${m[2]}` : "";
+}
+
+/** `YYYY-MM-DD` or `DD/MM/YYYY` → `YYYY-MM-DD`; `''` when unrecognised. */
+function toISODateSafe(value) {
+  if (!value) return "";
+  const text = String(value);
+  if (/^\d{4}-\d{2}-\d{2}/.test(text)) return text.slice(0, 10);
+  const m = text.match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
+  return m ? `${m[3]}-${m[2]}-${m[1]}` : "";
 }
 
 const DEFAULT_TODAY_PUNCH = {
@@ -65,8 +92,10 @@ function mapPunchPayload(res) {
     halfDayThresholdHours: res.half_day_threshold_hours || 4,
     hasPendingRegularization: Boolean(res.has_pending_regularization),
     attendanceStatus: res.attendance_status || null,
-    firstPunch: res.first_punch || null,
-    lastPunch: res.last_punch || null,
+    // Shown in the browser's own clock, so the header reads the user's live
+    // local time whatever zone the server formats in.
+    firstPunch: formatClock12(res.first_punch_iso) || res.first_punch || null,
+    lastPunch: formatClock12(res.last_punch_iso) || res.last_punch || null,
     firstPunchIso: res.first_punch_iso || null,
     lastPunchIso: res.last_punch_iso || null,
     workingSeconds: res.working_seconds || 0,
@@ -74,7 +103,10 @@ function mapPunchPayload(res) {
     workingHours: res.working_hours || 0,
     lateMinutes: res.late_minutes || 0,
     overtimeHours: res.overtime_hours || 0,
-    punches: res.punches || [],
+    punches: (res.punches || []).map((p) => ({
+      ...p,
+      timeDisplay: formatClock12(p.punchTime) || p.timeDisplay,
+    })),
     pairs: res.pairs || [],
     loading: false,
     error: null,
@@ -210,70 +242,102 @@ const useAttendanceStoreBase = create((set, get) => ({
   flexibility: {},
   role: "HR",
 
-  saveDailyAttendance: (date, updatedRecords) => set((s) => {
-    const otherRecords = s.records.filter((r) => r.date !== date);
-    const combined = [...updatedRecords, ...otherRecords];
-    writeThrough("attendance", combined);
-    return { records: combined };
-  }),
+  /**
+   * Write one day's register for several employees. `rows` carry
+   * `{employeeId, status, checkIn:'HH:MM', checkOut:'HH:MM', remark}`; the
+   * server derives hours and Late/Present itself. Returns `{written, skipped}`.
+   */
+  saveDailyAttendance: async (date, rows = []) => {
+    const records = rows
+      .filter((r) => r && isServerId(r.employeeId) && r.status && r.status !== "Not Marked")
+      .map((r) => ({
+        employeeId: r.employeeId,
+        status: r.status,
+        checkIn: toClock(r.checkIn),
+        checkOut: toClock(r.checkOut),
+        remark: r.remark || r.remarks || "",
+      }));
+    if (!date || records.length === 0) return { written: 0, skipped: [] };
+    const res = await saveAttendanceDay(date, records);
+    get().refreshAttendance();
+    return res;
+  },
 
-  updateRecord: (id, patch) => set((s) => {
-    const recs = s.records.map((r) => r.id === id ? { ...r, ...patch } : r);
-    writeThrough("attendance", recs);
-    return { records: recs };
-  }),
-
-  bulkUpdate: (ids, status) => set((s) => {
-    const recs = s.records.map((r) => ids.includes(r.id) ? { ...r, status } : r);
-    writeThrough("attendance", recs);
-    return { records: recs };
-  }),
-
-  addRequest: (r) => set((s) => {
-    const newReq = {
-      id: r.id || `REQ-${Date.now().toString().slice(-4)}`,
-      submitted: "Today",
-      status: "Pending",
-      ...r,
-    };
-    const reqs = [newReq, ...s.requests];
-    writeThrough("attendanceRegularizations", reqs);
-    return { requests: reqs };
-  }),
-
-  setRequestStatus: (id, status, extra = {}) => set((s) => {
-    const targetReq = s.requests.find((r) => r.id === id);
-    const reqs = s.requests.map((r) => r.id === id ? { ...r, status, ...extra } : r);
-
-    let updatedRecords = s.records;
-    if (status === "Approved" && targetReq) {
-      updatedRecords = s.records.map((rec) => {
-        const matches =
-          (targetReq.employeeId && rec.id === targetReq.employeeId) ||
-          (rec.name && targetReq.employee && String(rec.name ?? '').toLowerCase() === String(targetReq.employee ?? '').toLowerCase());
-
-        if (matches) {
-          return {
-            ...rec,
-            checkIn: targetReq.requestedIn || rec.checkIn,
-            checkOut: targetReq.requestedOut || rec.checkOut,
-            status: targetReq.type === "Regularization" ? "Present" : rec.status,
-            workHours: "08:30",
-          };
-        }
-        return rec;
-      });
+  /**
+   * Kept for callers that still patch "a record": `id` is the employee's
+   * server id. With a `date` and `status` in the patch the day is written
+   * through the register endpoint; otherwise (e.g. after a leave approval,
+   * which the server posts itself) the local copy is simply re-read.
+   */
+  updateRecord: async (id, patch = {}) => {
+    const employeeId = patch.employeeId || id;
+    const date = toISODateSafe(patch.isoDate || patch.date);
+    if (date && patch.status && isServerId(employeeId)) {
+      try {
+        await get().saveDailyAttendance(date, [{ ...patch, employeeId }]);
+      } catch (err) {
+        console.warn("[HRMS] attendance not saved:", err?.message || err);
+      }
+      return null;
     }
+    return get().refreshAttendance();
+  },
 
-    writeThrough("attendance", updatedRecords);
-    return { requests: reqs, records: updatedRecords };
-  }),
+  /** Set one status for many employees on `date` (no-op without a date). */
+  bulkUpdate: async (employeeIds = [], status, date) => {
+    const day = toISODateSafe(date);
+    if (!day || !status) return get().refreshAttendance();
+    return get().saveDailyAttendance(day, employeeIds.map((employeeId) => ({ employeeId, status })));
+  },
 
-  saveFlexibility: (flexibility) => {
-    set({ flexibility });
-    pushFlexibility(flexibility).catch((err) => {
-      console.warn("[HRMS] flexibility not saved:", err?.message || err);
+  /**
+   * File a regularization on the server: `{employeeId, date:'YYYY-MM-DD',
+   * requestedCheckIn, requestedCheckOut, requestedStatus, reason}`. Throws
+   * when the server refuses it.
+   */
+  addRequest: async (r) => {
+    const created = await hrmsSync.create("attendanceRegularizations", {
+      employeeId: r.employeeId,
+      date: r.date,
+      requestedCheckIn: r.requestedCheckIn || r.requestedIn || r.reqIn,
+      requestedCheckOut: r.requestedCheckOut || r.requestedOut || r.reqOut,
+      requestedStatus: r.requestedStatus || "Present",
+      reason: r.reason,
     });
+    await get().refreshRequests();
+    return created;
+  },
+
+  /**
+   * Approve or reject a regularization. Approval makes the server rewrite
+   * that day's attendance, so both lists are re-read afterwards. Throws on
+   * a server refusal so the screen can say why.
+   */
+  setRequestStatus: async (id, status, extra = {}) => {
+    const remark = extra.remark || extra.rejectReason || "";
+    let res = null;
+    if (status === "Approved") res = await approveRegularization(id, { remark });
+    else if (status === "Rejected") res = await rejectRegularization(id, { remark });
+    else return null;
+    await Promise.all([get().refreshRequests(), get().refreshAttendance()]);
+    return res;
+  },
+
+  /** Load the policy on its own (the Flexibility screen needs nothing else). */
+  loadFlexibility: async () => {
+    const policy = await pullFlexibility();
+    if (policy) set({ flexibility: policy });
+    return policy;
+  },
+
+  /**
+   * Save the policy's screen labels; the server derives the engine keys and
+   * answers with the merged policy, which replaces ours. Throws on refusal.
+   */
+  saveFlexibility: async (flexibility) => {
+    const saved = await pushFlexibility(flexibility);
+    set({ flexibility: saved || { ...get().flexibility, ...flexibility } });
+    return saved;
   },
 
   setRole: (role) => set({ role }),

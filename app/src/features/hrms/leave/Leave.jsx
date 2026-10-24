@@ -1,7 +1,8 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect, useCallback } from "react";
 import { useAppStore } from "../../../stores/appStore";
 import { useCalendarStore } from "../../../stores/calendarStore";
 import { useAttendanceStore } from "../../../stores/attendanceStore";
+import { hrmsSync, pullLeaveBalanceSummary, cancelLeave, describeError } from "../../../services/hrmsSync";
 import { Badge } from "../../../components/hrms/Badge";
 import Modal from "../../../components/ui/Modal";
 import PageHeader from "../../../components/ui/PageHeader";
@@ -14,31 +15,48 @@ import {
   AlertTriangle,
   Info,
   Check,
-  UserCheck,
   Clock,
-  CheckCircle2,
   XCircle,
-  FileText,
-  Filter,
   Plus,
-  ArrowRight,
   Sparkles,
-  ChevronDown,
   Plane,
   HeartPulse,
   Coffee,
-  X,
-  DollarSign,
   Coins,
   CalendarCheck,
-  ShieldCheck,
-  Layers,
+  Loader2,
 } from "lucide-react";
+
+/** Requests still waiting on a decision. */
+const PENDING_STATUSES = ["Pending Review", "Delegate Confirmed"];
+
+/** Card icon for a leave type, by its name/code. */
+function leaveTypeIcon(name = "", code = "") {
+  const key = `${name} ${code}`.toLowerCase();
+  if (key.includes("sick")) return HeartPulse;
+  if (key.includes("casual")) return Coffee;
+  if (key.includes("earned") || key.includes("annual") || key.includes("privilege")) return Plane;
+  if (key.includes("comp")) return Clock;
+  if (key.includes("loss of pay") || key.includes("lop") || key.includes("unpaid")) return XCircle;
+  return CalendarCheck;
+}
+
+/** `YYYY-MM-DD` → Date at local midnight (no UTC shift). */
+function localDate(iso) {
+  const [y, m, d] = String(iso || "").split("-").map(Number);
+  if (!y || !m || !d) return null;
+  return new Date(y, m - 1, d);
+}
+
+function formatDays(n) {
+  const v = Number(n) || 0;
+  return Number.isInteger(v) ? String(v) : v.toFixed(1);
+}
 
 export default function Leave() {
   const {
     leaves = [],
-    approveLeave,
+    updateLeaveStatus,
     rejectLeave,
     addLeave,
     showToast,
@@ -46,21 +64,15 @@ export default function Leave() {
     currentUser,
     encashments = [],
     compOffCredits = [],
-    sandwichRuleEnabled = true,
-    maxCarryForwardDays = 12,
-    carriedForwardLeaves = {},
     requestEncashment,
     approveEncashment,
     rejectEncashment,
     requestCompOff,
     approveCompOff,
     rejectCompOff,
-    toggleSandwichRule,
   } = useAppStore();
 
   const calendarEvents = useCalendarStore((s) => s.events || []);
-  const addCalendarEvent = useCalendarStore((s) => s.addEvent);
-  const updateAttendanceRecord = useAttendanceStore((s) => s.updateRecord);
 
   const [tab, setTab] = useState("assigned");
 
@@ -74,7 +86,11 @@ export default function Leave() {
   const [rejectModalOpen, setRejectModalOpen] = useState(false);
   const [selectedLeaveToReject, setSelectedLeaveToReject] = useState(null);
   const [rejectReasonInput, setRejectReasonInput] = useState("");
+  const [cancelTarget, setCancelTarget] = useState(null);
+  const [cancelReasonInput, setCancelReasonInput] = useState("");
   const [detailModalLeave, setDetailModalLeave] = useState(null);
+  const [submitting, setSubmitting] = useState(false);
+  const [busyLeaveId, setBusyLeaveId] = useState(null);
 
   // Encashment & Comp-Off Modal States
   const [encashModalOpen, setEncashModalOpen] = useState(false);
@@ -93,193 +109,210 @@ export default function Leave() {
   });
 
   const [form, setForm] = useState({
-    employeeName: "",
-    type: "Annual Leave",
+    employeeId: "",
+    leaveTypeId: "",
     from: "",
     to: "",
+    halfDay: false,
     reason: "",
     delegateSearch: "",
-    delegate: "",
+    delegateId: "",
     handover: "",
   });
   const [delegateSelect, setDelegateSelect] = useState({});
 
-  // Dynamic leave balances (5 categories with carry-forward & comp-off)
-  const leaveBalances = useMemo(() => {
-    const carriedDays = carriedForwardLeaves?.[form.employeeName] ?? 0;
+  const empById = useMemo(() => new Map(employees.map((e) => [String(e.id), e])), [employees]);
+  const employeeName = useCallback((id) => empById.get(String(id || ""))?.name || "", [empById]);
+  const delegateNameOf = useCallback(
+    (l) => employeeName(l.delegateId) || (typeof l.delegate === "string" ? l.delegate : "") || "",
+    [employeeName]
+  );
 
-    const defaultBalances = {
-      annual: { total: 18 + carriedDays, used: 0, label: "Annual Leave", icon: Plane, carried: carriedDays },
-      sick: { total: 10, used: 0, label: "Sick Leave", icon: HeartPulse },
-      casual: { total: 7, used: 0, label: "Casual Leave", icon: Coffee },
-      floating: { total: 3, used: 0, label: "Floating Holiday", icon: Sparkles },
-      compOff: { total: 0, used: 0, label: "Comp-Off Credit", icon: Clock },
+  // Who the form (and the balance cards) is about: the picked employee, else
+  // the signed-in user's own record, else the first employee on the list.
+  const defaultEmployeeId = useMemo(() => {
+    const own = currentUser?.employeeId;
+    if (own && empById.has(String(own))) return String(own);
+    return employees[0]?.id ? String(employees[0].id) : "";
+  }, [currentUser, empById, employees]);
+  const selectedEmployeeId = form.employeeId || defaultEmployeeId;
+  const selectedEmployee = empById.get(String(selectedEmployeeId)) || null;
+
+  // ── Leave types (server-configured) ──
+  const [leaveTypes, setLeaveTypes] = useState([]);
+  const [leaveTypesLoaded, setLeaveTypesLoaded] = useState(false);
+  useEffect(() => {
+    let alive = true;
+    hrmsSync
+      .pull("leaveTypes")
+      .then((rows) => {
+        if (!alive) return;
+        setLeaveTypes(Array.isArray(rows) ? rows : []);
+        setLeaveTypesLoaded(true);
+      })
+      .catch(() => alive && setLeaveTypesLoaded(true));
+    return () => {
+      alive = false;
     };
+  }, []);
+  const selectedTypeId = form.leaveTypeId || leaveTypes[0]?.id || "";
+  const selectedType = leaveTypes.find((t) => String(t.id) === String(selectedTypeId)) || null;
 
-    // Calculate approved comp-off credits for active employee
-    const approvedCredits = compOffCredits
-      .filter(
-        (c) =>
-          c.status === "Approved" &&
-          c.employee?.toLowerCase() === form.employeeName?.toLowerCase()
-      )
-      .reduce((sum, c) => sum + (Number(c.creditDays) || 1), 0);
+  // ── Balances for the selected employee (server summary) ──
+  const [balanceReload, setBalanceReload] = useState(0);
+  const [balanceState, setBalanceState] = useState({ key: "", rows: [], error: false });
+  const balanceKey = `${selectedEmployeeId}:${balanceReload}`;
+  useEffect(() => {
+    if (!selectedEmployeeId) return undefined;
+    let alive = true;
+    pullLeaveBalanceSummary(selectedEmployeeId)
+      .then((res) => {
+        if (!alive) return;
+        setBalanceState({
+          key: balanceKey,
+          rows: Array.isArray(res?.balances) ? res.balances : [],
+          error: !res,
+        });
+      })
+      .catch(() => alive && setBalanceState({ key: balanceKey, rows: [], error: true }));
+    return () => {
+      alive = false;
+    };
+  }, [selectedEmployeeId, balanceKey]);
+  const balancesLoading = Boolean(selectedEmployeeId) && balanceState.key !== balanceKey;
+  const balances = useMemo(
+    () => (balanceState.key === balanceKey ? balanceState.rows : []),
+    [balanceState, balanceKey]
+  );
+  const reloadBalances = () => setBalanceReload((n) => n + 1);
 
-    if (approvedCredits > 0) {
-      defaultBalances.compOff.total = approvedCredits;
-    }
-
-    const activeEmpLeaves = leaves.filter(
-      (l) =>
-        l.employee?.toLowerCase() === form.employeeName?.toLowerCase() &&
-        l.status !== "Rejected"
-    );
-
-    activeEmpLeaves.forEach((l) => {
-      const days = Number(l.days) || 1;
-      if (l.type?.includes("Annual")) defaultBalances.annual.used = Math.min(defaultBalances.annual.total, defaultBalances.annual.used + days);
-      else if (l.type?.includes("Sick")) defaultBalances.sick.used = Math.min(defaultBalances.sick.total, defaultBalances.sick.used + days);
-      else if (l.type?.includes("Casual")) defaultBalances.casual.used = Math.min(defaultBalances.casual.total, defaultBalances.casual.used + days);
-      else if (l.type?.includes("Comp-Off")) defaultBalances.compOff.used = Math.min(defaultBalances.compOff.total, defaultBalances.compOff.used + days);
-    });
-
-    return defaultBalances;
-  }, [leaves, form.employeeName, compOffCredits, carriedForwardLeaves]);
+  const selectedTypeBalance = useMemo(
+    () => balances.find((b) => String(b.leaveTypeId) === String(selectedTypeId)) || null,
+    [balances, selectedTypeId]
+  );
 
   const filteredEmployees = useMemo(() => {
     if (!form.delegateSearch) return [];
     return employees
       .filter((e) =>
-        String(e.name ?? '').toLowerCase().includes(String(form.delegateSearch ?? '').toLowerCase()) &&
-        String(e.name ?? '').toLowerCase() !== String(form.employeeName ?? '').toLowerCase()
+        String(e.name ?? "").toLowerCase().includes(String(form.delegateSearch ?? "").toLowerCase()) &&
+        String(e.id) !== String(selectedEmployeeId)
       )
       .slice(0, 5);
-  }, [employees, form.delegateSearch, form.employeeName]);
+  }, [employees, form.delegateSearch, selectedEmployeeId]);
 
-  // Check if requested leave interval overlaps with official holidays
+  // Official holidays inside the requested interval
   const holidayOverlap = useMemo(() => {
     if (!form.from || !form.to) return [];
     return calendarEvents.filter((ev) => {
       if (ev.type !== "Holiday") return false;
-      const hDate = ev.startDate || ev.date;
+      const hDate = String(ev.startDate || ev.date || "").slice(0, 10);
       return hDate >= form.from && hDate <= form.to;
     });
   }, [calendarEvents, form.from, form.to]);
 
-  // Sandwich Rule calculation and diagnostics
-  const sandwichInfo = useMemo(() => {
-    if (!form.from || !form.to) return { isSandwiched: false, weekendDays: 0, holidayDays: 0, extraDeducted: 0 };
-    const start = new Date(form.from);
-    const end = new Date(form.to);
-    if (end < start) return { isSandwiched: false, weekendDays: 0, holidayDays: 0, extraDeducted: 0 };
+  const isSingleDay = Boolean(form.from && form.to && form.from === form.to);
 
-    let weekendCount = 0;
+  // Estimate only — the server counts working days from the configured
+  // working-day calendar when the request is filed.
+  const calculatedDays = useMemo(() => {
+    const start = localDate(form.from);
+    const end = localDate(form.to);
+    if (!start || !end || end < start) return 0;
+    if (isSingleDay && form.halfDay) return 0.5;
+    let weekdays = 0;
     const cur = new Date(start);
     while (cur <= end) {
       const d = cur.getDay();
-      if (d === 0 || d === 6) weekendCount++;
+      if (d !== 0 && d !== 6) weekdays++;
       cur.setDate(cur.getDate() + 1);
     }
+    return Math.max(0, weekdays - holidayOverlap.length);
+  }, [form.from, form.to, form.halfDay, isSingleDay, holidayOverlap.length]);
 
-    const holidayCount = holidayOverlap.length;
-    const isSandwiched = Boolean(sandwichRuleEnabled && (weekendCount > 0 || holidayCount > 0));
-    return {
-      isSandwiched,
-      weekendDays: weekendCount,
-      holidayDays: holidayCount,
-      extraDeducted: isSandwiched ? weekendCount + holidayCount : 0,
-    };
-  }, [form.from, form.to, holidayOverlap, sandwichRuleEnabled]);
+  const exceedsBalance = Boolean(
+    selectedType?.isPaid !== false &&
+      selectedTypeBalance &&
+      calculatedDays > Number(selectedTypeBalance.available || 0)
+  );
 
-  const calculatedDays = useMemo(() => {
-    if (!form.from || !form.to) return 0;
-    const start = new Date(form.from);
-    const end = new Date(form.to);
-    if (end < start) return 0;
-    const diffTime = Math.abs(end - start);
-    const totalCalendarDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24)) + 1;
-
-    if (sandwichRuleEnabled) {
-      // Intervening weekends and holidays are counted
-      return Math.max(1, totalCalendarDays);
-    } else {
-      // Exclude weekends and gazetted holidays
-      let weekendCount = 0;
-      const cur = new Date(start);
-      while (cur <= end) {
-        const d = cur.getDay();
-        if (d === 0 || d === 6) weekendCount++;
-        cur.setDate(cur.getDate() + 1);
-      }
-      return Math.max(1, totalCalendarDays - weekendCount - holidayOverlap.length);
-    }
-  }, [form.from, form.to, holidayOverlap.length, sandwichRuleEnabled]);
-
-  function submitLeave() {
-    if (!form.employeeName) return showToast("Please select an employee", "error");
-    if (!form.from || !form.to) return showToast("Please select leave dates", "error");
-    if (!form.reason.trim()) return showToast("Reason required for leave application");
-    if (new Date(form.to) < new Date(form.from)) return showToast("To Date cannot be before From Date");
-
-    const netDeductedDays = calculatedDays;
-    const chosenDelegate = form.delegate || "";
-    if (!chosenDelegate) return showToast("Please assign a work delegate", "error");
-    const chosenDelegateEmp = employees.find((e) => e.name === chosenDelegate);
-
-    addLeave({
-      id: "LV-" + Date.now().toString().slice(-4),
-      employee: form.employeeName,
-      avatar: null,
-      type: form.type,
-      from: form.from,
-      to: form.to,
-      days: netDeductedDays,
-      reason: form.reason,
-      delegate: chosenDelegate,
-      delegateAvatar: chosenDelegateEmp?.avatar || null,
-      status: "Pending Review",
-      handover: form.handover || "General coverage of active tasks.",
-      submittedAt: new Date().toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }),
-    });
-
-    if (addCalendarEvent) {
-      addCalendarEvent({
-        title: `${form.type} (${form.employeeName})`,
-        startDate: form.from,
-        endDate: form.to,
-        type: "Leave",
-        time: "Full Day",
-        location: "Out of Office",
-        dept: "General",
-        organizer: form.employeeName,
-        description: `Coverage delegate: ${chosenDelegate}. Reason: ${form.reason}`,
-      });
-    }
-
-    if (holidayOverlap.length > 0) {
-      showToast(
-        `Leave applied (${netDeductedDays} days deducted). ${holidayOverlap.length} holiday(s) excluded: ${holidayOverlap.map((h) => h.title).join(", ")}`
-      );
-    } else {
-      showToast("Leave applied — manager & delegate notified");
-    }
-
-    setForm({ ...form, reason: "", handover: "", delegateSearch: "" });
-    setApplyModalOpen(false);
+  /** Re-read everything an approval/rejection/cancellation touches. */
+  function refreshAfterDecision() {
+    useAppStore.getState().refreshHrms("leaves");
+    useAttendanceStore.getState().refreshAttendance?.();
+    reloadBalances();
   }
 
-  function handleApprove(leaveItem) {
-    const chosenDelegate = delegateSelect[leaveItem.id] ?? leaveItem.delegate;
-    approveLeave(leaveItem.id, chosenDelegate);
+  async function submitLeave() {
+    if (submitting) return;
+    if (!selectedEmployeeId) return showToast("Please select an employee", "error");
+    if (!selectedType) return showToast("Please select a leave type", "error");
+    if (!form.from || !form.to) return showToast("Please select leave dates", "error");
+    if (form.to < form.from) return showToast("To Date cannot be before From Date", "error");
+    if (!form.reason.trim()) return showToast("Reason required for leave application", "error");
 
-    const matchingEmp = employees.find(
-      (e) => String(e.name ?? '').toLowerCase() === String(leaveItem.employee ?? '').toLowerCase()
-    );
-    if (matchingEmp && updateAttendanceRecord) {
-      updateAttendanceRecord(matchingEmp.id, { status: "On Leave" });
+    const handover = form.handover.trim();
+    const payload = {
+      employeeId: selectedEmployeeId,
+      employee: selectedEmployee?.name || "",
+      leaveTypeId: selectedType.id,
+      type: selectedType.name,
+      fromDate: form.from,
+      toDate: form.to,
+      from: form.from,
+      to: form.to,
+      reason: handover ? `${form.reason.trim()} — Handover: ${handover}` : form.reason.trim(),
+      delegateId: form.delegateId || undefined,
+      status: "Pending Review",
+    };
+    // Half a day must be stated; otherwise the server counts working days.
+    if (isSingleDay && form.halfDay) payload.days = 0.5;
+
+    setSubmitting(true);
+    try {
+      const saved = await addLeave(payload);
+      if (!saved) {
+        showToast("Leave not submitted — the server is not reachable", "error");
+        return;
+      }
+      showToast(
+        `Leave applied for ${selectedEmployee?.name || "employee"} (${formatDays(saved.days ?? calculatedDays)} day(s)) — awaiting approval`
+      );
+      setForm((f) => ({ ...f, from: "", to: "", halfDay: false, reason: "", handover: "", delegateSearch: "", delegateId: "" }));
+      setApplyModalOpen(false);
+      reloadBalances();
+    } catch {
+      // addLeave already toasted the server's reason (overlap, validation …)
+    } finally {
+      setSubmitting(false);
     }
+  }
 
-    showToast(`Leave approved for ${leaveItem.employee} with delegate ${chosenDelegate}.`);
+  async function handleApprove(leaveItem) {
+    if (busyLeaveId) return;
+    const chosenDelegateId = delegateSelect[leaveItem.id] ?? leaveItem.delegateId ?? "";
+    setBusyLeaveId(leaveItem.id);
+    try {
+      // A reassigned delegate is saved first — the approval itself only moves the status.
+      if (String(chosenDelegateId || "") !== String(leaveItem.delegateId || "")) {
+        try {
+          await hrmsSync.update("leaves", leaveItem.id, { delegateId: chosenDelegateId || null });
+        } catch (err) {
+          showToast(`Delegate not changed — ${describeError(err)}`, "error");
+          return;
+        }
+      }
+      const saved = await updateLeaveStatus(leaveItem.id, "Approved");
+      if (saved) {
+        const delegate = employeeName(chosenDelegateId);
+        showToast(
+          `Leave approved for ${leaveItem.employee}${delegate ? ` with delegate ${delegate}` : ""}. Attendance marked On Leave.`
+        );
+      }
+    } finally {
+      setBusyLeaveId(null);
+      refreshAfterDecision();
+    }
   }
 
   function handleOpenReject(leaveItem) {
@@ -288,52 +321,90 @@ export default function Leave() {
     setRejectModalOpen(true);
   }
 
-  function handleConfirmReject() {
-    if (!selectedLeaveToReject) return;
-    if (rejectLeave) {
-      rejectLeave(selectedLeaveToReject.id, rejectReasonInput || "Scheduling conflict / insufficient coverage.");
+  async function handleConfirmReject() {
+    if (!selectedLeaveToReject || busyLeaveId) return;
+    const target = selectedLeaveToReject;
+    setBusyLeaveId(target.id);
+    try {
+      const saved = await rejectLeave(target.id, rejectReasonInput.trim() || "Scheduling conflict / insufficient coverage.");
+      if (saved) showToast(`Leave request for ${target.employee} has been rejected.`);
+      setRejectModalOpen(false);
+      setSelectedLeaveToReject(null);
+    } finally {
+      setBusyLeaveId(null);
+      refreshAfterDecision();
     }
-    showToast(`Leave request for ${selectedLeaveToReject.employee} has been rejected.`);
-    setRejectModalOpen(false);
-    setSelectedLeaveToReject(null);
+  }
+
+  function handleOpenCancel(leaveItem) {
+    setCancelTarget(leaveItem);
+    setCancelReasonInput("");
+  }
+
+  async function handleConfirmCancel() {
+    if (!cancelTarget || busyLeaveId) return;
+    const target = cancelTarget;
+    setBusyLeaveId(target.id);
+    try {
+      await cancelLeave(target.id, { reason: cancelReasonInput.trim() || undefined });
+      showToast(
+        target.status === "Approved"
+          ? `Leave cancelled for ${target.employee} — attendance and balance restored.`
+          : `Leave request for ${target.employee} cancelled.`
+      );
+      setCancelTarget(null);
+    } catch (err) {
+      showToast(`Leave not cancelled — ${describeError(err)}`, "error");
+    } finally {
+      setBusyLeaveId(null);
+      refreshAfterDecision();
+    }
   }
 
   const filteredLeaves = useMemo(() => {
+    const q = approvalSearch.toLowerCase();
     return leaves.filter((l) => {
       const matchSearch =
-        l.employee?.toLowerCase().includes(approvalSearch.toLowerCase()) ||
-        l.reason?.toLowerCase().includes(approvalSearch.toLowerCase()) ||
-        l.id?.toLowerCase().includes(approvalSearch.toLowerCase());
-      const matchStatus = statusFilter === "All" || l.status === statusFilter;
-      const matchType = typeFilter === "All" || l.type === typeFilter;
+        !q ||
+        String(l.employee ?? "").toLowerCase().includes(q) ||
+        String(l.employeeCode ?? "").toLowerCase().includes(q) ||
+        String(l.reason ?? "").toLowerCase().includes(q) ||
+        String(l.id ?? "").toLowerCase().includes(q);
+      const matchStatus =
+        statusFilter === "All" ||
+        (statusFilter === "Pending Review" ? PENDING_STATUSES.includes(l.status) : l.status === statusFilter);
+      const matchType = typeFilter === "All" || String(l.leaveTypeId) === String(typeFilter);
       return matchSearch && matchStatus && matchType;
     });
   }, [leaves, approvalSearch, statusFilter, typeFilter]);
 
   const userDelegations = useMemo(() => {
-    const currentUserName = currentUser?.name || "";
+    const myId = currentUser?.employeeId ? String(currentUser.employeeId) : "";
+    const myName = String(currentUser?.name || "").toLowerCase();
+    const isMe = (id, name) =>
+      (myId && String(id || "") === myId) || (!myId && myName && String(name || "").toLowerCase() === myName);
+    const statusOf = (l) =>
+      l.status === "Approved" ? "Active" : l.status === "Rejected" || l.status === "Cancelled" ? "Declined" : "Upcoming";
 
     const assigned = leaves
-      .filter((l) => currentUserName && l.delegate?.toLowerCase() === currentUserName.toLowerCase())
+      .filter((l) => isMe(l.delegateId, delegateNameOf(l)))
       .map((l) => ({
         id: l.id,
         emp: l.employee,
-        avatar: l.avatar,
         dates: `${l.from} – ${l.to}`,
-        note: l.handover || l.reason || "Handover of ongoing deliverables and client communications.",
-        status: l.status === "Approved" ? "Active" : l.status === "Rejected" ? "Declined" : "Upcoming",
+        note: l.reason || "—",
+        status: statusOf(l),
         type: l.type,
       }));
 
     const mine = leaves
-      .filter((l) => currentUserName && l.employee?.toLowerCase() === currentUserName.toLowerCase())
+      .filter((l) => isMe(l.employeeId, l.employee) && (l.delegateId || l.delegate))
       .map((l) => ({
         id: l.id,
-        emp: l.delegate || "Assigned Colleague",
-        avatar: l.delegateAvatar || null,
+        emp: delegateNameOf(l) || "Assigned Colleague",
         dates: `${l.from} – ${l.to}`,
-        note: l.handover || l.reason || "Client coordination and urgent ticket escalation coverage.",
-        status: l.status === "Approved" ? "Active" : l.status === "Rejected" ? "Declined" : "Upcoming",
+        note: l.reason || "—",
+        status: statusOf(l),
         type: l.type,
       }));
 
@@ -341,7 +412,46 @@ export default function Leave() {
       assigned,
       mine,
     };
-  }, [leaves, currentUser]);
+  }, [leaves, currentUser, delegateNameOf]);
+
+  const pendingCount = leaves.filter((l) => PENDING_STATUSES.includes(l.status)).length;
+
+  const typeOptions = leaveTypes.map((t) => (
+    <option key={t.id} value={t.id}>
+      {t.name}{t.isPaid === false ? " (unpaid)" : ""}
+    </option>
+  ));
+
+  const balanceHint = selectedType ? (
+    selectedType.isPaid === false ? (
+      <div className="p-2.5 bg-slate-50 border border-slate-200 rounded-xl flex items-center gap-2 text-[11.5px] text-slate-600">
+        <Info size={14} className="text-slate-500 shrink-0" />
+        <span>{selectedType.name} is unpaid — no quota; these days are deducted from salary (LOP).</span>
+      </div>
+    ) : balancesLoading ? (
+      <div className="text-[11.5px] text-muted flex items-center gap-1.5">
+        <Loader2 size={13} className="animate-spin" /> Loading balance…
+      </div>
+    ) : selectedTypeBalance ? (
+      <div
+        className={`p-2.5 border rounded-xl flex items-start gap-2 text-[12px] ${
+          exceedsBalance ? "bg-rose-50 border-rose-200 text-rose-800" : "bg-emerald-50/70 border-emerald-200/80 text-emerald-800"
+        }`}
+      >
+        {exceedsBalance ? (
+          <AlertTriangle size={15} className="shrink-0 mt-0.5 text-rose-600" />
+        ) : (
+          <CalendarCheck size={15} className="shrink-0 mt-0.5 text-emerald-600" />
+        )}
+        <span>
+          <b>{formatDays(selectedTypeBalance.available)}</b> day(s) of {selectedType.name} available
+          {Number(selectedTypeBalance.pending) > 0 && ` (${formatDays(selectedTypeBalance.pending)} pending approval)`}.
+          {exceedsBalance &&
+            ` Requested ~${formatDays(calculatedDays)} day(s) exceeds the balance — approval will be refused unless the balance is topped up or Loss of Pay is used.`}
+        </span>
+      </div>
+    ) : null
+  ) : null;
 
   return (
     <div className="flex flex-col gap-6">
@@ -379,51 +489,95 @@ export default function Leave() {
         }
       />
 
-      {/* ── Leave Quota Balance Cards Row (5 Categories with Carry-Forward & Comp-Off) ── */}
-      <div className="grid grid-cols-2 md:grid-cols-5 gap-3.5">
-        {Object.entries(leaveBalances).map(([key, item]) => {
-          const remaining = Math.max(0, item.total - item.used);
-          const percent = item.total > 0 ? Math.round((remaining / item.total) * 100) : 0;
-          const IconComp = item.icon;
-
-          return (
-            <div
-              key={key}
-              className="bg-white border border-bdr rounded-2xl p-4 shadow-xs flex flex-col justify-between transition-all hover:border-slate-300"
-            >
-              <div className="flex items-center justify-between gap-2">
-                <span className="text-[11.5px] font-semibold text-slate-600 uppercase tracking-wide">
-                  {item.label}
-                </span>
-                <div className="w-8 h-8 rounded-xl bg-slate-100 flex items-center justify-center text-slate-700">
-                  <IconComp size={15} />
-                </div>
+      {/* ── Leave Quota Balance Cards (server balances, one per leave type) ── */}
+      <div className="flex flex-col gap-2.5">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <span className="text-[12.5px] font-semibold text-slate-700">
+            Leave balances{selectedEmployee ? ` — ${selectedEmployee.name}` : ""}
+            <span className="text-muted font-medium"> · {new Date().getFullYear()}</span>
+          </span>
+          {balancesLoading && (
+            <span className="text-[11.5px] text-muted inline-flex items-center gap-1.5">
+              <Loader2 size={13} className="animate-spin" /> Loading balances…
+            </span>
+          )}
+        </div>
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3.5">
+          {balancesLoading &&
+            [0, 1, 2, 3].map((i) => (
+              <div key={`sk-${i}`} className="bg-white border border-bdr rounded-2xl p-4 shadow-xs h-[118px] animate-pulse">
+                <div className="h-3 w-24 bg-slate-100 rounded" />
+                <div className="h-6 w-16 bg-slate-100 rounded mt-4" />
+                <div className="h-1.5 w-full bg-slate-100 rounded mt-6" />
               </div>
-              <div className="mt-2.5 flex items-baseline justify-between">
-                <div className="flex items-baseline gap-1.5">
-                  <span className="text-[24px] font-extrabold text-slate-900 tracking-tight leading-none">
-                    {remaining}
-                  </span>
-                  <span className="text-[11.5px] text-muted font-medium">/ {item.total} left</span>
-                </div>
-                <span className="text-[10.5px] font-bold px-2 py-0.5 rounded-md bg-slate-100 text-slate-700">
-                  {item.used} used
-                </span>
-              </div>
-              {item.carried > 0 && (
-                <div className="mt-1.5 text-[10.5px] font-semibold text-emerald-700 flex items-center gap-1">
-                  <span>+{item.carried} carried over</span>
-                </div>
-              )}
-              <div className="w-full h-1.5 bg-slate-100 rounded-full mt-2.5 overflow-hidden">
-                <div
-                  className="h-full bg-navy rounded-full transition-all duration-300"
-                  style={{ width: `${percent}%` }}
-                />
-              </div>
+            ))}
+          {!balancesLoading && balances.length === 0 && (
+            <div className="col-span-2 md:col-span-4 text-center py-6 text-muted text-[13px] border border-dashed border-bdr rounded-2xl bg-white">
+              {!selectedEmployeeId
+                ? "Add employees to see leave balances."
+                : balanceState.error
+                ? "Leave balances could not be loaded."
+                : "No leave types are set up yet."}
             </div>
-          );
-        })}
+          )}
+          {balances.map((item) => {
+            const isPaid = item.isPaid !== false;
+            const total = Number(item.total) || 0;
+            const available = Number(item.available) || 0;
+            const used = Number(item.used) || 0;
+            const pending = Number(item.pending) || 0;
+            const carried = Number(item.carriedForward) || 0;
+            const percent = isPaid && total > 0 ? Math.max(0, Math.min(100, Math.round((available / total) * 100))) : 0;
+            const IconComp = leaveTypeIcon(item.leaveType, item.code);
+
+            return (
+              <div
+                key={item.leaveTypeId}
+                className="bg-white border border-bdr rounded-2xl p-4 shadow-xs flex flex-col justify-between transition-all hover:border-slate-300"
+              >
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-[11.5px] font-semibold text-slate-600 uppercase tracking-wide">
+                    {item.leaveType}
+                  </span>
+                  <div className="w-8 h-8 rounded-xl bg-slate-100 flex items-center justify-center text-slate-700">
+                    <IconComp size={15} />
+                  </div>
+                </div>
+                <div className="mt-2.5 flex items-baseline justify-between">
+                  {isPaid ? (
+                    <div className="flex items-baseline gap-1.5">
+                      <span className="text-[24px] font-extrabold text-slate-900 tracking-tight leading-none">
+                        {formatDays(available)}
+                      </span>
+                      <span className="text-[11.5px] text-muted font-medium">/ {formatDays(total)} left</span>
+                    </div>
+                  ) : (
+                    <div className="flex items-baseline gap-1.5">
+                      <span className="text-[24px] font-extrabold text-slate-900 tracking-tight leading-none">
+                        {formatDays(used)}
+                      </span>
+                      <span className="text-[11.5px] text-muted font-medium">days taken · unpaid</span>
+                    </div>
+                  )}
+                  <span className="text-[10.5px] font-bold px-2 py-0.5 rounded-md bg-slate-100 text-slate-700">
+                    {formatDays(used)} used
+                  </span>
+                </div>
+                <div className="mt-1.5 flex flex-wrap gap-x-2 text-[10.5px] font-semibold">
+                  {pending > 0 && <span className="text-amber-700">{formatDays(pending)} pending</span>}
+                  {carried > 0 && <span className="text-emerald-700">+{formatDays(carried)} carried over</span>}
+                  {!isPaid && <span className="text-slate-500">No quota — deducted as LOP</span>}
+                </div>
+                <div className="w-full h-1.5 bg-slate-100 rounded-full mt-2.5 overflow-hidden">
+                  <div
+                    className="h-full bg-navy rounded-full transition-all duration-300"
+                    style={{ width: `${percent}%` }}
+                  />
+                </div>
+              </div>
+            );
+          })}
+        </div>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
@@ -432,10 +586,10 @@ export default function Leave() {
           <div className="flex items-center justify-between border-b border-bdr/60 pb-3">
             <div>
               <h3 className="font-bold text-[15px] text-slate-900">Apply for Leave</h3>
-              <p className="text-[12px] text-muted mt-0.5">Fill in duration and assign your work delegate</p>
+              <p className="text-[12px] text-muted mt-0.5">Fill in duration and, optionally, a work delegate</p>
             </div>
-            <span className="text-[11.5px] font-semibold px-2.5 py-1 bg-navy/5 text-navy rounded-lg">
-              {calculatedDays} working day{calculatedDays === 1 ? "" : "s"}
+            <span className="text-[11.5px] font-semibold px-2.5 py-1 bg-navy/5 text-navy rounded-lg" title="Estimate — the server counts working days from the working-day calendar">
+              ~{formatDays(calculatedDays)} working day{calculatedDays === 1 ? "" : "s"}
             </span>
           </div>
 
@@ -446,13 +600,13 @@ export default function Leave() {
                 <MasterSourceLink source="employees" />
               </div>
               <select
-                value={form.employeeName}
-                onChange={(e) => setForm({ ...form, employeeName: e.target.value })}
+                value={selectedEmployeeId}
+                onChange={(e) => setForm({ ...form, employeeId: e.target.value, delegateId: "" })}
                 className="w-full h-10 px-3 bg-off border border-bdr rounded-xl text-[13.5px] font-medium text-slate-900 focus:outline-none focus:border-navy"
               >
-                <option value="">Select employee…</option>
+                {employees.length === 0 && <option value="">No employees</option>}
                 {employees.map((emp) => (
-                  <option key={emp.id} value={emp.name}>
+                  <option key={emp.id} value={emp.id}>
                     {emp.name} ({emp.department} • {emp.designation})
                   </option>
                 ))}
@@ -462,16 +616,14 @@ export default function Leave() {
             <div>
               <label className="text-[12px] font-semibold text-slate-700 block mb-1">Leave Type</label>
               <select
-                value={form.type}
-                onChange={(e) => setForm({ ...form, type: e.target.value })}
+                value={selectedTypeId}
+                onChange={(e) => setForm({ ...form, leaveTypeId: e.target.value })}
                 className="w-full h-10 px-3 bg-off border border-bdr rounded-xl text-[13.5px] focus:outline-none focus:border-navy"
               >
-                <option>Annual Leave</option>
-                <option>Sick Leave</option>
-                <option>Casual Leave</option>
-                <option>Floating Holiday</option>
-                <option>Comp-Off Leave</option>
-                <option>Unpaid / Sabbatical</option>
+                {leaveTypes.length === 0 && (
+                  <option value="">{leaveTypesLoaded ? "No leave types configured" : "Loading leave types…"}</option>
+                )}
+                {typeOptions}
               </select>
             </div>
 
@@ -481,7 +633,7 @@ export default function Leave() {
                 <input
                   type="date"
                   value={form.from}
-                  onChange={(e) => setForm({ ...form, from: e.target.value })}
+                  onChange={(e) => setForm({ ...form, from: e.target.value, to: form.to && form.to < e.target.value ? e.target.value : form.to })}
                   className="w-full h-10 px-3 bg-off border border-bdr rounded-xl text-[13px] text-slate-900 focus:outline-none focus:border-navy"
                 />
               </div>
@@ -490,34 +642,32 @@ export default function Leave() {
                 <input
                   type="date"
                   value={form.to}
+                  min={form.from || undefined}
                   onChange={(e) => setForm({ ...form, to: e.target.value })}
                   className="w-full h-10 px-3 bg-off border border-bdr rounded-xl text-[13px] text-slate-900 focus:outline-none focus:border-navy"
                 />
               </div>
             </div>
 
-            {/* Sandwich-Leave & Holiday Deduction Alerts */}
-            {sandwichInfo.isSandwiched && sandwichInfo.extraDeducted > 0 && (
-              <div className="p-3 bg-amber-50/80 border border-amber-200/80 rounded-xl text-[12px] text-amber-900 flex items-start gap-2">
-                <AlertTriangle size={15} className="text-amber-600 shrink-0 mt-0.5" />
-                <div>
-                  <span className="font-bold">Sandwich Rule Active:</span> Intervening weekend/holiday days ({sandwichInfo.extraDeducted} extra days) are counted towards deducted leave balance according to company policy.
-                </div>
-              </div>
+            {isSingleDay && (
+              <label className="flex items-center gap-2 text-[12.5px] text-slate-700 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={form.halfDay}
+                  onChange={(e) => setForm({ ...form, halfDay: e.target.checked })}
+                />
+                Half day (0.5 day — marked "Half Day" in attendance)
+              </label>
             )}
-            {!sandwichRuleEnabled && sandwichInfo.weekendDays > 0 && (
-              <div className="p-2.5 bg-slate-50 border border-slate-200 rounded-xl flex items-center gap-2 text-[11.5px] text-slate-600">
-                <Info size={14} className="text-slate-500 shrink-0" />
-                <span>Sandwich rule disabled: {sandwichInfo.weekendDays} weekend days excluded from deduction.</span>
-              </div>
-            )}
+
+            {balanceHint}
 
             {holidayOverlap.length > 0 && (
               <div className="p-3 bg-emerald-50/70 border border-emerald-200/80 rounded-xl text-[12px] text-emerald-800 flex items-start gap-2">
                 <Sparkles size={16} className="text-emerald-600 shrink-0 mt-0.5" />
                 <div>
                   <span className="font-semibold">Holiday Calendar Detection:</span> {holidayOverlap.length} official holiday(s) in this period (
-                  <b>{holidayOverlap.map((h) => h.title).join(", ")}</b>) {sandwichRuleEnabled ? "included under sandwich rule" : "will not deduct from your quota"}.
+                  <b>{holidayOverlap.map((h) => h.title).join(", ")}</b>) will not deduct from the quota.
                 </div>
               </div>
             )}
@@ -535,7 +685,7 @@ export default function Leave() {
 
             <div>
               <label className="text-[12px] font-semibold text-slate-700 block mb-1">
-                Assign Work Coverage (Delegate) *
+                Assign Work Coverage (Delegate)
               </label>
               <div className="relative">
                 <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted" />
@@ -552,12 +702,9 @@ export default function Leave() {
                   {filteredEmployees.map((emp) => (
                     <div
                       key={emp.id}
-                      onClick={() => {
-                        setForm({ ...form, delegate: emp.name, delegateSearch: "" });
-                        showToast("Delegate selected: " + emp.name);
-                      }}
+                      onClick={() => setForm({ ...form, delegateId: String(emp.id), delegateSearch: "" })}
                       className={`flex items-center gap-3 p-2.5 hover:bg-slate-50 cursor-pointer ${
-                        form.delegate === emp.name ? "bg-navy/5" : ""
+                        String(form.delegateId) === String(emp.id) ? "bg-navy/5" : ""
                       }`}
                     >
                       <Avatar name={emp.name} size="xs" />
@@ -572,12 +719,21 @@ export default function Leave() {
                 </div>
               )}
 
-              <div className="mt-2 text-[12.5px] text-slate-600 flex items-center gap-1.5">
-                <span>Selected delegate:</span>
-                <span className="font-semibold text-navy bg-navy/5 px-2 py-0.5 rounded-md">
-                  {form.delegate}
-                </span>
-              </div>
+              {form.delegateId && (
+                <div className="mt-2 text-[12.5px] text-slate-600 flex items-center gap-1.5">
+                  <span>Selected delegate:</span>
+                  <span className="font-semibold text-navy bg-navy/5 px-2 py-0.5 rounded-md">
+                    {employeeName(form.delegateId)}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => setForm({ ...form, delegateId: "" })}
+                    className="text-[11.5px] text-slate-500 hover:text-rose-600 cursor-pointer"
+                  >
+                    Clear
+                  </button>
+                </div>
+              )}
             </div>
 
             <div>
@@ -595,15 +751,16 @@ export default function Leave() {
 
             <p className="text-[11px] text-muted flex items-center gap-1.5 pt-1">
               <Info size={13} className="shrink-0 text-slate-400" />
-              The assigned colleague and your department manager will be notified upon submission.
+              On approval the leave days are marked "On Leave" in attendance and deducted from the balance.
             </p>
 
             <button
               type="button"
               onClick={submitLeave}
-              className="w-full py-2.5 bg-navy hover:bg-navy/90 text-white rounded-xl text-[13.5px] font-semibold transition-colors cursor-pointer shadow-xs"
+              disabled={submitting}
+              className="w-full py-2.5 bg-navy hover:bg-navy/90 disabled:opacity-60 text-white rounded-xl text-[13.5px] font-semibold transition-colors cursor-pointer shadow-xs"
             >
-              Submit Application
+              {submitting ? "Submitting…" : "Submit Application"}
             </button>
           </div>
         </div>
@@ -615,7 +772,7 @@ export default function Leave() {
               <h3 className="font-bold text-[15px] text-slate-900 flex items-center gap-2">
                 Approvals &amp; Leave Requests
                 <span className="px-2 py-0.5 bg-amber-50 text-amber-700 border border-amber-200 rounded-full text-[11px] font-bold">
-                  {leaves.filter((l) => l.status === "Pending Review").length} pending
+                  {pendingCount} pending
                 </span>
               </h3>
               <p className="text-[12px] text-muted mt-0.5">Review, reassign delegates, and approve team leaves</p>
@@ -623,7 +780,7 @@ export default function Leave() {
 
             {/* Status Tabs */}
             <div className="flex items-center gap-1 bg-slate-100 p-1 rounded-xl max-w-full lg:max-w-none overflow-x-auto lg:overflow-visible scrollbar-none">
-              {["All", "Pending Review", "Approved", "Rejected"].map((st) => (
+              {["All", "Pending Review", "Approved", "Rejected", "Cancelled"].map((st) => (
                 <button
                   key={st}
                   type="button"
@@ -646,7 +803,7 @@ export default function Leave() {
                 type="text"
                 value={approvalSearch}
                 onChange={(e) => setApprovalSearch(e.target.value)}
-                placeholder="Search employee, request ID, or reason..."
+                placeholder="Search employee, code, or reason..."
                 className="w-full h-9 pl-8 pr-3 bg-off border border-bdr rounded-xl text-[12.5px] focus:outline-none focus:border-navy"
               />
             </div>
@@ -656,18 +813,18 @@ export default function Leave() {
               className="h-9 px-3 bg-off border border-bdr rounded-xl text-[12.5px] text-slate-700 focus:outline-none focus:border-navy"
             >
               <option value="All">All Types</option>
-              <option>Annual Leave</option>
-              <option>Sick Leave</option>
-              <option>Casual Leave</option>
-              <option>Floating Holiday</option>
+              {typeOptions}
             </select>
           </div>
 
           {/* Leaves List with clean internal scrolling */}
           <div className="space-y-3.5 mt-1 max-h-[600px] overflow-y-auto pr-2">
             {filteredLeaves.map((l) => {
-              const currentDelegate = delegateSelect[l.id] ?? l.delegate;
-              const isOverburdened = false;
+              const isPending = PENDING_STATUSES.includes(l.status);
+              const currentDelegateId = delegateSelect[l.id] ?? l.delegateId ?? "";
+              const currentDelegate = employeeName(currentDelegateId) || (currentDelegateId ? "" : delegateNameOf(l));
+              const busy = busyLeaveId === l.id;
+              const canCancel = isPending || l.status === "Approved";
 
               return (
                 <div
@@ -680,13 +837,20 @@ export default function Leave() {
                       <div className="min-w-0 lg:min-w-auto">
                         <div className="flex flex-wrap lg:flex-nowrap items-center gap-x-2">
                           <span className="text-[13.5px] font-bold text-slate-900">{l.employee}</span>
-                          <span className="text-[11px] font-medium text-slate-400">({l.id})</span>
+                          {l.employeeCode && (
+                            <span className="text-[11px] font-medium text-slate-400">({l.employeeCode})</span>
+                          )}
                         </div>
                         <div className="text-[12px] text-slate-600 font-medium">
-                          {l.type} • <span className="font-semibold text-slate-900">{l.days} day(s)</span>
+                          {l.type} • <span className="font-semibold text-slate-900">{formatDays(l.days)} day(s)</span>
                         </div>
                         <div className="text-[11.5px] text-muted mt-0.5">
-                          {l.from} – {l.to} • Reason: <span className="text-slate-700 italic">"{l.reason}"</span>
+                          {l.from} – {l.to}
+                          {l.reason && (
+                            <>
+                              {" "}• Reason: <span className="text-slate-700 italic">"{l.reason}"</span>
+                            </>
+                          )}
                         </div>
                       </div>
                     </div>
@@ -697,80 +861,98 @@ export default function Leave() {
                           ? "success"
                           : l.status === "Rejected"
                           ? "critical"
+                          : l.status === "Cancelled"
+                          ? "neutral"
                           : l.status === "Delegate Confirmed"
                           ? "info"
                           : "warning"
                       }
                     >
-                      {l.status}
+                      {l._pending ? "Submitting…" : l.status}
                     </Badge>
                   </div>
 
                   {/* Delegate Handover Card */}
-                  <div className="bg-slate-50 border border-bdr/70 rounded-xl p-3 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
-                    <div className="flex items-center gap-2.5">
-                      <Avatar name={currentDelegate} size="xs" />
-                      <div>
-                        <div className="text-[12.5px] font-semibold text-slate-800 flex items-center gap-1.5">
-                          <span>Delegate: {currentDelegate}</span>
-                        </div>
-                        <div className="text-[11px] text-muted">
-                          {l.handover ? `Handover: ${l.handover}` : "Assigned handover coverage"}
+                  {(isPending || currentDelegate) && (
+                    <div className="bg-slate-50 border border-bdr/70 rounded-xl p-3 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+                      <div className="flex items-center gap-2.5">
+                        <Avatar name={currentDelegate || "?"} size="xs" />
+                        <div>
+                          <div className="text-[12.5px] font-semibold text-slate-800 flex items-center gap-1.5">
+                            <span>Delegate: {currentDelegate || "None assigned"}</span>
+                          </div>
+                          <div className="text-[11px] text-muted">
+                            {l.status === "Delegate Confirmed" ? "Delegate has confirmed coverage" : "Assigned handover coverage"}
+                          </div>
                         </div>
                       </div>
-                    </div>
 
-                    {l.status === "Pending Review" && (
-                      <div className="flex items-center gap-1.5 self-end sm:self-center">
-                        <span className="text-[11.5px] text-muted">Reassign:</span>
-                        <select
-                          value={currentDelegate}
-                          onChange={(e) =>
-                            setDelegateSelect({ ...delegateSelect, [l.id]: e.target.value })
-                          }
-                          className="h-7.5 px-2 bg-white border border-bdr rounded-lg text-[12px] font-medium text-slate-800 focus:outline-none focus:border-navy cursor-pointer"
-                        >
-                          {employees.slice(0, 6).map((emp) => (
-                            <option key={emp.id} value={emp.name}>
-                              {emp.name}
-                            </option>
-                          ))}
-                        </select>
-                      </div>
-                    )}
-                  </div>
-
-                  {/* Informational Overburden Alert */}
-                  {isOverburdened && l.status === "Pending Review" && (
-                    <div className="p-2.5 bg-amber-50/80 border border-amber-200 rounded-xl flex items-center gap-2 text-[11.5px] text-amber-800">
-                      <AlertTriangle size={14} className="shrink-0 text-amber-600" />
-                      <span>{currentDelegate} is currently assigned to 2 other coverage delegations.</span>
+                      {isPending && (
+                        <div className="flex items-center gap-1.5 self-end sm:self-center">
+                          <span className="text-[11.5px] text-muted">Reassign:</span>
+                          <select
+                            value={currentDelegateId}
+                            onChange={(e) =>
+                              setDelegateSelect({ ...delegateSelect, [l.id]: e.target.value })
+                            }
+                            className="h-7.5 px-2 bg-white border border-bdr rounded-lg text-[12px] font-medium text-slate-800 focus:outline-none focus:border-navy cursor-pointer max-w-[180px]"
+                          >
+                            <option value="">No delegate</option>
+                            {employees
+                              .filter((emp) => String(emp.id) !== String(l.employeeId))
+                              .map((emp) => (
+                                <option key={emp.id} value={emp.id}>
+                                  {emp.name}
+                                </option>
+                              ))}
+                          </select>
+                        </div>
+                      )}
                     </div>
                   )}
 
-                  {l.status === "Rejected" && l.rejectReason && (
+                  {l.status === "Rejected" && (l.remark || l.rejectReason) && (
                     <div className="p-2.5 bg-rose-50 border border-rose-200 rounded-xl text-[12px] text-rose-800">
-                      <b>Rejection Reason:</b> {l.rejectReason}
+                      <b>Rejection Reason:</b> {l.remark || l.rejectReason}
+                    </div>
+                  )}
+                  {l.status === "Cancelled" && l.remark && (
+                    <div className="p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-[12px] text-slate-700">
+                      <b>Cancellation note:</b> {l.remark}
                     </div>
                   )}
 
-                  {l.status === "Pending Review" && (
+                  {canCancel && !l._pending && (
                     <div className="flex flex-wrap lg:flex-nowrap items-center justify-end gap-2 pt-1 border-t border-bdr/40">
                       <button
                         type="button"
-                        onClick={() => handleOpenReject(l)}
-                        className="px-3.5 py-1.5 border border-rose-200 hover:bg-rose-50 text-rose-700 rounded-xl text-[12.5px] font-medium transition cursor-pointer"
+                        disabled={busy}
+                        onClick={() => handleOpenCancel(l)}
+                        className="px-3.5 py-1.5 border border-slate-200 hover:bg-slate-50 text-slate-600 rounded-xl text-[12.5px] font-medium transition cursor-pointer disabled:opacity-60"
                       >
-                        Reject
+                        {l.status === "Approved" ? "Cancel Leave" : "Withdraw"}
                       </button>
-                      <button
-                        type="button"
-                        onClick={() => handleApprove(l)}
-                        className="inline-flex items-center gap-1 px-4 py-1.5 bg-navy hover:bg-navy/90 text-white rounded-xl text-[12.5px] font-semibold transition cursor-pointer shadow-xs"
-                      >
-                        <Check size={14} />
-                        Approve with {currentDelegate}
-                      </button>
+                      {isPending && (
+                        <>
+                          <button
+                            type="button"
+                            disabled={busy}
+                            onClick={() => handleOpenReject(l)}
+                            className="px-3.5 py-1.5 border border-rose-200 hover:bg-rose-50 text-rose-700 rounded-xl text-[12.5px] font-medium transition cursor-pointer disabled:opacity-60"
+                          >
+                            Reject
+                          </button>
+                          <button
+                            type="button"
+                            disabled={busy}
+                            onClick={() => handleApprove(l)}
+                            className="inline-flex items-center gap-1 px-4 py-1.5 bg-navy hover:bg-navy/90 text-white rounded-xl text-[12.5px] font-semibold transition cursor-pointer shadow-xs disabled:opacity-60"
+                          >
+                            {busy ? <Loader2 size={14} className="animate-spin" /> : <Check size={14} />}
+                            {currentDelegate ? `Approve with ${currentDelegate}` : "Approve"}
+                          </button>
+                        </>
+                      )}
                     </div>
                   )}
                 </div>
@@ -779,7 +961,9 @@ export default function Leave() {
 
             {filteredLeaves.length === 0 && (
               <div className="text-center py-10 text-muted text-[13px] border border-dashed border-bdr rounded-2xl">
-                No leave requests match the selected filters.
+                {leaves.length === 0
+                  ? "No leave requests yet. Applications submitted here appear in this queue."
+                  : "No leave requests match the selected filters."}
               </div>
             )}
           </div>
@@ -905,7 +1089,7 @@ export default function Leave() {
                       <div className="truncate">{r.note}</div>
                     </td>
                     <td className="py-3.5 px-5 text-[12.5px] text-slate-600">
-                      <span className="font-medium">{r.type || "Annual Leave"}</span>
+                      <span className="font-medium">{r.type || "—"}</span>
                     </td>
                     <td className="py-3.5 px-5">
                       <Badge
@@ -1126,9 +1310,10 @@ export default function Leave() {
             <button
               type="button"
               className="btn-primary"
+              disabled={submitting}
               onClick={submitLeave}
             >
-              Submit Application
+              {submitting ? "Submitting…" : "Submit Application"}
             </button>
           </>
         }
@@ -1141,12 +1326,12 @@ export default function Leave() {
             </div>
             <select
               className="form-select"
-              value={form.employeeName}
-              onChange={(e) => setForm({ ...form, employeeName: e.target.value })}
+              value={selectedEmployeeId}
+              onChange={(e) => setForm({ ...form, employeeId: e.target.value, delegateId: "" })}
             >
-              <option value="">Select employee…</option>
+              {employees.length === 0 && <option value="">No employees</option>}
               {employees.map((emp) => (
-                <option key={emp.id} value={emp.name}>
+                <option key={emp.id} value={emp.id}>
                   {emp.name} ({emp.department} • {emp.designation})
                 </option>
               ))}
@@ -1157,15 +1342,13 @@ export default function Leave() {
             <label className="form-label">Leave Type</label>
             <select
               className="form-select"
-              value={form.type}
-              onChange={(e) => setForm({ ...form, type: e.target.value })}
+              value={selectedTypeId}
+              onChange={(e) => setForm({ ...form, leaveTypeId: e.target.value })}
             >
-              <option>Annual Leave</option>
-              <option>Sick Leave</option>
-              <option>Casual Leave</option>
-              <option>Floating Holiday</option>
-              <option>Comp-Off Leave</option>
-              <option>Unpaid / Sabbatical</option>
+              {leaveTypes.length === 0 && (
+                <option value="">{leaveTypesLoaded ? "No leave types configured" : "Loading leave types…"}</option>
+              )}
+              {typeOptions}
             </select>
           </div>
 
@@ -1176,7 +1359,7 @@ export default function Leave() {
                 type="date"
                 className="form-input"
                 value={form.from}
-                onChange={(e) => setForm({ ...form, from: e.target.value })}
+                onChange={(e) => setForm({ ...form, from: e.target.value, to: form.to && form.to < e.target.value ? e.target.value : form.to })}
               />
             </div>
             <div className="form-group">
@@ -1185,33 +1368,46 @@ export default function Leave() {
                 type="date"
                 className="form-input"
                 value={form.to}
+                min={form.from || undefined}
                 onChange={(e) => setForm({ ...form, to: e.target.value })}
               />
             </div>
           </div>
 
-          {sandwichInfo.isSandwiched && sandwichInfo.extraDeducted > 0 && (
-            <div className="p-2.5 bg-amber-50 border border-amber-200 rounded-xl text-[12px] text-amber-900 flex items-start gap-2">
-              <AlertTriangle size={15} className="text-amber-600 shrink-0 mt-0.5" />
-              <span><b>Sandwich Rule Active:</b> Intervening weekend/holiday days ({sandwichInfo.extraDeducted}d) will be counted in deduction.</span>
+          {isSingleDay && (
+            <label className="flex items-center gap-2 text-[12.5px] text-slate-700 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={form.halfDay}
+                onChange={(e) => setForm({ ...form, halfDay: e.target.checked })}
+              />
+              Half day (0.5 day)
+            </label>
+          )}
+
+          {form.from && form.to && (
+            <div className="text-[12px] text-slate-600">
+              Approx. <b>{formatDays(calculatedDays)}</b> working day(s) — the server confirms the count from the working-day calendar.
             </div>
           )}
 
+          {balanceHint}
+
           <div className="form-group">
             <div className="flex items-center justify-between">
-              <label className="form-label">Assign Work Delegate</label>
+              <label className="form-label">Assign Work Delegate (optional)</label>
               <MasterSourceLink source="employees" />
             </div>
             <select
               className="form-select"
-              value={form.delegate}
-              onChange={(e) => setForm({ ...form, delegate: e.target.value })}
+              value={form.delegateId}
+              onChange={(e) => setForm({ ...form, delegateId: e.target.value })}
             >
-              <option value="">Select delegate…</option>
+              <option value="">No delegate</option>
               {employees
-                .filter((e) => e.name !== form.employeeName)
+                .filter((e) => String(e.id) !== String(selectedEmployeeId))
                 .map((e) => (
-                  <option key={e.id} value={e.name}>
+                  <option key={e.id} value={e.id}>
                     {e.name} ({e.department})
                   </option>
                 ))}
@@ -1242,6 +1438,50 @@ export default function Leave() {
         </div>
       </Modal>
 
+      {/* ── Cancel / Withdraw Leave Dialog ── */}
+      <Modal
+        isOpen={Boolean(cancelTarget)}
+        onClose={() => setCancelTarget(null)}
+        title={cancelTarget?.status === "Approved" ? "Cancel Approved Leave" : "Withdraw Leave Request"}
+        footer={
+          <>
+            <button
+              type="button"
+              className="btn-outline"
+              onClick={() => setCancelTarget(null)}
+            >
+              Keep Leave
+            </button>
+            <button
+              type="button"
+              disabled={Boolean(busyLeaveId)}
+              className="px-4 py-2 bg-rose-600 hover:bg-rose-700 disabled:opacity-60 text-white rounded-xl text-[13px] font-semibold transition"
+              onClick={handleConfirmCancel}
+            >
+              Confirm Cancellation
+            </button>
+          </>
+        }
+      >
+        <div style={{ display: "grid", gap: 14 }}>
+          <p className="text-[13.5px] text-slate-700">
+            Cancel the {cancelTarget?.type} for <b>{cancelTarget?.employee}</b> ({cancelTarget?.from} – {cancelTarget?.to})?
+            {cancelTarget?.status === "Approved" &&
+              " The \"On Leave\" attendance posted for these days is removed and the balance is restored."}
+          </p>
+          <div className="form-group">
+            <label className="form-label">Reason (optional)</label>
+            <textarea
+              className="form-input"
+              rows={2}
+              placeholder="e.g. Plans changed, returning to work..."
+              value={cancelReasonInput}
+              onChange={(e) => setCancelReasonInput(e.target.value)}
+            />
+          </div>
+        </div>
+      </Modal>
+
       {/* ── Modal 2: Reject Leave Dialog ── */}
       <Modal
         isOpen={rejectModalOpen}
@@ -1258,7 +1498,8 @@ export default function Leave() {
             </button>
             <button
               type="button"
-              className="px-4 py-2 bg-rose-600 hover:bg-rose-700 text-white rounded-xl text-[13px] font-semibold transition"
+              disabled={Boolean(busyLeaveId)}
+              className="px-4 py-2 bg-rose-600 hover:bg-rose-700 disabled:opacity-60 text-white rounded-xl text-[13px] font-semibold transition"
               onClick={handleConfirmReject}
             >
               Confirm Rejection
@@ -1301,17 +1542,13 @@ export default function Leave() {
         {detailModalLeave && (
           <div style={{ display: "grid", gap: 14, fontSize: "13.5px", color: "#334155" }}>
             <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-              <img
-                src={detailModalLeave.avatar}
-                alt=""
-                style={{ width: 44, height: 44, borderRadius: 999, objectFit: "cover" }}
-              />
+              <Avatar name={detailModalLeave.emp} size="md" />
               <div>
                 <h4 style={{ margin: 0, fontSize: 16, fontWeight: 700, color: "#0f172a" }}>
                   {detailModalLeave.emp}
                 </h4>
                 <p style={{ margin: "2px 0 0", fontSize: 12.5, color: "#64748b" }}>
-                  Period: {detailModalLeave.dates} • Type: {detailModalLeave.type || "Annual Leave"}
+                  Period: {detailModalLeave.dates} • Type: {detailModalLeave.type || "Leave"}
                 </p>
               </div>
             </div>

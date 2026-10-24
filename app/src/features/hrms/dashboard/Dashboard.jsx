@@ -333,19 +333,17 @@ export default function HRMSDashboard() {
         : lower.includes("headphone") || lower.includes("peripheral") ? "Audio / Peripherals"
         : "Workstation";
 
-      const newReq = useAssetStore.getState().addRequest({
-        employeeName: currentUser?.name || "",
-        employeeId: "EMP-USR",
-        dept: "Operations",
+      // Filed as an "Other" request for the signed-in employee; HR sees it
+      // under Asset Setup › Employee Requests.
+      useAssetStore.getState().addRequest({
+        requestType: "Other",
         category,
         assetName: leaveType,
         reason: leaveNote.trim() || `Submitted via HRMS Dashboard Quick Request for ${leaveDate}.`,
         priority: "Medium",
-        requestedDate: leaveDate,
-        source: "HRMS Dashboard",
-        notes: `Quick Request submitted on ${leaveDate}`,
-      });
-      setLastSubmittedAssetReqId(newReq.id);
+      })
+        .then((newReq) => setLastSubmittedAssetReqId(newReq?.id || null))
+        .catch((err) => setToast(`Asset request not submitted — ${err?.message || "server error"}`));
     } else {
       setLastSubmittedAssetReqId(null);
     }

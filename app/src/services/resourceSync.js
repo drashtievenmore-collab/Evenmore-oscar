@@ -130,7 +130,8 @@ export function createSync(registry, { label = 'sync' } = {}) {
     if (!resource || !isBackendEnabled()) return null;
     try {
       const body = await api.get(resource.pullPath || resource.path, {
-        query: { limit: PAGE_SIZE, ...(resource.pullQuery || {}), ...query },
+        // The API pages on `page_size` (default 25); `limit` is kept for older routes.
+        query: { limit: PAGE_SIZE, page_size: PAGE_SIZE, ...(resource.pullQuery || {}), ...query },
       });
       const rows = rowsOf(body);
       return resource.fromApi ? rows.map(resource.fromApi) : rows;
