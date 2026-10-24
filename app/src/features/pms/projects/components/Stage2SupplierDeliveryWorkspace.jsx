@@ -327,62 +327,12 @@ export function Stage2SupplierDeliveryWorkspace({
   return (
     <div className="space-y-6">
       <div className="rounded-2xl border border-[#dce5f4] bg-white p-5 sm:p-6 shadow-sm">
-        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 pb-5 border-b border-slate-100">
-          <div>
-            <div className="flex items-center gap-2 flex-wrap">
-              <span className="px-2.5 py-1 rounded-md text-[11px] font-black bg-blue-100 text-blue-700 uppercase tracking-wider">
-                Stage {stage?.sequence || 3}
-              </span>
-              <h2 className="text-lg sm:text-xl font-extrabold text-[#17294e]">
-                Supplier Delivery & Dispatch Tracking
-              </h2>
-            </div>
-            <p className="text-xs text-slate-500 font-medium mt-1">
-              Track vendor fabric dispatches, challans, transporter vehicles, and delivery transit against Purchase Orders without directly altering warehouse stock.
-            </p>
-          </div>
-
-          <div className="flex items-center gap-2 flex-wrap">
-            {purchaseOrders.length > 1 && (
-              <select
-                value={selectedPoId}
-                onChange={(e) => setSelectedPoId(e.target.value)}
-                className="px-3 py-1.5 border border-slate-300 rounded-lg text-xs font-semibold bg-white text-slate-700"
-              >
-                {purchaseOrders.map((p) => (
-                  <option key={p.id} value={p.id}>
-                    {p.poNumber} — {p.vendor || p.party_name || 'Supplier'}
-                  </option>
-                ))}
-              </select>
-            )}
-
-            <button
-              type="button"
-              onClick={handleRefresh}
-              disabled={refreshing}
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-[#dce5f4] bg-white text-slate-700 hover:bg-slate-50 text-xs font-semibold shadow-2xs cursor-pointer"
-            >
-              <RefreshCw size={13} className={refreshing ? 'animate-spin' : ''} />
-              Refresh
-            </button>
-
-            <button
-              type="button"
-              onClick={handleOpenStandalone}
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-blue-200 bg-blue-50 hover:bg-blue-100 text-blue-700 text-xs font-bold shadow-2xs cursor-pointer"
-            >
-              <ExternalLink size={13} />
-              Open Standalone Screen
-            </button>
-
-            <button
-              type="button"
-              onClick={handleAddAnotherDispatch}
-              className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold shadow-xs cursor-pointer"
-            >
-              <Plus size={14} /> Add Dispatch
-            </button>
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-4 border-b border-slate-100">
+          <div className="flex items-center gap-2">
+            <Truck size={16} className="text-blue-600" />
+            <h3 className="text-xs font-bold uppercase tracking-wider text-slate-800">
+              Supplier Fabric Delivery & Logistics Tracking
+            </h3>
           </div>
         </div>
 
@@ -808,23 +758,7 @@ export function Stage2SupplierDeliveryWorkspace({
           )}
         </div>
 
-        <div className="flex items-center justify-between pt-5 mt-6 border-t border-slate-100">
-          <button
-            type="button"
-            onClick={() => onSelectStage && onSelectStage(2)}
-            className="inline-flex items-center gap-1.5 text-xs font-semibold text-slate-600 hover:text-slate-900 cursor-pointer"
-          >
-            <ArrowLeft size={13} /> Back to Stage 2: Purchase Order
-          </button>
-
-          <button
-            type="button"
-            onClick={() => onSelectStage && onSelectStage(4)}
-            className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold shadow-xs cursor-pointer"
-          >
-            Proceed to Stage 4: GRN / Inward <ArrowRight size={13} />
-          </button>
-        </div>
+        
       </div>
 
       {isUpdateModalOpen && selectedDelivery && (

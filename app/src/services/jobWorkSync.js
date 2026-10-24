@@ -43,6 +43,8 @@ export function jwoFromApi(row) {
     projectCode: row.projectCode || '',
     projectDestination: row.projectDestination || 'Customer Project',
     processPlanId: row.processPlanId || null,
+    processPlanNo: row.processPlanNo || row.process_plan_no || (row.process_plan && row.process_plan.plan_no) || '',
+    expectedLossPct: num(row.expectedLossPct ?? row.expected_loss_pct),
     process: row.process || '',
     vendor: row.vendor || '',
     orderDate: row.orderDate || '',
@@ -97,6 +99,20 @@ export function jwoFromApi(row) {
       rejected: num(r.rejected),
       challanNo: r.challanNo || '',
       status: r.status || '',
+      takas: (r.takas || []).map((t) => ({
+        id: t.id,
+        takaNumber: t.taka_number || t.takaNumber || '',
+        sourceTakaNumber: t.sourceTakaNumber || t.source_taka_number || '',
+        sourceLotNumber: t.sourceLotNumber || t.source_lot_number || '',
+        receivedTakaNumber: t.receivedTakaNumber || t.received_taka_number || '',
+        receivedLotNumber: t.receivedLotNumber || t.received_lot_number || '',
+        receivedTakaIdStr: t.receivedTakaIdStr || '',
+        qcStatus: t.qcStatus || 'Pending',
+        meters: num(t.meters),
+        weightKg: num(t.weight_kg || t.weightKg),
+        width: num(t.width),
+        shade: t.shade || '',
+      })),
     })),
     charges: (row.charges || []).map((c) => ({
       id: c.id,
@@ -481,3 +497,187 @@ export async function validateJWOOutwardStock(orderId, payload) {
 export async function confirmJWOOutward(orderId, outwardId) {
   return api.post(`/jobwork/orders/${orderId}/outwards/${outwardId}/confirm/`);
 }
+
+export async function fetchStage15QCStockData(projectId) {
+  return api.get(`/pms/projects/${projectId}/qc-stock-allocation/`);
+}
+
+export async function submitStage15QCInspection(projectId, payload) {
+  return api.post(`/pms/projects/${projectId}/qc-stock-allocation/`, {
+    action_type: 'save_inspection',
+    ...payload,
+  });
+}
+
+export async function approveStage15QCInspection(projectId, payload) {
+  return api.post(`/pms/projects/${projectId}/qc-stock-allocation/`, {
+    action_type: 'approve_inspection',
+    ...payload,
+  });
+}
+
+export async function allocateStage15Stock(projectId, payload) {
+  return api.post(`/pms/projects/${projectId}/qc-stock-allocation/`, {
+    action_type: 'allocate_stock',
+    ...payload,
+  });
+}
+
+export async function releaseStage15Allocation(projectId, allocationId) {
+  return api.post(`/pms/projects/${projectId}/qc-stock-allocation/`, {
+    action_type: 'release_allocation',
+    allocation_id: allocationId,
+  });
+}
+
+
+export async function fetchStage16DispatchData(projectId) {
+  return api.get(`/pms/projects/${projectId}/customer-dispatch/`);
+}
+
+export async function createStage16Dispatch(projectId, payload) {
+  return api.post(`/pms/projects/${projectId}/customer-dispatch/`, {
+    action_type: 'create_dispatch',
+    ...payload,
+  });
+}
+
+export async function updateStage16DispatchLR(projectId, payload) {
+  return api.post(`/pms/projects/${projectId}/customer-dispatch/`, {
+    action_type: 'update_lr',
+    ...payload,
+  });
+}
+
+export async function fetchStage17InvoiceData(projectId) {
+  return api.get(`/pms/projects/${projectId}/invoice-payment/`);
+}
+
+export async function createStage17Proforma(projectId, payload) {
+  return api.post(`/pms/projects/${projectId}/invoice-payment/`, {
+    action_type: 'create_proforma',
+    ...payload,
+  });
+}
+
+export async function convertStage17Proforma(projectId, proformaId, extra = {}) {
+  return api.post(`/pms/projects/${projectId}/invoice-payment/`, {
+    action_type: 'convert_proforma_to_final',
+    proforma_id: proformaId,
+    ...extra,
+  });
+}
+
+export async function cancelStage17Proforma(projectId, proformaId, reason = '') {
+  return api.post(`/pms/projects/${projectId}/invoice-payment/`, {
+    action_type: 'cancel_proforma',
+    proforma_id: proformaId,
+    reason,
+  });
+}
+
+export async function createStage17FinalInvoice(projectId, payload) {
+  return api.post(`/pms/projects/${projectId}/invoice-payment/`, {
+    action_type: 'create_final_invoice',
+    ...payload,
+  });
+}
+
+export async function recordStage17Payment(projectId, payload) {
+  return api.post(`/pms/projects/${projectId}/invoice-payment/`, {
+    action_type: 'record_payment',
+    ...payload,
+  });
+}
+
+export async function fetchInventoryDocumentsData(projectId) {
+  return api.get(`/pms/projects/${projectId}/inventory-documents/`);
+}
+
+export async function uploadProjectDocument(projectId, payload) {
+  return api.post(`/pms/projects/${projectId}/inventory-documents/`, {
+    action_type: 'upload_document',
+    ...payload,
+  });
+}
+
+export async function sendProjectDocumentToClient(projectId, payload) {
+  return api.post(`/pms/projects/${projectId}/inventory-documents/`, {
+    action_type: 'send_to_client',
+    ...payload,
+  });
+}
+
+export async function generateProjectDocumentLink(projectId, payload) {
+  return api.post(`/pms/projects/${projectId}/inventory-documents/`, {
+    action_type: 'generate_link',
+    ...payload,
+  });
+}
+
+export async function recordClientDocumentDecision(projectId, payload) {
+  return api.post(`/pms/projects/${projectId}/inventory-documents/`, {
+    action_type: 'record_client_decision',
+    ...payload,
+  });
+}
+
+export async function fetchCustomerProjectDetails(projectId) {
+  return api.get(`/pms/projects/${projectId}/customer-project-details/`);
+}
+
+export async function fetchOwnProjectDetails(projectId) {
+  return api.get(`/pms/projects/${projectId}/own-project-details/`);
+}
+
+export async function fetchClosureAuditData(projectId) {
+  return api.get(`/pms/projects/${projectId}/closure-audit/`);
+}
+
+export async function closePmsProject(projectId, payload = {}) {
+  return api.post(`/pms/projects/${projectId}/close/`, payload);
+}
+
+// -------------------------------------------------------------
+// Customer Return Workflow (Returns, Inward, QC, Routing, Credit)
+// -------------------------------------------------------------
+export async function fetchCustomerReturnsWorkspace(projectId) {
+  return api.get(`/pms/projects/${projectId}/customer-returns/`);
+}
+
+export async function createCustomerReturnRequest(projectId, payload) {
+  return api.post(`/pms/projects/${projectId}/customer-returns/`, {
+    action_type: 'create_return_request',
+    ...payload,
+  });
+}
+
+export async function receiveCustomerReturnPhysical(projectId, payload) {
+  return api.post(`/pms/projects/${projectId}/customer-returns/`, {
+    action_type: 'receive_physical_return',
+    ...payload,
+  });
+}
+
+export async function submitCustomerReturnQC(projectId, payload) {
+  return api.post(`/pms/projects/${projectId}/customer-returns/`, {
+    action_type: 'inspect_qc',
+    ...payload,
+  });
+}
+
+export async function routeCustomerReturnStock(projectId, payload) {
+  return api.post(`/pms/projects/${projectId}/customer-returns/`, {
+    action_type: 'route_stock',
+    ...payload,
+  });
+}
+
+export async function issueCustomerReturnCreditNote(projectId, payload) {
+  return api.post(`/pms/projects/${projectId}/customer-returns/`, {
+    action_type: 'issue_credit_note',
+    ...payload,
+  });
+}
+
+

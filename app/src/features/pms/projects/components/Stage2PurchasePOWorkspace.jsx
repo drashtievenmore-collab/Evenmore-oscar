@@ -287,57 +287,9 @@ export function Stage2PurchasePOWorkspace({
   return (
     <div className="space-y-4">
       {/* Stage Header Banner */}
+      {/* 4 KPI Summary Cards */}
       <div className="rounded-xl border border-[#dce5f4] bg-white p-4 shadow-2xs">
-        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-          <div className="space-y-1">
-            <div className="flex items-center gap-2 flex-wrap">
-              <span className="text-[10px] font-extrabold uppercase tracking-wider px-2 py-0.5 rounded bg-blue-50 text-blue-700 border border-blue-200">
-                Stage 2: Procurement Branch
-              </span>
-              <span className="text-[11px] font-bold text-slate-500">
-                Department: <span className="text-slate-800">Purchase</span>
-              </span>
-              <span className="text-[11px] font-bold text-slate-500">
-                Weight: <span className="text-slate-800">{stage?.percentage || stage?.weight || 5}%</span>
-              </span>
-              {(coveragePct >= 100 || purchaseOrders.length > 0) && (
-                <span className="text-[10px] font-extrabold uppercase tracking-wider px-2 py-0.5 rounded bg-emerald-50 text-emerald-700 border border-emerald-200 inline-flex items-center gap-1">
-                  <Check size={11} strokeWidth={3} /> Completed
-                </span>
-              )}
-            </div>
-            <h2 className="text-base font-bold text-slate-900 tracking-tight">
-              Stage 2: Create Grey Purchase PO
-            </h2>
-            <p className="text-xs text-slate-500 max-w-2xl">
-              Procure required shortage grey fabric from external approved suppliers via official Purchase Order. All created POs are linked directly to OSCAR's Purchase & Inventory ledger.
-            </p>
-          </div>
-
-          <div className="flex items-center gap-2 shrink-0">
-            <button
-              type="button"
-              disabled={refreshing}
-              onClick={handleRefresh}
-              className="inline-flex items-center gap-1.5 text-xs font-semibold px-3 py-2 rounded-lg border border-[#dce5f4] bg-white text-slate-700 hover:bg-slate-50 hover:text-blue-600 transition-colors shadow-2xs cursor-pointer disabled:opacity-60"
-            >
-              <RefreshCw size={14} className={refreshing ? 'animate-spin text-blue-600' : ''} />
-              <span>Refresh POs</span>
-            </button>
-
-            <button
-              type="button"
-              onClick={handleOpenCreateModal}
-              className="inline-flex items-center gap-1.5 text-xs font-bold px-3.5 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white transition-colors shadow-2xs cursor-pointer"
-            >
-              <Plus size={14} />
-              <span>+ Create Purchase PO</span>
-            </button>
-          </div>
-        </div>
-
-        {/* 4 KPI Summary Cards */}
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mt-4 pt-3 border-t border-slate-100">
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
           <div className="rounded-xl p-3 bg-rose-50/70 border border-rose-100">
             <span className="text-[10px] font-bold text-rose-600 uppercase tracking-wider block">
               Required Shortage
@@ -397,6 +349,15 @@ export function Stage2PurchasePOWorkspace({
             <span className="text-[11px] text-slate-500">
               Ref: <strong className="text-slate-800">{project?.code}</strong>
             </span>
+          
+            <button
+              type="button"
+              onClick={handleOpenCreateModal}
+              className="inline-flex items-center gap-1.5 text-xs font-bold px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-700 text-white transition-colors shadow-2xs cursor-pointer"
+            >
+              <Plus size={14} />
+              <span>+ Create Purchase PO</span>
+            </button>
           </div>
         </div>
 
@@ -511,28 +472,7 @@ export function Stage2PurchasePOWorkspace({
         )}
       </div>
 
-      {/* Footer Navigation Bar */}
-      <div className="rounded-xl border border-[#dce5f4] bg-white p-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-2xs">
-        <button
-          type="button"
-          onClick={() => onSelectStage?.(1)}
-          className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg border border-slate-300 bg-white hover:bg-slate-50 text-slate-700 font-semibold text-xs transition-colors cursor-pointer"
-        >
-          <ArrowLeft size={13} />
-          <span>Back to Stage 1: Stock Allocation</span>
-        </button>
-
-        <div className="flex items-center gap-2">
-          <button
-            type="button"
-            onClick={() => onSelectStage?.(3)}
-            className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs transition-colors cursor-pointer"
-          >
-            <span>Next: Stage 3 (Supplier Delivery)</span>
-            <ArrowRight size={13} />
-          </button>
-        </div>
-      </div>
+      
 
       {/* CREATE PURCHASE PO MODAL */}
       {isModalOpen && (

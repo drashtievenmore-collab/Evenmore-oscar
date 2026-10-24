@@ -20,12 +20,18 @@ import { getGreyStockAllocation, saveGreyStockAllocation } from '../../../../ser
 import { usePmsStore } from '../../../../stores/pmsStore';
 import { getProjectProductionLifecycle } from '../../../purchase/productionLifecycle';
 import { CreateProductionPoModal } from '../../production/CreateProductionPoModal';
+import { StageWorkspaceHeader } from './StageWorkspaceHeader';
+import { StageWorkspaceFooter } from './StageWorkspaceFooter';
 
 export function Stage1GreyStockWorkspace({
   project,
   stage,
   onSyncPipeline,
   onHandoff,
+  onSelectStage,
+  totalStages = 18,
+  prevStage = null,
+  nextStage = null,
 }) {
   const showToast = usePmsStore((s) => s.showToast);
   const toast = useMemo(
@@ -520,40 +526,22 @@ export function Stage1GreyStockWorkspace({
 
   return (
     <div className="space-y-4">
-      <div className="rounded-xl border border-[#dce5f4] bg-white p-5 shadow-2xs">
-        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
-          <div className="flex items-center gap-3.5">
-            <div className="w-11 h-11 rounded-xl flex items-center justify-center shrink-0 border border-blue-200 bg-blue-50/60 text-blue-600">
-              <Box size={24} strokeWidth={2.2} />
-            </div>
-            <div>
-              <h2 className="text-base font-bold text-slate-900 tracking-tight">
-                {stageMeta.stageName}
-              </h2>
-              <p className="text-xs text-slate-500 font-normal mt-0.5">
-                {stageMeta.stageSubtitle}
-              </p>
-            </div>
-          </div>
-
-          <div className="flex items-center gap-6 sm:gap-8 flex-wrap">
-            <div>
-              <p className="text-[11px] font-medium text-slate-400">Stage Weight</p>
-              <p className="text-sm font-bold text-slate-900">{stageMeta.stageWeight}%</p>
-            </div>
-            <div>
-              <p className="text-[11px] font-medium text-slate-400">Planned Duration</p>
-              <p className="text-sm font-bold text-slate-900">{stageMeta.plannedDurationDays} Days</p>
-            </div>
-            <div>
-              <p className="text-[11px] font-medium text-slate-400">Start Date</p>
-              <p className="text-sm font-bold text-slate-900">{stageMeta.startDate}</p>
-            </div>
-            <div>
-              <p className="text-[11px] font-medium text-slate-400">End Date</p>
-              <p className="text-sm font-bold text-slate-900">{stageMeta.endDate}</p>
-            </div>
-          </div>
+      <div className="rounded-xl border border-[#dce5f4] bg-white p-4 shadow-2xs grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
+        <div className="p-2.5 rounded-lg bg-slate-50 border border-slate-100">
+          <span className="text-[10.5px] font-semibold text-slate-400 block uppercase tracking-wider">Planned Duration</span>
+          <span className="font-bold text-slate-800 text-sm mt-0.5 block">{stageMeta.plannedDurationDays} Days</span>
+        </div>
+        <div className="p-2.5 rounded-lg bg-slate-50 border border-slate-100">
+          <span className="text-[10.5px] font-semibold text-slate-400 block uppercase tracking-wider">Start Date</span>
+          <span className="font-bold text-slate-800 text-sm mt-0.5 block">{stageMeta.startDate}</span>
+        </div>
+        <div className="p-2.5 rounded-lg bg-slate-50 border border-slate-100">
+          <span className="text-[10.5px] font-semibold text-slate-400 block uppercase tracking-wider">End Date</span>
+          <span className="font-bold text-slate-800 text-sm mt-0.5 block">{stageMeta.endDate}</span>
+        </div>
+        <div className="p-2.5 rounded-lg bg-blue-50/70 border border-blue-100">
+          <span className="text-[10.5px] font-bold text-blue-600 block uppercase tracking-wider">Project Requirement</span>
+          <span className="font-mono font-black text-blue-800 text-sm mt-0.5 block">{projectRequirement.toLocaleString('en-IN')} M</span>
         </div>
       </div>
 

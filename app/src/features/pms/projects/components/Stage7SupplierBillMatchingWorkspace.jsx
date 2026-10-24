@@ -104,51 +104,25 @@ export function Stage7SupplierBillMatchingWorkspace({
 
   return (
     <div className="space-y-4">
-      {/* Stage Header Banner */}
-      <div className="rounded-xl border border-[#dce5f4] bg-white p-4 shadow-2xs">
-        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-          <div className="space-y-1">
-            <div className="flex items-center gap-2 flex-wrap">
-              <span className="text-[10px] font-extrabold uppercase tracking-wider px-2 py-0.5 rounded bg-purple-50 text-purple-700 border border-purple-200">
-                Stage {stage?.sequence || 9}: Accounts Verification
-              </span>
-              <span className="text-[11px] font-bold text-slate-500">
-                Department: <span className="text-slate-800">Accounts</span>
-              </span>
-              <span className="text-[11px] font-bold text-slate-500">
-                Weight: <span className="text-slate-800">{stage?.percentage || stage?.weight || 4.28}%</span>
-              </span>
-            </div>
-            <h2 className="text-base font-bold text-slate-900 tracking-tight">
-              Stage {stage?.sequence || 9}: Supplier Bill Matching
-            </h2>
-            <p className="text-xs text-slate-500 max-w-2xl">
-              Conduct official 3-way check comparing Supplier Purchase Order rates & quantities against GRN verified inward takas and vendor invoices. Approval authorizes payment release.
-            </p>
+      {/* ── 3-Way Bill Matching Summary & Verification ── */}
+      <div className="rounded-xl border border-[#dce5f4] bg-white p-4 shadow-2xs space-y-4">
+        <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+          <div className="flex items-center gap-2">
+            <FileSpreadsheet size={16} className="text-purple-600" />
+            <h3 className="text-xs font-bold uppercase tracking-wider text-slate-800">
+              Accounts 3-Way Verification (PO vs GRN vs Supplier Bill)
+            </h3>
           </div>
-
-          <div className="flex items-center gap-2 shrink-0">
-            <button
-              type="button"
-              disabled={refreshing}
-              onClick={handleRefresh}
-              className="inline-flex items-center gap-1.5 text-xs font-semibold px-3 py-2 rounded-lg border border-[#dce5f4] bg-white text-slate-700 hover:bg-slate-50 hover:text-blue-600 transition-colors shadow-2xs cursor-pointer disabled:opacity-60"
-            >
-              <RefreshCw size={14} className={refreshing ? 'animate-spin text-blue-600' : ''} />
-              <span>Refresh Status</span>
-            </button>
-
-            <a
-              href="/purchase/bill-matching"
-              target="_blank"
-              rel="noreferrer"
-              className="inline-flex items-center gap-1.5 text-xs font-bold px-3.5 py-2 rounded-lg bg-purple-600 hover:bg-purple-700 text-white transition-colors shadow-2xs cursor-pointer"
-            >
-              <FileSpreadsheet size={14} />
-              <span>Open Bill Matching Module</span>
-              <ExternalLink size={12} />
-            </a>
-          </div>
+          <a
+            href="/purchase/bill-matching"
+            target="_blank"
+            rel="noreferrer"
+            className="inline-flex items-center gap-1.5 text-xs font-bold px-3 py-1.5 rounded-lg bg-purple-50 hover:bg-purple-100 text-purple-700 border border-purple-200 transition-colors shadow-2xs cursor-pointer"
+          >
+            <FileSpreadsheet size={13} />
+            <span>Open Bill Matching Module</span>
+            <ExternalLink size={11} />
+          </a>
         </div>
 
         {/* 4 Summary Cards */}

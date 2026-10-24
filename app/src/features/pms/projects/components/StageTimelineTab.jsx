@@ -10,6 +10,8 @@ import { isProjectCreator } from '../../../../stores/pmsStore';
 import { useAppStore } from '../../../../stores/appStore';
 import { ConfigureStagePercentagesModal } from './ConfigureStagePercentagesModal';
 import { AddDynamicStageModal } from './AddDynamicStageModal';
+import { StageWorkspaceHeader } from './StageWorkspaceHeader';
+import { StageWorkspaceFooter } from './StageWorkspaceFooter';
 import { Stage1GreyStockWorkspace } from './Stage1GreyStockWorkspace';
 import { Stage2PurchasePOWorkspace } from './Stage2PurchasePOWorkspace';
 import { Stage2SupplierDeliveryWorkspace } from './Stage2SupplierDeliveryWorkspace';
@@ -142,6 +144,21 @@ export function StageTimelineTab({
         </div>
       )}
 
+      {/* ── UNIFIED STAGE WORKSPACE HEADER ── */}
+      {ordered.length > 0 && currentStage && (
+        <StageWorkspaceHeader
+          stage={currentStage}
+          project={project}
+          currentSeq={selectedStageSeq}
+          totalStages={ordered.length}
+          prevStage={ordered.find((s) => s.sequence === selectedStageSeq - 1)}
+          nextStage={ordered.find((s) => s.sequence === selectedStageSeq + 1)}
+          onSelectStage={handleSelectStage}
+          onRefresh={onSyncPipeline}
+          refreshing={isSyncing}
+        />
+      )}
+
       {/* Stage 1: Grey Stock Check & Allocation */}
       {(selectedStageSeq === 1 || stageName === 'Grey Stock Check & Allocation') && (
         <Stage1GreyStockWorkspace
@@ -149,6 +166,7 @@ export function StageTimelineTab({
           stage={ordered.find((s) => s.sequence === 1)}
           onSyncPipeline={onSyncPipeline}
           onHandoff={(targetSeq) => setSelectedStageSeq(targetSeq || 2)}
+          onSelectStage={handleSelectStage}
         />
       )}
 
@@ -262,6 +280,18 @@ export function StageTimelineTab({
           onSyncPipeline={onSyncPipeline}
           onSelectStage={(seq) => setSelectedStageSeq(seq)}
           totalStages={ordered.length}
+        />
+      )}
+
+      {/* ── UNIFIED STAGE WORKSPACE FOOTER ── */}
+      {ordered.length > 0 && currentStage && (
+        <StageWorkspaceFooter
+          stage={currentStage}
+          currentSeq={selectedStageSeq}
+          totalStages={ordered.length}
+          prevStage={ordered.find((s) => s.sequence === selectedStageSeq - 1)}
+          nextStage={ordered.find((s) => s.sequence === selectedStageSeq + 1)}
+          onSelectStage={handleSelectStage}
         />
       )}
 
