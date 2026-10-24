@@ -83,10 +83,10 @@ export function PageHeader({ title, subtitle, breadcrumb, guide, actions, titleE
 
       {/* Title row */}
       <div className="flex flex-wrap items-center gap-2">
-        <h1 className="text-[20px] font-extrabold tracking-tight text-slate-900">{title}</h1>
+        <h1 className="text-[19px] sm:text-[21px] font-extrabold tracking-tight text-slate-900 truncate">{title}</h1>
         {titleExtra}
         <PageInfoButton guide={guide} title={title} />
-        {actions && <div className="ml-auto flex flex-wrap items-center gap-2">{actions}</div>}
+        {actions && <div className="ml-auto flex flex-wrap items-center gap-2 w-full sm:w-auto">{actions}</div>}
       </div>
 
       {/* Subtitle */}

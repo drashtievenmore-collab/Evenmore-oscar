@@ -11,7 +11,7 @@ import { PrintInvoiceModal } from '../../components/common/PrintInvoiceModal';
 import { StatusBadge } from '../../components/ui/StatusBadge';
 import { Button } from '../../components/ui/Button';
 import { PageHeader } from '../../components/common/PageHeader';
-import { Pagination } from '../../components/ui/Pagination';
+import TablePagination from '../../components/ui/TablePagination';
 import SalespersonSelect from '../../components/common/SalespersonSelect';
 import MasterSourceLink from '../../components/common/MasterSourceLink';
 
@@ -57,6 +57,7 @@ export const SalesInvoicesView = ({ invoices = [], onCreateInvoice, searchTerm: 
     const [filterText, setFilterText] = useState('');
     const [statusFilter, setStatusFilter] = useState('All');
     const [currentPage, setCurrentPage] = useState(1);
+    const [pageSize, setPageSize] = useState(10);
 
     // Create & Edit State
     const [showCreateModal, setShowCreateModal] = useState(false);
@@ -472,7 +473,7 @@ export const SalesInvoicesView = ({ invoices = [], onCreateInvoice, searchTerm: 
         return true;
     });
 
-    const pageSize = 6;
+    // pageSize managed in state (default: 10)
     const totalPages = Math.ceil(filteredInvoices.length / pageSize) || 1;
     const paginatedInvoices = filteredInvoices.slice((currentPage - 1) * pageSize, currentPage * pageSize);
 
@@ -730,17 +731,18 @@ export const SalesInvoicesView = ({ invoices = [], onCreateInvoice, searchTerm: 
                     </table>
                 </div>
 
-                {/* Pagination Footer */}
-                {filteredInvoices.length > 5 && (
-                    <div className="border-t border-slate-200 bg-slate-50/50 pr-16 sm:pr-20">
-                        <Pagination
-                            total={filteredInvoices.length}
-                            page={currentPage}
-                            pageSize={pageSize}
-                            onChange={setCurrentPage}
-                        />
-                    </div>
-                )}
+                {/* Standard Table Pagination Footer */}
+                <TablePagination
+                    total={filteredInvoices.length}
+                    page={currentPage}
+                    pageSize={pageSize}
+                    onPageChange={setCurrentPage}
+                    onPageSizeChange={(newSize) => {
+                        setPageSize(newSize);
+                        setCurrentPage(1);
+                    }}
+                    pageSizeOptions={[10, 25, 50, 100]}
+                />
             </div>
 
             {/* CREATE / EDIT DRAFT INVOICE MODAL */}

@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Eye, FileText } from 'lucide-react';
 import PageHeader from '../../components/ui/PageHeader';
+import TablePagination from '../../components/ui/TablePagination';
 import { api } from '../../services/api';
 import { numIN, toDDMMYYYY } from './jobWorkOrdersStore';
 
@@ -24,6 +25,10 @@ export default function PendingRegisterPage() {
   const [fStatus, setFStatus] = useState('All');
   const [fFrom, setFFrom] = useState('');
   const [fTo, setFTo] = useState('');
+
+  // Pagination state
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(10);
 
   useEffect(() => {
     let live = true;
@@ -62,6 +67,16 @@ export default function PendingRegisterPage() {
     return true;
   }), [rows, fJwo, fVendor, fProcess, fFabric, fStatus, fFrom, fTo]);
 
+  // Reset page when filters change
+  useEffect(() => {
+    setPage(1);
+  }, [fJwo, fVendor, fProcess, fFabric, fStatus, fFrom, fTo]);
+
+  const paginated = useMemo(() => {
+    const start = (page - 1) * pageSize;
+    return filtered.slice(start, start + pageSize);
+  }, [filtered, page, pageSize]);
+
   const selectCls = 'mt-1 w-full rounded-lg border border-slate-200 bg-white px-2.5 py-2 text-[12px] font-medium text-slate-700 outline-none';
   const labelCls = 'text-[11px] font-semibold text-slate-400';
 
@@ -74,7 +89,7 @@ export default function PendingRegisterPage() {
         subtitle="Track quantities pending with external processors."
       />
 
-      <div className="rounded-xl border border-[#e2eaf5] bg-white shadow-[0_1px_2px_rgba(16,42,82,0.06)]">
+      <div className="rounded-xl border border-[#e2eaf5] bg-white shadow-[0_1px_2px_rgba(16,42,82,0.06)] overflow-hidden">
         <div className="grid grid-cols-2 gap-3 px-4 py-3 md:grid-cols-4 xl:grid-cols-7">
           <label className="block">
             <span className={labelCls}>JWO No.</span>
@@ -130,9 +145,9 @@ export default function PendingRegisterPage() {
               </tr>
             </thead>
             <tbody>
-              {filtered.map((r, idx) => (
+              {paginated.map((r, idx) => (
                 <tr key={r.jwoId} className="border-b border-slate-50 hover:bg-slate-50/60">
-                  <td className="px-3 py-2.5 text-center text-slate-400">{idx + 1}</td>
+                  <td className="px-3 py-2.5 text-center text-slate-400">{(page - 1) * pageSize + idx + 1}</td>
                   <td className="px-3 py-2.5">
                     <button onClick={() => openJWO(r)} className="font-mono font-bold text-blue-600 hover:underline">{r.jwoNo}</button>
                   </td>
@@ -151,10 +166,10 @@ export default function PendingRegisterPage() {
                   </td>
                   <td className="px-3 py-2.5">
                     <div className="flex items-center justify-center gap-1.5">
-                      <button onClick={() => openJWO(r)} className="p-2 rounded-lg border border-slate-200 text-slate-500 hover:bg-slate-50" title="View Job Work Order">
+                      <button onClick={() => openJWO(r)} className="p-2 rounded-lg border border-slate-200 text-slate-500 hover:bg-slate-50 cursor-pointer" title="View Job Work Order">
                         <Eye size={14} />
                       </button>
-                      <button onClick={() => openJWO(r)} className="p-2 rounded-lg border border-slate-200 text-slate-500 hover:bg-slate-50" title="Open challans / receipts">
+                      <button onClick={() => openJWO(r)} className="p-2 rounded-lg border border-slate-200 text-slate-500 hover:bg-slate-50 cursor-pointer" title="Open challans / receipts">
                         <FileText size={14} />
                       </button>
                     </div>
@@ -190,6 +205,16 @@ export default function PendingRegisterPage() {
             </tbody>
           </table>
         </div>
+
+        {/* Standard Table Pagination Footer */}
+        <TablePagination
+          page={page}
+          pageSize={pageSize}
+          totalItems={filtered.length}
+          onPageChange={setPage}
+          onPageSizeChange={(sz) => { setPageSize(sz); setPage(1); }}
+          pageSizeOptions={[10, 25, 50, 100]}
+        />
       </div>
     </div>
   );

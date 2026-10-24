@@ -16,6 +16,8 @@ import {
 import { numIN, toDDMMYYYY, purgeLegacyJobWorkCache } from './jobWorkOrdersStore';
 import { fetchJWOs, createJWORow, updateJWORow, deleteJWORow, errorMessage } from '../../services/jobWorkSync';
 import PageHeader from '../../components/ui/PageHeader';
+import TablePagination from '../../components/ui/TablePagination';
+import KpiCard from '../../components/ui/KpiCard';
 
 /**
  * Reprocess — material received from a vendor and sent back for
@@ -95,6 +97,8 @@ export default function ReprocessPage() {
   const navigate = useNavigate();
   const [orders, setOrders] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(10);
   const [loadError, setLoadError] = useState('');
   const [formError, setFormError] = useState('');
   const [saving, setSaving] = useState(false);
@@ -148,6 +152,15 @@ export default function ReprocessPage() {
     return true;
   }), [rows, applied]);
 
+  useEffect(() => {
+    setPage(1);
+  }, [applied]);
+
+  const paginated = useMemo(() => {
+    const start = (page - 1) * pageSize;
+    return filtered.slice(start, start + pageSize);
+  }, [filtered, page, pageSize]);
+
   const totals = useMemo(() => {
     const t = { count: 0, qty: 0, received: 0, inProcess: 0, pending: 0, completed: 0 };
     filtered.forEach((r) => {
@@ -163,12 +176,12 @@ export default function ReprocessPage() {
   }, [filtered]);
 
   const summaryCards = [
-    { icon: FileText, label: 'Total Reprocess', value: `${totals.count}`, suffix: '', tileBg: '#f1eafd', iconBg: '#e2d4fb', iconColor: '#7c3aed' },
-    { icon: Truck, label: 'Total Reprocess Quantity', value: numIN(totals.qty), suffix: 'M', tileBg: '#e9f1fd', iconBg: '#d6e6fd', iconColor: '#2563eb' },
-    { icon: CheckCircle2, label: 'Received from Reprocess', value: numIN(totals.received), suffix: 'M', tileBg: '#e7f6ec', iconBg: '#cdeed8', iconColor: '#16a34a' },
-    { icon: Clock, label: 'In Process Quantity', value: numIN(totals.inProcess), suffix: 'M', tileBg: '#fdf3e0', iconBg: '#fbe3b8', iconColor: '#d97706' },
-    { icon: XCircle, label: 'Pending Quantity', value: numIN(totals.pending), suffix: 'M', tileBg: '#fdeef1', iconBg: '#fad9e0', iconColor: '#e11d48' },
-    { icon: CheckCircle2, label: 'Completed Quantity', value: numIN(totals.completed), suffix: 'M', tileBg: '#e6faf3', iconBg: '#c9f2e2', iconColor: '#0d9488' },
+    { icon: FileText, label: 'Total Reprocess', value: `${totals.count}`, suffix: '', tone: 'purple' },
+    { icon: Truck, label: 'Total Reprocess Quantity', value: numIN(totals.qty), suffix: 'M', tone: 'blue' },
+    { icon: CheckCircle2, label: 'Received from Reprocess', value: numIN(totals.received), suffix: 'M', tone: 'emerald' },
+    { icon: Clock, label: 'In Process Quantity', value: numIN(totals.inProcess), suffix: 'M', tone: 'amber' },
+    { icon: XCircle, label: 'Pending Quantity', value: numIN(totals.pending), suffix: 'M', tone: 'rose' },
+    { icon: CheckCircle2, label: 'Completed Quantity', value: numIN(totals.completed), suffix: 'M', tone: 'teal' },
   ];
 
   const resetFilters = () => {
@@ -296,6 +309,20 @@ export default function ReprocessPage() {
         }
       />
 
+      {/* Summary cards — all derived from the rows below */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6 gap-3">
+        {summaryCards.map((c) => (
+          <KpiCard
+            key={c.label}
+            label={c.label}
+            value={c.value}
+            unit={c.suffix}
+            icon={c.icon}
+            tone={c.tone}
+          />
+        ))}
+      </div>
+
       <div className="rounded-xl border border-[#e2eaf5] bg-white shadow-[0_1px_2px_rgba(16,42,82,0.06)]">
         <div className="grid grid-cols-2 gap-3 px-4 py-3 md:grid-cols-4 xl:grid-cols-6">
           <label className="block">
@@ -374,9 +401,9 @@ export default function ReprocessPage() {
               </tr>
             </thead>
             <tbody>
-              {filtered.map((r, idx) => (
+              {paginated.map((r, idx) => (
                 <tr key={`${r.jwoId}-${r.id}`} className="border-b border-slate-50 hover:bg-slate-50/60">
-                  <td className="px-3 py-2.5 text-center text-slate-400">{idx + 1}</td>
+                  <td className="px-3 py-2.5 text-center text-slate-400">{(page - 1) * pageSize + idx + 1}</td>
                   <td className="px-3 py-2.5 font-mono font-bold text-blue-600">{r.no}</td>
                   <td className="px-3 py-2.5">
                     <button onClick={() => openJWO(r)} className="font-mono font-bold text-blue-600 hover:underline">{r.jwoNo}</button>
@@ -431,23 +458,15 @@ export default function ReprocessPage() {
             </tbody>
           </table>
         </div>
-      </div>
 
-      {/* Summary cards — all derived from the rows above */}
-      <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6">
-        {summaryCards.map((c) => (
-          <div key={c.label} className="rounded-xl p-3" style={{ background: c.tileBg }}>
-            <div className="flex items-center gap-2">
-              <span className="grid h-8 w-8 shrink-0 place-items-center rounded-lg" style={{ background: c.iconBg, color: c.iconColor }}>
-                <c.icon size={17} />
-              </span>
-              <span className="text-[11px] font-semibold leading-tight text-slate-600">{c.label}</span>
-            </div>
-            <div className="mt-2 text-[19px] font-extrabold tracking-tight text-[#17294e]">
-              {c.value}{c.suffix ? <span className="ml-1 text-[12px] font-bold text-slate-500">{c.suffix}</span> : null}
-            </div>
-          </div>
-        ))}
+        <TablePagination
+          page={page}
+          pageSize={pageSize}
+          totalItems={filtered.length}
+          onPageChange={setPage}
+          onPageSizeChange={(sz) => { setPageSize(sz); setPage(1); }}
+          pageSizeOptions={[10, 25, 50, 100]}
+        />
       </div>
 
       {showForm && (

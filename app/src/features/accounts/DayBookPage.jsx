@@ -212,87 +212,71 @@ export default function DayBookPage() {
       {error && <ErrorState message={error} onRetry={fetchData} />}
 
       {/* KPI Business Position Cards */}
-      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3.5">
-        <div className="bg-white border border-slate-200/80 rounded-xl p-3.5 shadow-sm">
-          <div className="flex items-center justify-between text-slate-400">
-            <span className="text-[11px] font-semibold uppercase tracking-wider text-slate-500">Sales (Today)</span>
-            <ArrowUpRight size={15} className="text-emerald-500" />
-          </div>
-          <p className="text-lg font-mono font-bold text-slate-900 mt-1">{formatINR(summary.salesTotal)}</p>
-          <p className="text-[10px] text-slate-400 mt-0.5">Billed invoices on {formatDate(asOfDate)}</p>
-        </div>
-
-        <div className="bg-white border border-slate-200/80 rounded-xl p-3.5 shadow-sm">
-          <div className="flex items-center justify-between text-slate-400">
-            <span className="text-[11px] font-semibold uppercase tracking-wider text-slate-500">Collections (In)</span>
-            <ArrowDownLeft size={15} className="text-emerald-600" />
-          </div>
-          <p className="text-lg font-mono font-bold text-emerald-600 mt-1">{formatINR(summary.collectionTotal)}</p>
-          <p className="text-[10px] text-slate-400 mt-0.5">Customer payments received</p>
-        </div>
-
-        <div className="bg-white border border-slate-200/80 rounded-xl p-3.5 shadow-sm">
-          <div className="flex items-center justify-between text-slate-400">
-            <span className="text-[11px] font-semibold uppercase tracking-wider text-slate-500">Purchases</span>
-            <Receipt size={15} className="text-amber-500" />
-          </div>
-          <p className="text-lg font-mono font-bold text-amber-700 mt-1">{formatINR(summary.purchaseTotal)}</p>
-          <p className="text-[10px] text-slate-400 mt-0.5">Vendor bills received</p>
-        </div>
-
-        <div className="bg-white border border-slate-200/80 rounded-xl p-3.5 shadow-sm">
-          <div className="flex items-center justify-between text-slate-400">
-            <span className="text-[11px] font-semibold uppercase tracking-wider text-slate-500">Disbursements (Out)</span>
-            <ArrowUpRight size={15} className="text-rose-500" />
-          </div>
-          <p className="text-lg font-mono font-bold text-rose-600 mt-1">{formatINR(summary.disbursementTotal)}</p>
-          <p className="text-[10px] text-slate-400 mt-0.5">Supplier & expense payouts</p>
-        </div>
-
-        <div className="bg-white border border-slate-200/80 rounded-xl p-3.5 shadow-sm">
-          <div className="flex items-center justify-between text-slate-400">
-            <span className="text-[11px] font-semibold uppercase tracking-wider text-slate-500">Freight & Trips</span>
-            <Truck size={15} className="text-blue-500" />
-          </div>
-          <p className="text-lg font-mono font-bold text-blue-700 mt-1">{formatINR(summary.freightTotal)}</p>
-          <p className="text-[10px] text-slate-400 mt-0.5">Tempo freight charges</p>
-        </div>
-
-        <div className="bg-white border border-slate-200/80 rounded-xl p-3.5 shadow-sm">
-          <div className="flex items-center justify-between text-slate-400">
-            <span className="text-[11px] font-semibold uppercase tracking-wider text-slate-500">Cash & Bank Bal</span>
-            <Landmark size={15} className="text-indigo-500" />
-          </div>
-          <p className="text-lg font-mono font-bold text-indigo-700 mt-1">{formatINR(summary.cashBankBalance)}</p>
-          <p className="text-[10px] text-slate-400 mt-0.5">Net liquid asset balance</p>
-        </div>
-
-        <div className="bg-white border border-slate-200/80 rounded-xl p-3.5 shadow-sm">
-          <div className="flex items-center justify-between text-slate-400">
-            <span className="text-[11px] font-semibold uppercase tracking-wider text-slate-500">Total Receivables</span>
-            <CreditCard size={15} className="text-cyan-500" />
-          </div>
-          <p className="text-lg font-mono font-bold text-cyan-800 mt-1">{formatINR(summary.totalReceivable)}</p>
-          <p className="text-[10px] text-slate-400 mt-0.5">Total customer book debt</p>
-        </div>
-
-        <div className="bg-white border border-slate-200/80 rounded-xl p-3.5 shadow-sm">
-          <div className="flex items-center justify-between text-slate-400">
-            <span className="text-[11px] font-semibold uppercase tracking-wider text-slate-500">Total Payables</span>
-            <Building2 size={15} className="text-orange-500" />
-          </div>
-          <p className="text-lg font-mono font-bold text-orange-700 mt-1">{formatINR(summary.totalPayable)}</p>
-          <p className="text-[10px] text-slate-400 mt-0.5">Total vendor creditor balance</p>
-        </div>
-
-        <div className="bg-white border border-slate-200/80 rounded-xl p-3.5 shadow-sm col-span-2 sm:col-span-1">
-          <div className="flex items-center justify-between text-slate-400">
-            <span className="text-[11px] font-semibold uppercase tracking-wider text-slate-500">Stock Valuation</span>
-            <PackageCheck size={15} className="text-violet-500" />
-          </div>
-          <p className="text-lg font-mono font-bold text-violet-700 mt-1">{formatINR(summary.stockValue)}</p>
-          <p className="text-[10px] text-slate-400 mt-0.5">On-hand inventory landed value</p>
-        </div>
+      <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3">
+        <KpiCard
+          label="Sales (Today)"
+          value={formatINR(summary.salesTotal)}
+          sub={`Billed invoices on ${formatDate(asOfDate)}`}
+          icon={ArrowUpRight}
+          tone="emerald"
+        />
+        <KpiCard
+          label="Collections (In)"
+          value={formatINR(summary.collectionTotal)}
+          sub="Customer payments received"
+          icon={ArrowDownLeft}
+          tone="teal"
+        />
+        <KpiCard
+          label="Purchases"
+          value={formatINR(summary.purchaseTotal)}
+          sub="Vendor bills received"
+          icon={Receipt}
+          tone="amber"
+        />
+        <KpiCard
+          label="Disbursements (Out)"
+          value={formatINR(summary.disbursementTotal)}
+          sub="Supplier & expense payouts"
+          icon={ArrowUpRight}
+          tone="rose"
+        />
+        <KpiCard
+          label="Freight & Trips"
+          value={formatINR(summary.freightTotal)}
+          sub="Tempo freight charges"
+          icon={Truck}
+          tone="blue"
+        />
+        <KpiCard
+          label="Cash & Bank Bal"
+          value={formatINR(summary.cashBankBalance)}
+          sub="Net liquid asset balance"
+          icon={Landmark}
+          tone="indigo"
+        />
+        <KpiCard
+          label="Total Receivables"
+          value={formatINR(summary.totalReceivable)}
+          sub="Total customer book debt"
+          icon={CreditCard}
+          tone="cyan"
+        />
+        <KpiCard
+          label="Total Payables"
+          value={formatINR(summary.totalPayable)}
+          sub="Total vendor creditor balance"
+          icon={Building2}
+          tone="orange"
+        />
+        <KpiCard
+          label="Stock Valuation"
+          value={formatINR(summary.stockValue)}
+          sub="On-hand inventory landed value"
+          icon={PackageCheck}
+          tone="purple"
+          className="col-span-2 sm:col-span-1"
+        />
       </div>
 
       {/* Tabs & Controls */}

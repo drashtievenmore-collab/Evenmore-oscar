@@ -12,6 +12,7 @@ import {
   CheckCircle2,
 } from 'lucide-react';
 import PageHeader from '../../components/ui/PageHeader';
+import TablePagination from '../../components/ui/TablePagination';
 import KpiCard from '../../components/ui/KpiCard';
 import { jobworkService } from '../../services/domainServices';
 
@@ -40,6 +41,10 @@ export default function ITC04ReportPage() {
   const [error, setError] = useState('');
   const [exporting, setExporting] = useState(false);
   const [tableSearch, setTableSearch] = useState('');
+  const [table4Page, setTable4Page] = useState(1);
+  const [table4PageSize, setTable4PageSize] = useState(10);
+  const [table5aPage, setTable5aPage] = useState(1);
+  const [table5aPageSize, setTable5aPageSize] = useState(10);
 
   const loadReport = async () => {
     setLoading(true);
@@ -80,6 +85,16 @@ export default function ITC04ReportPage() {
       (r.vendorName || '').toLowerCase().includes(q)
     );
   });
+
+  useEffect(() => {
+    setTable4Page(1);
+    setTable5aPage(1);
+  }, [tableSearch, financialYear, quarter]);
+
+  const paginatedTable4 = (table4Rows || []).slice(
+    (table4Page - 1) * table4PageSize,
+    table4Page * table4PageSize
+  );
 
   const table5aRows = (reportData?.table5a || []).filter((r) => {
     if (!tableSearch) return true;
@@ -131,53 +146,32 @@ export default function ITC04ReportPage() {
 
       {/* Summary KPI Cards */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm flex items-center gap-3">
-          <div className="p-2.5 rounded-lg bg-indigo-50 text-indigo-600">
-            <Send className="w-6 h-6" />
-          </div>
-          <div>
-            <div className="text-xl font-bold text-slate-900">{num(summary.totalSentMeters)} Mtr</div>
-            <div className="text-xs text-slate-500 font-medium">
-              Sent ({summary.totalSentTakas || 0} Takas)
-            </div>
-          </div>
-        </div>
-
-        <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm flex items-center gap-3">
-          <div className="p-2.5 rounded-lg bg-emerald-50 text-emerald-600">
-            <ArrowDownLeft className="w-6 h-6" />
-          </div>
-          <div>
-            <div className="text-xl font-bold text-emerald-700">
-              {num(summary.totalReceivedMeters)} Mtr
-            </div>
-            <div className="text-xs text-slate-500 font-medium">
-              Received ({summary.totalReceivedTakas || 0} Takas)
-            </div>
-          </div>
-        </div>
-
-        <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm flex items-center gap-3">
-          <div className="p-2.5 rounded-lg bg-rose-50 text-rose-600">
-            <AlertCircle className="w-6 h-6" />
-          </div>
-          <div>
-            <div className="text-xl font-bold text-rose-600">{num(summary.totalLossMeters)} Mtr</div>
-            <div className="text-xs text-slate-500 font-medium">Approved Job Losses</div>
-          </div>
-        </div>
-
-        <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm flex items-center gap-3">
-          <div className="p-2.5 rounded-lg bg-amber-50 text-amber-600">
-            <Clock className="w-6 h-6" />
-          </div>
-          <div>
-            <div className="text-xl font-bold text-amber-700">
-              {num(summary.pendingWithProcessorsMeters)} Mtr
-            </div>
-            <div className="text-xs text-slate-500 font-medium">Closing WIP with Vendors</div>
-          </div>
-        </div>
+        <KpiCard
+          label="Total Sent"
+          value={`${num(summary.totalSentMeters)} Mtr`}
+          sub={`Sent (${summary.totalSentTakas || 0} Takas)`}
+          icon={Send}
+          tone="indigo"
+        />
+        <KpiCard
+          label="Total Received"
+          value={`${num(summary.totalReceivedMeters)} Mtr`}
+          sub={`Received (${summary.totalReceivedTakas || 0} Takas)`}
+          icon={ArrowDownLeft}
+          tone="emerald"
+        />
+        <KpiCard
+          label="Approved Job Losses"
+          value={`${num(summary.totalLossMeters)} Mtr`}
+          icon={AlertCircle}
+          tone="rose"
+        />
+        <KpiCard
+          label="Closing WIP with Vendors"
+          value={`${num(summary.pendingWithProcessorsMeters)} Mtr`}
+          icon={Clock}
+          tone="amber"
+        />
       </div>
 
       {/* Tabs */}
@@ -266,7 +260,7 @@ export default function ITC04ReportPage() {
                     </td>
                   </tr>
                 ) : (
-                  table4Rows.map((r, i) => (
+                  paginatedTable4.map((r, i) => (
                     <tr key={r.id || i} className="hover:bg-slate-50/70 transition">
                       <td className="py-2.5 px-3 font-mono font-bold text-indigo-700">
                         {r.challanNumber}
@@ -291,6 +285,14 @@ export default function ITC04ReportPage() {
               </tbody>
             </table>
           </div>
+          <TablePagination
+            page={table4Page}
+            pageSize={table4PageSize}
+            totalItems={table4Rows.length}
+            onPageChange={setTable4Page}
+            onPageSizeChange={(sz) => { setTable4PageSize(sz); setTable4Page(1); }}
+            pageSizeOptions={[10, 25, 50, 100]}
+          />
         </div>
       )}
 
@@ -328,7 +330,7 @@ export default function ITC04ReportPage() {
                     </td>
                   </tr>
                 ) : (
-                  table5aRows.map((r, i) => (
+                  paginatedTable5a.map((r, i) => (
                     <tr key={r.id || i} className="hover:bg-slate-50/70 transition">
                       <td className="py-2.5 px-3 font-mono font-bold text-emerald-700">
                         {r.inwardChallanNumber}
@@ -362,6 +364,14 @@ export default function ITC04ReportPage() {
               </tbody>
             </table>
           </div>
+          <TablePagination
+            page={table5aPage}
+            pageSize={table5aPageSize}
+            totalItems={table5aRows.length}
+            onPageChange={setTable5aPage}
+            onPageSizeChange={(sz) => { setTable5aPageSize(sz); setTable5aPage(1); }}
+            pageSizeOptions={[10, 25, 50, 100]}
+          />
         </div>
       )}
     </div>
