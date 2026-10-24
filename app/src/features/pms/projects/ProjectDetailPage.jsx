@@ -20,6 +20,7 @@ import { AssignStageModal } from './components/AssignStageModal';
 import { StageHandoffModal } from '../components/StageHandoffModal';
 import { CompleteProjectModal } from './components/CompleteProjectModal';
 import { PrintProjectModal } from './components/PrintProjectModal';
+import { ProductionLinkModal } from './components/ProductionLinkModal';
 import { PmsToast } from '../components/PmsToast';
 
 /**
@@ -59,6 +60,7 @@ export default function ProjectDetailPage() {
   const [assignStageId, setAssignStageId] = useState(null); // null = closed
   const [handoffStageId, setHandoffStageId] = useState(null);
   const [showPrintModal, setShowPrintModal] = useState(false);
+  const [showProductionLink, setShowProductionLink] = useState(false);
 
   const project = useMemo(() => projects.find((p) => p.id === id || p.code === id) ?? null, [projects, id]);
   const meta = useMemo(() => (project ? getProjectRowMeta(project) : null), [project]);
@@ -119,6 +121,7 @@ export default function ProjectDetailPage() {
         onLogDelay={() => navigate(`/pms/delays?project=${project.id}`)}
         onCompleteProject={() => setConfirmComplete(true)}
         onPrintProject={() => setShowPrintModal(true)}
+        onProductionLink={() => setShowProductionLink(true)}
       />
 
       {/* Tabs */}
@@ -215,6 +218,12 @@ export default function ProjectDetailPage() {
       <PrintProjectModal
         isOpen={showPrintModal}
         onClose={() => setShowPrintModal(false)}
+        project={project}
+      />
+
+      <ProductionLinkModal
+        isOpen={showProductionLink}
+        onClose={() => setShowProductionLink(false)}
         project={project}
       />
 

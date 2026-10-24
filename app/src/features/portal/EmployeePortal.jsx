@@ -53,7 +53,7 @@ import { useDocumentStore } from '../../stores/documentStore';
 import { useDocumentFileUrl, downloadDocumentFile } from '../../hooks/useDocumentFile';
 import { usePolicyStore } from '../../stores/policyStore';
 import { api } from '../../services/api';
-import { hrmsSync } from '../../services/hrmsSync';
+import { hrmsSync, isServerId } from '../../services/hrmsSync';
 import { Modal } from '../../components/ui/Modal';
 import { Badge } from '../../components/hrms/Badge';
 import { EarlyPunchOutModal } from '../hrms/attendance/components/EarlyPunchOutModal';
@@ -82,6 +82,16 @@ const PORTAL_DOC_CATEGORIES = [
 ];
 
 const todayISO = () => new Date().toISOString().slice(0, 10);
+
+/** `2024-11-01` + `09:30` → the ISO instant for that local wall-clock time. */
+const clockToISO = (date, clock) => {
+  if (!date || !clock) return undefined;
+  const d = new Date(`${date}T${clock}`);
+  return Number.isNaN(d.getTime()) ? undefined : d.toISOString();
+};
+
+/** Shown when the tenant has not configured leave types yet; the server sets them up on first use. */
+const DEFAULT_LEAVE_TYPE_NAMES = ['Casual Leave', 'Sick Leave', 'Earned Leave', 'Loss of Pay'];
 
 function formatDate(isoStr) {
   if (!isoStr) return '—';
@@ -116,12 +126,11 @@ export default function EmployeePortal() {
 
   // Asset Store
   const assetRequests = useAssetStore((s) => s.requests || []);
-  const addAssetRequest = useAssetStore((s) => s.addRequest);
   const hydrateAssets = useAssetStore((s) => s.hydrate);
 
   // Attendance Store
   const attendanceRequests = useAttendanceStore((s) => s.requests || []);
-  const addAttendanceRequest = useAttendanceStore((s) => s.addRequest);
+  const refreshAttendanceRequests = useAttendanceStore((s) => s.refreshRequests);
 
   // Policy Store
   const policies = usePolicyStore((s) => s.policies || []);
@@ -737,6 +746,24 @@ export default function EmployeePortal() {
 
   // ── SUBMIT HANDLERS ──
 
+  // The signed-in employee's server id; the API resolves it itself when absent.
+  const myEmployeeId = isServerId(currentEmployee?.id) ? currentEmployee.id : undefined;
+
+  // Regularization, early leave, WFH and general requests all land in the
+  // attendance-request queue HR verifies at /hrms/attendance/requests.
+  const postAttendanceRequest = async ({ date, checkIn, checkOut, status = 'Present', reason }) => {
+    const saved = await api.post('/hrms/attendance/regularizations/', {
+      employeeId: myEmployeeId,
+      date,
+      requestedCheckIn: clockToISO(date, checkIn),
+      requestedCheckOut: clockToISO(date, checkOut),
+      requestedStatus: status,
+      reason,
+    });
+    refreshAttendanceRequests?.().catch(() => {});
+    return saved;
+  };
+
   // 1. Submit Full Day Leave
   const handleSubmitLeave = async (e) => {
     e.preventDefault();
@@ -752,8 +779,9 @@ export default function EmployeePortal() {
     try {
       setIsSubmitting(true);
       const payload = {
-        employeeId: currentEmployee?.id || undefined,
+        employeeId: myEmployeeId,
         leaveTypeId: leaveForm.leaveTypeId || undefined,
+        leaveTypeName: leaveForm.leaveTypeName,
         type: leaveForm.leaveTypeName,
         fromDate: leaveForm.fromDate,
         toDate: leaveForm.toDate,
@@ -800,8 +828,9 @@ export default function EmployeePortal() {
 
       // Submit to Leave store & API (0.5 day deducted upon HR approval)
       await addLeave({
-        employeeId: currentEmployee?.id || undefined,
+        employeeId: myEmployeeId,
         leaveTypeId: halfDayForm.leaveTypeId || undefined,
+        leaveTypeName: halfDayForm.leaveTypeName,
         type: `${halfDayForm.leaveTypeName} (Half Day)`,
         fromDate: halfDayForm.date,
         toDate: halfDayForm.date,
@@ -809,19 +838,6 @@ export default function EmployeePortal() {
         reason: formattedReason,
         delegateId: halfDayForm.delegateId || undefined,
         status: 'Pending Review',
-      });
-
-      // Also register in Attendance Requests queue for HR Attendance verification
-      addAttendanceRequest({
-        employee: employeeName,
-        dept: department,
-        date: halfDayForm.date,
-        type: 'Half Day',
-        curIn: sessionLabel === 'First Half' ? '09:00' : '13:30',
-        curOut: sessionLabel === 'First Half' ? '13:30' : '18:30',
-        reqIn: sessionLabel === 'First Half' ? '09:00' : '13:30',
-        reqOut: sessionLabel === 'First Half' ? '13:30' : '18:30',
-        reason: formattedReason,
       });
 
       showToast?.('Half day request submitted for HR verification!');
@@ -858,28 +874,10 @@ export default function EmployeePortal() {
       setIsSubmitting(true);
       const earlyReason = `[Early Leave: ${earlyLeaveForm.category}] Leaving at ${earlyLeaveForm.departureTime}. Reason: ${earlyLeaveForm.reason.trim()}`;
 
-      // 1. Submit to Backend Attendance Regularization API
-      await api.post('/hrms/attendance/regularizations/', {
-        employeeId: currentEmployee?.id || undefined,
+      await postAttendanceRequest({
         date: earlyLeaveForm.date,
-        requestedCheckIn: '09:00',
-        requestedCheckOut: earlyLeaveForm.departureTime,
-        requestedStatus: 'Present',
-        reason: earlyReason,
-      }).catch((err) => {
-        console.warn('Backend early leave sync warning:', err);
-      });
-
-      // 2. Add to Attendance store so HR verifies it in /hrms/attendance/requests
-      addAttendanceRequest({
-        employee: employeeName,
-        dept: department,
-        date: earlyLeaveForm.date,
-        type: 'Early Leave',
-        curIn: '09:00',
-        curOut: '18:30',
-        reqIn: '09:00',
-        reqOut: earlyLeaveForm.departureTime,
+        checkIn: '09:00',
+        checkOut: earlyLeaveForm.departureTime,
         reason: earlyReason,
       });
 
@@ -915,28 +913,11 @@ export default function EmployeePortal() {
       setIsSubmitting(true);
       const fullReason = `[Regularization — ${regForm.type}] ${regForm.reason.trim()}`;
 
-      // 1. Submit to Backend API
-      await api.post('/hrms/attendance/regularizations/', {
-        employeeId: currentEmployee?.id || undefined,
+      await postAttendanceRequest({
         date: regForm.date,
-        requestedCheckIn: regForm.requestedCheckIn,
-        requestedCheckOut: regForm.requestedCheckOut,
-        requestedStatus: regForm.requestedStatus,
-        reason: fullReason,
-      }).catch((apiErr) => {
-        console.warn('Backend regularization sync warning:', apiErr);
-      });
-
-      // 2. Add to Attendance store for HR review
-      addAttendanceRequest({
-        employee: employeeName,
-        dept: department,
-        date: regForm.date,
-        type: 'Regularization',
-        curIn: regForm.requestedCheckIn,
-        curOut: regForm.requestedCheckOut,
-        reqIn: regForm.requestedCheckIn,
-        reqOut: regForm.requestedCheckOut,
+        checkIn: regForm.requestedCheckIn,
+        checkOut: regForm.requestedCheckOut,
+        status: regForm.requestedStatus,
         reason: fullReason,
       });
 
@@ -974,24 +955,11 @@ export default function EmployeePortal() {
       setIsSubmitting(true);
       const wfhReason = `[Work From Home] Tasks: ${wfhForm.tasks.trim()}${wfhForm.reason ? ` — Note: ${wfhForm.reason.trim()}` : ''}`;
 
-      await api.post('/hrms/attendance/regularizations/', {
-        employeeId: currentEmployee?.id || undefined,
+      await postAttendanceRequest({
         date: wfhForm.date,
-        requestedCheckIn: '09:00',
-        requestedCheckOut: '18:30',
-        requestedStatus: 'WFH',
-        reason: wfhReason,
-      }).catch(() => {});
-
-      addAttendanceRequest({
-        employee: employeeName,
-        dept: department,
-        date: wfhForm.date,
-        type: 'Work From Home (WFH)',
-        curIn: '09:00',
-        curOut: '18:30',
-        reqIn: '09:00',
-        reqOut: '18:30',
+        checkIn: '09:00',
+        checkOut: '18:30',
+        status: 'WFH',
         reason: wfhReason,
       });
 
@@ -1027,26 +995,14 @@ export default function EmployeePortal() {
         ? `${itemName}${justification ? ` — ${justification}` : ''}`
         : justification;
 
+      // Category and priority have no column of their own when no category
+      // id is known, so they ride along in the justification.
       await api.post('/hrms/asset-requests/', {
-        employeeId: currentEmployee?.id || undefined,
-        categoryId: assetForm.categoryId || undefined,
-        justification: fullJustification,
-      }).catch((apiErr) => {
-        console.warn('Backend asset request sync warning:', apiErr);
+        employeeId: myEmployeeId,
+        categoryId: isServerId(assetForm.categoryId) ? assetForm.categoryId : undefined,
+        justification: `[${assetForm.categoryName} · ${assetForm.priority} priority] ${fullJustification}`,
       });
-
-      addAssetRequest({
-        employeeName,
-        employeeId: currentEmployee?.id || '',
-        dept: department,
-        category: assetForm.categoryName,
-        assetName: itemName || `${assetForm.categoryName} Hardware`,
-        reason: fullJustification,
-        priority: assetForm.priority,
-        requestedDate: todayISO(),
-        source: 'Employee Portal',
-        notes: `Priority: ${assetForm.priority}`,
-      });
+      hydrateAssets?.()?.catch?.(() => {});
 
       showToast?.('Asset request submitted for HR / IT verification!');
       setIsAssetModalOpen(false);
@@ -1081,29 +1037,11 @@ export default function EmployeePortal() {
       setIsSubmitting(true);
       const formattedReason = `[Requirement: ${generalForm.category}] (${generalForm.urgency} Urgency) ${generalForm.title.trim()} — ${generalForm.description.trim()}`;
 
-      // Sync to attendance/regularizations backend endpoint so HR can query & verify
-      const res = await api.post('/hrms/attendance/regularizations/', {
-        employeeId: currentEmployee?.id || currentUser?.employeeId || undefined,
+      // Lands in the attendance-request queue so HR can query & verify it
+      await postAttendanceRequest({
         date: generalForm.date,
-        requestedCheckIn: '09:00',
-        requestedCheckOut: '18:30',
-        requestedStatus: 'Present',
-        reason: formattedReason,
-      });
-
-      const serverId = res?.id || res?.data?.id;
-
-      // Add to store so HR Requests queue and Employee Portal update live
-      addAttendanceRequest({
-        id: serverId || undefined,
-        employee: employeeName,
-        dept: department,
-        date: generalForm.date,
-        type: 'General Request',
-        curIn: '09:00',
-        curOut: '18:30',
-        reqIn: '09:00',
-        reqOut: '18:30',
+        checkIn: '09:00',
+        checkOut: '18:30',
         reason: formattedReason,
       });
 
@@ -2418,13 +2356,13 @@ export default function EmployeePortal() {
           <div>
             <label className="block font-bold text-slate-700 mb-1">Leave Type</label>
             <select
-              value={leaveForm.leaveTypeId}
+              value={leaveForm.leaveTypeId || leaveForm.leaveTypeName}
               onChange={(e) => {
                 const selected = leaveTypes.find((lt) => lt.id === e.target.value);
                 setLeaveForm({
                   ...leaveForm,
-                  leaveTypeId: e.target.value,
-                  leaveTypeName: selected?.name || 'Casual Leave',
+                  leaveTypeId: selected?.id || '',
+                  leaveTypeName: selected?.name || e.target.value,
                 });
               }}
               className="w-full h-9 px-3 rounded-xl bg-slate-50 border border-bdr text-xs font-medium text-slate-800 focus:outline-none focus:border-primary"
@@ -2436,12 +2374,9 @@ export default function EmployeePortal() {
                   </option>
                 ))
               ) : (
-                <>
-                  <option value="casual">Casual Leave</option>
-                  <option value="sick">Sick Leave</option>
-                  <option value="earned">Earned / Privilege Leave</option>
-                  <option value="unpaid">Unpaid Leave</option>
-                </>
+                DEFAULT_LEAVE_TYPE_NAMES.map((name) => (
+                  <option key={name} value={name}>{name}</option>
+                ))
               )}
             </select>
           </div>
@@ -2556,13 +2491,13 @@ export default function EmployeePortal() {
           <div>
             <label className="block font-bold text-slate-700 mb-1">Leave Category</label>
             <select
-              value={halfDayForm.leaveTypeId}
+              value={halfDayForm.leaveTypeId || halfDayForm.leaveTypeName}
               onChange={(e) => {
                 const selected = leaveTypes.find((lt) => lt.id === e.target.value);
                 setHalfDayForm({
                   ...halfDayForm,
-                  leaveTypeId: e.target.value,
-                  leaveTypeName: selected?.name || 'Casual Leave',
+                  leaveTypeId: selected?.id || '',
+                  leaveTypeName: selected?.name || e.target.value,
                 });
               }}
               className="w-full h-9 px-3 rounded-xl bg-slate-50 border border-bdr text-xs font-medium text-slate-800 focus:outline-none focus:border-primary"
@@ -2572,7 +2507,9 @@ export default function EmployeePortal() {
                   {lt.name} (0.5 Day deduction)
                 </option>
               ))}
-              {leaveTypes.length === 0 && <option value="casual">Casual Leave (0.5 Day)</option>}
+              {leaveTypes.length === 0 && DEFAULT_LEAVE_TYPE_NAMES.map((name) => (
+                <option key={name} value={name}>{name} (0.5 Day)</option>
+              ))}
             </select>
           </div>
 

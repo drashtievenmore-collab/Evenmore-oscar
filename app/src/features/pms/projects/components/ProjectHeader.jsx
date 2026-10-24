@@ -1,6 +1,6 @@
 import React from 'react';
 import { Link } from 'react-router-dom';
-import { ChevronRight, UserPlus, AlertTriangle, CheckCircle2, Truck, Receipt, ShoppingCart, Boxes, Printer } from 'lucide-react';
+import { ChevronRight, UserPlus, AlertTriangle, CheckCircle2, Truck, Receipt, ShoppingCart, Boxes, Printer, Link2 } from 'lucide-react';
 import { Button } from '../../../../components/ui/Button';
 import { StageStatusBadge } from '../../components/StageStatusBadge';
 import { formatCurrency } from '../../../../utils/currencyUtils';
@@ -65,6 +65,7 @@ export function ProjectHeader({
   onLogDelay,
   onCompleteProject,
   onPrintProject,
+  onProductionLink,
 }) {
   const priority = PRIORITY_TONES[project.priority] ?? PRIORITY_TONES.Low;
   const isClosed = project.status === 'Completed';
@@ -207,6 +208,17 @@ export function ProjectHeader({
           <Button size="sm" variant="secondary" icon={Printer} onClick={onPrintProject} title="Print or save project report as PDF">
             Print Project Report
           </Button>
+          {onProductionLink && (
+            <Button
+              size="sm"
+              variant="secondary"
+              icon={Link2}
+              onClick={onProductionLink}
+              title="Shareable link to the Daily Production Entry form for this project"
+            >
+              Production Entry Link
+            </Button>
+          )}
           <Button size="sm" variant="secondary" icon={UserPlus} onClick={onAssignStage} disabled={isClosed}>
             Assign Active Stage
           </Button>

@@ -79,6 +79,33 @@ function offerStatusToServer(status) {
   return status;
 }
 
+/** `2024-11-01` + `09:30` → the ISO instant for that local wall-clock time. */
+function clockToDateTime(isoDate, value) {
+  if (!value) return undefined;
+  if (String(value).includes('T')) return value; // already a datetime
+  if (!isoDate || !/^\d{1,2}:\d{2}/.test(String(value))) return undefined;
+  const d = new Date(`${isoDate}T${String(value).padStart(5, '0')}`);
+  return Number.isNaN(d.getTime()) ? undefined : d.toISOString();
+}
+
+/** An ISO datetime → its local `HH:MM`. Empty when missing. */
+function dateTimeToClock(value) {
+  if (!value) return '';
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return '';
+  return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+}
+
+/** The request type the self-service forms tag onto a regularization's reason. */
+function regularizationType(reason, requestedStatus) {
+  const tag = String(reason || '').toLowerCase();
+  if (tag.startsWith('[requirement')) return 'General Request';
+  if (tag.startsWith('[early leave')) return 'Early Leave';
+  if (tag.startsWith('[half day')) return 'Half Day';
+  if (tag.startsWith('[work from home') || requestedStatus === 'WFH') return 'Work From Home (WFH)';
+  return 'Regularization';
+}
+
 function num(value, fallback = 0) {
   const n = Number(value);
   return Number.isFinite(n) ? n : fallback;
@@ -217,7 +244,9 @@ export const HRMS_RESOURCES = {
     path: '/hrms/leave/',
     toApi: (l) => compact({
       employeeId: l.employeeId || undefined,
-      leaveTypeId: l.leaveTypeId || undefined,
+      leaveTypeId: isServerId(l.leaveTypeId) ? l.leaveTypeId : undefined,
+      // Lets the server resolve (or set up) the type when no id is known.
+      leaveTypeName: l.leaveTypeName || undefined,
       fromDate: isoOut(l.fromDate || l.from),
       toDate: isoOut(l.toDate || l.to),
       days: l.days !== undefined ? num(l.days) : undefined,
@@ -258,7 +287,43 @@ export const HRMS_RESOURCES = {
       _synced: true,
     }),
   },
-  attendanceRegularizations: dated('/hrms/attendance/regularizations/', ['date']),
+  // The request screens keep clock times (`09:30`) beside the date; the API
+  // wants full datetimes, and has no `type` column — the self-service forms
+  // tag the reason instead (`[Work From Home] …`), so the type is read back
+  // from that tag.
+  attendanceRegularizations: {
+    path: '/hrms/attendance/regularizations/',
+    toApi: (r) => {
+      const date = isoOut(r.date);
+      return compact({
+        employeeId: isServerId(r.employeeId) ? r.employeeId : undefined,
+        date,
+        requestedCheckIn: clockToDateTime(date, r.requestedCheckIn || r.requestedIn || r.reqIn),
+        requestedCheckOut: clockToDateTime(date, r.requestedCheckOut || r.requestedOut || r.reqOut),
+        requestedStatus: r.requestedStatus || undefined,
+        reason: r.reason || undefined,
+        status: r.status || undefined,
+        remark: r.remark || r.rejectReason || undefined,
+      });
+    },
+    fromApi: (row) => {
+      const reqIn = dateTimeToClock(row.requestedCheckIn);
+      const reqOut = dateTimeToClock(row.requestedCheckOut);
+      return {
+        ...row,
+        employee: row.employeeName || '',
+        requestedBy: row.employeeName || '',
+        type: regularizationType(row.reason, row.requestedStatus),
+        date: displayIn(row.date),
+        reqIn,
+        reqOut,
+        requestedIn: reqIn,
+        requestedOut: reqOut,
+        submitted: displayIn(String(row.createdAt || '').slice(0, 10)),
+        _synced: true,
+      };
+    },
+  },
 
   // ── payroll ───────────────────────────────────────────────────────────────
   payroll: {

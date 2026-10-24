@@ -97,6 +97,13 @@ const useAttendanceStoreBase = create((set, get) => ({
     return rows;
   },
 
+  /** Re-read the request queue after something posted to the API directly. */
+  refreshRequests: async () => {
+    const rows = await pullTracked("attendanceRegularizations");
+    if (rows) set({ requests: rows });
+    return rows;
+  },
+
   /** Empty on sign-out so the next user sees nothing of the previous one. */
   clear: () => set({ records: [], requests: [], todayPunch: DEFAULT_TODAY_PUNCH }),
 
