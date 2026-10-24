@@ -119,6 +119,28 @@ export const SalesOrdersPage = () => {
             navigate('/sales/invoices');
         }
     };
+    const orderHasInvoice = (order) => {
+        if (!order) return false;
+        if (order.stage === 'Invoiced') return true;
+        return (invoices || []).some(inv => 
+            inv.status !== 'Cancelled' && (
+                (order.id && inv.salesOrderId === order.id) ||
+                (order.orderNumber && (inv.salesOrderNumber === order.orderNumber || inv.linkedSo === order.orderNumber || inv.salesOrderRef === order.orderNumber))
+            )
+        );
+    };
+
+    const orderHasChallan = (order) => {
+        if (!order) return false;
+        if (['Fully Dispatched', 'Invoiced'].includes(order.stage)) return true;
+        return (deliveryChallans || []).some(dc =>
+            dc.status !== 'Cancelled' && (
+                (order.id && dc.salesOrderId === order.id) ||
+                (order.orderNumber && (dc.salesOrderNumber === order.orderNumber || dc.linkedSo === order.orderNumber))
+            )
+        );
+    };
+
     const filteredOrders = salesOrders.filter((o) => {
         if (stageFilter === 'All')
             return true;
@@ -372,7 +394,7 @@ export const SalesOrdersPage = () => {
                 Awaiting approval
               </span>
             )}
-            {o.stage === 'Confirmed' && (<>
+            {o.stage === 'Confirmed' && !orderHasChallan(o) && (<>
                 {!pmsProjects.some((p) => p.crmOrderId === o.orderNumber) && (
                   <button
                     onClick={() => setPmsModalOrder(o.orderNumber)}
@@ -389,9 +411,18 @@ export const SalesOrdersPage = () => {
             {o.stage === 'Partially Dispatched' && (<button onClick={() => advanceStage(o.id, 'Partially Dispatched')} className="px-2.5 py-1 bg-indigo-600 text-white rounded-md text-xs font-semibold hover:bg-indigo-700 cursor-pointer inline-flex items-center gap-1 shadow-xs transition-colors whitespace-nowrap">
                 <Truck size={12}/> Dispatch Remaining
               </button>)}
-            {(o.stage === 'Fully Dispatched' || o.stage === 'Partially Dispatched') && (<button onClick={() => advanceStage(o.id, 'Fully Dispatched')} className="px-2.5 py-1 bg-emerald-600 text-white rounded-md text-xs font-semibold hover:bg-emerald-700 cursor-pointer inline-flex items-center gap-1 shadow-xs transition-colors whitespace-nowrap">
-                <Receipt size={12}/> Invoice
-              </button>)}
+            {!isCancelled && o.stage !== 'Invoiced' && o.stage !== 'Closed' && !orderHasInvoice(o) && (
+              <button
+                onClick={async () => {
+                  await convertSalesOrderToInvoice(o.id);
+                  navigate('/sales/invoices');
+                }}
+                className="px-2.5 py-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded-md text-xs font-semibold cursor-pointer inline-flex items-center gap-1 shadow-xs transition-colors whitespace-nowrap"
+                title="Convert this Sales Order into a Sales Invoice"
+              >
+                <Receipt size={12}/> Sales Invoice
+              </button>
+            )}
             {o.stage === 'Invoiced' && (<span className="text-[11px] font-semibold text-emerald-600 dark:text-emerald-400 inline-flex items-center gap-1 whitespace-nowrap">
                 <CheckCircle size={12}/> Fulfilled
               </span>)}
@@ -557,6 +588,21 @@ export const SalesOrdersPage = () => {
                 <StatusBadge status={selectedOrder.stage || 'Draft'}/>
               </div>
               <div className="flex flex-wrap lg:flex-nowrap items-center gap-2">
+                {selectedOrder.stage !== 'Cancelled' && !orderHasInvoice(selectedOrder) && (
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      await convertSalesOrderToInvoice(selectedOrder.id);
+                      setSelectedOrder(null);
+                      navigate('/sales/invoices');
+                    }}
+                    className="px-3 py-1.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200 rounded-lg font-semibold flex items-center gap-1.5 cursor-pointer shadow-xs"
+                    title="Convert to Sales Invoice"
+                  >
+                    <Receipt size={13}/>
+                    Convert to Sales Invoice
+                  </button>
+                )}
                 <button
                   type="button"
                   onClick={() => setPrintSalesOrderTarget(selectedOrder)}
@@ -670,12 +716,21 @@ export const SalesOrdersPage = () => {
                     {selectedOrder.stage === 'Draft' && (<Button onClick={() => { advanceStage(selectedOrder.id, 'Draft'); setSelectedOrder(null); }}>
                         Confirm Order
                       </Button>)}
-                    {(selectedOrder.stage === 'Confirmed' || selectedOrder.stage === 'Partially Dispatched') && (<Button onClick={() => { advanceStage(selectedOrder.id, selectedOrder.stage); setSelectedOrder(null); }}>
+                    {(selectedOrder.stage === 'Confirmed' || selectedOrder.stage === 'Partially Dispatched') && !orderHasChallan(selectedOrder) && (<Button onClick={() => { advanceStage(selectedOrder.id, selectedOrder.stage); setSelectedOrder(null); }}>
                         {selectedOrder.stage === 'Partially Dispatched' ? 'Dispatch Remaining' : 'Issue Delivery Challan'}
                       </Button>)}
-                    {(selectedOrder.stage === 'Fully Dispatched' || selectedOrder.stage === 'Partially Dispatched') && (<Button variant="outline" onClick={() => { convertSalesOrderToInvoice(selectedOrder.id); setSelectedOrder(null); navigate('/sales/invoices'); }}>
-                        Generate Sales Invoice
-                      </Button>)}
+                    {selectedOrder.stage !== 'Cancelled' && !orderHasInvoice(selectedOrder) && (
+                      <Button
+                        className="bg-emerald-600 hover:bg-emerald-700 text-white font-semibold flex items-center gap-1 cursor-pointer"
+                        onClick={async () => {
+                          await convertSalesOrderToInvoice(selectedOrder.id);
+                          setSelectedOrder(null);
+                          navigate('/sales/invoices');
+                        }}
+                      >
+                        <Receipt size={13}/> Convert to Sales Invoice
+                      </Button>
+                    )}
                     <button
                       onClick={() => {
                         const target = selectedOrder;

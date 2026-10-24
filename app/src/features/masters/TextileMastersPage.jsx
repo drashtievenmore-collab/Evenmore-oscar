@@ -273,6 +273,11 @@ export default function TextileMastersPage() {
         delete payload.addressCity;
         delete payload.addressState;
         delete payload.addressPincode;
+      } else if (activeTab === 'brokers') {
+        if (payload.contactPerson !== undefined) payload.contact_person = payload.contactPerson;
+        if (payload.commissionType !== undefined) payload.commission_type = payload.commissionType;
+        if (payload.defaultValue !== undefined) payload.default_value = payload.defaultValue;
+        if (payload.isActive !== undefined) payload.is_active = payload.isActive;
       }
       if (editingItem) {
         await api.put(`${endpoint}${editingItem.id}/`, payload);

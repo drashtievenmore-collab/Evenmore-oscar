@@ -159,6 +159,8 @@ export const salesService = {
   convertOrderToChallan: (id) => api.post(`/sales/orders/${id}/convert-to-challan/`),
   convertOrderToInvoice: (id) => api.post(`/sales/orders/${id}/convert-to-invoice/`),
   updateInvoiceStatus: (id, status) => api.patch(`/sales/invoices/${id}/`, { status }),
+  convertInvoiceToChallan: (id, payload = {}) => api.post(`/sales/invoices/${id}/convert-to-challan/`, payload),
+  convertChallanToInvoice: (id, payload = {}) => api.post(`/sales/delivery-challans/${id}/convert-to-invoice/`, payload),
   getChallans: (query) => api.get('/sales/challans/', { query }),
   recordPaymentIn: (data) => api.post('/sales/payments/', data),
   getReturns: (query) => api.get('/sales/returns/', { query }),

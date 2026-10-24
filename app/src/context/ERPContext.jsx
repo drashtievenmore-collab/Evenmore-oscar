@@ -2515,19 +2515,149 @@ export const ERPProvider = ({ children, }) => {
                 return undefined;
             });
     };
-    const convertSalesOrderToInvoice = (orderId, payload = {}) => {
-        const order = salesOrders.find((o) => o.id === orderId);
-        if (!order) return Promise.resolve(undefined);
-        return api.post(`/sales/orders/${orderId}/convert-to-invoice/`, payload)
-            .then((invoice) => {
-                showToast(`Draft invoice created for the dispatched quantity of ${order.orderNumber}.`);
+    const convertInvoiceToChallan = async (invoiceId, payload = {}) => {
+        const inv = invoices.find(i => String(i.id) === String(invoiceId));
+        if (!inv) return undefined;
+        if (isBackendEnabled() && isServerId(invoiceId)) {
+            try {
+                const res = await api.post(`/sales/invoices/${invoiceId}/convert-to-challan/`, payload);
+                const challan = res?.data || res;
+                showToast(`Draft delivery challan ${challan?.challanNumber || challan?.challan_number || ''} created for Invoice ${inv.invoiceNumber}. Dispatch it to move stock.`);
+                refreshCollections(['deliveryChallans', 'invoices']);
+                return challan;
+            } catch (err) {
+                console.warn('[ERP] Backend convert-to-challan failed, falling back to client creation:', err);
+            }
+        }
+        const defaultAddresses = resolvePartyAddresses(inv.customerId, inv.customer);
+        const challan = addDeliveryChallan({
+            sourceInvoiceId: inv.id,
+            sourceInvoiceNumber: inv.invoiceNumber,
+            invoiceId: inv.id,
+            invoiceNumber: inv.invoiceNumber,
+            salesOrderId: inv.salesOrderId,
+            salesOrderNumber: inv.salesOrderNumber || inv.salesOrderRef || inv.linkedSo || '',
+            linkedSo: inv.salesOrderNumber || inv.salesOrderRef || inv.linkedSo || '',
+            customerId: inv.customerId,
+            customer: inv.customer,
+            billingAddress: createAddressSnapshot(inv.billingAddress) || defaultAddresses.billing,
+            shippingAddress: createAddressSnapshot(inv.shippingAddress) || defaultAddresses.shipping,
+            status: 'Draft',
+            date: getCurrentISODate(),
+            dispatchDate: getCurrentISODate(),
+            items: (inv.items || []).map((it, idx) => ({
+                id: it.id || `dc-item-${Date.now()}-${idx}`,
+                itemId: it.itemId || it.item_id,
+                sku: it.sku || it.itemSku || '',
+                itemSku: it.sku || it.itemSku || '',
+                name: it.name || it.description || `Item ${idx + 1}`,
+                description: it.description || it.name || `Item ${idx + 1}`,
+                orderedQty: Number(it.qty) || 1,
+                qty: Number(it.qty) || 1,
+                dispatchedQty: Number(it.qty) || 1,
+                hsnCode: it.hsnCode || it.hsnSac || '',
+                rate: Number(it.rate) || 0,
+            })),
+        });
+        setInvoices(prev => prev.map(i => String(i.id) === String(invoiceId) ? { ...i, deliveryChallanId: challan?.id } : i));
+        showToast(`Draft delivery challan ${challan?.challanNumber || ''} created for Invoice ${inv.invoiceNumber}.`);
+        return challan;
+    };
+    const convertChallanToInvoice = async (challanId, payload = {}) => {
+        const challan = deliveryChallans.find(c => String(c.id) === String(challanId));
+        if (!challan) return undefined;
+        if (isBackendEnabled() && isServerId(challanId)) {
+            try {
+                const res = await api.post(`/sales/delivery-challans/${challanId}/convert-to-invoice/`, payload);
+                const inv = res?.data || res;
+                showToast(`Draft invoice ${inv?.invoiceNumber || inv?.invoice_number || ''} created from Challan ${challan.challanNumber}.`);
+                refreshCollections(['invoices', 'deliveryChallans']);
+                return inv;
+            } catch (err) {
+                console.warn('[ERP] Backend convert-to-invoice failed, falling back to client creation:', err);
+            }
+        }
+        const defaultAddresses = resolvePartyAddresses(challan.customerId, challan.customer);
+        const invLines = (challan.items || challan.lineItems || []).map((it, idx) => ({
+            id: it.id || `inv-item-${Date.now()}-${idx}`,
+            itemId: it.itemId || it.item_id,
+            sku: it.sku || it.itemSku || '',
+            itemSku: it.sku || it.itemSku || '',
+            name: it.name || it.description || `Item ${idx + 1}`,
+            description: it.description || it.name || `Item ${idx + 1}`,
+            qty: Number(it.qty) || 1,
+            rate: Number(it.rate) || 0,
+            amount: (Number(it.qty) || 1) * (Number(it.rate) || 0),
+            discount: Number(it.discount) || 0,
+            tax: Number(it.tax) || 18,
+            hsnCode: it.hsnCode || it.hsnSac || '',
+        }));
+        const newInvoice = createInvoice({
+            customerId: challan.customerId,
+            customer: challan.customer,
+            billingAddress: createAddressSnapshot(challan.billingAddress) || defaultAddresses.billing,
+            shippingAddress: createAddressSnapshot(challan.shippingAddress) || defaultAddresses.shipping,
+            deliveryChallanId: challan.id,
+            deliveryChallanNumber: challan.challanNumber,
+            salesOrderId: challan.salesOrderId,
+            salesOrderNumber: challan.salesOrderNumber || challan.linkedSo || '',
+            linkedSo: challan.salesOrderNumber || challan.linkedSo || '',
+            status: 'Draft',
+            date: getCurrentISODate(),
+            dueDate: addDaysISO(getCurrentISODate(), 30),
+            items: invLines,
+            total: invLines.reduce((s, it) => s + (it.amount || 0), 0),
+        });
+        setDeliveryChallans(prev => prev.map(c => String(c.id) === String(challan.id) ? { ...c, invoiceId: newInvoice.id, invoiceNumber: newInvoice.invoiceNumber } : c));
+        showToast(`Draft Invoice created from Challan ${challan.challanNumber}!`);
+        return newInvoice;
+    };
+    const convertSalesOrderToInvoice = async (orderId, payload = {}) => {
+        const order = salesOrders.find((o) => String(o.id) === String(orderId));
+        if (!order) return undefined;
+        if (isBackendEnabled() && isServerId(orderId)) {
+            try {
+                const res = await api.post(`/sales/orders/${orderId}/convert-to-invoice/`, payload);
+                const invoice = res?.data || res;
+                showToast(`Draft invoice created for ${order.orderNumber}.`);
                 refreshCollections(['invoices', 'salesOrders']);
                 return invoice;
-            })
-            .catch((err) => {
-                showToast(`Could not create invoice — ${describeError(err)}`);
-                return undefined;
-            });
+            } catch (err) {
+                console.warn('[ERP] Backend convert-to-invoice returned error, falling back to direct creation:', err);
+            }
+        }
+        const defaultAddresses = resolvePartyAddresses(order.customerId, order.customer);
+        const orderLines = (order.items || order.lineItems || []).map((it, idx) => ({
+            id: it.id || `inv-item-${Date.now()}-${idx}`,
+            itemId: it.itemId || it.item_id,
+            sku: it.sku || it.itemSku || '',
+            itemSku: it.sku || it.itemSku || '',
+            name: it.name || it.description || `Item ${idx + 1}`,
+            description: it.description || it.name || `Item ${idx + 1}`,
+            qty: Number(it.qty || it.orderedQty || 1),
+            rate: Number(it.rate || 0),
+            amount: (Number(it.qty || it.orderedQty || 1)) * (Number(it.rate || 0)),
+            discount: Number(it.discount || 0),
+            tax: Number(it.tax || 18),
+            hsnCode: it.hsnCode || it.hsnSac || '',
+        }));
+        const newInvoice = createInvoice({
+            customerId: order.customerId,
+            customer: order.customer,
+            billingAddress: createAddressSnapshot(order.billingAddress) || defaultAddresses.billing,
+            shippingAddress: createAddressSnapshot(order.shippingAddress) || defaultAddresses.shipping,
+            salesOrderId: order.id,
+            salesOrderNumber: order.orderNumber,
+            linkedSo: order.orderNumber,
+            status: 'Draft',
+            date: getCurrentISODate(),
+            dueDate: addDaysISO(getCurrentISODate(), 30),
+            items: orderLines,
+            total: orderLines.reduce((acc, it) => acc + (it.amount || 0), 0),
+        });
+        setSalesOrders(prev => prev.map(o => String(o.id) === String(order.id) ? { ...o, stage: 'Invoiced', status: 'Invoiced' } : o));
+        showToast(`Draft Invoice created for Sales Order ${order.orderNumber}!`);
+        return newInvoice;
     };
     const addDeliveryChallan = (challan) => {
         const previous = challan.id ? deliveryChallans.find(dc => dc.id === challan.id) : null;
@@ -2559,6 +2689,51 @@ export const ERPProvider = ({ children, }) => {
             items: challanItems,
             lineItems: challanItems,
         };
+        // Auto-create matching Sales Order if none exists for this Delivery Challan
+        if (!newChallan.salesOrderId && !newChallan.salesOrderNumber) {
+            const soItems = (challanItems || []).map((line, idx) => ({
+                id: line.id || `so-item-${Date.now()}-${idx}`,
+                itemId: line.itemId || '',
+                sku: line.sku || line.itemSku || '',
+                itemSku: line.sku || line.itemSku || '',
+                name: line.name || line.description || `Item ${idx + 1}`,
+                description: line.name || line.description || `Item ${idx + 1}`,
+                orderedQty: Number(line.qty || line.orderedQty || 1),
+                qty: Number(line.qty || line.orderedQty || 1),
+                deliveredQty: Number(line.qty || line.dispatchedQty || 1),
+                invoicedQty: 0,
+                remainingQty: 0,
+                rate: Number(line.rate || 0),
+                discount: Number(line.discount || 0),
+                tax: Number(line.tax || 18),
+                amount: (Number(line.qty || line.orderedQty || 1)) * (Number(line.rate || 0)),
+            }));
+            const autoOrder = {
+                id: `so-${Date.now()}`,
+                orderNumber: `SO-${String(Date.now()).slice(-6)}`,
+                customerId: newChallan.customerId,
+                customer: newChallan.customer || '',
+                billingAddress: newChallan.billingAddress || defaultAddresses.billing,
+                shippingAddress: newChallan.shippingAddress || defaultAddresses.shipping,
+                date: newChallan.date || getCurrentISODate(),
+                deliveryDate: newChallan.dispatchDate || getCurrentISODate(),
+                amount: soItems.reduce((acc, it) => acc + (it.amount || 0), 0),
+                stage: 'Fully Dispatched',
+                status: 'Fully Dispatched',
+                paymentStatus: 'Unpaid',
+                items: soItems,
+                lineItems: soItems,
+                notes: `Auto-created from Delivery Challan ${newChallan.challanNumber || ''}`,
+            };
+            setSalesOrders((prev) => [autoOrder, ...prev]);
+            persistCreate('salesOrders', autoOrder, setSalesOrders);
+            newChallan.salesOrderId = autoOrder.id;
+            newChallan.sourceSalesOrderId = autoOrder.id;
+            newChallan.salesOrderNumber = autoOrder.orderNumber;
+            newChallan.sourceSalesOrderNumber = autoOrder.orderNumber;
+            newChallan.linkedSo = autoOrder.orderNumber;
+        }
+
         setDeliveryChallans((prev) => previous ? prev.map(dc => dc.id === newChallan.id ? newChallan : dc) : [newChallan, ...prev]);
 
         // Draft quotation conversions reserve no stock and have no fulfillment effects.
@@ -4338,6 +4513,8 @@ export const ERPProvider = ({ children, }) => {
             cancelSalesOrder,
             convertSalesOrderToInvoice,
             convertSalesOrderToChallan,
+            convertInvoiceToChallan,
+            convertChallanToInvoice,
             addDeliveryChallan,
             updateDeliveryChallanStatus,
             cancelDeliveryChallan,

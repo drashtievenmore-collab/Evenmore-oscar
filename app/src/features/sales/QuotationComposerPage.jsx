@@ -80,7 +80,7 @@ function blankLine() {
   return {
     key: uid('li'), itemId: '', fabric: '', quality: '', design: '',
     colour: '', width: '', gsm: '', stock: null, costPrice: null,
-    qty: 1, uom: 'Meter', rate: 0, discPct: 0, gstPct: 5,
+    qty: '', uom: 'Meter', rate: 0, discPct: 0, gstPct: 5,
   };
 }
 
@@ -218,7 +218,7 @@ export default function QuotationComposerPage({ embedded = null } = {}) {
         return { ...blankLine(), fabric: entry.name || entry.description || '', qty: Number(entry.qty) || 1, rate: Number(entry.rate) || 0 };
       });
     }
-    return [blankLine(), blankLine(), blankLine()];
+    return [blankLine()];
   });
   const [itemSearch, setItemSearch] = useState('');
   const [docDiscPct, setDocDiscPct] = useState(0);
@@ -300,7 +300,9 @@ export default function QuotationComposerPage({ embedded = null } = {}) {
     lines.forEach((line) => {
       const t = lineTotals(line);
       subtotal += t.gross; lineDisc += t.disc; lineNet += t.net; lineGst += t.gst;
-      totalQty += num(line.qty);
+      if (line.itemId || line.fabric || num(line.qty) > 0) {
+        totalQty += num(line.qty);
+      }
       if (line.gstPct != null && line.gstPct !== '') rateSet.add(num(line.gstPct));
       if (line.costPrice != null && line.costPrice !== '') {
         costSum += num(line.qty) * num(line.costPrice);
@@ -391,6 +393,7 @@ export default function QuotationComposerPage({ embedded = null } = {}) {
     // A lead is a person first and a company second, so the person's name is
     // the contact; a customer carries its own contact person.
     setContactPerson(option.kind === 'lead' ? (next?.name || '') : (next?.contactPerson || ''));
+    setDealRef(option.kind === 'lead' ? (next?.leadNumber || next?.dealReference || next?.id || '') : (next?.dealReference || next?.code || ''));
     setCustomerPickerOpen(false);
     setCustomerSearch('');
   }
@@ -435,7 +438,7 @@ export default function QuotationComposerPage({ embedded = null } = {}) {
   }
 
   function removeLine(key) {
-    setLines((prev) => (prev.length <= 1 ? prev : prev.filter((line) => line.key !== key)));
+    setLines((prev) => (prev.length <= 1 ? [blankLine()] : prev.filter((line) => line.key !== key)));
   }
 
   function buildPayload(status) {
@@ -975,7 +978,7 @@ export default function QuotationComposerPage({ embedded = null } = {}) {
                 </div>
                 <div>
                   <label className={labelCls}>Freight Amount (₹)</label>
-                  <input type="number" min="0" step="any" value={freightAmount} onChange={(e) => setFreightAmount(e.target.value)} disabled={freightType !== 'Paid'} className={`${inputCls} disabled:bg-slate-50 disabled:text-slate-400`} />
+                  <input type="number" min="0" step="any" value={freightAmount} onChange={(e) => setFreightAmount(e.target.value)}  className={`${inputCls} disabled:bg-slate-50 disabled:text-slate-400`} />
                 </div>
                 <div>
                   <label className={labelCls}>Loading &amp; Unloading (₹)</label>

@@ -234,7 +234,7 @@ export default function DashboardView() {
         subtitle={`Here is what is happening with your CRM today.${ordersTotal > 0 ? ` ${formatCurrency(ordersTotal)} orders` : ''}${paymentIns.length > 0 ? ` ${paymentIns.length} payments` : ''}`}
         actions={
           <div className="flex flex-wrap items-center gap-3">
-            <div style={{ display: "flex", alignItems: "center", gap: 8, background: "#fff", border: "1px solid #e2e8f0", borderRadius: 10, padding: "8px 12px", fontSize: 12, fontWeight: 600, color: "#334155" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 8, background: "var(--card)", border: "1px solid var(--border)", borderRadius: 10, padding: "8px 12px", fontSize: 12, fontWeight: 600, color: "#334155" }}>
               <CalendarDays size={15} color="#64748b" /> {todayStr}
             </div>
           </div>
@@ -254,7 +254,7 @@ export default function DashboardView() {
         })}
       </div>
       <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,2fr)_minmax(280px,1fr)]" style={{ gap: 12 }}>
-        <div style={{ background: "#fff", border: "1px solid #e6edf7", borderRadius: 14, padding: 16 }}>
+        <div style={{ background: "var(--card)", border: "1px solid var(--border)", borderRadius: 14, padding: 16 }}>
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 4 }}>
             <div>
               <h3 style={{ margin: 0, fontSize: 14, fontWeight: 800, color: "#0f1f3d" }}>Sales Pipeline</h3>
@@ -272,7 +272,7 @@ export default function DashboardView() {
             ))}
           </div>
         </div>
-        <div style={{ background: "#fff", border: "1px solid #e6edf7", borderRadius: 14, padding: 16 }}>
+        <div style={{ background: "var(--card)", border: "1px solid var(--border)", borderRadius: 14, padding: 16 }}>
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
             <h3 style={{ margin: 0, fontSize: 14, fontWeight: 800, color: "#0f1f3d" }}>Leads by Source</h3>
             <span style={{ fontSize: 11, fontWeight: 700, border: "1px solid #e2e8f0", borderRadius: 8, padding: "4px 10px", color: "#475569" }}>This month</span>
@@ -303,7 +303,7 @@ export default function DashboardView() {
           </div>
         </div>
       </div>
-      <div style={{ background: "#fff", border: "1px solid #e6edf7", borderRadius: 14, padding: 16 }}>
+      <div style={{ background: "var(--card)", border: "1px solid var(--border)", borderRadius: 14, padding: 16 }}>
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 lg:gap-0 flex-wrap lg:flex-nowrap">
           <h3 style={{ margin: 0, fontSize: 14, fontWeight: 800, color: "#0f1f3d" }}>My Tasks</h3>
           <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
@@ -405,7 +405,7 @@ export default function DashboardView() {
         </div>
       </div>
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-[repeat(auto-fit,minmax(280px,1fr))]" style={{ gap: 12 }}>
-        <div style={{ background: "#fff", border: "1px solid #e6edf7", borderRadius: 14, padding: 16 }}>
+        <div style={{ background: "var(--card)", border: "1px solid var(--border)", borderRadius: 14, padding: 16 }}>
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
             <h3 style={{ margin: 0, fontSize: 14, fontWeight: 800, color: "#0f1f3d" }}>Recent Leads</h3>
             <Link to="/crm/leads" style={{ fontSize: 12, fontWeight: 700, color: "#2f6fed" }}>View All</Link>
@@ -430,7 +430,7 @@ export default function DashboardView() {
             })}
           </div>
         </div>
-        <div style={{ background: "#fff", border: "1px solid #e6edf7", borderRadius: 14, padding: 16 }}>
+        <div style={{ background: "var(--card)", border: "1px solid var(--border)", borderRadius: 14, padding: 16 }}>
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
             <h3 style={{ margin: 0, fontSize: 14, fontWeight: 800, color: "#0f1f3d" }}>Today Calendar</h3>
             <Link to="/crm/tasks" style={{ fontSize: 12, fontWeight: 700, color: "#2f6fed" }}>View Calendar</Link>
@@ -451,7 +451,7 @@ export default function DashboardView() {
             ))}
           </div>
         </div>
-        <div style={{ background: "#fff", border: "1px solid #e6edf7", borderRadius: 14, padding: 16 }}>
+        <div style={{ background: "var(--card)", border: "1px solid var(--border)", borderRadius: 14, padding: 16 }}>
           <h3 style={{ margin: 0, fontSize: 14, fontWeight: 800, color: "#0f1f3d" }}>Quick Actions</h3>
           <p style={{ margin: "2px 0 12px", fontSize: 11, color: "#64748b" }}>Perform tasks with one click | {deals.length} deals {invoices.length} invoices</p>
           <div style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 10, textAlign: "center" }}>
@@ -475,7 +475,7 @@ export default function DashboardView() {
             <Link to="/crm/leads" style={{ flex: 1, textAlign: "center", background: "#0f1f3d", color: "#fff", borderRadius: 9, padding: "9px 0", fontSize: 12, fontWeight: 800, display: "flex", alignItems: "center", justifyContent: "center", gap: 6 }}>
               <Mail size={14} /> Email
             </Link>
-            <Link to="/crm/deals" style={{ flex: 1, textAlign: "center", background: "#fff", border: "1px solid #e2e8f0", color: "#0f1f3d", borderRadius: 9, padding: "9px 0", fontSize: 12, fontWeight: 800 }}>
+            <Link to="/crm/deals" style={{ flex: 1, textAlign: "center", background: "var(--card)", border: "1px solid var(--border)", color: "#0f1f3d", borderRadius: 9, padding: "9px 0", fontSize: 12, fontWeight: 800 }}>
               Deals
             </Link>
           </div>

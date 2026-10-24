@@ -320,9 +320,16 @@ html.dark,
 
   /* Card, modal, drawer and panel containers */
   .bg-white,
+  [class*="bg-white"]:not(.keep-white, [data-keep-white="true"], .printable-document, .printable-document *),
   .bg-\[\#ffffff\],
   .bg-\[\#fff\],
-  .bg-\[\#FFF\] {
+  .bg-\[\#FFF\],
+  [class*="bg-[#fff]"],
+  [class*="bg-[#ffffff]"],
+  [style*="background: #fff"]:not(.keep-white),
+  [style*="background:#fff"]:not(.keep-white),
+  [style*="background-color: #fff"]:not(.keep-white),
+  [style*="background-color:#fff"]:not(.keep-white) {
     background-color: var(--card) !important;
   }
 
@@ -5065,9 +5072,26 @@ tr:hover .pinned-indicator,
     width: 100% !important;
   }
 
-  aside, header, nav, .no-print, .no-print *, button, .print-hidden {
+  aside, header, nav, .no-print, .no-print *, button, .print-hidden,
+  .sidebar, .topbar, .sidebar-backdrop, .toast, .floating-support-btn,
+  .command-palette-backdrop, [role="navigation"], [role="banner"] {
     display: none !important;
     visibility: hidden !important;
+  }
+
+  .main-col {
+    margin-left: 0 !important;
+    width: 100% !important;
+    padding: 0 !important;
+  }
+
+  .app-shell {
+    display: block !important;
+  }
+
+  .content {
+    padding: 0 !important;
+    margin: 0 !important;
   }
 
   table, tr, td, th { page-break-inside: avoid !important; }

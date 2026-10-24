@@ -276,7 +276,7 @@ function partyFromApi(row) {
   return {
     ...row,
     partyType: row.type,
-    contactPerson: row.contacts?.[0]?.name || '',
+    contactPerson: row.contact_person || row.contacts?.[0]?.name || '',
     _synced: true,
   };
 }
@@ -287,7 +287,7 @@ function customerFromParty(row) {
     id: row.id,
     code: row.code,
     name: row.name,
-    contactPerson: row.contacts?.[0]?.name || '',
+    contactPerson: row.contact_person || row.contacts?.[0]?.name || '',
     email: row.email || '',
     phone: row.phone || '',
     balance: num(row.balance),

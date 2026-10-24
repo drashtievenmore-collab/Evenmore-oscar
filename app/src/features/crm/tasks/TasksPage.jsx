@@ -398,7 +398,7 @@ export default function TasksPage() {
 
       <div
         className="card"
-        style={{ background: '#fff', borderRadius: 12, border: '1px solid #e2e8f0', padding: 20 }}
+        style={{ background: 'var(--card)', borderRadius: 12, border: '1px solid var(--border)', padding: 20 }}
       >
         <div
           style={{
