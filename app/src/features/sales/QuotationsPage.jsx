@@ -70,8 +70,13 @@ export const QuotationsPage = () => {
         navigate('/sales/quotations/create');
     };
 
-    const handleConvert = (quoteId) => {
-        const order = convertQuotationToSalesOrder(quoteId);
+    const handleConvert = (quote) => {
+        if (!quote) return;
+        if (['Rejected', 'Cancelled'].includes(quote.status)) {
+            alert('Cannot convert a rejected or cancelled quotation to a Sales Order. Please clone or create a new quotation.');
+            return;
+        }
+        const order = convertQuotationToSalesOrder(quote.id);
         if (order) {
             navigate('/sales/orders');
         }
@@ -195,12 +200,18 @@ export const QuotationsPage = () => {
                         <CheckCircle2 size={12}/> {approvingQuote ? 'Approving…' : 'Approve'}
                       </button>
                     )}
-                    <button
-                      onClick={() => handleConvert(q.id)}
-                      className="text-xs font-semibold text-primary hover:underline inline-flex items-center gap-1 cursor-pointer"
-                    >
-                      Convert <ArrowRight size={12}/>
-                    </button>
+                    {['Rejected', 'Cancelled'].includes(q.status) ? (
+                      <span className="text-xs font-medium text-slate-400 italic">
+                        Not Convertible
+                      </span>
+                    ) : (
+                      <button
+                        onClick={() => handleConvert(q)}
+                        className="text-xs font-semibold text-primary hover:underline inline-flex items-center gap-1 cursor-pointer"
+                      >
+                        Convert <ArrowRight size={12}/>
+                      </button>
+                    )}
                   </>
                 )}
               </div>

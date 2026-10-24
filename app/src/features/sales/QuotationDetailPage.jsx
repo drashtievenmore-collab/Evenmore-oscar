@@ -229,7 +229,7 @@ export default function QuotationDetailPage() {
           <button type="button" onClick={() => setPrintOpen(true)} className="inline-flex items-center gap-1.5 px-3 py-2 bg-white border border-slate-200 hover:bg-slate-50 text-slate-700 text-xs font-semibold rounded-lg">
             <Download size={13} /> Download PDF
           </button>
-          <button type="button" onClick={() => window.print()} className="inline-flex items-center gap-1.5 px-3 py-2 bg-white border border-slate-200 hover:bg-slate-50 text-slate-700 text-xs font-semibold rounded-lg">
+          <button type="button" onClick={() => setPrintOpen(true)} className="inline-flex items-center gap-1.5 px-3 py-2 bg-white border border-slate-200 hover:bg-slate-50 text-slate-700 text-xs font-semibold rounded-lg">
             <Printer size={13} /> Print
           </button>
           <button type="button" onClick={() => navigate('/sales/quotations')} className="inline-flex items-center gap-1.5 px-3 py-2 bg-white border border-slate-200 hover:bg-slate-50 text-slate-700 text-xs font-semibold rounded-lg">
@@ -363,8 +363,8 @@ export default function QuotationDetailPage() {
           <div className="rounded-2xl border border-blue-100 bg-blue-50/50 p-4">
             <h3 className="text-sm font-bold text-slate-900 flex items-center gap-2 mb-1">≫ Next Steps</h3>
             <p className="text-[11px] text-slate-600 leading-relaxed">Once the customer approves this quotation, it will be automatically converted to a customer and you can create a Sales Order.</p>
-            <button type="button" onClick={handleConvert} disabled={['Converted'].includes(quote.status)} className="mt-3 w-full inline-flex items-center justify-center gap-1.5 px-3 py-2 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded-lg disabled:opacity-50">
-              <RefreshCw size={13} /> Convert to Sales Order
+            <button type="button" onClick={handleConvert} disabled={['Converted', 'Rejected', 'Cancelled'].includes(quote.status)} className="mt-3 w-full inline-flex items-center justify-center gap-1.5 px-3 py-2 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded-lg disabled:opacity-50" title={['Rejected', 'Cancelled'].includes(quote.status) ? "Rejected quotation cannot be converted" : ""}>
+              <RefreshCw size={13} /> {['Rejected', 'Cancelled'].includes(quote.status) ? "Cannot Convert (Rejected)" : "Convert to Sales Order"}
             </button>
           </div>
 

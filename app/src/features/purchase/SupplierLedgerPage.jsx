@@ -280,7 +280,7 @@ export default function SupplierLedgerPage() {
                       {Number(e.credit) > 0 ? `₹${numIN(e.credit)}` : '—'}
                     </td>
                     <td className="px-4 py-2.5 text-right font-bold text-slate-900">
-                      ₹{numIN(Math.abs(e.balance || 0))} {(e.balance || 0) >= 0 ? 'Cr' : 'Dr'}
+                      ₹{numIN(Math.abs(e.balance || 0))} {e.balanceType || ((e.balance || 0) >= 0 ? 'Cr' : 'Dr')}
                     </td>
                   </tr>
                 ))}
@@ -294,7 +294,7 @@ export default function SupplierLedgerPage() {
                   <td className="px-4 py-3 text-right text-emerald-700">₹{numIN(totals.debits)}</td>
                   <td className="px-4 py-3 text-right text-rose-600">₹{numIN(totals.credits)}</td>
                   <td className="px-4 py-3 text-right text-base text-blue-700 font-bold">
-                    ₹{numIN(Math.abs(ledger.closingBalance || 0))} {(ledger.closingBalance || 0) >= 0 ? 'Cr' : 'Dr'}
+                    ₹{numIN(Math.abs(ledger.closingBalance || 0))} {ledger.balanceType || ((ledger.closingBalance || 0) >= 0 ? 'Cr' : 'Dr')}
                   </td>
                 </tr>
               </tbody>

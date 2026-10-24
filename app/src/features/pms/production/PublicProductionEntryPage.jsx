@@ -80,6 +80,13 @@ export default function PublicProductionEntryPage() {
   const today = String(data?.today || '').slice(0, 10);
   const instructions = useMemo(() => data?.instructions || [], [data]);
   const openInstructions = instructions.filter((pi) => pi.canRecord);
+  const isProjectDone =
+    Boolean(data?.isCompleted) ||
+    data?.project?.status === 'Completed' ||
+    data?.project?.status === 'Closed' ||
+    (instructions.length > 0 &&
+      openInstructions.length === 0 &&
+      instructions.every((item) => item.isCompleted || Number(item.balance || 0) <= 0 || item.status === 'Completed'));
   const pi = instructions.find((row) => row.id === instructionId) || null;
   const balance = Number(pi?.balance || 0);
   const produced = Number(qty) || 0;
@@ -93,8 +100,10 @@ export default function PublicProductionEntryPage() {
 
     if (!produced || produced <= 0) {
       errors.qty = 'Produced quantity must be greater than 0.';
-    } else if (balance > 0 && produced > balance * 1.25) {
-      errors.qty = `Produced quantity exceeds remaining balance (${fmt(balance)} Mtr) by more than 25%.`;
+    } else if (balance > 0 && produced > balance) {
+      errors.qty = `Today's produced quantity (${fmt(produced)} Mtr) exceeds remaining balance (${fmt(balance)} Mtr). Maximum allowed is ${fmt(balance)} Mtr.`;
+    } else if (balance <= 0) {
+      errors.qty = 'All ordered quantity for this instruction has already been completed.';
     }
 
     const rej = Number(rejected) || 0;
@@ -210,7 +219,48 @@ export default function PublicProductionEntryPage() {
           </div>
         )}
 
-        {openInstructions.length === 0 ? (
+        {isProjectDone ? (
+          <div className="rounded-2xl border border-emerald-200 bg-white p-8 text-center shadow-xs space-y-4">
+            <div className="mx-auto w-16 h-16 rounded-2xl bg-emerald-50 border border-emerald-200 text-emerald-600 flex items-center justify-center">
+              <CheckCircle2 size={36} />
+            </div>
+            <div>
+              <span className="inline-block px-3 py-1 text-xs font-bold rounded-full bg-emerald-100 text-emerald-800 tracking-wide uppercase">
+                Production Complete
+              </span>
+              <h2 className="mt-2 text-xl font-bold text-slate-900">Project is Done</h2>
+              <p className="mt-1 text-sm text-slate-600 max-w-md mx-auto">
+                All production quantities for this project have been fully completed and received.
+                This entry link is now closed and no further daily production updates are required.
+              </p>
+            </div>
+
+            <div className="grid grid-cols-3 gap-3 max-w-lg mx-auto bg-slate-50 border border-slate-200 rounded-xl p-4 text-center">
+              <div>
+                <p className="text-[10px] uppercase font-bold text-slate-500">Total Ordered</p>
+                <p className="text-base font-bold font-mono text-slate-900">
+                  {fmt(data?.totalOrdered ?? instructions.reduce((s, x) => s + Number(x.orderMeter || 0), 0))} <span className="text-[10px] font-normal">Mtr</span>
+                </p>
+              </div>
+              <div>
+                <p className="text-[10px] uppercase font-bold text-slate-500">Total Produced</p>
+                <p className="text-base font-bold font-mono text-emerald-700">
+                  {fmt(data?.totalProduced ?? instructions.reduce((s, x) => s + Number(x.cumulative || 0), 0))} <span className="text-[10px] font-normal">Mtr</span>
+                </p>
+              </div>
+              <div>
+                <p className="text-[10px] uppercase font-bold text-slate-500">Remaining Balance</p>
+                <p className="text-base font-bold font-mono text-slate-700">
+                  0.00 <span className="text-[10px] font-normal">Mtr</span>
+                </p>
+              </div>
+            </div>
+
+            <p className="text-xs text-slate-400">
+              Project: <span className="font-semibold text-slate-700">{project.code}</span> · Status: <span className="font-semibold text-emerald-700">{project.status === 'Completed' ? 'Completed' : '100% Produced'}</span>
+            </p>
+          </div>
+        ) : openInstructions.length === 0 ? (
           <div className="rounded-2xl border border-slate-200 bg-white p-6 text-center">
             <p className="text-sm font-bold text-slate-800">No open production instructions</p>
             <p className="mt-1 text-xs text-slate-500">
@@ -226,7 +276,9 @@ export default function PublicProductionEntryPage() {
                 {instructions.map((row) => (
                   <option key={row.id} value={row.id} disabled={!row.canRecord}>
                     {row.instructionNumber} — {row.agencyName}{row.fabric ? ` · ${row.fabric}` : ''}
-                    {row.canRecord ? '' : ` (${row.status})`}
+                    {row.canRecord
+                      ? (Number(row.balance) > 0 ? ` (${fmt(row.balance)} Mtr remaining)` : '')
+                      : ` (${row.status} · 0 Mtr remaining)`}
                   </option>
                 ))}
               </select>
@@ -255,8 +307,25 @@ export default function PublicProductionEntryPage() {
                 {fieldErrors.date && <p className="text-[11px] text-rose-600 mt-1">{fieldErrors.date}</p>}
               </label>
               <label className="block">
-                <span className="text-xs font-bold text-slate-700">Today's Produced (Mtr) <span className="text-rose-500">*</span></span>
-                <input type="number" inputMode="decimal" step="0.01" min="0.01" placeholder="e.g. 500.00" value={qty} onChange={(e) => setQty(e.target.value)} className={`${inputClass} font-mono font-bold`} />
+                <span className="text-xs font-bold text-slate-700">
+                  Today's Produced (Mtr) <span className="text-rose-500">*</span>
+                  {balance > 0 && (
+                    <span className="ml-1 text-[11px] font-normal text-slate-500">
+                      (Max {fmt(balance)} Mtr remaining)
+                    </span>
+                  )}
+                </span>
+                <input
+                  type="number"
+                  inputMode="decimal"
+                  step="0.01"
+                  min="0.01"
+                  max={balance > 0 ? balance : undefined}
+                  placeholder={balance > 0 ? `Max ${fmt(balance)}` : "e.g. 500.00"}
+                  value={qty}
+                  onChange={(e) => setQty(e.target.value)}
+                  className={`${inputClass} font-mono font-bold`}
+                />
                 {fieldErrors.qty && <p className="text-[11px] text-rose-600 mt-1">{fieldErrors.qty}</p>}
               </label>
             </div>

@@ -3,7 +3,7 @@ import { quotationTotals } from '../../utils/quotationDocument';
 
 export function QuotationDocument({ quotation }) {
   const totals = quotationTotals(quotation);
-  const money = value => new Intl.NumberFormat('en-IN', { style: 'currency', currency: quotation.currency || 'USD' }).format(Number(value) || 0);
+  const money = value => new Intl.NumberFormat('en-IN', { style: 'currency', currency: quotation.currency || 'INR' }).format(Number(value) || 0);
   return <article className="qw-document printable-document bg-white text-slate-800 p-8 space-y-6">
     <header className="flex justify-between gap-4 border-b-2 border-slate-800 pb-5">
       <div><div className="font-black text-xl text-[#1F2E4A]">E · EVENMORE ENTERPRISES</div><p>Commercial Quotation</p></div>

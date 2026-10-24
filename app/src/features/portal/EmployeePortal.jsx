@@ -116,6 +116,7 @@ export default function EmployeePortal() {
   const leaves = useAppStore((s) => s.leaves || []);
   const addLeave = useAppStore((s) => s.addLeave);
   const employees = useAppStore((s) => s.employees || []);
+  const hydrateHrms = useAppStore((s) => s.hydrateHrms);
 
   const {
     todayPunch,
@@ -288,12 +289,15 @@ export default function EmployeePortal() {
     }
   };
 
-  // Load Leave Types & Asset Categories & Resignations
+  // Load Leave Types & Asset Categories & Resignations & Hydrate HRMS Data
   useEffect(() => {
     fetchTodayPunch();
     hydrateAssets?.();
     fetchMyResignations();
     usePolicyStore.getState().hydrate();
+
+    // Hydrate HRMS core data (employees, leaves, attendance, balances)
+    hydrateHrms?.(true).catch(() => {});
 
     // Pull leave types
     hrmsSync.pull('leaveTypes').then((rows) => {
@@ -307,7 +311,7 @@ export default function EmployeePortal() {
     // Asset categories (for "Other" requests) and the assets this employee holds
     loadAssetCategories();
     loadMyAssets();
-  }, []); // Run on initial mount
+  }, [hydrateHrms]); // Run on initial mount
 
   // Live timer for active punch
   useEffect(() => {
@@ -820,8 +824,9 @@ export default function EmployeePortal() {
 
     try {
       setIsSubmitting(true);
+      const resolvedEmpId = isServerId(currentEmployee?.id) ? currentEmployee.id : (myEmployeeId || undefined);
       const payload = {
-        employeeId: myEmployeeId,
+        employeeId: resolvedEmpId,
         leaveTypeId: leaveForm.leaveTypeId || undefined,
         leaveTypeName: leaveForm.leaveTypeName,
         type: leaveForm.leaveTypeName,
@@ -869,8 +874,9 @@ export default function EmployeePortal() {
       const formattedReason = `[Half Day — ${sessionLabel}] ${halfDayForm.reason.trim()}`;
 
       // Submit to Leave store & API (0.5 day deducted upon HR approval)
+      const resolvedEmpId = isServerId(currentEmployee?.id) ? currentEmployee.id : (myEmployeeId || undefined);
       await addLeave({
-        employeeId: myEmployeeId,
+        employeeId: resolvedEmpId,
         leaveTypeId: halfDayForm.leaveTypeId || undefined,
         leaveTypeName: halfDayForm.leaveTypeName,
         type: `${halfDayForm.leaveTypeName} (Half Day)`,
