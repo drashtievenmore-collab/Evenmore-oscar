@@ -557,11 +557,6 @@ export function OrgChartPage() {
                 <div className="text-[12px] text-muted flex items-center gap-1.5 mt-0.5">
                   <Building size={13} /> {selectedEmployee.department || 'No department'}
                 </div>
-                {selectedEmployee.department && (
-                  <div className="text-[12px] text-muted flex items-center gap-1.5 mt-0.5">
-                    <Building size={13} /> {selectedEmployee.department}
-                  </div>
-                )}
               </div>
             </div>
 
