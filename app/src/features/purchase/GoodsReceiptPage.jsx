@@ -29,6 +29,7 @@ import api from '../../services/api';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { numIN } from '../../utils/formatters';
 import MasterSourceLink from '../../components/common/MasterSourceLink';
+import GrnDetailDrawer from './GrnDetailDrawer';
 
 const goodsReceiptGuide = {
   title: 'Goods Receipt Notes (GRN)',
@@ -67,6 +68,7 @@ export const GoodsReceiptPage = () => {
   // Tab state: 'pending' (bills awaiting receipt) | 'receipts' (completed GRN register)
   const [activeTab, setActiveTab] = useState('pending');
   const [grnList, setGrnList] = useState([]);
+  const [viewGrn, setViewGrn] = useState(null);
   const [loadingGrns, setLoadingGrns] = useState(false);
   const [grnSearch, setGrnSearch] = useState('');
 
@@ -104,7 +106,15 @@ export const GoodsReceiptPage = () => {
     try {
       const res = await api.get('/purchase/receipts/');
       const rows = Array.isArray(res) ? res : (res?.results || res?.rows || []);
-      setGrnList(rows);
+      // The API answers in camelCase (grnNumber, receiptDate, ...); this page
+      // reads the snake_case names, so fill those from the camelCase ones.
+      setGrnList(rows.map((r) => ({
+        ...r,
+        grn_number: r.grnNumber ?? r.grn_number,
+        receipt_date: r.receiptDate ?? r.receipt_date,
+        supplier_challan_no: r.supplierChallanNo ?? r.supplier_challan_no,
+        qc_status: r.qcStatus ?? r.qc_status,
+      })));
     } catch (err) {
       console.error('Failed to fetch GRN list:', err);
       setGrnList([]);
@@ -590,8 +600,17 @@ export const GoodsReceiptPage = () => {
                   </thead>
                   <tbody className="divide-y divide-slate-100">
                     {paginatedGrnList.map((g) => (
-                      <tr key={g.id} className="hover:bg-slate-50/70 transition-colors">
-                        <td className="px-4 py-3 font-mono font-bold text-blue-600">{g.grn_number}</td>
+                      <tr key={g.id} onClick={() => setViewGrn(g)} className="hover:bg-slate-50/70 transition-colors cursor-pointer">
+                        <td className="px-4 py-3">
+                          <button
+                            type="button"
+                            onClick={(e) => { e.stopPropagation(); setViewGrn(g); }}
+                            className="font-mono font-bold text-blue-600 hover:underline"
+                            title="View GRN details"
+                          >
+                            {g.grn_number}
+                          </button>
+                        </td>
                         <td className="px-4 py-3 text-slate-700">{g.receipt_date}</td>
                         <td className="px-4 py-3 font-medium text-slate-900">{g.vendorName}</td>
                         <td className="px-4 py-3 font-mono text-slate-700">{g.supplier_challan_no || '—'}</td>
@@ -1084,6 +1103,8 @@ export const GoodsReceiptPage = () => {
           </div>
         </div>
       )}
+
+      {viewGrn && <GrnDetailDrawer grn={viewGrn} onClose={() => setViewGrn(null)} />}
     </div>
   );
 };

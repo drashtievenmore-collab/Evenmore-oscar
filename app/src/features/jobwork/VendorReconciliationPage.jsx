@@ -16,6 +16,8 @@ import {
 import { api } from '../../services/api';
 import { numIN } from './jobWorkOrdersStore';
 import PageHeader from '../../components/ui/PageHeader';
+import TablePagination from '../../components/ui/TablePagination';
+import KpiCard from '../../components/ui/KpiCard';
 
 const statusPill = (s) =>
   s === 'Reconciled'
@@ -39,6 +41,10 @@ export default function VendorReconciliationPage() {
   const [fStatus, setFStatus] = useState('All');
   const [fFrom, setFFrom] = useState('');
   const [fTo, setFTo] = useState('');
+
+  // Pagination state
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(10);
 
   useEffect(() => {
     let live = true;
@@ -76,6 +82,16 @@ export default function VendorReconciliationPage() {
     return true;
   }), [rows, fJwo, fVendor, fProcess, fFabric, fStatus, fFrom, fTo]);
 
+  // Reset page on filter changes
+  useEffect(() => {
+    setPage(1);
+  }, [fJwo, fVendor, fProcess, fFabric, fStatus, fFrom, fTo]);
+
+  const paginated = useMemo(() => {
+    const start = (page - 1) * pageSize;
+    return filtered.slice(start, start + pageSize);
+  }, [filtered, page, pageSize]);
+
   const totals = useMemo(() => {
     const t = { count: 0, outward: 0, inward: 0, accepted: 0, rejected: 0, pending: 0 };
     filtered.forEach((r) => {
@@ -90,12 +106,12 @@ export default function VendorReconciliationPage() {
   }, [filtered]);
 
   const summaryCards = [
-    { icon: ClipboardList, label: 'Total JWO', value: `${totals.count}`, tileBg: '#e9f1fd', iconBg: '#d6e6fd', iconColor: '#2563eb' },
-    { icon: Send, label: 'Total Outward Quantity', value: `${numIN(totals.outward)} M`, tileBg: '#f1eafd', iconBg: '#e2d4fb', iconColor: '#7c3aed' },
-    { icon: ArrowDownToLine, label: 'Total Inward Quantity', value: `${numIN(totals.inward)} M`, tileBg: '#e7f6ec', iconBg: '#cdeed8', iconColor: '#16a34a' },
-    { icon: CheckCircle2, label: 'Total Accepted Quantity', value: `${numIN(totals.accepted)} M`, tileBg: '#eff6ff', iconBg: '#dbeafe', iconColor: '#2563eb' },
-    { icon: XCircle, label: 'Total Rejected Quantity', value: `${numIN(totals.rejected)} M`, tileBg: '#fdeef1', iconBg: '#fad9e0', iconColor: '#e11d48' },
-    { icon: Hourglass, label: 'Total Pending Quantity', value: `${numIN(totals.pending)} M`, tileBg: '#fdf3e0', iconBg: '#fbe3b8', iconColor: '#d97706' },
+    { icon: ClipboardList, label: 'Total JWO', value: `${totals.count}`, tone: 'blue' },
+    { icon: Send, label: 'Total Outward Quantity', value: `${numIN(totals.outward)} M`, tone: 'purple' },
+    { icon: ArrowDownToLine, label: 'Total Inward Quantity', value: `${numIN(totals.inward)} M`, tone: 'emerald' },
+    { icon: CheckCircle2, label: 'Total Accepted Quantity', value: `${numIN(totals.accepted)} M`, tone: 'sky' },
+    { icon: XCircle, label: 'Total Rejected Quantity', value: `${numIN(totals.rejected)} M`, tone: 'rose' },
+    { icon: Hourglass, label: 'Total Pending Quantity', value: `${numIN(totals.pending)} M`, tone: 'amber' },
   ];
 
   const selectCls = 'mt-1 w-full rounded-lg border border-slate-200 bg-white px-2.5 py-2 text-[12px] font-medium text-slate-700 outline-none';
@@ -111,21 +127,19 @@ export default function VendorReconciliationPage() {
       />
 
       {/* Summary cards — all derived from the rows below */}
-      <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6">
+      <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6 gap-3">
         {summaryCards.map((c) => (
-          <div key={c.label} className="rounded-xl p-3" style={{ background: c.tileBg }}>
-            <div className="flex items-center gap-2">
-              <span className="grid h-8 w-8 shrink-0 place-items-center rounded-lg" style={{ background: c.iconBg, color: c.iconColor }}>
-                <c.icon size={17} />
-              </span>
-              <span className="text-[11.5px] font-semibold leading-tight text-slate-600">{c.label}</span>
-            </div>
-            <div className="mt-2 text-[17px] font-extrabold tracking-tight text-[#17294e]">{c.value}</div>
-          </div>
+          <KpiCard
+            key={c.label}
+            label={c.label}
+            value={c.value}
+            icon={c.icon}
+            tone={c.tone}
+          />
         ))}
       </div>
 
-      <div className="rounded-xl border border-[#e2eaf5] bg-white shadow-[0_1px_2px_rgba(16,42,82,0.06)]">
+      <div className="rounded-xl border border-[#e2eaf5] bg-white shadow-[0_1px_2px_rgba(16,42,82,0.06)] overflow-hidden">
         <div className="grid grid-cols-2 gap-3 px-4 py-3 md:grid-cols-4 xl:grid-cols-7">
           <label className="block">
             <span className={labelCls}>JWO No.</span>
@@ -181,9 +195,9 @@ export default function VendorReconciliationPage() {
               </tr>
             </thead>
             <tbody>
-              {filtered.map((r, idx) => (
+              {paginated.map((r, idx) => (
                 <tr key={r.jwoId} className="border-b border-slate-50 hover:bg-slate-50/60">
-                  <td className="px-3 py-2.5 text-center text-slate-400">{idx + 1}</td>
+                  <td className="px-3 py-2.5 text-center text-slate-400">{(page - 1) * pageSize + idx + 1}</td>
                   <td className="px-3 py-2.5">
                     <button onClick={() => openJWO(r)} className="font-mono font-bold text-blue-600 hover:underline">{r.jwoNo}</button>
                   </td>
@@ -205,13 +219,13 @@ export default function VendorReconciliationPage() {
                   </td>
                   <td className="px-3 py-2.5">
                     <div className="flex items-center justify-center gap-1.5">
-                      <button onClick={() => openJWO(r)} className="p-2 rounded-lg border border-slate-200 text-slate-500 hover:bg-slate-50" title="View reconciliation details">
+                      <button onClick={() => openJWO(r)} className="p-2 rounded-lg border border-slate-200 text-slate-500 hover:bg-slate-50 cursor-pointer" title="View reconciliation details">
                         <Eye size={14} />
                       </button>
-                      <button onClick={() => openJWO(r)} className="p-2 rounded-lg border border-slate-200 text-slate-500 hover:bg-slate-50" title="Remarks / verification on JWO">
+                      <button onClick={() => openJWO(r)} className="p-2 rounded-lg border border-slate-200 text-slate-500 hover:bg-slate-50 cursor-pointer" title="Remarks / verification on JWO">
                         <Pencil size={14} />
                       </button>
-                      <button onClick={() => openJWO(r)} className="p-2 rounded-lg border border-slate-200 text-slate-500 hover:bg-slate-50" title="Supporting documents on JWO">
+                      <button onClick={() => openJWO(r)} className="p-2 rounded-lg border border-slate-200 text-slate-500 hover:bg-slate-50 cursor-pointer" title="Supporting documents on JWO">
                         <FileText size={14} />
                       </button>
                     </div>
@@ -247,6 +261,16 @@ export default function VendorReconciliationPage() {
             </tbody>
           </table>
         </div>
+
+        {/* Standard Table Pagination Footer */}
+        <TablePagination
+          page={page}
+          pageSize={pageSize}
+          totalItems={filtered.length}
+          onPageChange={setPage}
+          onPageSizeChange={(sz) => { setPageSize(sz); setPage(1); }}
+          pageSizeOptions={[10, 25, 50, 100]}
+        />
       </div>
     </div>
   );

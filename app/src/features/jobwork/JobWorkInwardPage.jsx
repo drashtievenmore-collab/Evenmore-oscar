@@ -5,6 +5,7 @@ import { numIN, toDDMMYYYY, purgeLegacyJobWorkCache } from './jobWorkOrdersStore
 import { fetchJWOs, fetchPlans, createJWORow, deleteJWORow, errorMessage } from '../../services/jobWorkSync';
 import PageHeader from '../../components/ui/PageHeader';
 import TablePagination from '../../components/ui/TablePagination';
+import { ConfirmModal } from '../../components/ui/ConfirmModal';
 
 const statusPill = (s) =>
   s === 'Received' || s === 'Fully Received' || s === 'Completed'
@@ -79,6 +80,7 @@ export default function JobWorkInwardPage() {
   const [pageSize, setPageSize] = useState(10);
   const [menuId, setMenuId] = useState(null);
   const [showForm, setShowForm] = useState(false);
+  const [deleteConfirm, setDeleteConfirm] = useState({ isOpen: false, row: null, loading: false });
   const [form, setForm] = useState({
     jwoId: '',
     date: new Date().toISOString().slice(0, 10),
@@ -190,13 +192,21 @@ export default function JobWorkInwardPage() {
     }
   };
 
-  const handleDelete = async (r) => {
+  const handleDelete = (r) => {
     setMenuId(null);
-    if (!window.confirm(`Delete inward ${r.no}?`)) return;
+    setDeleteConfirm({ isOpen: true, row: r, loading: false });
+  };
+
+  const handleConfirmDelete = async () => {
+    const r = deleteConfirm.row;
+    if (!r) return;
+    setDeleteConfirm((prev) => ({ ...prev, loading: true }));
     try {
       await deleteJWORow(r.jwoId, 'inwards', r.id);
+      setDeleteConfirm({ isOpen: false, row: null, loading: false });
       await reload();
     } catch (err) {
+      setDeleteConfirm((prev) => ({ ...prev, loading: false }));
       window.alert(errorMessage(err, 'Could not delete the inward receipt.'));
     }
   };
@@ -422,6 +432,19 @@ export default function JobWorkInwardPage() {
           </div>
         </div>
       )}
+      {/* Centered Modern Delete Confirmation Modal */}
+      <ConfirmModal
+        isOpen={deleteConfirm.isOpen}
+        onClose={() => !deleteConfirm.loading && setDeleteConfirm({ isOpen: false, row: null, loading: false })}
+        onConfirm={handleConfirmDelete}
+        title="Delete Inward Receipt"
+        message="Are you sure you want to delete this inward receipt? This action will remove the receipt record from the Job Work Order."
+        itemName={deleteConfirm.row ? `Inward Receipt: ${deleteConfirm.row.no}` : null}
+        confirmText="Delete Inward"
+        cancelText="Cancel"
+        variant="danger"
+        loading={deleteConfirm.loading}
+      />
     </div>
   );
 }

@@ -41,6 +41,7 @@ import {
 } from '../../services/jobWorkSync';
 import { api } from '../../services/api';
 import PageHeader from '../../components/ui/PageHeader';
+import KpiCard from '../../components/ui/KpiCard';
 import DigitalSignatureModal from '../../components/common/DigitalSignatureModal';
 import MasterSourceLink from '../../components/common/MasterSourceLink';
 import { PrintJobWorkChallanModal } from '../../components/common/PrintJobWorkChallanModal';
@@ -1039,57 +1040,30 @@ export default function JobWorkOrderDetailPage() {
 
       {/* ── Bottom Summary Cards (matching reference screenshot) ── */}
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4 pt-1">
-        {/* Total Inward */}
-        <div className="flex items-center gap-3 rounded-2xl bg-[#ecfdf5] border border-emerald-100/70 p-3.5 shadow-2xs">
-          <div className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-[#d1fae5] text-[#059669]">
-            <MapPin size={18} className="stroke-[2.2]" />
-          </div>
-          <div>
-            <p className="text-[11px] font-medium text-slate-500 leading-tight">Total Inward</p>
-            <p className="mt-0.5 text-[16px] font-extrabold text-[#111827] leading-tight">
-              {numIN(totalInwardQty)} M
-            </p>
-          </div>
-        </div>
-
-        {/* Accepted */}
-        <div className="flex items-center gap-3 rounded-2xl bg-[#eff6ff] border border-blue-100/70 p-3.5 shadow-2xs">
-          <div className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-[#dbeafe] text-[#2563eb]">
-            <FileText size={18} className="stroke-[2.2]" />
-          </div>
-          <div>
-            <p className="text-[11px] font-medium text-slate-500 leading-tight">Accepted</p>
-            <p className="mt-0.5 text-[16px] font-extrabold text-[#111827] leading-tight">
-              {numIN(totalAccepted)} M
-            </p>
-          </div>
-        </div>
-
-        {/* Rejected */}
-        <div className="flex items-center gap-3 rounded-2xl bg-[#fff1f2] border border-rose-100/70 p-3.5 shadow-2xs">
-          <div className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-[#ffe4e6] text-[#e11d48]">
-            <AlertCircle size={18} className="stroke-[2.2]" />
-          </div>
-          <div>
-            <p className="text-[11px] font-bold text-[#e11d48] leading-tight">Rejected</p>
-            <p className="mt-0.5 text-[16px] font-extrabold text-[#111827] leading-tight">
-              {numIN(totalRejected)} M
-            </p>
-          </div>
-        </div>
-
-        {/* Pending to Receive */}
-        <div className="flex items-center gap-3 rounded-2xl bg-[#fffbeb] border border-amber-100/70 p-3.5 shadow-2xs">
-          <div className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-[#fef3c7] text-[#d97706]">
-            <ShoppingCart size={18} className="stroke-[2.2]" />
-          </div>
-          <div>
-            <p className="text-[11px] font-medium text-slate-500 leading-tight">Pending to Receive</p>
-            <p className="mt-0.5 text-[16px] font-extrabold text-[#17294e] leading-tight">
-              {numIN(k.pending)} M
-            </p>
-          </div>
-        </div>
+        <KpiCard
+          label="Total Inward"
+          value={`${numIN(totalInwardQty)} M`}
+          icon={MapPin}
+          tone="emerald"
+        />
+        <KpiCard
+          label="Accepted"
+          value={`${numIN(totalAccepted)} M`}
+          icon={FileText}
+          tone="blue"
+        />
+        <KpiCard
+          label="Rejected"
+          value={`${numIN(totalRejected)} M`}
+          icon={AlertCircle}
+          tone="rose"
+        />
+        <KpiCard
+          label="Pending to Receive"
+          value={`${numIN(k.pending)} M`}
+          icon={ShoppingCart}
+          tone="amber"
+        />
       </div>
     </div>
   );
@@ -1373,57 +1347,30 @@ export default function JobWorkOrderDetailPage() {
 
       {/* ── Bottom Summary Cards for Charges ── */}
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4 pt-1">
-        {/* Total Charges */}
-        <div className="flex items-center gap-3 rounded-2xl bg-[#ecfdf5] border border-emerald-100/70 p-3.5 shadow-2xs">
-          <div className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-[#d1fae5] text-[#059669]">
-            <IndianRupee size={18} className="stroke-[2.2]" />
-          </div>
-          <div>
-            <p className="text-[11px] font-medium text-slate-500 leading-tight">Total Charges</p>
-            <p className="mt-0.5 text-[16px] font-extrabold text-[#111827] leading-tight">
-              ₹ {numIN(charges.reduce((s, c) => s + (Number(c.amount) || 0), 0))}
-            </p>
-          </div>
-        </div>
-
-        {/* Total Quantity */}
-        <div className="flex items-center gap-3 rounded-2xl bg-[#eff6ff] border border-blue-100/70 p-3.5 shadow-2xs">
-          <div className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-[#dbeafe] text-[#2563eb]">
-            <Layers size={18} className="stroke-[2.2]" />
-          </div>
-          <div>
-            <p className="text-[11px] font-medium text-slate-500 leading-tight">Total Quantity</p>
-            <p className="mt-0.5 text-[16px] font-extrabold text-[#111827] leading-tight">
-              {numIN(charges.reduce((s, c) => s + (Number(c.qty) || 0), 0))} M
-            </p>
-          </div>
-        </div>
-
-        {/* Process Rate */}
-        <div className="flex items-center gap-3 rounded-2xl bg-[#fff1f2] border border-rose-100/70 p-3.5 shadow-2xs">
-          <div className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-[#ffe4e6] text-[#e11d48]">
-            <Clock size={18} className="stroke-[2.2]" />
-          </div>
-          <div>
-            <p className="text-[11px] font-bold text-[#e11d48] leading-tight">Process Rate</p>
-            <p className="mt-0.5 text-[16px] font-extrabold text-[#111827] leading-tight">
-              ₹ {Number(jwo.rate || 0).toFixed(2)} / M
-            </p>
-          </div>
-        </div>
-
-        {/* Active Charges */}
-        <div className="flex items-center gap-3 rounded-2xl bg-[#fffbeb] border border-amber-100/70 p-3.5 shadow-2xs">
-          <div className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-[#fef3c7] text-[#d97706]">
-            <CheckCircle2 size={18} className="stroke-[2.2]" />
-          </div>
-          <div>
-            <p className="text-[11px] font-medium text-slate-500 leading-tight">Active Charges</p>
-            <p className="mt-0.5 text-[16px] font-extrabold text-[#17294e] leading-tight">
-              {charges.filter((c) => c.status === 'Active').length} Active
-            </p>
-          </div>
-        </div>
+        <KpiCard
+          label="Total Charges"
+          value={`₹ ${numIN(charges.reduce((s, c) => s + (Number(c.amount) || 0), 0))}`}
+          icon={IndianRupee}
+          tone="emerald"
+        />
+        <KpiCard
+          label="Total Quantity"
+          value={`${numIN(charges.reduce((s, c) => s + (Number(c.qty) || 0), 0))} M`}
+          icon={Layers}
+          tone="blue"
+        />
+        <KpiCard
+          label="Process Rate"
+          value={`₹ ${Number(jwo.rate || 0).toFixed(2)} / M`}
+          icon={Clock}
+          tone="rose"
+        />
+        <KpiCard
+          label="Active Charges"
+          value={`${charges.filter((c) => c.status === 'Active').length} Active`}
+          icon={CheckCircle2}
+          tone="amber"
+        />
       </div>
     </div>
   );

@@ -111,6 +111,9 @@ export default function ContractDetailPage() {
   const [openClause, setOpenClause] = useState(-1);
   const [termsOpen, setTermsOpen] = useState(false);
   const [termsForm, setTermsForm] = useState([]);
+  const [sendingSign, setSendingSign] = useState(false);
+  const [signOpen, setSignOpen] = useState(false);
+  const [signer, setSigner] = useState({ signerName: '', signerEmail: '', message: '' });
 
   function refresh() {
     try {
@@ -200,6 +203,48 @@ export default function ContractDetailPage() {
       setNotice(`Contract ${contract.contractNumber} closed.`);
       refresh();
     } catch (failure) { setError(failure.message); }
+  }
+
+  async function handlePrintServer() {
+    try {
+      await crmService.printContract(contract.id);
+    } catch {}
+    window.print();
+  }
+
+  const serverId = contract.backendId || contract.id;
+
+  function openSignature() {
+    setFormError('');
+    setSigner({ signerName: contract.customer || '', signerEmail: contract.esignSignerEmail || '', message: '' });
+    setSignOpen(true);
+  }
+
+  async function submitSignature(event) {
+    event.preventDefault();
+    if (sendingSign) return;
+    setSendingSign(true);
+    setFormError('');
+    try {
+      await crmService.sendContractForSignature(serverId, signer);
+      await refreshContractsCache();
+      setSignOpen(false);
+      setNotice(`Contract ${contract.contractNumber} sent to ${signer.signerEmail} for signature via DocuSign.`);
+      refresh();
+    } catch (failure) { setFormError(failure.message || 'Failed to send contract for signature.'); }
+    finally { setSendingSign(false); }
+  }
+
+  async function checkSignatureStatus() {
+    if (sendingSign) return;
+    setSendingSign(true);
+    try {
+      const updated = await crmService.getContractSignatureStatus(serverId);
+      await refreshContractsCache();
+      refresh();
+      setNotice(updated?.esignStatus === 'completed' ? 'Contract signed — the signed PDF is attached.' : `Signature status: ${updated?.esignStatus || 'unknown'}.`);
+    } catch (failure) { setError(failure.message); }
+    finally { setSendingSign(false); }
   }
 
   function openRenew() {
@@ -355,12 +400,21 @@ export default function ContractDetailPage() {
                 <span className={`inline-block rounded-full px-2 py-1 text-[11px] font-semibold ${statusTone(displayStatus)}`}>{displayStatus}</span>
               </div>
               <p className="mt-1 text-xs text-slate-500">{contract.contractType} • {contract.customer}</p>
+              {contract.esignStatus && (
+                <p className="mt-1 text-xs text-slate-500">
+                  Signature: <strong className="text-slate-700">{contract.esignStatus === 'completed' ? 'Signed' : contract.esignStatus === 'delivered' ? 'Viewed by signer' : contract.esignStatus === 'sent' ? 'Awaiting signature' : contract.esignStatus}</strong>
+                  {contract.esignSignerEmail && ` · ${contract.esignSignerEmail}`}
+                  {contract.signedFileUrl && <> · <a className="font-semibold text-blue-600 hover:underline" href={contract.signedFileUrl} target="_blank" rel="noreferrer">Signed PDF</a></>}
+                </p>
+              )}
             </div>
           </div>
           <div className="flex flex-wrap items-center gap-2 shrink-0">
             <button type="button" className="btn-outline btn-sm" onClick={openEdit}><Pencil size={14} /> Edit</button>
             <button type="button" className="btn-outline btn-sm" onClick={handlePrintServer}><Printer size={14} /> Print</button>
-            <button type="button" className="btn-outline btn-sm" disabled={sendingSign} onClick={handleSendForSignature}><Send size={14} /> {sendingSign ? 'Sending...' : 'Send for Signature'}</button>
+            {['sent', 'delivered'].includes(contract.esignStatus)
+              ? <button type="button" className="btn-outline btn-sm" disabled={sendingSign} onClick={checkSignatureStatus}><RefreshCw size={14} /> {sendingSign ? 'Checking…' : 'Check Signature'}</button>
+              : contract.esignStatus !== 'completed' && <button type="button" className="btn-outline btn-sm" onClick={openSignature}><Send size={14} /> Send for Signature</button>}
             <button type="button" className="btn-outline btn-sm" onClick={() => printContract(contract, deal)}><Download size={14} /> Download PDF</button>
             <details className="relative">
               <summary className="btn-outline btn-sm cursor-pointer list-none"><MoreHorizontal size={15} /> More</summary>
@@ -599,6 +653,33 @@ export default function ContractDetailPage() {
           <div className="flex justify-end gap-2 border-t border-slate-100 pt-4">
             <button type="button" className="btn-outline btn-sm" disabled={busy} onClick={() => setEditOpen(false)}>Cancel</button>
             <button type="submit" className="btn-primary btn-sm" disabled={busy}>{busy ? 'Saving…' : 'Save Changes'}</button>
+          </div>
+        </form>
+      </Modal>
+
+      <Modal isOpen={signOpen} onClose={() => !sendingSign && setSignOpen(false)} title="Send for Signature" subtitle={`DocuSign will email ${contract.contractNumber} to the signer`}>
+        <form onSubmit={submitSignature} className="space-y-4 text-xs">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <label className="space-y-1.5 font-semibold text-slate-600">
+              Signer Name *
+              <input required value={signer.signerName} onChange={(e) => setSigner({ ...signer, signerName: e.target.value })}
+                className="block w-full border border-slate-200 rounded-lg px-3 py-2 text-xs outline-none focus:border-blue-400" />
+            </label>
+            <label className="space-y-1.5 font-semibold text-slate-600">
+              Signer Email *
+              <input type="email" required value={signer.signerEmail} onChange={(e) => setSigner({ ...signer, signerEmail: e.target.value })}
+                className="block w-full border border-slate-200 rounded-lg px-3 py-2 text-xs outline-none focus:border-blue-400" />
+            </label>
+          </div>
+          <label className="block space-y-1.5 font-semibold text-slate-600">
+            Message
+            <textarea rows={3} value={signer.message} onChange={(e) => setSigner({ ...signer, message: e.target.value })}
+              className="block w-full border border-slate-200 rounded-lg px-3 py-2 text-xs outline-none focus:border-blue-400" />
+          </label>
+          {formError && <p role="alert" className="text-xs text-rose-600">{formError}</p>}
+          <div className="flex justify-end gap-2 border-t border-slate-100 pt-4">
+            <button type="button" className="btn-outline btn-sm" disabled={sendingSign} onClick={() => setSignOpen(false)}>Cancel</button>
+            <button type="submit" className="btn-primary btn-sm" disabled={sendingSign}><Send size={14} /> {sendingSign ? 'Sending…' : 'Send'}</button>
           </div>
         </form>
       </Modal>

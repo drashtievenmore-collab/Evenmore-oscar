@@ -214,16 +214,18 @@ export default function QCDashboardPage({ defaultTab = 'All' }) {
   const suppliersList = dashboardData?.filters?.suppliers || vendors.map((v) => v.name);
 
   // Update Disposition Action
+  // A whole-lot verdict can only move stock still at QC Hold (backend
+  // qc.dispose_all); job-work inwards have no receipt to post against here.
+  const canDisposeSelected = Boolean(selectedRecord?.receiptId) && selectedRecord?.canDispose !== false;
+
   const handleUpdateDisposition = async (newVerdict) => {
-    if (!selectedRecord) return;
+    if (!selectedRecord || !canDisposeSelected) return;
     setUpdatingDisposition(true);
     try {
-      if (selectedRecord.receiptId) {
-        await inventoryService.updateQCDisposition(selectedRecord.receiptId, {
-          status: newVerdict,
-          note: dispositionNote || selectedRecord.defectReason,
-        });
-      }
+      await inventoryService.updateQCDisposition(selectedRecord.receiptId, {
+        status: newVerdict,
+        note: dispositionNote || selectedRecord.defectReason,
+      });
       // Refresh after update
       await fetchDashboard();
       setSelectedRecord(null);
@@ -1118,7 +1120,7 @@ export default function QCDashboardPage({ defaultTab = 'All' }) {
             </div>
 
             {/* Quantity Breakdown Grid */}
-            <div className="grid grid-cols-3 sm:grid-cols-6 gap-2 text-center text-xs">
+            <div className={`grid grid-cols-3 ${selectedRecord.second > 0 ? "sm:grid-cols-7" : "sm:grid-cols-6"} gap-2 text-center text-xs`}>
               <div className="bg-slate-50 border border-slate-200 rounded-lg p-2">
                 <span className="text-slate-400 text-[10px] block">Received</span>
                 <span className="font-bold text-slate-900 text-sm">
@@ -1137,6 +1139,14 @@ export default function QCDashboardPage({ defaultTab = 'All' }) {
                   {selectedRecord.good} {selectedRecord.uom}
                 </span>
               </div>
+              {selectedRecord.second > 0 && (
+                <div className="bg-sky-50/60 border border-sky-200 rounded-lg p-2">
+                  <span className="text-sky-500 text-[10px] block">Second Quality</span>
+                  <span className="font-bold text-sky-900 text-sm">
+                    {selectedRecord.second} {selectedRecord.uom}
+                  </span>
+                </div>
+              )}
               <div className="bg-amber-50/60 border border-amber-200 rounded-lg p-2">
                 <span className="text-amber-500 text-[10px] block">Hold</span>
                 <span className="font-bold text-amber-900 text-sm">
@@ -1174,36 +1184,47 @@ export default function QCDashboardPage({ defaultTab = 'All' }) {
             {/* Disposition Actions */}
             <div className="p-3.5 bg-slate-50 border border-slate-200 rounded-xl space-y-2 text-xs">
               <span className="font-semibold text-slate-700 block">Record Disposition Verdict:</span>
+              {!canDisposeSelected ? (
+                <p className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-slate-600">
+                  {selectedRecord.receiptId
+                    ? 'QC for this GRN is already recorded — nothing is left at QC Hold to disposition.'
+                    : 'Record the verdict for job-work inwards from the Pending Inspections screen.'}
+                </p>
+              ) : selectedRecord.awaiting > 0 && (
+                <p className="text-slate-500">
+                  Applies to the {selectedRecord.awaiting} {selectedRecord.uom} still at QC Hold.
+                </p>
+              )}
               <div className="flex items-center gap-2 flex-wrap">
                 <button
                   type="button"
-                  disabled={updatingDisposition}
+                  disabled={updatingDisposition || !canDisposeSelected}
                   onClick={() => handleUpdateDisposition('Approved')}
-                  className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white font-semibold rounded-lg shadow-xs transition cursor-pointer"
+                  className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white font-semibold rounded-lg shadow-xs transition cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   ✓ Pass & Approve Good
                 </button>
                 <button
                   type="button"
-                  disabled={updatingDisposition}
-                  onClick={() => handleUpdateDisposition('On Hold')}
-                  className="px-3 py-1.5 bg-amber-500 hover:bg-amber-600 text-white font-semibold rounded-lg shadow-xs transition cursor-pointer"
+                  disabled={updatingDisposition || !canDisposeSelected}
+                  onClick={() => handleUpdateDisposition('Pending Approval')}
+                  className="px-3 py-1.5 bg-amber-500 hover:bg-amber-600 text-white font-semibold rounded-lg shadow-xs transition cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   ⏸ Move to QC Hold
                 </button>
                 <button
                   type="button"
-                  disabled={updatingDisposition}
+                  disabled={updatingDisposition || !canDisposeSelected}
                   onClick={() => handleUpdateDisposition('Rework')}
-                  className="px-3 py-1.5 bg-purple-600 hover:bg-purple-700 text-white font-semibold rounded-lg shadow-xs transition cursor-pointer"
+                  className="px-3 py-1.5 bg-purple-600 hover:bg-purple-700 text-white font-semibold rounded-lg shadow-xs transition cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   ↻ Send for Reprocess
                 </button>
                 <button
                   type="button"
-                  disabled={updatingDisposition}
+                  disabled={updatingDisposition || !canDisposeSelected}
                   onClick={() => handleUpdateDisposition('Rejected')}
-                  className="px-3 py-1.5 bg-rose-600 hover:bg-rose-700 text-white font-semibold rounded-lg shadow-xs transition cursor-pointer"
+                  className="px-3 py-1.5 bg-rose-600 hover:bg-rose-700 text-white font-semibold rounded-lg shadow-xs transition cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   ✕ Reject Lot
                 </button>

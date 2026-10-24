@@ -30,6 +30,7 @@ import {
 import JsBarcode from 'jsbarcode';
 import QRCode from 'qrcode';
 import { inventoryService } from '../../services/domainServices';
+import KpiCard from '../../components/ui/KpiCard';
 
 // Helper for Quantity formatting
 function formatQty(val, uom = 'm') {
@@ -573,54 +574,35 @@ export default function TakaTagPrintPage() {
       )}
 
       {/* ── 2. SUMMARY KPI CARDS ──────────────────────────────────────── */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-        {/* Card 1: Total Takas */}
-        <div className="bg-white p-3.5 rounded-xl border border-slate-200 shadow-xs flex items-center justify-between">
-          <div>
-            <div className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">Total Takas</div>
-            <div className="text-xl font-black text-slate-900 mt-0.5">{summaryCards.totalTakas}</div>
-            <div className="text-[10px] text-slate-400 font-medium">Eligible in register</div>
-          </div>
-          <div className="w-10 h-10 rounded-xl bg-blue-50 text-blue-600 grid place-items-center">
-            <Layers size={18} />
-          </div>
-        </div>
-
-        {/* Card 2: Tags Printed */}
-        <div className="bg-white p-3.5 rounded-xl border border-slate-200 shadow-xs flex items-center justify-between">
-          <div>
-            <div className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">Tags Printed</div>
-            <div className="text-xl font-black text-emerald-600 mt-0.5">{summaryCards.tagsPrinted}</div>
-            <div className="text-[10px] text-emerald-700 font-medium">Physical tag issued</div>
-          </div>
-          <div className="w-10 h-10 rounded-xl bg-emerald-50 text-emerald-600 grid place-items-center">
-            <CheckCircle2 size={18} />
-          </div>
-        </div>
-
-        {/* Card 3: Pending Print */}
-        <div className="bg-white p-3.5 rounded-xl border border-slate-200 shadow-xs flex items-center justify-between">
-          <div>
-            <div className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">Pending Print</div>
-            <div className="text-xl font-black text-amber-600 mt-0.5">{summaryCards.pendingPrint}</div>
-            <div className="text-[10px] text-amber-700 font-medium">Awaiting tag printing</div>
-          </div>
-          <div className="w-10 h-10 rounded-xl bg-amber-50 text-amber-600 grid place-items-center">
-            <Clock size={18} />
-          </div>
-        </div>
-
-        {/* Card 4: Reprints */}
-        <div className="bg-white p-3.5 rounded-xl border border-slate-200 shadow-xs flex items-center justify-between">
-          <div>
-            <div className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">Reprints</div>
-            <div className="text-xl font-black text-purple-600 mt-0.5">{summaryCards.reprints}</div>
-            <div className="text-[10px] text-purple-700 font-medium">Recorded reprint audit</div>
-          </div>
-          <div className="w-10 h-10 rounded-xl bg-purple-50 text-purple-600 grid place-items-center">
-            <RotateCcw size={18} />
-          </div>
-        </div>
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+        <KpiCard
+          label="Total Takas"
+          value={summaryCards.totalTakas}
+          sub="Eligible in register"
+          icon={Layers}
+          tone="blue"
+        />
+        <KpiCard
+          label="Tags Printed"
+          value={summaryCards.tagsPrinted}
+          sub="Physical tag issued"
+          icon={CheckCircle2}
+          tone="emerald"
+        />
+        <KpiCard
+          label="Pending Print"
+          value={summaryCards.pendingPrint}
+          sub="Awaiting tag printing"
+          icon={Clock}
+          tone="amber"
+        />
+        <KpiCard
+          label="Reprints"
+          value={summaryCards.reprints}
+          sub="Recorded reprint audit"
+          icon={RotateCcw}
+          tone="purple"
+        />
       </div>
 
       {/* ── 3. BARCODE SCANNER BAR & FILTER TOOLBAR ───────────────────── */}

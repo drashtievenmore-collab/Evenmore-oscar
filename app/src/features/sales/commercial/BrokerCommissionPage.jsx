@@ -547,39 +547,49 @@ export default function BrokerCommissionPage() {
       </div>
 
       {/* KPI Summary Cards */}
-      <div className="grid grid-cols-2 md:grid-cols-6 gap-3">
-        <div className="bg-white p-3.5 rounded-xl border border-slate-200 shadow-sm">
-          <div className="text-[11px] font-semibold text-slate-400 uppercase tracking-wide">Broker Leads</div>
-          <div className="text-xl font-bold text-slate-800 mt-1">{summaryStats.totalLeads}</div>
-          <div className="text-[11px] text-indigo-600 font-medium mt-0.5">{summaryStats.activeLeads} in pipeline</div>
-        </div>
-        <div className="bg-white p-3.5 rounded-xl border border-slate-200 shadow-sm">
-          <div className="text-[11px] font-semibold text-slate-400 uppercase tracking-wide">Accrued Brokerage</div>
-          <div className="text-xl font-bold text-slate-800 mt-1">₹{summaryStats.accrued.toLocaleString()}</div>
-          <div className="text-[11px] text-slate-500 mt-0.5">From linked invoices</div>
-        </div>
-        <div className="bg-white p-3.5 rounded-xl border border-slate-200 shadow-sm">
-          <div className="text-[11px] font-semibold text-slate-400 uppercase tracking-wide">Approved / Payable</div>
-          <div className="text-xl font-bold text-blue-700 mt-1">₹{summaryStats.payable.toLocaleString()}</div>
-          <div className="text-[11px] text-blue-600 mt-0.5">Ready for payout voucher</div>
-        </div>
-        <div className="bg-white p-3.5 rounded-xl border border-slate-200 shadow-sm">
-          <div className="text-[11px] font-semibold text-slate-400 uppercase tracking-wide">Total Paid Out</div>
-          <div className="text-xl font-bold text-emerald-700 mt-1">₹{summaryStats.paid.toLocaleString()}</div>
-          <div className="text-[11px] text-emerald-600 mt-0.5">Disbursed to brokers</div>
-        </div>
-        <div className="bg-white p-3.5 rounded-xl border border-slate-200 shadow-sm">
-          <div className="text-[11px] font-semibold text-slate-400 uppercase tracking-wide">Outstanding Balance</div>
-          <div className="text-xl font-bold text-amber-700 mt-1">₹{summaryStats.pendingBalance.toLocaleString()}</div>
-          <div className="text-[11px] text-amber-600 mt-0.5">Net liability</div>
-        </div>
-        <div className="bg-white p-3.5 rounded-xl border border-slate-200 shadow-sm">
-          <div className="text-[11px] font-semibold text-slate-400 uppercase tracking-wide">Conversion Rate</div>
-          <div className="text-xl font-bold text-purple-700 mt-1">
-            {analyticsData?.conversionRate !== undefined ? `${analyticsData.conversionRate}%` : '25.0%'}
-          </div>
-          <div className="text-[11px] text-purple-600 mt-0.5">Deals won vs leads</div>
-        </div>
+      <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6 gap-3">
+        <KpiCard
+          label="Broker Leads"
+          value={summaryStats.totalLeads}
+          sub={`${summaryStats.activeLeads} in pipeline`}
+          icon={Users}
+          tone="indigo"
+        />
+        <KpiCard
+          label="Accrued Brokerage"
+          value={`₹${summaryStats.accrued.toLocaleString()}`}
+          sub="From linked invoices"
+          icon={DollarSign}
+          tone="blue"
+        />
+        <KpiCard
+          label="Approved / Payable"
+          value={`₹${summaryStats.payable.toLocaleString()}`}
+          sub="Ready for payout voucher"
+          icon={CheckCircle2}
+          tone="sky"
+        />
+        <KpiCard
+          label="Total Paid Out"
+          value={`₹${summaryStats.paid.toLocaleString()}`}
+          sub="Disbursed to brokers"
+          icon={TrendingUp}
+          tone="emerald"
+        />
+        <KpiCard
+          label="Outstanding Balance"
+          value={`₹${summaryStats.pendingBalance.toLocaleString()}`}
+          sub="Net liability"
+          icon={Clock}
+          tone="amber"
+        />
+        <KpiCard
+          label="Conversion Rate"
+          value={analyticsData?.conversionRate !== undefined ? `${analyticsData.conversionRate}%` : '25.0%'}
+          sub="Deals won vs leads"
+          icon={Percent}
+          tone="purple"
+        />
       </div>
 
       {/* Navigation Tabs */}

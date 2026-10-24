@@ -6,6 +6,7 @@ import { fetchJWOs, fetchPlans, createJWORow, deleteJWORow, errorMessage } from 
 import PageHeader from '../../components/ui/PageHeader';
 import TablePagination from '../../components/ui/TablePagination';
 import { PrintJobWorkChallanModal } from '../../components/common/PrintJobWorkChallanModal';
+import { ConfirmModal } from '../../components/ui/ConfirmModal';
 
 const statusPill = (s) =>
   s === 'Sent' || s === 'Fully Received' || s === 'Completed'
@@ -63,6 +64,7 @@ export default function JobWorkOutwardPage() {
   const [menuId, setMenuId] = useState(null);
   const [printRow, setPrintRow] = useState(null);
   const [showForm, setShowForm] = useState(false);
+  const [deleteConfirm, setDeleteConfirm] = useState({ isOpen: false, row: null, loading: false });
   const [form, setForm] = useState({
     jwoId: '',
     date: new Date().toISOString().slice(0, 10),
@@ -124,13 +126,21 @@ export default function JobWorkOutwardPage() {
     return filtered.slice(start, start + pageSize);
   }, [filtered, page, pageSize]);
 
-  const handleDelete = async (r) => {
+  const handleDelete = (r) => {
     setMenuId(null);
-    if (!window.confirm(`Delete outward ${r.no}?`)) return;
+    setDeleteConfirm({ isOpen: true, row: r, loading: false });
+  };
+
+  const handleConfirmDelete = async () => {
+    const r = deleteConfirm.row;
+    if (!r) return;
+    setDeleteConfirm((prev) => ({ ...prev, loading: true }));
     try {
       await deleteJWORow(r.jwoId, 'outwards', r.id);
+      setDeleteConfirm({ isOpen: false, row: null, loading: false });
       await reload();
     } catch (err) {
+      setDeleteConfirm((prev) => ({ ...prev, loading: false }));
       window.alert(errorMessage(err, 'Could not delete the outward challan.'));
     }
   };
@@ -442,6 +452,19 @@ export default function JobWorkOutwardPage() {
         onClose={() => setPrintRow(null)}
         jwoId={printRow?.jwoId}
         outwardId={printRow?.id}
+      />
+      {/* Centered Modern Delete Confirmation Modal */}
+      <ConfirmModal
+        isOpen={deleteConfirm.isOpen}
+        onClose={() => !deleteConfirm.loading && setDeleteConfirm({ isOpen: false, row: null, loading: false })}
+        onConfirm={handleConfirmDelete}
+        title="Delete Outward Challan"
+        message="Are you sure you want to delete this outward delivery challan? This action will remove the outward record from the Job Work Order."
+        itemName={deleteConfirm.row ? `Challan: ${deleteConfirm.row.no}` : null}
+        confirmText="Delete Outward"
+        cancelText="Cancel"
+        variant="danger"
+        loading={deleteConfirm.loading}
       />
     </div>
   );

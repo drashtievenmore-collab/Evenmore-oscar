@@ -1298,96 +1298,42 @@ export default function LotTakaRegisterPage({
       )}
 
       {/* ── 5 TOP SUMMARY CARDS (Image 1) ──────────────────────────────────── */}
-      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
-        {/* 1. Total Lots / Taka */}
-        <div className="bg-white p-3.5 rounded-xl border border-slate-200/90 shadow-xs flex items-center justify-between">
-          <div>
-            <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block">
-              Total Lots / Taka
-            </span>
-            <div className="text-xl font-black text-slate-900 mt-1 font-mono">
-              {summary.totalLots?.count ? summary.totalLots.count.toLocaleString('en-IN') : '0'}
-            </div>
-            <span className="text-[10px] text-slate-400 mt-0.5 block font-medium">
-              Active {summary.totalLots?.active || 0} | Closed {summary.totalLots?.closed || 0}
-            </span>
-          </div>
-          <div className="w-9 h-9 rounded-xl bg-blue-50 border border-blue-200 grid place-items-center shrink-0">
-            <Layers size={17} className="text-blue-600" />
-          </div>
-        </div>
-
-        {/* 2. Total Quantity */}
-        <div className="bg-white p-3.5 rounded-xl border border-slate-200/90 shadow-xs flex items-center justify-between">
-          <div>
-            <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block">
-              Total Quantity
-            </span>
-            <div className="text-xl font-black text-slate-900 mt-1 font-mono">
-              {formatQty(summary.totalQuantity?.qty, summary.totalQuantity?.uom || 'm')}
-            </div>
-            <span className="text-[10px] text-emerald-600 mt-0.5 block font-medium">
-              In Stock {formatQty(summary.totalQuantity?.inStock, summary.totalQuantity?.uom || 'm')}
-            </span>
-          </div>
-          <div className="w-9 h-9 rounded-xl bg-emerald-50 border border-emerald-200 grid place-items-center shrink-0">
-            <Package size={17} className="text-emerald-600" />
-          </div>
-        </div>
-
-        {/* 3. Total Value */}
-        <div className="bg-white p-3.5 rounded-xl border border-slate-200/90 shadow-xs flex items-center justify-between">
-          <div>
-            <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block">
-              Total Value
-            </span>
-            <div className="text-xl font-black text-slate-900 mt-1 font-mono">
-              {formatINR(summary.totalValue?.val)}
-            </div>
-            <span className="text-[10px] text-slate-400 mt-0.5 block font-medium">
-              Avg. Rate ₹ {summary.totalValue?.avgRate?.toFixed(2) || '0.00'}/m
-            </span>
-          </div>
-          <div className="w-9 h-9 rounded-xl bg-blue-50 border border-blue-200 grid place-items-center shrink-0">
-            <Wallet size={17} className="text-blue-600" />
-          </div>
-        </div>
-
-        {/* 4. Pending QC */}
-        <div className="bg-white p-3.5 rounded-xl border border-slate-200/90 shadow-xs flex items-center justify-between">
-          <div>
-            <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block">
-              Pending QC
-            </span>
-            <div className="text-xl font-black text-purple-700 mt-1 font-mono">
-              {formatQty(summary.pendingQC?.qty, summary.pendingQC?.uom || 'm')}
-            </div>
-            <span className="text-[10px] text-purple-500 mt-0.5 block font-medium">
-              {summary.pendingQC?.lots || 0} Lots
-            </span>
-          </div>
-          <div className="w-9 h-9 rounded-xl bg-purple-50 border border-purple-200 grid place-items-center shrink-0">
-            <Clock size={17} className="text-purple-600" />
-          </div>
-        </div>
-
-        {/* 5. On Hold */}
-        <div className="bg-white p-3.5 rounded-xl border border-slate-200/90 shadow-xs flex items-center justify-between">
-          <div>
-            <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block">
-              On Hold
-            </span>
-            <div className="text-xl font-black text-amber-700 mt-1 font-mono">
-              {formatQty(summary.onHold?.qty, summary.onHold?.uom || 'm')}
-            </div>
-            <span className="text-[10px] text-amber-600 mt-0.5 block font-medium">
-              {summary.onHold?.lots || 0} Lots
-            </span>
-          </div>
-          <div className="w-9 h-9 rounded-xl bg-amber-50 border border-amber-200 grid place-items-center shrink-0">
-            <AlertTriangle size={17} className="text-amber-600" />
-          </div>
-        </div>
+      <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3">
+        <KpiCard
+          label="Total Lots / Taka"
+          value={summary.totalLots?.count ? summary.totalLots.count.toLocaleString('en-IN') : '0'}
+          sub={`Active ${summary.totalLots?.active || 0} | Closed ${summary.totalLots?.closed || 0}`}
+          icon={Layers}
+          tone="blue"
+        />
+        <KpiCard
+          label="Total Quantity"
+          value={formatQty(summary.totalQuantity?.qty, summary.totalQuantity?.uom || 'm')}
+          sub={`In Stock ${formatQty(summary.totalQuantity?.inStock, summary.totalQuantity?.uom || 'm')}`}
+          icon={Package}
+          tone="emerald"
+        />
+        <KpiCard
+          label="Total Value"
+          value={formatINR(summary.totalValue?.val)}
+          sub={`Avg. Rate ₹ ${summary.totalValue?.avgRate?.toFixed(2) || '0.00'}/m`}
+          icon={Wallet}
+          tone="sky"
+        />
+        <KpiCard
+          label="Pending QC"
+          value={formatQty(summary.pendingQC?.qty, summary.pendingQC?.uom || 'm')}
+          sub={`${summary.pendingQC?.lots || 0} Lots`}
+          icon={Clock}
+          tone="purple"
+        />
+        <KpiCard
+          label="On Hold"
+          value={formatQty(summary.onHold?.qty, summary.onHold?.uom || 'm')}
+          sub={`${summary.onHold?.lots || 0} Lots`}
+          icon={AlertTriangle}
+          tone="amber"
+        />
       </div>
 
       {/* ── FILTER TOOLBAR (Image 1) ────────────────────────────────────────── */}
