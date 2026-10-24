@@ -45,6 +45,9 @@ import {
   UploadCloud,
   Download,
   Check,
+  PackageCheck,
+  PackagePlus,
+  Undo2,
 } from 'lucide-react';
 import { useAppStore } from '../../stores/appStore';
 import { useAttendanceStore } from '../../stores/attendanceStore';
@@ -53,7 +56,7 @@ import { useDocumentStore } from '../../stores/documentStore';
 import { useDocumentFileUrl, downloadDocumentFile } from '../../hooks/useDocumentFile';
 import { usePolicyStore } from '../../stores/policyStore';
 import { api } from '../../services/api';
-import { hrmsSync } from '../../services/hrmsSync';
+import { hrmsSync, isServerId, describeError, pullAvailableAssets, pullMyAssets } from '../../services/hrmsSync';
 import { Modal } from '../../components/ui/Modal';
 import { Badge } from '../../components/hrms/Badge';
 import { EarlyPunchOutModal } from '../hrms/attendance/components/EarlyPunchOutModal';
@@ -82,6 +85,19 @@ const PORTAL_DOC_CATEGORIES = [
 ];
 
 const todayISO = () => new Date().toISOString().slice(0, 10);
+
+/** `2024-11-01` + `09:30` → the ISO instant for that local wall-clock time. */
+const clockToISO = (date, clock) => {
+  if (!date || !clock) return undefined;
+  const d = new Date(`${date}T${clock}`);
+  return Number.isNaN(d.getTime()) ? undefined : d.toISOString();
+};
+
+/** Offered for "Other" asset requests until HR has set up asset categories; new names are created on submit. */
+const ASSET_CATEGORY_FALLBACK = ['Laptop', 'Monitor', 'Mobile', 'Tools', 'Safety Equipment', 'Furniture', 'Software'];
+
+/** Shown when the tenant has not configured leave types yet; the server sets them up on first use. */
+const DEFAULT_LEAVE_TYPE_NAMES = ['Casual Leave', 'Sick Leave', 'Earned Leave', 'Loss of Pay'];
 
 function formatDate(isoStr) {
   if (!isoStr) return '—';
@@ -116,12 +132,14 @@ export default function EmployeePortal() {
 
   // Asset Store
   const assetRequests = useAssetStore((s) => s.requests || []);
-  const addAssetRequest = useAssetStore((s) => s.addRequest);
   const hydrateAssets = useAssetStore((s) => s.hydrate);
+  const createAssetRequest = useAssetStore((s) => s.addRequest);
+  const withdrawAssetRequest = useAssetStore((s) => s.cancelRequest);
+  const refreshAssetRequests = useAssetStore((s) => s.refreshRequests);
 
   // Attendance Store
   const attendanceRequests = useAttendanceStore((s) => s.requests || []);
-  const addAttendanceRequest = useAttendanceStore((s) => s.addRequest);
+  const refreshAttendanceRequests = useAttendanceStore((s) => s.refreshRequests);
 
   // Policy Store
   const policies = usePolicyStore((s) => s.policies || []);
@@ -192,14 +210,15 @@ export default function EmployeePortal() {
     description: '',
   });
 
+  // Asset requests: pick an available unit from inventory, or ask for something not in stock.
+  const emptyAssetForm = { requestedAssetId: '', itemName: '', categoryName: '', priority: 'Medium', justification: '' };
   const [assetCategories, setAssetCategories] = useState([]);
-  const [assetForm, setAssetForm] = useState({
-    categoryId: '',
-    categoryName: 'Laptop',
-    assetName: '',
-    priority: 'Medium',
-    justification: '',
-  });
+  const [assetRequestMode, setAssetRequestMode] = useState('INVENTORY'); // 'INVENTORY' | 'OTHER'
+  const [availableAssets, setAvailableAssets] = useState([]);
+  const [availableAssetsLoading, setAvailableAssetsLoading] = useState(false);
+  const [myAssets, setMyAssets] = useState([]);
+  const [assetCategoryCustom, setAssetCategoryCustom] = useState(false);
+  const [assetForm, setAssetForm] = useState(emptyAssetForm);
 
   const [regForm, setRegForm] = useState({
     date: todayISO(),
@@ -240,6 +259,35 @@ export default function EmployeePortal() {
     }).catch((err) => console.warn('Failed to fetch resignations:', err));
   };
 
+  const loadAssetCategories = () => {
+    hrmsSync.pull('assetCategories').then((rows) => {
+      if (Array.isArray(rows)) setAssetCategories(rows);
+    }).catch(() => {});
+  };
+
+  const loadMyAssets = () => {
+    pullMyAssets().then((res) => {
+      if (res) setMyAssets(Array.isArray(res) ? res : res?.results || []);
+    }).catch(() => {});
+  };
+
+  // Re-read available stock on every open, so only units still in inventory are offered.
+  const openAssetModal = async () => {
+    setAssetForm(emptyAssetForm);
+    setAssetRequestMode('INVENTORY');
+    setAssetCategoryCustom(false);
+    setIsAssetModalOpen(true);
+    loadAssetCategories();
+    loadMyAssets();
+    setAvailableAssetsLoading(true);
+    try {
+      const res = await pullAvailableAssets();
+      setAvailableAssets(Array.isArray(res) ? res : res?.results || []);
+    } finally {
+      setAvailableAssetsLoading(false);
+    }
+  };
+
   // Load Leave Types & Asset Categories & Resignations
   useEffect(() => {
     fetchTodayPunch();
@@ -256,14 +304,9 @@ export default function EmployeePortal() {
       }
     }).catch(() => {});
 
-    // Pull asset categories
-    api.get('/hrms/asset-categories/').then((res) => {
-      const cats = Array.isArray(res) ? res : res?.results || [];
-      if (cats.length > 0) {
-        setAssetCategories(cats);
-        setAssetForm((prev) => ({ ...prev, categoryId: cats[0].id, categoryName: cats[0].name }));
-      }
-    }).catch(() => {});
+    // Asset categories (for "Other" requests) and the assets this employee holds
+    loadAssetCategories();
+    loadMyAssets();
   }, []); // Run on initial mount
 
   // Live timer for active punch
@@ -607,27 +650,35 @@ export default function EmployeePortal() {
     });
 
     // 2. Asset Requests
+    // The server scopes this list (an employee gets only their own), so show every row.
     assetRequests.forEach((a) => {
-      const isMine = !currentEmployee || a.employeeId === currentEmployee.id || a.employeeName === employeeName;
-      if (isMine || assetRequests.length <= 10) {
-        list.push({
-          id: a.id,
-          rawId: a.id,
-          requestType: 'ASSET',
-          typeName: a.category ? `Asset: ${a.category}` : 'Hardware / Asset',
-          itemTitle: a.assetName || a.justification || 'Asset Request',
-          date: a.requestedDate || a.created_at,
-          dateDisplay: formatDate(a.requestedDate || a.created_at),
-          reason: a.reason || a.justification || 'Asset allocation requested',
-          status: a.status || 'Pending Review',
-          priority: a.priority || 'Medium',
-          remark: a.remark || '',
-          approver: a.approver || 'IT & Admin Dept',
-          created_at: a.created_at || a.requestedDate || todayISO(),
-          verificationModule: 'HRMS › Asset Setup (/hrms/assets)',
-          raw: a,
-        });
-      }
+      const isInventory = a.requestType === 'Inventory';
+      const details = [
+        isInventory && a.requestedAssetCode ? `Unit ${a.requestedAssetCode}` : '',
+        !isInventory && a.category ? a.category : '',
+        a.priority ? `${a.priority} priority` : '',
+        a.status === 'Fulfilled' && (a.fulfilledAssetCode || a.fulfilledAsset) ? `Issued: ${a.fulfilledAssetCode || a.fulfilledAsset}` : '',
+      ].filter(Boolean).join(' • ');
+      list.push({
+        id: a.id,
+        rawId: a.id,
+        requestType: 'ASSET',
+        typeName: isInventory ? 'Asset: From Inventory' : 'Asset: Other Request',
+        itemTitle: a.assetName || a.itemName || 'Asset Request',
+        timeDetails: details,
+        date: a.createdAt || a.requestedDate,
+        dateDisplay: a.createdAt ? formatDate(a.createdAt) : (a.requestedDate || '—'),
+        reason: a.justification || a.reason || 'Asset allocation requested',
+        // Fulfilled = approved and handed over; keep it in the "approved" bucket.
+        status: a.status === 'Fulfilled' ? 'Approved — Asset Issued' : (a.status || 'Pending'),
+        priority: a.priority || 'Medium',
+        remark: a.remark || '',
+        approver: a.approverName || 'HR / IT Admin',
+        created_at: a.createdAt || todayISO(),
+        verificationModule: 'HRMS › Asset Setup › Employee Requests (/hrms/assets?tab=requests)',
+        canWithdraw: a.status === 'Pending',
+        raw: a,
+      });
     });
 
     // 3. Attendance Regularizations, Early Leave, Half Day Attendance, WFH
@@ -737,6 +788,24 @@ export default function EmployeePortal() {
 
   // ── SUBMIT HANDLERS ──
 
+  // The signed-in employee's server id; the API resolves it itself when absent.
+  const myEmployeeId = isServerId(currentEmployee?.id) ? currentEmployee.id : undefined;
+
+  // Regularization, early leave, WFH and general requests all land in the
+  // attendance-request queue HR verifies at /hrms/attendance/requests.
+  const postAttendanceRequest = async ({ date, checkIn, checkOut, status = 'Present', reason }) => {
+    const saved = await api.post('/hrms/attendance/regularizations/', {
+      employeeId: myEmployeeId,
+      date,
+      requestedCheckIn: clockToISO(date, checkIn),
+      requestedCheckOut: clockToISO(date, checkOut),
+      requestedStatus: status,
+      reason,
+    });
+    refreshAttendanceRequests?.().catch(() => {});
+    return saved;
+  };
+
   // 1. Submit Full Day Leave
   const handleSubmitLeave = async (e) => {
     e.preventDefault();
@@ -752,8 +821,9 @@ export default function EmployeePortal() {
     try {
       setIsSubmitting(true);
       const payload = {
-        employeeId: currentEmployee?.id || undefined,
+        employeeId: myEmployeeId,
         leaveTypeId: leaveForm.leaveTypeId || undefined,
+        leaveTypeName: leaveForm.leaveTypeName,
         type: leaveForm.leaveTypeName,
         fromDate: leaveForm.fromDate,
         toDate: leaveForm.toDate,
@@ -800,8 +870,9 @@ export default function EmployeePortal() {
 
       // Submit to Leave store & API (0.5 day deducted upon HR approval)
       await addLeave({
-        employeeId: currentEmployee?.id || undefined,
+        employeeId: myEmployeeId,
         leaveTypeId: halfDayForm.leaveTypeId || undefined,
+        leaveTypeName: halfDayForm.leaveTypeName,
         type: `${halfDayForm.leaveTypeName} (Half Day)`,
         fromDate: halfDayForm.date,
         toDate: halfDayForm.date,
@@ -809,19 +880,6 @@ export default function EmployeePortal() {
         reason: formattedReason,
         delegateId: halfDayForm.delegateId || undefined,
         status: 'Pending Review',
-      });
-
-      // Also register in Attendance Requests queue for HR Attendance verification
-      addAttendanceRequest({
-        employee: employeeName,
-        dept: department,
-        date: halfDayForm.date,
-        type: 'Half Day',
-        curIn: sessionLabel === 'First Half' ? '09:00' : '13:30',
-        curOut: sessionLabel === 'First Half' ? '13:30' : '18:30',
-        reqIn: sessionLabel === 'First Half' ? '09:00' : '13:30',
-        reqOut: sessionLabel === 'First Half' ? '13:30' : '18:30',
-        reason: formattedReason,
       });
 
       showToast?.('Half day request submitted for HR verification!');
@@ -858,28 +916,10 @@ export default function EmployeePortal() {
       setIsSubmitting(true);
       const earlyReason = `[Early Leave: ${earlyLeaveForm.category}] Leaving at ${earlyLeaveForm.departureTime}. Reason: ${earlyLeaveForm.reason.trim()}`;
 
-      // 1. Submit to Backend Attendance Regularization API
-      await api.post('/hrms/attendance/regularizations/', {
-        employeeId: currentEmployee?.id || undefined,
+      await postAttendanceRequest({
         date: earlyLeaveForm.date,
-        requestedCheckIn: '09:00',
-        requestedCheckOut: earlyLeaveForm.departureTime,
-        requestedStatus: 'Present',
-        reason: earlyReason,
-      }).catch((err) => {
-        console.warn('Backend early leave sync warning:', err);
-      });
-
-      // 2. Add to Attendance store so HR verifies it in /hrms/attendance/requests
-      addAttendanceRequest({
-        employee: employeeName,
-        dept: department,
-        date: earlyLeaveForm.date,
-        type: 'Early Leave',
-        curIn: '09:00',
-        curOut: '18:30',
-        reqIn: '09:00',
-        reqOut: earlyLeaveForm.departureTime,
+        checkIn: '09:00',
+        checkOut: earlyLeaveForm.departureTime,
         reason: earlyReason,
       });
 
@@ -915,28 +955,11 @@ export default function EmployeePortal() {
       setIsSubmitting(true);
       const fullReason = `[Regularization — ${regForm.type}] ${regForm.reason.trim()}`;
 
-      // 1. Submit to Backend API
-      await api.post('/hrms/attendance/regularizations/', {
-        employeeId: currentEmployee?.id || undefined,
+      await postAttendanceRequest({
         date: regForm.date,
-        requestedCheckIn: regForm.requestedCheckIn,
-        requestedCheckOut: regForm.requestedCheckOut,
-        requestedStatus: regForm.requestedStatus,
-        reason: fullReason,
-      }).catch((apiErr) => {
-        console.warn('Backend regularization sync warning:', apiErr);
-      });
-
-      // 2. Add to Attendance store for HR review
-      addAttendanceRequest({
-        employee: employeeName,
-        dept: department,
-        date: regForm.date,
-        type: 'Regularization',
-        curIn: regForm.requestedCheckIn,
-        curOut: regForm.requestedCheckOut,
-        reqIn: regForm.requestedCheckIn,
-        reqOut: regForm.requestedCheckOut,
+        checkIn: regForm.requestedCheckIn,
+        checkOut: regForm.requestedCheckOut,
+        status: regForm.requestedStatus,
         reason: fullReason,
       });
 
@@ -974,24 +997,11 @@ export default function EmployeePortal() {
       setIsSubmitting(true);
       const wfhReason = `[Work From Home] Tasks: ${wfhForm.tasks.trim()}${wfhForm.reason ? ` — Note: ${wfhForm.reason.trim()}` : ''}`;
 
-      await api.post('/hrms/attendance/regularizations/', {
-        employeeId: currentEmployee?.id || undefined,
+      await postAttendanceRequest({
         date: wfhForm.date,
-        requestedCheckIn: '09:00',
-        requestedCheckOut: '18:30',
-        requestedStatus: 'WFH',
-        reason: wfhReason,
-      }).catch(() => {});
-
-      addAttendanceRequest({
-        employee: employeeName,
-        dept: department,
-        date: wfhForm.date,
-        type: 'Work From Home (WFH)',
-        curIn: '09:00',
-        curOut: '18:30',
-        reqIn: '09:00',
-        reqOut: '18:30',
+        checkIn: '09:00',
+        checkOut: '18:30',
+        status: 'WFH',
         reason: wfhReason,
       });
 
@@ -1012,58 +1022,102 @@ export default function EmployeePortal() {
 
   // 6. Submit Asset Request
   const handleSubmitAsset = async (e) => {
-    e.preventDefault();
-    const itemName = assetForm.assetName.trim();
+    e?.preventDefault?.();
+    const isInventory = assetRequestMode === 'INVENTORY';
     const justification = assetForm.justification.trim();
+    const payload = { priority: assetForm.priority };
 
-    if (!itemName && !justification) {
-      showToast?.('Please specify the asset description or justification.', 'error');
+    if (isInventory) {
+      const unit = availableAssets.find((a) => a.id === assetForm.requestedAssetId);
+      if (!unit) {
+        showToast?.('Please select an available asset from the inventory list.', 'error');
+        return;
+      }
+      payload.requestType = 'Inventory';
+      payload.requestedAssetId = unit.id;
+    } else {
+      const itemName = assetForm.itemName.trim();
+      if (!itemName) {
+        showToast?.('Please enter the item you need.', 'error');
+        return;
+      }
+      const catName = assetForm.categoryName.trim();
+      const known = assetCategories.find((c) => String(c.name || '').toLowerCase() === catName.toLowerCase());
+      payload.requestType = 'Other';
+      payload.itemName = itemName;
+      if (known && isServerId(known.id)) payload.categoryId = known.id;
+      else if (catName) payload.categoryName = catName;
+    }
+
+    if (!justification) {
+      showToast?.('Please explain why you need this asset (justification).', 'error');
       return;
     }
+    payload.justification = justification;
 
     try {
       setIsSubmitting(true);
-      const fullJustification = itemName
-        ? `${itemName}${justification ? ` — ${justification}` : ''}`
-        : justification;
+      await createAssetRequest(payload);
+      refreshAssetRequests?.()?.catch?.(() => {});
 
-      await api.post('/hrms/asset-requests/', {
-        employeeId: currentEmployee?.id || undefined,
-        categoryId: assetForm.categoryId || undefined,
-        justification: fullJustification,
-      }).catch((apiErr) => {
-        console.warn('Backend asset request sync warning:', apiErr);
-      });
-
-      addAssetRequest({
-        employeeName,
-        employeeId: currentEmployee?.id || '',
-        dept: department,
-        category: assetForm.categoryName,
-        assetName: itemName || `${assetForm.categoryName} Hardware`,
-        reason: fullJustification,
-        priority: assetForm.priority,
-        requestedDate: todayISO(),
-        source: 'Employee Portal',
-        notes: `Priority: ${assetForm.priority}`,
-      });
-
-      showToast?.('Asset request submitted for HR / IT verification!');
+      showToast?.(
+        isInventory
+          ? 'Asset request submitted — HR will review and issue the unit to you.'
+          : 'Asset request submitted for HR / IT review!'
+      );
       setIsAssetModalOpen(false);
-      setAssetForm({
-        categoryId: assetCategories[0]?.id || '',
-        categoryName: assetCategories[0]?.name || 'Laptop',
-        assetName: '',
-        priority: 'Medium',
-        justification: '',
-      });
+      setAssetForm(emptyAssetForm);
+
+      // Take the employee to their request in the list below.
+      setSearchQuery('');
+      setStatusFilter('ALL');
+      setActiveTab('ASSET');
+      setTimeout(() => {
+        document.getElementById('portal-requests-register')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      }, 120);
     } catch (err) {
-      const msg = err?.payload?.message || err?.message || 'Failed to submit asset request';
-      showToast?.(msg, 'error');
+      showToast?.(`Asset request not submitted — ${describeError(err)}`, 'error');
+      // The unit may have just been issued to someone else; refresh what is on offer.
+      if (isInventory) {
+        pullAvailableAssets().then((res) => {
+          if (res) setAvailableAssets(Array.isArray(res) ? res : res?.results || []);
+        }).catch(() => {});
+      }
     } finally {
       setIsSubmitting(false);
     }
   };
+
+  // The requester withdraws their own pending asset request.
+  const handleWithdrawAssetRequest = async (id) => {
+    if (!window.confirm('Withdraw this asset request?')) return;
+    try {
+      setIsSubmitting(true);
+      await withdrawAssetRequest(id);
+      showToast?.('Asset request withdrawn.');
+      setViewRequestModal(null);
+    } catch (err) {
+      showToast?.(`Could not withdraw the request — ${describeError(err)}`, 'error');
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  // Available units grouped by category, for the dropdown's option groups.
+  const availableAssetGroups = (() => {
+    const groups = new Map();
+    availableAssets
+      .forEach((a) => {
+        const key = a.category || 'Uncategorised';
+        if (!groups.has(key)) groups.set(key, []);
+        groups.get(key).push(a);
+      });
+    return [...groups.entries()].sort(([x], [y]) => x.localeCompare(y));
+  })();
+
+  const assetCategoryOptions = assetCategories.length > 0
+    ? assetCategories.map((c) => c.name).filter(Boolean)
+    : ASSET_CATEGORY_FALLBACK;
 
   // 7. Submit General Request / Other Reasons & Requirements
   const handleSubmitGeneral = async (e) => {
@@ -1081,29 +1135,11 @@ export default function EmployeePortal() {
       setIsSubmitting(true);
       const formattedReason = `[Requirement: ${generalForm.category}] (${generalForm.urgency} Urgency) ${generalForm.title.trim()} — ${generalForm.description.trim()}`;
 
-      // Sync to attendance/regularizations backend endpoint so HR can query & verify
-      const res = await api.post('/hrms/attendance/regularizations/', {
-        employeeId: currentEmployee?.id || currentUser?.employeeId || undefined,
+      // Lands in the attendance-request queue so HR can query & verify it
+      await postAttendanceRequest({
         date: generalForm.date,
-        requestedCheckIn: '09:00',
-        requestedCheckOut: '18:30',
-        requestedStatus: 'Present',
-        reason: formattedReason,
-      });
-
-      const serverId = res?.id || res?.data?.id;
-
-      // Add to store so HR Requests queue and Employee Portal update live
-      addAttendanceRequest({
-        id: serverId || undefined,
-        employee: employeeName,
-        dept: department,
-        date: generalForm.date,
-        type: 'General Request',
-        curIn: '09:00',
-        curOut: '18:30',
-        reqIn: '09:00',
-        reqOut: '18:30',
+        checkIn: '09:00',
+        checkOut: '18:30',
         reason: formattedReason,
       });
 
@@ -1482,12 +1518,24 @@ export default function EmployeePortal() {
                 <span className="text-[10.5px] font-bold text-cyan-700 bg-cyan-50 px-2 py-0.5 rounded-md">IT / Tools</span>
               </div>
               <p className="text-xs text-muted mt-1 leading-relaxed">
-                Request laptops, monitors, fabrication tools, mobiles, or software licenses.
+                Pick an available unit from company inventory, or raise a request for anything not in stock.
               </p>
+              {myAssets.length > 0 && (
+                <div className="mt-2.5 p-2 rounded-lg bg-slate-50 border border-bdr">
+                  <div className="text-[10px] font-bold uppercase text-slate-500 mb-1">My assets ({myAssets.length})</div>
+                  <div className="space-y-0.5 max-h-16 overflow-y-auto">
+                    {myAssets.map((a) => (
+                      <div key={a.id} className="text-[11px] text-slate-700 truncate" title={`${a.name} (${a.assetCode})`}>
+                        <span className="font-mono font-semibold text-slate-500">{a.assetCode}</span> {a.name}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
             <button
               type="button"
-              onClick={() => setIsAssetModalOpen(true)}
+              onClick={openAssetModal}
               className="mt-4 w-full h-9 rounded-xl bg-cyan-50 hover:bg-cyan-100 text-cyan-700 font-bold text-xs flex items-center justify-center gap-1.5 transition-colors cursor-pointer"
             >
               <Plus size={14} /> Request Asset
@@ -1665,7 +1713,7 @@ export default function EmployeePortal() {
       )}
 
       {/* Central Requests History Register */}
-      <div className="bg-white border border-bdr rounded-2xl shadow-xs overflow-hidden">
+      <div id="portal-requests-register" className="bg-white border border-bdr rounded-2xl shadow-xs overflow-hidden scroll-mt-4">
         {/* Table Header & Controls */}
         <div className="p-5 border-b border-bdr flex flex-col md:flex-row md:items-center justify-between gap-4">
           <div>
@@ -2370,13 +2418,25 @@ export default function EmployeePortal() {
                     </td>
 
                     <td className="py-3 px-5 text-right">
-                      <button
-                        type="button"
-                        onClick={() => setViewRequestModal(req)}
-                        className="px-2.5 py-1 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 text-[11px] font-semibold inline-flex items-center gap-1 cursor-pointer transition-colors"
-                      >
-                        <Eye size={12} /> View Details
-                      </button>
+                      <div className="inline-flex flex-wrap items-center justify-end gap-1.5">
+                        {req.requestType === 'ASSET' && req.canWithdraw && (
+                          <button
+                            type="button"
+                            onClick={() => handleWithdrawAssetRequest(req.rawId)}
+                            disabled={isSubmitting}
+                            className="px-2.5 py-1 rounded-lg bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 text-[11px] font-semibold inline-flex items-center gap-1 cursor-pointer transition-colors disabled:opacity-50"
+                          >
+                            <Undo2 size={12} /> Withdraw
+                          </button>
+                        )}
+                        <button
+                          type="button"
+                          onClick={() => setViewRequestModal(req)}
+                          className="px-2.5 py-1 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 text-[11px] font-semibold inline-flex items-center gap-1 cursor-pointer transition-colors"
+                        >
+                          <Eye size={12} /> View Details
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 ))}
@@ -2418,13 +2478,13 @@ export default function EmployeePortal() {
           <div>
             <label className="block font-bold text-slate-700 mb-1">Leave Type</label>
             <select
-              value={leaveForm.leaveTypeId}
+              value={leaveForm.leaveTypeId || leaveForm.leaveTypeName}
               onChange={(e) => {
                 const selected = leaveTypes.find((lt) => lt.id === e.target.value);
                 setLeaveForm({
                   ...leaveForm,
-                  leaveTypeId: e.target.value,
-                  leaveTypeName: selected?.name || 'Casual Leave',
+                  leaveTypeId: selected?.id || '',
+                  leaveTypeName: selected?.name || e.target.value,
                 });
               }}
               className="w-full h-9 px-3 rounded-xl bg-slate-50 border border-bdr text-xs font-medium text-slate-800 focus:outline-none focus:border-primary"
@@ -2436,12 +2496,9 @@ export default function EmployeePortal() {
                   </option>
                 ))
               ) : (
-                <>
-                  <option value="casual">Casual Leave</option>
-                  <option value="sick">Sick Leave</option>
-                  <option value="earned">Earned / Privilege Leave</option>
-                  <option value="unpaid">Unpaid Leave</option>
-                </>
+                DEFAULT_LEAVE_TYPE_NAMES.map((name) => (
+                  <option key={name} value={name}>{name}</option>
+                ))
               )}
             </select>
           </div>
@@ -2556,13 +2613,13 @@ export default function EmployeePortal() {
           <div>
             <label className="block font-bold text-slate-700 mb-1">Leave Category</label>
             <select
-              value={halfDayForm.leaveTypeId}
+              value={halfDayForm.leaveTypeId || halfDayForm.leaveTypeName}
               onChange={(e) => {
                 const selected = leaveTypes.find((lt) => lt.id === e.target.value);
                 setHalfDayForm({
                   ...halfDayForm,
-                  leaveTypeId: e.target.value,
-                  leaveTypeName: selected?.name || 'Casual Leave',
+                  leaveTypeId: selected?.id || '',
+                  leaveTypeName: selected?.name || e.target.value,
                 });
               }}
               className="w-full h-9 px-3 rounded-xl bg-slate-50 border border-bdr text-xs font-medium text-slate-800 focus:outline-none focus:border-primary"
@@ -2572,7 +2629,9 @@ export default function EmployeePortal() {
                   {lt.name} (0.5 Day deduction)
                 </option>
               ))}
-              {leaveTypes.length === 0 && <option value="casual">Casual Leave (0.5 Day)</option>}
+              {leaveTypes.length === 0 && DEFAULT_LEAVE_TYPE_NAMES.map((name) => (
+                <option key={name} value={name}>{name} (0.5 Day)</option>
+              ))}
             </select>
           </div>
 
@@ -2854,8 +2913,8 @@ export default function EmployeePortal() {
         isOpen={isAssetModalOpen}
         onClose={() => setIsAssetModalOpen(false)}
         title="Request Asset & Equipment"
-        subtitle="Submit hardware, tools, or software requirement for IT & HR fulfillment."
-        size="md"
+        subtitle="Request an available unit from company inventory, or ask HR / IT for something not in stock."
+        size="lg"
         footer={
           <div className="flex items-center justify-end gap-2.5 w-full">
             <button
@@ -2868,8 +2927,8 @@ export default function EmployeePortal() {
             <button
               type="button"
               onClick={handleSubmitAsset}
-              disabled={isSubmitting}
-              className="btn-primary h-9 px-5 rounded-xl text-xs font-bold flex items-center gap-1.5"
+              disabled={isSubmitting || (assetRequestMode === 'INVENTORY' && !assetForm.requestedAssetId)}
+              className="btn-primary h-9 px-5 rounded-xl text-xs font-bold flex items-center gap-1.5 disabled:opacity-60"
             >
               {isSubmitting ? <Loader2 size={14} className="animate-spin" /> : <Laptop size={14} />}
               Submit Asset Request
@@ -2878,48 +2937,176 @@ export default function EmployeePortal() {
         }
       >
         <form onSubmit={handleSubmitAsset} className="space-y-4 text-xs">
-          <div>
-            <label className="block font-bold text-slate-700 mb-1">Asset Category</label>
-            <select
-              value={assetForm.categoryId}
-              onChange={(e) => {
-                const selected = assetCategories.find((ac) => ac.id === e.target.value);
-                setAssetForm({
-                  ...assetForm,
-                  categoryId: e.target.value,
-                  categoryName: selected?.name || 'Laptop',
-                });
-              }}
-              className="w-full h-9 px-3 rounded-xl bg-slate-50 border border-bdr text-xs font-medium text-slate-800 focus:outline-none focus:border-primary"
-            >
-              {assetCategories.length > 0 ? (
-                assetCategories.map((ac) => (
-                  <option key={ac.id} value={ac.id}>
-                    {ac.name}
-                  </option>
-                ))
-              ) : (
-                <>
-                  <option value="Laptop">Laptop / Workstation</option>
-                  <option value="Monitor">External Monitor & Cables</option>
-                  <option value="Mobile">Mobile Device</option>
-                  <option value="Tools">Shopfloor Tools & Safety Equipment</option>
-                  <option value="Software">Software License / Tool Access</option>
-                </>
-              )}
-            </select>
+          {/* Request mode */}
+          <div className="grid grid-cols-2 gap-1.5 p-1 rounded-xl bg-slate-100 border border-bdr">
+            {[
+              { id: 'INVENTORY', label: 'From Inventory', hint: 'Available stock', icon: <PackageCheck size={14} /> },
+              { id: 'OTHER', label: 'Other Asset Request', hint: 'Not in inventory', icon: <PackagePlus size={14} /> },
+            ].map((m) => (
+              <button
+                key={m.id}
+                type="button"
+                onClick={() => setAssetRequestMode(m.id)}
+                className={`h-11 rounded-lg flex flex-col items-center justify-center cursor-pointer transition-colors ${
+                  assetRequestMode === m.id ? 'bg-white text-primary shadow-2xs border border-bdr' : 'text-slate-600 hover:text-slate-900'
+                }`}
+              >
+                <span className="flex items-center gap-1.5 font-bold text-xs">{m.icon}{m.label}</span>
+                <span className="text-[10px] text-muted font-medium">{m.hint}</span>
+              </button>
+            ))}
           </div>
 
-          <div>
-            <label className="block font-bold text-slate-700 mb-1">Specific Item Description</label>
-            <input
-              type="text"
-              placeholder="e.g. Dell Latitude 16GB RAM or Welding Helmet"
-              value={assetForm.assetName}
-              onChange={(e) => setAssetForm({ ...assetForm, assetName: e.target.value })}
-              className="w-full h-9 px-3 rounded-xl bg-slate-50 border border-bdr text-xs font-medium text-slate-800 focus:outline-none focus:border-primary"
-            />
-          </div>
+          {myAssets.length > 0 && (
+            <div className="p-2.5 rounded-xl bg-slate-50 border border-bdr">
+              <div className="text-[10px] font-bold uppercase text-slate-500 mb-1">Assets currently with you</div>
+              <div className="flex flex-wrap gap-1.5">
+                {myAssets.map((a) => (
+                  <span key={a.id} className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-white border border-bdr text-[11px] text-slate-700">
+                    <span className="font-mono font-semibold text-slate-500">{a.assetCode}</span> {a.name}
+                  </span>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {assetRequestMode === 'INVENTORY' ? (
+            <div>
+              <div className="flex items-center justify-between gap-2 mb-1">
+                <label className="block font-bold text-slate-700">Select an Available Asset *</label>
+                <span className="text-[10.5px] text-muted">{availableAssets.length} in stock</span>
+              </div>
+              {availableAssetsLoading ? (
+                <div className="h-9 px-3 rounded-xl bg-slate-50 border border-bdr text-xs text-muted flex items-center gap-2">
+                  <Loader2 size={14} className="animate-spin" />
+                  Loading available inventory…
+                </div>
+              ) : availableAssets.length === 0 ? (
+                <div className="p-3.5 rounded-xl bg-amber-50 border border-amber-200 text-amber-900 flex items-start gap-2">
+                  <AlertTriangle size={14} className="text-amber-600 shrink-0 mt-0.5" />
+                  <div>
+                    No assets are available in inventory right now.{' '}
+                    <button
+                      type="button"
+                      onClick={() => setAssetRequestMode('OTHER')}
+                      className="font-bold underline cursor-pointer"
+                    >
+                      Raise an Other Asset Request
+                    </button>{' '}
+                    instead.
+                  </div>
+                </div>
+              ) : (
+                <>
+                  <select
+                    value={assetForm.requestedAssetId}
+                    onChange={(e) => setAssetForm({ ...assetForm, requestedAssetId: e.target.value })}
+                    className="w-full h-9 px-3 rounded-xl bg-slate-50 border border-bdr text-xs font-medium text-slate-800 focus:outline-none focus:border-primary cursor-pointer"
+                  >
+                    <option value="">Select an asset…</option>
+                    {availableAssetGroups.map(([cat, units]) => (
+                      <optgroup key={cat} label={`${cat} (${units.length})`}>
+                        {units.map((a) => (
+                          <option key={a.id} value={a.id}>
+                            {a.name} — {a.assetCode}{a.condition ? ` (${a.condition})` : ''}
+                          </option>
+                        ))}
+                      </optgroup>
+                    ))}
+                  </select>
+
+                  {(() => {
+                    const unit = availableAssets.find((a) => a.id === assetForm.requestedAssetId);
+                    if (!unit) return null;
+                    return (
+                      <div className="mt-2 p-2.5 rounded-xl border border-primary/30 bg-primary/5 flex flex-wrap items-center gap-x-1.5 gap-y-1 text-[10.5px] text-muted">
+                        <CheckCircle2 size={13} className="text-primary shrink-0" />
+                        <span className="font-bold text-slate-900 text-xs">{unit.name}</span>
+                        <span>•</span>
+                        <span className="font-mono font-semibold text-slate-600">{unit.assetCode}</span>
+                        <span>•</span>
+                        <span>{unit.category || 'Uncategorised'}</span>
+                        <span>•</span>
+                        <span className={unit.condition === 'Excellent' ? 'text-emerald-700' : unit.condition === 'Needs Repair' ? 'text-amber-700' : ''}>
+                          {unit.condition || 'Good'}
+                        </span>
+                        {unit.serialNumber && (
+                          <>
+                            <span>•</span>
+                            <span className="font-mono">{unit.serialNumber}</span>
+                          </>
+                        )}
+                        {unit.location && (
+                          <>
+                            <span>•</span>
+                            <span>{unit.location}</span>
+                          </>
+                        )}
+                      </div>
+                    );
+                  })()}
+                </>
+              )}
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div>
+                <label className="block font-bold text-slate-700 mb-1">Item Needed *</label>
+                <input
+                  type="text"
+                  placeholder="e.g. Dell Latitude 16GB RAM or Welding Helmet"
+                  value={assetForm.itemName}
+                  onChange={(e) => setAssetForm({ ...assetForm, itemName: e.target.value })}
+                  className="w-full h-9 px-3 rounded-xl bg-slate-50 border border-bdr text-xs font-medium text-slate-800 focus:outline-none focus:border-primary"
+                  required
+                />
+              </div>
+              <div>
+                <label className="block font-bold text-slate-700 mb-1">Category</label>
+                {assetCategoryCustom ? (
+                  <div className="flex items-center gap-1.5">
+                    <input
+                      type="text"
+                      autoFocus
+                      placeholder="Type a new category"
+                      value={assetForm.categoryName}
+                      onChange={(e) => setAssetForm({ ...assetForm, categoryName: e.target.value })}
+                      className="w-full h-9 px-3 rounded-xl bg-slate-50 border border-bdr text-xs font-medium text-slate-800 focus:outline-none focus:border-primary"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setAssetCategoryCustom(false);
+                        setAssetForm({ ...assetForm, categoryName: '' });
+                      }}
+                      className="h-9 px-2.5 rounded-xl border border-bdr text-[11px] font-semibold text-slate-600 hover:bg-slate-50 cursor-pointer shrink-0"
+                    >
+                      List
+                    </button>
+                  </div>
+                ) : (
+                  <select
+                    value={assetForm.categoryName}
+                    onChange={(e) => {
+                      if (e.target.value === '__new__') {
+                        setAssetCategoryCustom(true);
+                        setAssetForm({ ...assetForm, categoryName: '' });
+                      } else {
+                        setAssetForm({ ...assetForm, categoryName: e.target.value });
+                      }
+                    }}
+                    className="w-full h-9 px-3 rounded-xl bg-slate-50 border border-bdr text-xs font-medium text-slate-800 focus:outline-none focus:border-primary"
+                  >
+                    <option value="">Select category (optional)</option>
+                    {assetCategoryOptions.map((name) => (
+                      <option key={name} value={name}>{name}</option>
+                    ))}
+                    <option value="__new__">+ Other (type a new category)</option>
+                  </select>
+                )}
+              </div>
+            </div>
+          )}
 
           <div>
             <label className="block font-bold text-slate-700 mb-1">Priority / Urgency</label>
@@ -2941,7 +3128,7 @@ export default function EmployeePortal() {
               rows={3}
               value={assetForm.justification}
               onChange={(e) => setAssetForm({ ...assetForm, justification: e.target.value })}
-              placeholder="Explain why this equipment is needed for your project deliverables..."
+              placeholder="Explain why this equipment is needed for your work..."
               className="w-full p-2.5 rounded-xl bg-slate-50 border border-bdr text-xs font-medium text-slate-800 focus:outline-none focus:border-primary resize-none"
               required
             />
@@ -3063,7 +3250,18 @@ export default function EmployeePortal() {
           subtitle={`Submitted on ${formatDate(viewRequestModal.created_at)}`}
           size="md"
           footer={
-            <div className="flex justify-end w-full">
+            <div className="flex justify-end gap-2.5 w-full">
+              {viewRequestModal.requestType === 'ASSET' && viewRequestModal.canWithdraw && (
+                <button
+                  type="button"
+                  onClick={() => handleWithdrawAssetRequest(viewRequestModal.rawId)}
+                  disabled={isSubmitting}
+                  className="h-9 px-4 rounded-xl text-xs font-semibold bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 inline-flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+                >
+                  {isSubmitting ? <Loader2 size={13} className="animate-spin" /> : <Undo2 size={13} />}
+                  Withdraw Request
+                </button>
+              )}
               <button
                 type="button"
                 onClick={() => setViewRequestModal(null)}

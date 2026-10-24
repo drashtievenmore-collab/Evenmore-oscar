@@ -1,8 +1,19 @@
 import { create } from "zustand";
 import { lazyStore } from "../services/lazyModules";
-import { writeThrough, pullTracked, pullWorkingDays, pushWorkingDays, pullPayrollFor } from "../services/hrmsSync";
-
-const STORAGE_KEY = "hrms_payroll_store_v4";
+import {
+  hrmsSync,
+  writeThrough,
+  pullTracked,
+  pullWorkingDays,
+  pushWorkingDays,
+  pullPayrollFor,
+  pullPayrollPeriod,
+  processPayroll,
+  approvePayroll,
+  markPayrollPaid,
+  describeError,
+  localISODate,
+} from "../services/hrmsSync";
 
 export const WORKFLOW_STAGES = [
   { id: "In Progress", label: "In Progress" },
@@ -65,50 +76,176 @@ export function getDepartmentHours(departmentWorkingHours, deptName) {
   return 8;
 }
 
-function calcEmployeePayable(e) {
-  const std = Math.max(0, Number(e.standardSalary) || 0);
-  const totalD = Math.max(1, Number(e.totalDays) || 24);
-  const attended = e.attendedDays !== undefined ? Math.max(0, Number(e.attendedDays)) : totalD;
-  const absent = Math.max(0, totalD - attended);
-  const perDay = totalD > 0 ? std / totalD : 0;
-  const attDeduction = Math.round(perDay * absent);
-  const earned = Math.max(0, std - attDeduction);
-  const earnings = Math.max(0, Number(e.additionalEarnings) || 0);
-  const deductions = Math.max(0, Number(e.deductions) || 0);
-  const advance = Math.max(0, Number(e.advance) || 0);
-  return Math.max(0, earned + earnings - deductions - advance);
+/** This month as `YYYY-MM`, in local time. */
+export function currentPayrollPeriod(d = new Date()) {
+  return localISODate(d).slice(0, 7);
+}
+
+/** `2026-10` → `October 2026`. */
+export function periodLabel(period) {
+  const [y, m] = String(period || "").split("-").map(Number);
+  if (!y || !m) return String(period || "");
+  return new Date(y, m - 1, 1).toLocaleString("en-GB", { month: "long", year: "numeric" });
 }
 
 /**
- * Payroll opens empty and fills from `/hrms/payroll/` — a payslip is generated
- * and approved server-side (api.md §11.6), so a locally invented run would be
- * a number nobody else could see.
+ * Where a month's payroll stands, from its payslips' own statuses: anything
+ * still being worked on keeps the month "In Progress"; it is "Paid" only once
+ * every payslip is.
+ */
+export function periodStage(rows = []) {
+  if (!rows.length) return null;
+  const statuses = rows.map((r) => r.status);
+  if (statuses.every((s) => s === "Paid")) return "Paid";
+  if (statuses.some((s) => s === "In Progress" || !s)) return "In Progress";
+  if (statuses.some((s) => s === "Ready for Review")) return "Ready for Review";
+  return "Approved";
+}
+
+/** Swap server copies into the list by id. */
+function replaceRows(list, fresh) {
+  const byId = new Map(fresh.filter(Boolean).map((r) => [String(r.id), r]));
+  if (byId.size === 0) return list;
+  return list.map((r) => byId.get(String(r.id)) || r);
+}
+
+/**
+ * Payroll for one month at a time, straight from `/hrms/payroll/`.
+ *
+ * Every number on a payslip (attended days, paid leave, LOP, earned, net) is
+ * computed by the server from attendance and approved leave — this store
+ * never recomputes pay. It only asks the server to (re)generate a month,
+ * adjust a payslip's earnings/deductions/advance, approve it, or mark it paid,
+ * and swaps the server's answer in.
  */
 const usePayrollStoreBase = create((set, get) => ({
+  /** The selected month's payslips. */
   employees: [],
   structures: [],
-  workflowStep: "Draft",
-  currentPeriod: new Date().toLocaleString("en-GB", { month: "long", year: "numeric" }),
+  /** Selected month, `YYYY-MM`. */
+  period: currentPayrollPeriod(),
+  loading: false,
+  loaded: false,
+  error: null,
+  generating: false,
+  /** `{ label, done, total }` while a bulk approve / pay runs. */
+  bulk: null,
   defaultWorkingDays: 24,
   departmentWorkingDays: DEFAULT_DEPARTMENT_WORKING_DAYS,
   departmentWorkingHours: DEFAULT_DEPARTMENT_WORKING_HOURS,
 
-  /** Load this period's payslips and the salary structures. */
+  /** Load the selected month's payslips, the salary structures and the working-day setup. */
   hydrate: async () => {
-    const [employees, structures, settings] = await Promise.all([
-      pullTracked("payroll"),
+    const period = get().period;
+    set({ loading: true, error: null });
+    const [rows, structures, settings] = await Promise.all([
+      pullPayrollPeriod(period),
       pullTracked("salaryStructures"),
       pullWorkingDays(),
     ]);
+    // The month changed while this was in flight — its own pull will land.
+    if (get().period !== period) return rows;
     set((s) => ({
-      employees: employees || s.employees,
+      employees: rows || [],
+      loading: false,
+      loaded: true,
+      error: rows ? null : "Payroll could not be loaded.",
       structures: structures || s.structures,
       defaultWorkingDays: settings?.defaultWorkingDays ?? s.defaultWorkingDays,
       departmentWorkingDays: settings?.departmentWorkingDays ?? s.departmentWorkingDays,
       departmentWorkingHours: settings?.departmentWorkingHours ?? s.departmentWorkingHours,
     }));
-    return employees;
+    return rows;
   },
+
+  /** Re-read only the selected month's payslips. */
+  reloadPeriod: async () => {
+    const period = get().period;
+    set({ loading: true, error: null });
+    const rows = await pullPayrollPeriod(period);
+    if (get().period !== period) return rows;
+    set({
+      employees: rows || [],
+      loading: false,
+      loaded: true,
+      error: rows ? null : "Payroll could not be loaded.",
+    });
+    return rows;
+  },
+
+  /** Switch month (`YYYY-MM`) and load it. */
+  setPeriod: (period) => {
+    if (!period || period === get().period) return Promise.resolve(get().employees);
+    set({ period, employees: [], loaded: false });
+    return get().reloadPeriod();
+  },
+
+  /**
+   * (Re)generate every employee's payslip for the selected month from its
+   * attendance and approved leave. Adjustments are kept; Approved/Paid
+   * payslips are left as they are. Throws the server's error.
+   */
+  generate: async () => {
+    const period = get().period;
+    set({ generating: true });
+    try {
+      const result = await processPayroll({ month: `${period}-01` });
+      await get().reloadPeriod();
+      return result;
+    } finally {
+      set({ generating: false });
+    }
+  },
+
+  /** Change additional earnings / deductions / advance; the server recomputes the payslip. */
+  adjust: async (id, { additionalEarnings, deductions, advance } = {}) => {
+    const row = await hrmsSync.update("payroll", id, { additionalEarnings, deductions, advance });
+    if (row && row.id) set((s) => ({ employees: replaceRows(s.employees, [row]) }));
+    return row;
+  },
+
+  approve: async (id) => {
+    const row = await approvePayroll(id);
+    if (row && row.id) set((s) => ({ employees: replaceRows(s.employees, [row]) }));
+    return row;
+  },
+
+  markPaid: async (id, paymentDate = localISODate()) => {
+    const row = await markPayrollPaid(id, { paymentDate });
+    if (row && row.id) set((s) => ({ employees: replaceRows(s.employees, [row]) }));
+    return row;
+  },
+
+  /**
+   * Run `action` over `ids` one at a time (approval posts to accounts, so
+   * they are not fired in parallel). Returns `{ done, failed: [{id, name, error}] }`.
+   */
+  runBulk: async (label, ids, action) => {
+    const list = (ids || []).filter(Boolean);
+    const failed = [];
+    let done = 0;
+    set({ bulk: { label, done: 0, total: list.length } });
+    try {
+      for (const id of list) {
+        try {
+          await action(id);
+          done += 1;
+        } catch (err) {
+          const row = get().employees.find((r) => String(r.id) === String(id));
+          failed.push({ id, name: row?.name || String(id), error: describeError(err) });
+        }
+        set({ bulk: { label, done: done + failed.length, total: list.length } });
+      }
+    } finally {
+      set({ bulk: null });
+    }
+    return { done, failed };
+  },
+
+  approveAll: (ids) => get().runBulk("Approving", ids, (id) => get().approve(id)),
+
+  markAllPaid: (ids, paymentDate = localISODate()) =>
+    get().runBulk("Marking paid", ids, (id) => get().markPaid(id, paymentDate)),
 
   /**
    * The signed-in user's own payslips, for the "My Salary" tab. Filled by
@@ -124,220 +261,47 @@ const usePayrollStoreBase = create((set, get) => ({
   },
 
   /** Empty on sign-out so the next user sees nothing of the previous one. */
-  clear: () => set({ employees: [], structures: [], ownHistory: [] }),
+  clear: () =>
+    set({
+      employees: [],
+      structures: [],
+      ownHistory: [],
+      loaded: false,
+      error: null,
+      bulk: null,
+      period: currentPayrollPeriod(),
+    }),
 
-  setWorkflowStep: (step) => {
-    set({ workflowStep: step });
-    get().persist();
-  },
-
-  setCurrentPeriod: (period) => {
-    set({ currentPeriod: period });
-    get().persist();
-  },
+  // ── Department working-day display config (HR Admin) ──────────────────────
+  // The server derives each payslip's working days from its working-day
+  // calendar; these maps are a tenant setting shown on screen and never
+  // change a payslip's numbers here.
 
   setDepartmentWorkingDays: (deptName, days) => {
     const d = Math.max(1, Math.min(31, Number(days) || 24));
     const currentMap = get().departmentWorkingDays || DEFAULT_DEPARTMENT_WORKING_DAYS;
-    const nextMap = { ...currentMap, [deptName]: d };
-
-    // Recalculate all employees in this department
-    const nextEmployees = get().employees.map((e) => {
-      const isMatch =
-        e.department?.toLowerCase() === deptName.toLowerCase() ||
-        (deptName === "HR" && e.department?.toLowerCase().includes("human")) ||
-        (deptName === "Human Resources" && e.department?.toLowerCase() === "hr") ||
-        (deptName.includes("Sales") && e.department?.toLowerCase().includes("sales")) ||
-        (deptName.includes("Warehouse") && e.department?.toLowerCase().includes("warehouse"));
-
-      if (isMatch) {
-        const std = Math.max(0, Number(e.standardSalary) || 0);
-        const totalD = d;
-        const h = e.dailyHours || getDepartmentHours(get().departmentWorkingHours, e.department);
-        const totalH = totalD * h;
-        const hourlyRate = totalH > 0 ? Math.round(std / totalH) : 0;
-        const attended = Math.min(totalD, e.attendedDays !== undefined ? Math.max(0, Number(e.attendedDays)) : totalD);
-        const absent = Math.max(0, totalD - attended);
-        const perDay = totalD > 0 ? std / totalD : 0;
-        const attDeduction = Math.round(perDay * absent);
-        const earned = Math.max(0, std - attDeduction);
-        return {
-          ...e,
-          totalDays: totalD,
-          dailyHours: h,
-          totalHours: totalH,
-          hourlyRate: hourlyRate,
-          attendedDays: attended,
-          earnedSalary: earned,
-        };
-      }
-      return e;
-    });
-
-    set({ departmentWorkingDays: nextMap, employees: nextEmployees });
-    get().persist();
+    set({ departmentWorkingDays: { ...currentMap, [deptName]: d } });
+    get().persistWorkingDays();
   },
 
   setDepartmentWorkingHours: (deptName, hours) => {
     const h = Math.max(1, Math.min(24, Number(hours) || 8));
     const currentMap = get().departmentWorkingHours || DEFAULT_DEPARTMENT_WORKING_HOURS;
-    const nextMap = { ...currentMap, [deptName]: h };
-
-    // Recalculate all employees in this department
-    const nextEmployees = get().employees.map((e) => {
-      const isMatch =
-        e.department?.toLowerCase() === deptName.toLowerCase() ||
-        (deptName === "HR" && e.department?.toLowerCase().includes("human")) ||
-        (deptName === "Human Resources" && e.department?.toLowerCase() === "hr") ||
-        (deptName.includes("Sales") && e.department?.toLowerCase().includes("sales")) ||
-        (deptName.includes("Warehouse") && e.department?.toLowerCase().includes("warehouse"));
-
-      if (isMatch) {
-        const std = Math.max(0, Number(e.standardSalary) || 0);
-        const totalD = Number(e.totalDays) || 24;
-        const totalH = totalD * h;
-        const hourlyRate = totalH > 0 ? Math.round(std / totalH) : 0;
-        return {
-          ...e,
-          dailyHours: h,
-          totalHours: totalH,
-          hourlyRate: hourlyRate,
-        };
-      }
-      return e;
-    });
-
-    set({ departmentWorkingHours: nextMap, employees: nextEmployees });
-    get().persist();
+    set({ departmentWorkingHours: { ...currentMap, [deptName]: h } });
+    get().persistWorkingDays();
   },
 
   resetDepartmentWorkingDays: () => {
-    const nextDaysMap = { ...DEFAULT_DEPARTMENT_WORKING_DAYS };
-    const nextHoursMap = { ...DEFAULT_DEPARTMENT_WORKING_HOURS };
-    const nextEmployees = get().employees.map((e) => {
-      const d = getDepartmentDays(nextDaysMap, e.department);
-      const h = getDepartmentHours(nextHoursMap, e.department);
-      const std = Math.max(0, Number(e.standardSalary) || 0);
-      const totalH = d * h;
-      const hourlyRate = totalH > 0 ? Math.round(std / totalH) : 0;
-      const attended = Math.min(d, e.attendedDays !== undefined ? Math.max(0, Number(e.attendedDays)) : d);
-      const absent = Math.max(0, d - attended);
-      const perDay = d > 0 ? std / d : 0;
-      const attDeduction = Math.round(perDay * absent);
-      const earned = Math.max(0, std - attDeduction);
-      return {
-        ...e,
-        totalDays: d,
-        dailyHours: h,
-        totalHours: totalH,
-        hourlyRate: hourlyRate,
-        attendedDays: attended,
-        earnedSalary: earned,
-      };
-    });
     set({
-      departmentWorkingDays: nextDaysMap,
-      departmentWorkingHours: nextHoursMap,
-      employees: nextEmployees,
+      departmentWorkingDays: { ...DEFAULT_DEPARTMENT_WORKING_DAYS },
+      departmentWorkingHours: { ...DEFAULT_DEPARTMENT_WORKING_HOURS },
     });
-    get().persist();
+    get().persistWorkingDays();
   },
 
   setDefaultWorkingDays: (days) => {
-    const d = Math.max(1, Number(days) || 24);
-    const next = get().employees.map((e) => {
-      const std = Math.max(0, Number(e.standardSalary) || 0);
-      const attended = Math.min(d, e.attendedDays !== undefined ? Math.max(0, Number(e.attendedDays)) : d);
-      const absent = Math.max(0, d - attended);
-      const perDay = d > 0 ? std / d : 0;
-      const attDeduction = Math.round(perDay * absent);
-      const earned = Math.max(0, std - attDeduction);
-      return {
-        ...e,
-        totalDays: d,
-        attendedDays: attended,
-        earnedSalary: earned,
-      };
-    });
-    set({ defaultWorkingDays: d, employees: next });
-    get().persist();
-  },
-
-  updateEmployeePayroll: (id, updates) => {
-    const next = get().employees.map((e) => {
-      if (e.id === id) {
-        const merged = { ...e, ...updates };
-        const std = Math.max(0, Number(merged.standardSalary) || 0);
-        const totalD = Math.max(1, Number(merged.totalDays) || get().defaultWorkingDays || 24);
-        const attended = merged.attendedDays !== undefined ? Math.max(0, Number(merged.attendedDays)) : totalD;
-        const absent = Math.max(0, totalD - attended);
-        const perDay = totalD > 0 ? std / totalD : 0;
-        const attDeduction = Math.round(perDay * absent);
-        const earned = Math.max(0, std - attDeduction);
-        return {
-          ...merged,
-          totalDays: totalD,
-          attendedDays: attended,
-          earnedSalary: earned,
-        };
-      }
-      return e;
-    });
-    set({ employees: next });
-    get().persist();
-  },
-
-  markEmployeePaid: (id, remainingPayableAmount) => {
-    const today = new Date().toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
-    const next = get().employees.map((e) => {
-      if (e.id === id) {
-        const payable = remainingPayableAmount !== undefined
-          ? remainingPayableAmount
-          : calcEmployeePayable(e);
-        return {
-          ...e,
-          status: "Paid",
-          paidAmount: payable,
-          paymentDate: today,
-        };
-      }
-      return e;
-    });
-    set({ employees: next });
-    get().persist();
-  },
-
-  disburseDepartment: (deptName) => {
-    const today = new Date().toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
-    const next = get().employees.map((e) => {
-      if (String(e.department ?? '').toLowerCase() === deptName.toLowerCase()) {
-        const payable = calcEmployeePayable(e);
-        return {
-          ...e,
-          status: "Paid",
-          paidAmount: payable,
-          paymentDate: today,
-        };
-      }
-      return e;
-    });
-    set({ employees: next });
-    get().persist();
-  },
-
-  runPayrollForAll: () => {
-    const today = new Date().toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
-    const next = get().employees.map((e) => {
-      const payable = calcEmployeePayable(e);
-      return {
-        ...e,
-        status: "Paid",
-        paidAmount: payable,
-        paymentDate: today,
-      };
-    });
-    set({ employees: next, workflowStep: "Paid" });
-    get().persist();
+    set({ defaultWorkingDays: Math.max(1, Number(days) || 24) });
+    get().persistWorkingDays();
   },
 
   addStructure: (newStruct) => {
@@ -346,28 +310,25 @@ const usePayrollStoreBase = create((set, get) => ({
       {
         id: Date.now(),
         status: "Active",
-        baseMin: "₹45,000",
-        baseMax: "₹70,000",
         ...newStruct,
       },
     ];
     set({ structures: next });
-    get().persist();
+    writeThrough("salaryStructures", next).then((rows) => {
+      if (Array.isArray(rows)) set({ structures: rows });
+    });
   },
 
-  /**
-   * Called after every action. Payslips and salary structures go to their own
-   * endpoints; the working-day configuration is a tenant setting.
-   */
-  persist: () => {
-    writeThrough("payroll", get().employees);
-    writeThrough("salaryStructures", get().structures);
+  persistWorkingDays: () => {
     pushWorkingDays({
       defaultWorkingDays: get().defaultWorkingDays,
       departmentWorkingDays: get().departmentWorkingDays,
       departmentWorkingHours: get().departmentWorkingHours,
     }).catch((err) => console.warn("[HRMS] working days not saved:", err?.message || err));
   },
+
+  /** Kept for callers of the old API: saves the working-day setup only. */
+  persist: () => get().persistWorkingDays(),
 
   /** Discard anything local and re-read payroll from the server. */
   resetDefaults: () => usePayrollStore.getState().hydrate(),

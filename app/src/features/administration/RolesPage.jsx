@@ -8,6 +8,7 @@ import { adminSync, duplicateRole, describeError } from '../../services/adminSyn
 import {
   Users,
   Shield,
+  ShieldCheck,
   Clock,
   Search,
   Plus,

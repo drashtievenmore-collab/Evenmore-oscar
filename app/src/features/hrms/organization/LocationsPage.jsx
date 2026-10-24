@@ -13,7 +13,7 @@ export function LocationsPage() {
   // Real offices only: the page used to fall back to sample New York / London
   // rows, which looked like data and could not be edited or deleted.
   const [locations, setLocations] = useState([]);
-  const [loaded, setLoaded] = useState(false);
+  const [loading, setLoading] = useState(true);
   const [q, setQ] = useState('');
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [newLoc, setNewLoc] = useState(EMPTY_LOCATION);
@@ -29,7 +29,7 @@ export function LocationsPage() {
       } catch (err) {
         console.warn('[LocationsPage] Failed to pull locations:', err);
       } finally {
-        if (active) setLoaded(true);
+        if (active) setLoading(false);
       }
     })();
     return () => { active = false; };
@@ -104,12 +104,6 @@ export function LocationsPage() {
           />
         </div>
       </div>
-
-      {loaded && filtered.length === 0 && (
-        <div className="bg-white border border-bdr rounded-xl p-8 text-center text-[13px] text-muted">
-          {locations.length === 0 ? 'No office locations yet. Use "Add Location" to create one.' : 'No location matches your search.'}
-        </div>
-      )}
 
       {/* Grid of Location Cards */}
       {loading ? (

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import {
   Clock,
   ShieldCheck,
@@ -16,6 +16,7 @@ import { useAttendanceStore } from "../../../stores/attendanceStore";
 import { useAppStore } from "../../../stores/appStore";
 import PageHeader from "../../../components/ui/PageHeader";
 import { hrmsGuides } from "../../../data/hrms/hrmsGuides";
+import { describeError } from "../../../services/hrmsSync";
 
 export default function Flexibility() {
   const flexibility = useAttendanceStore((s) => s.flexibility);
@@ -23,22 +24,59 @@ export default function Flexibility() {
   const role = useAttendanceStore((s) => s.role);
   const showToast = useAppStore((s) => s.showToast);
 
-  const [form, setForm] = useState(flexibility);
-  const [activePreset, setActivePreset] = useState("Standard");
+  const [form, setForm] = useState(() => flexibility || {});
+  const [activePreset, setActivePreset] = useState(null);
+  const [saving, setSaving] = useState(false);
+  const [loadFailed, setLoadFailed] = useState(false);
   const canEdit = role === "HR" || role === "Admin";
+  const loaded = Boolean(flexibility && Object.keys(flexibility).length > 0);
 
-  function save() {
+  // The store fills lazily; ask for the policy if it is not there yet.
+  useEffect(() => {
+    if (loaded) return;
+    const store = useAttendanceStore.getState();
+    const pull = store.loadFlexibility || store.hydrate;
+    Promise.resolve(pull?.())
+      .then((res) => {
+        if (!res) setLoadFailed(true);
+      })
+      .catch(() => setLoadFailed(true));
+  }, [loaded]);
+
+  // Whenever the server's policy arrives (or is re-saved), show it.
+  useEffect(() => {
+    if (loaded) {
+      setForm(flexibility);
+      setLoadFailed(false);
+    }
+  }, [flexibility, loaded]);
+
+  async function retryLoad() {
+    setLoadFailed(false);
+    const res = await useAttendanceStore.getState().loadFlexibility?.();
+    if (!res) setLoadFailed(true);
+  }
+
+  async function save() {
     if (!canEdit) {
       showToast("Only HR/Admin can change settings");
       return;
     }
-    saveFlexibility(form);
-    showToast("Attendance flexibility policies saved successfully");
+    setSaving(true);
+    try {
+      const saved = await saveFlexibility(form);
+      showToast(saved ? "Attendance flexibility policies saved successfully" : "Saved locally — the server is not reachable");
+    } catch (err) {
+      showToast(`Policy not saved — ${describeError(err)}`);
+    } finally {
+      setSaving(false);
+    }
   }
 
   function reset() {
-    setForm(flexibility);
-    showToast("Restored previous values");
+    setForm(flexibility || {});
+    setActivePreset(null);
+    showToast("Restored saved values");
   }
 
   // Quick preset loader
@@ -106,15 +144,57 @@ export default function Flexibility() {
             <button
               type="button"
               onClick={save}
-              disabled={!canEdit}
+              disabled={!canEdit || saving || !loaded}
               className="inline-flex items-center gap-1.5 px-5 py-2 bg-[#1e3a8a] text-white rounded-xl text-[13px] font-semibold hover:bg-[#1e40af] disabled:opacity-50 transition shadow-xs"
             >
               <Check size={15} />
-              Save Changes
+              {saving ? "Saving…" : "Save Changes"}
             </button>
           </>
         }
       />
+
+      {loadFailed && !loaded && (
+        <div className="bg-red-50 border border-red-200 rounded-xl p-3.5 text-[13px] text-red-800 flex flex-wrap items-center gap-2.5">
+          <AlertTriangle size={17} className="text-red-600 shrink-0" />
+          <span className="flex-1">Could not load the attendance policy from the server.</span>
+          <button type="button" onClick={retryLoad} className="px-3 py-1.5 bg-white border border-red-200 rounded-lg text-[12.5px] font-medium hover:bg-red-100">
+            Retry
+          </button>
+        </div>
+      )}
+
+      {!loaded && !loadFailed && (
+        <div className="bg-white border border-[#e2e8f0] rounded-xl p-3.5 text-[13px] text-slate-500">Loading attendance policy…</div>
+      )}
+
+      {loaded && (
+        <div className="bg-white border border-[#e2e8f0] rounded-xl px-4 py-3 text-[12.5px] text-slate-600 flex flex-wrap items-center gap-x-4 gap-y-1">
+          <span className="font-semibold text-slate-800 flex items-center gap-1.5">
+            <Calendar size={14} className="text-[#1e3a8a]" /> Effective rules:
+          </span>
+          <span>
+            Shift <b>{flexibility.shiftStart || "—"}–{flexibility.shiftEnd || "—"}</b>
+          </span>
+          <span>
+            Late after <b>{flexibility.lateAfter || "—"}</b>
+            {flexibility.graceMinutes != null ? ` (${flexibility.graceMinutes} min grace)` : ""}
+          </span>
+          <span>
+            Half day below <b>{flexibility.halfDayThresholdHours ?? "—"}h</b>
+          </span>
+          {flexibility.fullDayHours != null && (
+            <span>
+              Full day <b>{flexibility.fullDayHours}h</b>
+            </span>
+          )}
+          {flexibility.overtimeAfterHours != null && (
+            <span>
+              Overtime after <b>{flexibility.overtimeAfterHours}h</b>
+            </span>
+          )}
+        </div>
+      )}
 
       {!canEdit && (
         <div className="bg-amber-50 border border-amber-200 rounded-xl p-3.5 text-[13px] text-amber-800 flex items-center gap-2.5">
@@ -273,7 +353,7 @@ export default function Flexibility() {
               <div className="p-3.5 bg-blue-50/60 border border-blue-100 rounded-xl text-[12px] text-blue-900 flex items-start gap-2.5">
                 <Info size={16} className="text-blue-600 shrink-0 mt-0.5" />
                 <span>
-                  Employees who depart before the shift end time (18:00) will be prompted to supply a reason and request manager clearance.
+                  Employees who depart before the shift end time ({flexibility?.shiftEnd || "18:30"}) will be prompted to supply a reason and request manager clearance.
                 </span>
               </div>
             </div>
@@ -413,15 +493,15 @@ export default function Flexibility() {
             onClick={reset}
             className="px-4 py-2 text-[12.5px] font-medium text-slate-600 bg-white border border-[#cbd5e1] rounded-xl hover:bg-slate-50"
           >
-            Reset to Default
+            Discard Changes
           </button>
           <button
             type="button"
             onClick={save}
-            disabled={!canEdit}
+            disabled={!canEdit || saving || !loaded}
             className="px-4 py-2 text-[12.5px] font-semibold text-white bg-[#1e3a8a] rounded-xl hover:bg-[#1e40af] disabled:opacity-50"
           >
-            Save Changes
+            {saving ? "Saving…" : "Save Changes"}
           </button>
         </div>
       </div>

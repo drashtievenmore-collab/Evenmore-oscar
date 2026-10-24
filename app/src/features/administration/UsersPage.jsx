@@ -87,6 +87,76 @@ function getRoleBadgeStyle(role) {
   return ROLE_BADGE_STYLES[Math.abs(hash) % ROLE_BADGE_STYLES.length];
 }
 
+export function getUserInitials(name = '') {
+  if (!name || typeof name !== 'string') return 'U';
+  const clean = name.trim();
+  if (!clean) return 'U';
+  const words = clean.split(/[^a-zA-Z0-9]+/).filter(Boolean);
+  if (words.length === 0) return clean.slice(0, 2).toUpperCase();
+  if (words.length === 1) return words[0].slice(0, 2).toUpperCase();
+  return (words[0][0] + words[1][0]).toUpperCase();
+}
+
+const AVATAR_GRADIENTS = [
+  'from-blue-600 to-indigo-600',
+  'from-emerald-500 to-teal-600',
+  'from-violet-600 to-purple-600',
+  'from-amber-500 to-orange-600',
+  'from-rose-500 to-pink-600',
+  'from-cyan-500 to-blue-600',
+  'from-fuchsia-600 to-pink-500',
+  'from-indigo-500 to-cyan-600',
+];
+
+function getUserAvatarGradient(name = '') {
+  const key = String(name || '');
+  let hash = 0;
+  for (let i = 0; i < key.length; i += 1) hash = (hash * 31 + key.charCodeAt(i)) | 0;
+  return AVATAR_GRADIENTS[Math.abs(hash) % AVATAR_GRADIENTS.length];
+}
+
+function UserAvatar({ user, size = 'md', className = '' }) {
+  const [imgError, setImgError] = useState(false);
+  const avatarSrc = user?.avatar;
+
+  useEffect(() => {
+    setImgError(false);
+  }, [avatarSrc]);
+
+  const name = user?.name || user?.username || user?.email || 'User';
+  const initials = getUserInitials(name);
+  const gradient = getUserAvatarGradient(name);
+
+  const sizeMap = {
+    sm: 'w-8 h-8 text-xs',
+    md: 'w-12 h-12 text-sm',
+    lg: 'w-14 h-14 text-base font-bold',
+  };
+  const sizeClass = sizeMap[size] || sizeMap.md;
+
+  const hasImage = Boolean(avatarSrc) && !imgError && !avatarSrc.includes('ui-avatars.com');
+
+  if (hasImage) {
+    return (
+      <img
+        src={avatarSrc}
+        alt={name}
+        className={`${sizeClass} rounded-full object-cover ring-2 ring-slate-100 shadow-xs flex-shrink-0 ${className}`}
+        onError={() => setImgError(true)}
+      />
+    );
+  }
+
+  return (
+    <div
+      className={`${sizeClass} rounded-full bg-gradient-to-tr ${gradient} text-white font-bold flex items-center justify-center shrink-0 shadow-xs ring-2 ring-slate-100 select-none tracking-wider ${className}`}
+      title={name}
+    >
+      {initials}
+    </div>
+  );
+}
+
 export function UsersPage() {
   // ── Users, from /admin/users/ ────────────────────────────────
   const [users, setUsers] = useState([]);
@@ -721,14 +791,7 @@ export function UsersPage() {
 
             {/* Profile Hero */}
             <div className="flex items-center gap-3.5">
-              <img
-                src={activeUser.avatar}
-                alt={activeUser.name}
-                className="w-14 h-14 rounded-full object-cover ring-2 ring-slate-100 flex-shrink-0 shadow-xs"
-                onError={(e) => {
-                  e.target.src = `https://ui-avatars.com/api/?name=${encodeURIComponent(activeUser.name)}&background=1f6bff&color=fff`;
-                }}
-              />
+              <UserAvatar user={activeUser} size="lg" />
               <div className="min-w-0">
                 <h3 className="font-bold text-slate-900 text-base leading-tight truncate">
                   {activeUser.name}
@@ -1603,14 +1666,7 @@ function UserCardItem({
 
       {/* ── Middle: Avatar, Name, Email, Department ───────────── */}
       <div className="flex items-center gap-3 mb-4">
-        <img
-          src={user.avatar}
-          alt={user.name}
-          className="w-12 h-12 rounded-full object-cover ring-2 ring-slate-100 shadow-xs flex-shrink-0"
-          onError={(e) => {
-            e.target.src = `https://ui-avatars.com/api/?name=${encodeURIComponent(user.name)}&background=1f6bff&color=fff`;
-          }}
-        />
+        <UserAvatar user={user} size="md" />
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-1.5">
             <h4 className="font-bold text-slate-900 text-sm leading-tight group-hover:text-blue-600 transition-colors truncate">
@@ -1697,14 +1753,7 @@ function UserListItem({
     >
       <div className="flex flex-col gap-3 lg:flex-row lg:items-center">
         <div className="flex items-center gap-3 min-w-0 flex-1">
-          <img
-            src={user.avatar}
-            alt={user.name}
-            className="w-12 h-12 rounded-full object-cover ring-2 ring-slate-100 shadow-xs flex-shrink-0"
-            onError={(e) => {
-              e.target.src = `https://ui-avatars.com/api/?name=${encodeURIComponent(user.name)}&background=1f6bff&color=fff`;
-            }}
-          />
+          <UserAvatar user={user} size="md" />
           <div className="min-w-0 flex-1">
             <div className="flex flex-wrap items-center gap-2">
               <h4 className="font-bold text-slate-900 text-sm leading-tight group-hover:text-blue-600 transition-colors truncate">
