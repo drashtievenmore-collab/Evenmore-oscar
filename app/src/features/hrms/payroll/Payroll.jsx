@@ -15,34 +15,90 @@ import {
   Check,
   CreditCard,
   Calendar,
-  DollarSign,
-  TrendingUp,
-  Clock,
   ArrowRight,
   Edit3,
   Printer,
   FileText,
   ChevronDown,
   ShieldCheck,
+  RefreshCw,
+  Loader2,
+  AlertTriangle,
+  ExternalLink,
 } from "lucide-react";
 import { useAppStore } from "../../../stores/appStore";
 import {
   usePayrollStore,
-  getDepartmentDays,
-  getDepartmentHours,
-  DEFAULT_DEPARTMENT_WORKING_DAYS,
-  DEFAULT_DEPARTMENT_WORKING_HOURS,
   WORKFLOW_STAGES,
+  periodLabel,
+  periodStage,
 } from "../../../stores/payrollStore";
-import {
-  calculateSalaryComponents,
-  aggregatePayrollStats,
-  formatINR,
-} from "./salaryCalculations";
+import { aggregatePayrollStats, formatINR } from "./salaryCalculations";
+import { describeError, localISODate } from "../../../services/hrmsSync";
 import { Badge } from "../../../components/hrms/Badge";
 import PageHeader from "../../../components/ui/PageHeader";
 import { hrmsGuides } from "../../../data/hrms/hrmsGuides";
 import { Avatar } from "../../../components/hrms/Avatar";
+
+/** Payslip statuses the server uses, in order. */
+const PAYSLIP_STAGES = WORKFLOW_STAGES.filter((s) => s.id !== "Ready for Review");
+
+/** Day counts can be fractional (half days) — print `20` or `19.5`. */
+function fmtDays(n) {
+  const v = Number(n) || 0;
+  return Number.isInteger(v) ? String(v) : v.toFixed(1);
+}
+
+/** `YYYY-MM-DD` → `31 Oct 2026`; anything else is shown as given. */
+function fmtDate(value) {
+  if (!value) return "";
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(value));
+  if (!m) return String(value);
+  return new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3])).toLocaleDateString("en-GB", {
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+  });
+}
+
+/** Month label for a payslip row (`period` is `YYYY-MM`). */
+function slipMonth(p) {
+  return periodLabel(p?.period || String(p?.month || "").slice(0, 7));
+}
+
+/**
+ * Display aliases over a server payslip. Nothing here recomputes pay: the
+ * earned and net figures are the server's.
+ */
+function withAliases(p) {
+  const std = Number(p.standardSalary) || 0;
+  const earned = Number(p.earnedSalary) || 0;
+  return {
+    ...p,
+    remainingPayable: Number(p.netPayable) || 0,
+    payableDays: (Number(p.attendedDays) || 0) + (Number(p.paidLeaves) || 0),
+    earnedProgress: std > 0 ? Math.max(0, Math.min(100, Math.round((earned / std) * 100))) : 100,
+  };
+}
+
+/** Attendance behind a payslip, as one line of text. */
+function attendanceLine(p) {
+  const a = p.attendance || {};
+  const parts = [
+    `${fmtDays(p.attendedDays)} attended`,
+    `${fmtDays(p.paidLeaves)} paid leave`,
+    `${fmtDays(p.unpaidLeaves)} LOP`,
+    `${fmtDays(p.absentDays)} deducted`,
+  ];
+  const detail = [
+    a.present ? `${fmtDays(a.present)} present` : "",
+    a.late ? `${fmtDays(a.late)} late` : "",
+    a.wfh ? `${fmtDays(a.wfh)} WFH` : "",
+    a.halfDay ? `${fmtDays(a.halfDay)} half day` : "",
+    a.absent ? `${fmtDays(a.absent)} absent` : "",
+  ].filter(Boolean);
+  return `${parts.join(" | ")} of ${fmtDays(p.totalDays)} working days${detail.length ? ` (${detail.join(", ")})` : ""}`;
+}
 
 // Clean browser PDF payslip generator with full formula breakdown
 function downloadPayslipPdf(p) {
@@ -53,33 +109,33 @@ function downloadPayslipPdf(p) {
       .replace(/[^\x20-\x7E]/g, " ");
 
   const name = clean(p.name || "EMPLOYEE").toUpperCase();
-  const id = clean(p.id || "PAY-000");
-  const empId = clean(p.empId || "EMP-000");
-  const role = clean(p.role || "Team Member");
-  const dept = clean(p.department || "General");
-  const month = clean(p.month || "October 2024");
-  const bank = clean(p.bank || "Direct Deposit Verified");
+  const id = clean(String(p.id || "").slice(0, 8).toUpperCase() || "-");
+  const empId = clean(p.empId || "-");
+  const role = clean(p.role || "-");
+  const dept = clean(p.department || "-");
+  const month = clean(slipMonth(p));
+  const bank = clean(p.bank || "-");
 
   const std = Number(p.standardSalary || 0);
-  const totalD = Number(p.totalDays || 24);
-  const dailyH = Number(p.dailyHours || 8);
-  const totalH = Number(p.totalHours || (totalD * dailyH));
-  const hourlyR = Number(p.hourlyRate || (totalH > 0 ? Math.round(std / totalH) : 0));
-  const attended = p.attendedDays !== undefined ? Number(p.attendedDays) : totalD;
-  const absent = p.absentDays !== undefined ? Number(p.absentDays) : Math.max(0, totalD - attended);
-  const perDay = p.perDaySalary !== undefined ? Number(p.perDaySalary) : (totalD > 0 ? Math.round(std / totalD) : 0);
-  const attDeduction = p.attendanceDeduction !== undefined ? Number(p.attendanceDeduction) : Math.round(perDay * absent);
-  const earned = p.earnedSalary !== undefined ? Number(p.earnedSalary) : Math.max(0, std - attDeduction);
+  const totalD = Number(p.totalDays || 0);
+  const attended = Number(p.attendedDays || 0);
+  const paidLeave = Number(p.paidLeaves || 0);
+  const lop = Number(p.unpaidLeaves || 0);
+  const absent = Number(p.absentDays || 0);
+  const perDay = Number(p.perDaySalary || 0);
+  const attDeduction = Number(p.attendanceDeduction || 0);
+  const earned = Number(p.earnedSalary || 0);
   const earnings = Number(p.additionalEarnings || 0);
   const deductions = Number(p.deductions || 0);
   const advance = Number(p.advance || 0);
-  const remaining = Math.max(0, earned + earnings - deductions - advance);
-  const basic = Number(p.basic || Math.round(earned * 0.6));
-  const hra = Number(p.hra || Math.round(earned * 0.25));
-  const allowances = Number(p.allowances || Math.max(0, earned - basic - hra));
+  const remaining = Number(p.netPayable ?? p.remainingPayable ?? 0);
+  const basic = Number(p.basic || 0);
+  const hra = Number(p.hra || 0);
+  const allowances = Number(p.allowances || 0);
   const status = clean(p.status || "In Progress");
-  const paidDate = clean(p.paymentDate || "N/A");
+  const paidDate = clean(fmtDate(p.paymentDate) || "N/A");
   const paidAmt = p.paidAmount !== null && p.paidAmount !== undefined ? Number(p.paidAmount) : remaining;
+  const inr = (n) => Math.round(n).toLocaleString("en-IN");
 
   const lines = [
     "BT",
@@ -100,39 +156,33 @@ function downloadPayslipPdf(p) {
     "(MONTHLY SALARY CALCULATION BREAKDOWN:) Tj",
     "0 -18 Td",
     "/F1 10 Tf",
-    `(Standard Agreed Monthly CTC: INR ${std.toLocaleString()}) Tj`,
+    `(Standard Monthly Salary: INR ${inr(std)}) Tj`,
     "0 -16 Td",
-    `(Attendance: ${attended} of ${totalD} Days Present | ${absent} Absent | Hours: ${dailyH}h/d [Target: ${totalH}h]) Tj`,
+    `(Working Days: ${fmtDays(totalD)} | Attended: ${fmtDays(attended)} | Paid Leave: ${fmtDays(paidLeave)} | LOP: ${fmtDays(lop)} | Deducted Days: ${fmtDays(absent)}) Tj`,
     "0 -16 Td",
-    `(Rate: INR ${perDay.toLocaleString()}/day [INR ${hourlyR.toLocaleString()}/hr] | LOP Removed: (-) INR ${attDeduction.toLocaleString()}) Tj`,
+    `(Rate: INR ${inr(perDay)}/day | Attendance Deduction: - INR ${inr(attDeduction)}) Tj`,
     "0 -16 Td",
-    `(Earned Base Salary: INR ${earned.toLocaleString()}) Tj`,
+    `(Earned Salary: INR ${inr(earned)}) Tj`,
     "0 -16 Td",
-    `(Basic Salary [60%]: INR ${basic.toLocaleString()}) Tj`,
+    `(Basic: INR ${inr(basic)}   |   HRA: INR ${inr(hra)}   |   Allowances: INR ${inr(allowances)}) Tj`,
     "0 -16 Td",
-    `(House Rent Allowance [HRA 25%]: INR ${hra.toLocaleString()}) Tj`,
+    `(Additional Earnings: + INR ${inr(earnings)}) Tj`,
     "0 -16 Td",
-    `(Special & Flexible Allowances: INR ${allowances.toLocaleString()}) Tj`,
+    `(Deductions: - INR ${inr(deductions)}) Tj`,
     "0 -16 Td",
-    `(Additional Earnings [Overtime & Incentives]: (+) INR ${earnings.toLocaleString()}) Tj`,
-    "0 -16 Td",
-    `(Deductions [PF, Taxes, Statutory]: (-) INR ${deductions.toLocaleString()}) Tj`,
-    "0 -16 Td",
-    `(Salary Advance Recovered: (-) INR ${advance.toLocaleString()}) Tj`,
+    `(Salary Advance Recovered: - INR ${inr(advance)}) Tj`,
     "0 -24 Td",
     "/F1 11 Tf",
-    "(FORMULA: Net Salary = Standard CTC - Attendance LOP + Earnings - Deductions - Advance) Tj",
+    "(FORMULA: Net = Standard - Per-day x Deducted Days + Earnings - Deductions - Advance) Tj",
     "0 -22 Td",
     "/F1 14 Tf",
-    `(NET REMAINING PAYABLE: INR ${remaining.toLocaleString()}) Tj`,
+    `(NET PAYABLE: INR ${inr(remaining)}) Tj`,
     "0 -24 Td",
     "/F1 10 Tf",
-    `(Payout Status: ${status}   |   Disbursed: INR ${paidAmt.toLocaleString()}   |   Date: ${paidDate}) Tj`,
+    `(Payout Status: ${status}   |   Disbursed: INR ${status === "Paid" ? inr(paidAmt) : "0"}   |   Date: ${paidDate}) Tj`,
     "0 -32 Td",
     "/F1 9 Tf",
-    "(This is a verified computer-generated salary slip adhering to HRMS payroll compliance.) Tj",
-    "0 -14 Td",
-    "(Evenmore ERP Technologies Pvt Ltd - Digitally Certified & Verified.) Tj",
+    "(This is a computer-generated salary slip. Attendance and leave figures are taken from HRMS records.) Tj",
     "ET",
   ];
 
@@ -173,30 +223,32 @@ function downloadPayslipPdf(p) {
 
 // Modern printable/save-as-PDF window generator with corporate styling
 function printPayslip(p) {
+  const esc = (s) =>
+    String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
+  const inr = (n) => Math.round(Number(n) || 0).toLocaleString("en-IN");
   const std = Number(p.standardSalary || 0);
-  const totalD = Number(p.totalDays || 24);
-  const dailyH = Number(p.dailyHours || 8);
-  const totalH = Number(p.totalHours || (totalD * dailyH));
-  const hourlyR = Number(p.hourlyRate || (totalH > 0 ? Math.round(std / totalH) : 0));
-  const attended = p.attendedDays !== undefined ? Number(p.attendedDays) : totalD;
-  const absent = p.absentDays !== undefined ? Number(p.absentDays) : Math.max(0, totalD - attended);
-  const perDay = p.perDaySalary !== undefined ? Number(p.perDaySalary) : (totalD > 0 ? Math.round(std / totalD) : 0);
-  const attDeduction = p.attendanceDeduction !== undefined ? Number(p.attendanceDeduction) : Math.round(perDay * absent);
-  const earned = p.earnedSalary !== undefined ? Number(p.earnedSalary) : Math.max(0, std - attDeduction);
+  const totalD = Number(p.totalDays || 0);
+  const attended = Number(p.attendedDays || 0);
+  const paidLeave = Number(p.paidLeaves || 0);
+  const lop = Number(p.unpaidLeaves || 0);
+  const absent = Number(p.absentDays || 0);
+  const perDay = Number(p.perDaySalary || 0);
+  const attDeduction = Number(p.attendanceDeduction || 0);
+  const earned = Number(p.earnedSalary || 0);
   const earnings = Number(p.additionalEarnings || 0);
   const deductions = Number(p.deductions || 0);
   const advance = Number(p.advance || 0);
-  const remaining = Math.max(0, earned + earnings - deductions - advance);
-  const basic = Number(p.basic || Math.round(earned * 0.6));
-  const hra = Number(p.hra || Math.round(earned * 0.25));
-  const allowances = Number(p.allowances || Math.max(0, earned - basic - hra));
-  const month = p.month || "October 2024";
+  const remaining = Number(p.netPayable ?? p.remainingPayable ?? 0);
+  const basic = Number(p.basic || 0);
+  const hra = Number(p.hra || 0);
+  const allowances = Number(p.allowances || 0);
+  const month = slipMonth(p);
 
   const html = `
     <!DOCTYPE html>
     <html>
       <head>
-        <title>Payslip - ${p.name} - ${month}</title>
+        <title>Payslip - ${esc(p.name)} - ${esc(month)}</title>
         <style>
           @page { size: A4; margin: 12mm; }
           body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; color: #1e293b; margin: 0; padding: 20px; font-size: 13px; line-height: 1.5; }
@@ -224,23 +276,23 @@ function printPayslip(p) {
             <div class="subtitle">CONFIDENTIAL SALARY STATEMENT • CORPORATE HRMS</div>
           </div>
           <div style="text-align: right;">
-            <span class="badge">${p.status || "Paid"}</span>
-            <div style="font-size: 11px; color: #64748b; margin-top: 4px;">Pay Period: ${month}</div>
+            <span class="badge">${esc(p.status || "In Progress")}</span>
+            <div style="font-size: 11px; color: #64748b; margin-top: 4px;">Pay Period: ${esc(month)}</div>
           </div>
         </div>
 
         <div class="grid-2">
           <div class="box">
             <div class="label">Employee Details</div>
-            <div class="val">${p.name}</div>
-            <div style="color: #475569; font-size: 12px; margin-top: 2px;">${p.role} • ${p.department}</div>
-            <div style="color: #64748b; font-size: 11.5px; margin-top: 4px;">Staff ID: ${p.empId || "EMP1000"} | Slip Ref: ${p.id || "PAY-100"}</div>
+            <div class="val">${esc(p.name)}</div>
+            <div style="color: #475569; font-size: 12px; margin-top: 2px;">${esc(p.role || "-")} • ${esc(p.department || "-")}</div>
+            <div style="color: #64748b; font-size: 11.5px; margin-top: 4px;">Staff ID: ${esc(p.empId || "-")}</div>
           </div>
           <div class="box">
-            <div class="label">Disbursal & Attendance</div>
-            <div class="val">${p.bank || "Direct Deposit (Verified)"}</div>
-            <div style="color: #475569; font-size: 12px; margin-top: 2px;">Working Schedule: ${attended} Present / ${totalD} Days (${absent}d absent) • ${dailyH}h/day (${totalH}h target)</div>
-            <div style="color: #64748b; font-size: 11.5px; margin-top: 4px;">Disbursement Date: ${p.paymentDate || "Oct 31, 2024"} • Rate: INR ${perDay}/day (INR ${hourlyR}/hr)</div>
+            <div class="label">Disbursal &amp; Attendance</div>
+            <div class="val">${esc(p.bank || "-")}</div>
+            <div style="color: #475569; font-size: 12px; margin-top: 2px;">${fmtDays(attended)} attended + ${fmtDays(paidLeave)} paid leave of ${fmtDays(totalD)} working days • ${fmtDays(lop)} LOP • ${fmtDays(absent)} days deducted</div>
+            <div style="color: #64748b; font-size: 11.5px; margin-top: 4px;">${p.paymentDate ? `Paid on ${esc(fmtDate(p.paymentDate))} • ` : ""}Rate: INR ${inr(perDay)}/day</div>
           </div>
         </div>
 
@@ -249,46 +301,46 @@ function printPayslip(p) {
             <tr>
               <th>EARNINGS</th>
               <th class="num">AMOUNT (INR)</th>
-              <th>DEDUCTIONS & RECOVERIES</th>
+              <th>DEDUCTIONS &amp; RECOVERIES</th>
               <th class="num">AMOUNT (INR)</th>
             </tr>
           </thead>
           <tbody>
             <tr>
-              <td>Basic Salary (60%)</td>
-              <td class="num">${basic.toLocaleString()}</td>
-              <td>Attendance LOP (${absent} days absent @ INR ${perDay}/d)</td>
-              <td class="num" style="color: #b91c1c;">-${attDeduction.toLocaleString()}</td>
+              <td>Basic Salary</td>
+              <td class="num">${inr(basic)}</td>
+              <td>Attendance deduction (${fmtDays(absent)} days @ INR ${inr(perDay)}/d)</td>
+              <td class="num" style="color: #b91c1c;">-${inr(attDeduction)}</td>
             </tr>
             <tr>
-              <td>House Rent Allowance (HRA 25%)</td>
-              <td class="num">${hra.toLocaleString()}</td>
+              <td>House Rent Allowance (HRA)</td>
+              <td class="num">${inr(hra)}</td>
               <td>Salary Advance Recovered</td>
-              <td class="num" style="color: #b45309;">-${advance.toLocaleString()}</td>
+              <td class="num" style="color: #b45309;">-${inr(advance)}</td>
             </tr>
             <tr>
-              <td>Special & Flexible Allowances</td>
-              <td class="num">${allowances.toLocaleString()}</td>
-              <td>Provident Fund (PF)</td>
-              <td class="num">${Math.round(deductions * 0.55).toLocaleString()}</td>
+              <td>Allowances</td>
+              <td class="num">${inr(allowances)}</td>
+              <td>Other Deductions</td>
+              <td class="num">-${inr(deductions)}</td>
             </tr>
             <tr>
-              <td>Additional Earnings / Overtime / Bonus</td>
-              <td class="num">+${earnings.toLocaleString()}</td>
-              <td>Tax Deducted at Source (TDS) / PT</td>
-              <td class="num">${Math.round(deductions * 0.45).toLocaleString()}</td>
+              <td>Additional Earnings</td>
+              <td class="num">+${inr(earnings)}</td>
+              <td></td>
+              <td class="num"></td>
             </tr>
             <tr style="font-weight: 700; background: #f8fafc;">
-              <td>Earned Base Salary</td>
-              <td class="num" style="color: #1e40af;">INR ${earned.toLocaleString()}</td>
-              <td>Total Deductions & Advances</td>
-              <td class="num" style="color: #b91c1c;">-INR ${(deductions + advance + attDeduction).toLocaleString()}</td>
+              <td>Earned Salary</td>
+              <td class="num" style="color: #1e40af;">INR ${inr(earned)}</td>
+              <td>Total Deductions &amp; Advances</td>
+              <td class="num" style="color: #b91c1c;">-INR ${inr(deductions + advance + attDeduction)}</td>
             </tr>
             <tr style="font-weight: 700; background: #f8fafc;">
-              <td>Standard Agreed CTC</td>
-              <td class="num">INR ${std.toLocaleString()}</td>
-              <td>Total In-Hand Payable</td>
-              <td class="num" style="color: #15803d;">INR ${remaining.toLocaleString()}</td>
+              <td>Standard Monthly Salary</td>
+              <td class="num">INR ${inr(std)}</td>
+              <td>Net Payable</td>
+              <td class="num" style="color: #15803d;">INR ${inr(remaining)}</td>
             </tr>
           </tbody>
         </table>
@@ -296,18 +348,18 @@ function printPayslip(p) {
         <div class="formula-box">
           <div style="font-weight: 700; font-size: 11.5px; color: #15803d; margin-bottom: 2px;">FORMULA AUDIT TRAIL:</div>
           <div style="font-size: 12px; color: #334155;">
-            Remaining Payable = Standard CTC (INR ${std.toLocaleString()}) - Attendance LOP (INR ${attDeduction.toLocaleString()} for ${absent} absent days) + Additional Earnings (INR ${earnings.toLocaleString()}) - Statutory Deductions (INR ${deductions.toLocaleString()}) - Salary Advance Recovered (INR ${advance.toLocaleString()})
+            Net Payable = Standard (INR ${inr(std)}) - Attendance deduction (INR ${inr(attDeduction)} for ${fmtDays(absent)} days not attended or on paid leave) + Additional Earnings (INR ${inr(earnings)}) - Deductions (INR ${inr(deductions)}) - Advance (INR ${inr(advance)})
           </div>
         </div>
 
         <div class="net-payable">
-          <span>NET TAKE-HOME PAYABLE</span>
-          <span>INR ${remaining.toLocaleString()}</span>
+          <span>NET PAYABLE</span>
+          <span>INR ${inr(remaining)}</span>
         </div>
 
         <div class="footer">
-          <div>This is a digitally certified salary slip generated by Evenmore ERP HRMS.</div>
-          <div>Authorized Signatory: Head of Payroll & Finance</div>
+          <div>Computer-generated salary slip from Evenmore ERP HRMS.</div>
+          <div>Authorized Signatory: Head of Payroll &amp; Finance</div>
         </div>
       </body>
     </html>
@@ -326,45 +378,42 @@ function printPayslip(p) {
 
 export default function Payroll() {
   const showToast = useAppStore((s) => s.showToast);
-  const storeLeaves = useAppStore((s) => s.leaves || []);
-  const storeEncashments = useAppStore((s) => s.encashments || []);
-  const currentUser = useAppStore((s) => s.currentUser) || {
-    name: "Employee",
-    role: "Operations Admin",
-    email: "admin@evenmore.io",
-  };
+  const currentUser = useAppStore((s) => s.currentUser);
 
   const {
     employees: payrollEmployees,
     structures,
-    workflowStep,
-    currentPeriod,
-    defaultWorkingDays = 24,
-    departmentWorkingDays = DEFAULT_DEPARTMENT_WORKING_DAYS,
-    departmentWorkingHours = DEFAULT_DEPARTMENT_WORKING_HOURS,
-    setDepartmentWorkingDays,
-    setDepartmentWorkingHours,
-    setWorkflowStep,
-    setCurrentPeriod,
-    setDefaultWorkingDays,
-    markEmployeePaid,
-    disburseDepartment,
-    runPayrollForAll,
-    updateEmployeePayroll,
+    period,
+    loading,
+    error: loadError,
+    generating,
+    bulk,
+    setPeriod,
+    generate,
+    reloadPeriod,
+    adjust,
+    approve,
+    markPaid,
+    approveAll,
+    markAllPaid,
     addStructure,
-    ownHistory: ownSalaryHistory = [],
+    ownHistory: ownHistoryRaw = [],
     loadOwnHistory,
   } = usePayrollStore();
 
-  // The "My Salary" tab shows this user's own payslips, read by employee id.
-  useEffect(() => {
-    if (currentUser?.employeeId || currentUser?.id) {
-      loadOwnHistory?.(currentUser.employeeId || currentUser.id);
-    }
-  }, [currentUser?.employeeId, currentUser?.id, loadOwnHistory]);
-
   // Primary 4 views: 'overall' | 'department' | 'employee' | 'own'
   const [activeTab, setActiveTab] = useState("overall");
+
+  // Coming back to the screen: re-read the month (the first visit is loaded by the store itself).
+  useEffect(() => {
+    if (usePayrollStore.getState().loaded) usePayrollStore.getState().reloadPeriod();
+  }, []);
+
+  // The "My Salary" tab shows this user's own payslips, read by employee id.
+  const ownEmployeeId = currentUser?.employeeId || null;
+  useEffect(() => {
+    if (ownEmployeeId && activeTab === "own") loadOwnHistory?.(ownEmployeeId);
+  }, [ownEmployeeId, activeTab, loadOwnHistory]);
 
   // Filters for Employee-wise tab
   const [empSearch, setEmpSearch] = useState("");
@@ -373,79 +422,51 @@ export default function Payroll() {
 
   // Modals state
   const [selectedPayslip, setSelectedPayslip] = useState(null);
-  const [showRunModal, setShowRunModal] = useState(false);
-  const [runSuccess, setRunSuccess] = useState(false);
+  const [showGenerateModal, setShowGenerateModal] = useState(false);
   const [showAddStructureModal, setShowAddStructureModal] = useState(false);
-  const [newStructure, setNewStructure] = useState({ name: "", department: "Engineering", employees: "" });
+  const [newStructure, setNewStructure] = useState({ name: "", department: "", employees: "" });
 
-  // Lifecycle transition & Payslip generator modal state
-  const [showLifecycleModal, setShowLifecycleModal] = useState(false);
-  const [targetStage, setTargetStage] = useState(null);
+  // Bulk approve / pay confirmation: { kind: 'approve' | 'pay', ids, scope }
+  const [confirmBulk, setConfirmBulk] = useState(null);
+  const [bulkPayDate, setBulkPayDate] = useState(localISODate());
   const [showGenerateSlipModal, setShowGenerateSlipModal] = useState(false);
   const [slipSelectedEmpId, setSlipSelectedEmpId] = useState("");
   const [slipPickerOpen, setSlipPickerOpen] = useState(false);
   const [slipSearchQuery, setSlipSearchQuery] = useState("");
 
-  // Quick edit advance & attendance modal
-  const [editingEmployee, setEditingEmployee] = useState(null);
-  const [editTotalDays, setEditTotalDays] = useState(24);
-  const [editDailyHours, setEditDailyHours] = useState(8);
-  const [editAttendedDays, setEditAttendedDays] = useState(20);
+  // Adjustment modal (earnings / deductions / advance only)
+  const [editingId, setEditingId] = useState(null);
   const [editAdvance, setEditAdvance] = useState(0);
   const [editEarnings, setEditEarnings] = useState(0);
   const [editDeductions, setEditDeductions] = useState(0);
+  const [savingEdit, setSavingEdit] = useState(false);
+  const [busyRowId, setBusyRowId] = useState(null);
 
-  // Switcher for Own Salary perspective
-  const [activeOwnUser, setActiveOwnUser] = useState(currentUser?.name || "");
+  // Server payslips for the month, with display aliases only.
+  const computedEmployeePayrolls = useMemo(() => payrollEmployees.map(withAliases), [payrollEmployees]);
+  const editingEmployee = useMemo(
+    () => (editingId ? computedEmployeePayrolls.find((p) => p.id === editingId) || null : null),
+    [computedEmployeePayrolls, editingId]
+  );
 
-  // Dynamic calculations with approved leaves & attendance integration
-  const computedEmployeePayrolls = useMemo(() => {
-    return payrollEmployees.map((p) => {
-      const empLeaves = storeLeaves.filter(
-        (l) => l.employee?.toLowerCase() === String(p.name ?? '').toLowerCase() && l.status?.includes("Approved")
-      );
-      const leaveDays = empLeaves.reduce((sum, l) => sum + (Number(l.days) || 1), 0);
-
-      const totalDays = Number(p.totalDays) || Number(defaultWorkingDays) || 24;
-      const attendedDays = p.attendedDays !== undefined ? Number(p.attendedDays) : totalDays;
-
-      const deptHours = getDepartmentHours(departmentWorkingHours, p.department);
-      const dailyHours = Number(p.dailyHours) || deptHours || 8;
-      const totalHours = Number(p.totalHours) || (totalDays * dailyHours);
-      const hourlyRate = Number(p.hourlyRate) || (totalHours > 0 ? Math.round(Number(p.standardSalary || 0) / totalHours) : 0);
-
-      const empApprovedEncashments = storeEncashments.filter(
-        (enc) => enc.employee?.toLowerCase() === p.name?.toLowerCase() && enc.status === "Approved"
-      );
-      const encashmentBonus = empApprovedEncashments.reduce((sum, enc) => sum + (Number(enc.amount) || 0), 0);
-      const baseEarnings = p.additionalEarnings !== undefined ? p.additionalEarnings : (p.overtime || 0);
-      const effectiveEarnings = baseEarnings + encashmentBonus;
-
-      // Calculation matrix from reusable engine
-      const calc = calculateSalaryComponents({
-        standardSalary: p.standardSalary,
-        totalDays: totalDays,
-        attendedDays: attendedDays,
-        paidLeaves: leaveDays,
-        additionalEarnings: effectiveEarnings,
-        deductions: p.deductions,
-        advance: p.advance !== undefined ? p.advance : 0,
-        status: p.status || "In Progress",
-        paidAmount: p.paidAmount,
-        paymentDate: p.paymentDate,
-      });
-
-      return {
-        ...p,
-        ...calc,
-        leaveDays,
-        dailyHours,
-        totalHours,
-        hourlyRate,
-        encashmentBonus,
-      };
-    });
-  }, [payrollEmployees, storeLeaves, storeEncashments, defaultWorkingDays, departmentWorkingHours]);
+  const workflowStep = periodStage(computedEmployeePayrolls);
+  const inProgressIds = useMemo(
+    () => computedEmployeePayrolls.filter((p) => p.status === "In Progress" || p.status === "Ready for Review" || !p.status).map((p) => p.id),
+    [computedEmployeePayrolls]
+  );
+  const approvedIds = useMemo(
+    () => computedEmployeePayrolls.filter((p) => p.status === "Approved").map((p) => p.id),
+    [computedEmployeePayrolls]
+  );
+  const stageCounts = {
+    "In Progress": inProgressIds.length,
+    Approved: approvedIds.length,
+    Paid: computedEmployeePayrolls.filter((p) => p.status === "Paid").length,
+  };
+  const hasRows = computedEmployeePayrolls.length > 0;
+  const showLoading = loading && !hasRows;
+  const monthLabel = periodLabel(period);
+  const isBusy = Boolean(bulk) || generating;
 
   // Selected employee for generate payslip modal
   const slipSelectedEmp = useMemo(() => {
@@ -462,18 +483,22 @@ export default function Payroll() {
     const q = slipSearchQuery.toLowerCase().trim();
     return computedEmployeePayrolls.filter(
       (e) =>
-        e.name?.toLowerCase().includes(q) ||
-        e.role?.toLowerCase().includes(q) ||
-        e.department?.toLowerCase().includes(q) ||
-        e.empId?.toLowerCase().includes(q) ||
-        e.id?.toLowerCase().includes(q)
+        String(e.name ?? "").toLowerCase().includes(q) ||
+        String(e.role ?? "").toLowerCase().includes(q) ||
+        String(e.department ?? "").toLowerCase().includes(q) ||
+        String(e.empId ?? "").toLowerCase().includes(q)
     );
   }, [computedEmployeePayrolls, slipSearchQuery]);
 
-  // Overall Statistics Aggregation
+  // Overall Statistics Aggregation (sums of the server's figures)
   const overallStats = useMemo(() => {
     return aggregatePayrollStats(computedEmployeePayrolls);
   }, [computedEmployeePayrolls]);
+
+  const departmentNames = useMemo(
+    () => Array.from(new Set(computedEmployeePayrolls.map((p) => p.department || "General"))).sort(),
+    [computedEmployeePayrolls]
+  );
 
   // Department-wise Grouping
   const departmentPayrolls = useMemo(() => {
@@ -490,22 +515,30 @@ export default function Payroll() {
           totalDeductions: 0,
           totalAdvance: 0,
           totalRemaining: 0,
+          totalAttendanceDeduction: 0,
           paidCount: 0,
+          inProgressIds: [],
+          approvedIds: [],
         };
       }
-      groups[d].employees.push(p);
-      groups[d].totalStandard += p.standardSalary;
-      groups[d].totalEarned += p.earnedSalary;
-      groups[d].totalEarnings += p.additionalEarnings;
-      groups[d].totalDeductions += p.deductions;
-      groups[d].totalAdvance += p.advance;
-      groups[d].totalRemaining += p.remainingPayable;
-      if (p.status === "Paid") groups[d].paidCount += 1;
+      const g = groups[d];
+      g.employees.push(p);
+      g.totalStandard += Number(p.standardSalary) || 0;
+      g.totalEarned += Number(p.earnedSalary) || 0;
+      g.totalEarnings += Number(p.additionalEarnings) || 0;
+      g.totalDeductions += Number(p.deductions) || 0;
+      g.totalAdvance += Number(p.advance) || 0;
+      g.totalRemaining += Number(p.remainingPayable) || 0;
+      g.totalAttendanceDeduction += Number(p.attendanceDeduction) || 0;
+      if (p.status === "Paid") g.paidCount += 1;
+      else if (p.status === "Approved") g.approvedIds.push(p.id);
+      else g.inProgressIds.push(p.id);
     });
 
     return Object.values(groups).map((g) => ({
       ...g,
       headcount: g.employees.length,
+      workingDays: g.employees[0]?.totalDays,
       earnedProgress: g.totalStandard > 0 ? Math.round((g.totalEarned / g.totalStandard) * 100) : 100,
       avgSalary: Math.round(g.totalRemaining / (g.employees.length || 1)),
       allPaid: g.paidCount === g.employees.length,
@@ -517,120 +550,123 @@ export default function Payroll() {
     return computedEmployeePayrolls.filter((p) => {
       const q = empSearch.toLowerCase();
       const matchSearch =
-        String(p.name ?? '').toLowerCase().includes(q) ||
-        String(p.role ?? '').toLowerCase().includes(q) ||
-        String(p.empId ?? '').toLowerCase().includes(q);
-      const matchDept = deptFilter === "All" || p.department === deptFilter;
+        String(p.name ?? "").toLowerCase().includes(q) ||
+        String(p.role ?? "").toLowerCase().includes(q) ||
+        String(p.empId ?? "").toLowerCase().includes(q);
+      const matchDept = deptFilter === "All" || (p.department || "General") === deptFilter;
       const matchStatus = statusFilter === "All" || p.status === statusFilter;
       return matchSearch && matchDept && matchStatus;
     });
   }, [computedEmployeePayrolls, empSearch, deptFilter, statusFilter]);
 
-  // Own Salary Record
-  const ownRecord = useMemo(() => {
-    return (
-      computedEmployeePayrolls.find(
-        (p) => String(p.name ?? '').toLowerCase() === activeOwnUser.toLowerCase()
-      ) || computedEmployeePayrolls[0]
-    );
-  }, [computedEmployeePayrolls, activeOwnUser]);
+  // Own salary: the signed-in employee's payslips, newest first.
+  const ownHistory = useMemo(
+    () =>
+      ownHistoryRaw
+        .map(withAliases)
+        .sort((a, b) => String(b.period || b.month || "").localeCompare(String(a.period || a.month || ""))),
+    [ownHistoryRaw]
+  );
+  const ownRecord = useMemo(
+    () => ownHistory.find((h) => h.period === period) || ownHistory[0] || null,
+    [ownHistory, period]
+  );
 
-  // Real-world scenario descriptions for each payroll lifecycle stage
+  // What each bulk action does on the server.
   const STAGE_SCENARIOS = {
-    "In Progress": {
-      title: "Stage 1: Attendance Reconciliation & Draft Calculation",
+    approve: {
+      title: "Approve payslips",
       description:
-        "HR Operations validates daily attendance logs, integrates approved leaves, calculates pro-rated earned salary, and tallies overtime hours and salary advances.",
-      actionLabel: "Set to In Progress",
+        "Each In Progress payslip is approved as it stands. Approval freezes its attendance figures and adjustments and posts the salary accrual to Accounts.",
+      actionLabel: "Approve",
       bullets: [
-        "Pro-rated earned salary calculation enabled",
-        "Approved leave days synchronized from HRMS",
-        "Salary advance recovery deduction applied",
-        "Allows adjusting individual employee earnings & deductions",
+        "Pay already reflects attendance and approved leave for the month",
+        "Approved payslips are no longer refreshed by Re-generate",
+        "Adjustments can no longer be edited after approval",
+        "Salary accrual is posted to the accounting ledger",
       ],
     },
-    "Ready for Review": {
-      title: "Stage 2: Internal Audit & Variance Verification",
+    pay: {
+      title: "Mark payslips paid",
       description:
-        "Finance Controller audits calculations against CTC budgets, checks statutory tax brackets (TDS, PF, PT), and ensures zero compliance discrepancies.",
-      actionLabel: "Submit for Audit Review",
+        "Each Approved payslip is marked Paid with the payment date below, settling its net payable.",
+      actionLabel: "Mark Paid",
       bullets: [
-        "Attendance records locked across all departments",
-        "Statutory compliance check (PF, ESI, TDS) verified",
-        "Advance recovery ledger verified against employee records",
-        "Net remaining payable verified for all staff",
-      ],
-    },
-    "Approved": {
-      title: "Stage 3: Executive Sign-off & Bank Authorization",
-      description:
-        "Director of HR & Chief Financial Officer sign off on the monthly disbursement budget. Authorizes corporate bank treasury to prepare the batch payout file.",
-      actionLabel: "Authorize & Approve Budget",
-      bullets: [
-        "Executive approval stamp applied to payroll cycle",
-        "Corporate treasury funds verified for disbursement",
-        "Bank NACH / NEFT batch schedule queued",
-        "Ready for 1-click month-end disbursal",
-      ],
-    },
-    "Paid": {
-      title: "Stage 4: Month-End Bank Disbursal & Payslips",
-      description:
-        "Corporate banking gateway executes direct deposit batch transfer. All employee accounts are credited, and verified PDF payslips are released.",
-      actionLabel: "Execute Payout & Generate Slips",
-      bullets: [
-        "Disburses net remaining payable to employee bank accounts",
-        "Marks all staff records as 'Paid' with current timestamp",
-        "Net Remaining Payable cleared to ₹0",
-        "Digitally certified PDF payslips generated for download",
+        "Records the payment date and paid amount on each payslip",
+        "Paid payslips are final for the month",
+        "Payslip PDFs remain available for download",
       ],
     },
   };
 
-  // Lifecycle flow helper
-  const nextWorkflowStep = (current) => {
-    const sequence = ["In Progress", "Ready for Review", "Approved", "Paid"];
-    const idx = sequence.indexOf(current);
-    if (idx !== -1 && idx < sequence.length - 1) {
-      return sequence[idx + 1];
-    }
-    return current;
-  };
+  // ── Handlers ──
 
-  // Lifecycle interaction handlers
-  const handleStageClick = (stageId) => {
-    setTargetStage(stageId);
-    setShowLifecycleModal(true);
-  };
-
-  const handleAdvanceStage = () => {
-    const next = nextWorkflowStep(workflowStep);
-    setTargetStage(next);
-    setShowLifecycleModal(true);
-  };
-
-  const executeStageTransition = (stage) => {
-    if (stage === "Paid") {
-      runPayrollForAll();
-      showToast("Month-End payroll disbursed to all staff! PDF Payslips generated.");
-    } else {
-      setWorkflowStep(stage);
-      // Synchronize employee statuses realistically with the stage
-      payrollEmployees.forEach((emp) => {
-        if (emp.status !== "Paid") {
-          updateEmployeePayroll(emp.id, { status: stage });
-        }
-      });
-      if (stage === "Ready for Review") {
-        showToast("Audit Complete: Attendance locked & payroll submitted for review.");
-      } else if (stage === "Approved") {
-        showToast("Payroll Approved: Disbursement authorized by Director.");
-      } else if (stage === "In Progress") {
-        showToast("Payroll reopened in In Progress mode for calculations.");
+  const handleGenerate = async () => {
+    try {
+      const result = await generate();
+      if (result === null) {
+        showToast("Payroll could not be generated — the server is not reachable", "error");
+        return;
       }
+      const count = Array.isArray(result?.payslips)
+        ? result.payslips.length
+        : usePayrollStore.getState().employees.length;
+      showToast(`Payroll for ${monthLabel} generated from attendance & leave — ${count} payslip(s).`);
+      setShowGenerateModal(false);
+    } catch (err) {
+      showToast(`Payroll not generated — ${describeError(err)}`, "error");
     }
-    setShowLifecycleModal(false);
-    setTargetStage(null);
+  };
+
+  const handleApproveRow = async (p) => {
+    if (busyRowId || isBusy) return;
+    setBusyRowId(p.id);
+    try {
+      await approve(p.id);
+      showToast(`Payslip approved for ${p.name}`);
+    } catch (err) {
+      showToast(`Payslip not approved — ${describeError(err)}`, "error");
+    } finally {
+      setBusyRowId(null);
+    }
+  };
+
+  const handlePayRow = async (p) => {
+    if (busyRowId || isBusy) return;
+    setBusyRowId(p.id);
+    try {
+      await markPaid(p.id, localISODate());
+      showToast(`Marked ${p.name} as Paid (${formatINR(p.remainingPayable)})`);
+    } catch (err) {
+      showToast(`Not marked paid — ${describeError(err)}`, "error");
+    } finally {
+      setBusyRowId(null);
+    }
+  };
+
+  const openBulk = (kind, ids, scope = "all") => {
+    if (!ids.length) return;
+    setBulkPayDate(localISODate());
+    setConfirmBulk({ kind, ids, scope });
+  };
+
+  const executeBulk = async () => {
+    if (!confirmBulk) return;
+    const { kind, ids } = confirmBulk;
+    if (kind === "pay" && !bulkPayDate) return showToast("Choose a payment date", "error");
+    setConfirmBulk(null);
+    const result = kind === "approve" ? await approveAll(ids) : await markAllPaid(ids, bulkPayDate);
+    const verb = kind === "approve" ? "approved" : "marked paid";
+    if (result.failed.length) {
+      const first = result.failed[0];
+      showToast(
+        `${result.done} payslip(s) ${verb}; ${result.failed.length} failed — ${first.name}: ${first.error}`,
+        "error"
+      );
+    } else {
+      showToast(`${result.done} payslip(s) ${verb} for ${monthLabel}.`);
+    }
+    reloadPeriod();
   };
 
   const handleBatchDownloadSlips = () => {
@@ -639,18 +675,7 @@ export default function Payroll() {
         downloadPayslipPdf(emp);
       }, i * 150);
     });
-    showToast(`Generating and downloading PDF payslips for all ${computedEmployeePayrolls.length} employees...`);
-  };
-
-  // Handlers
-  const handleRunPayroll = () => {
-    setRunSuccess(true);
-    setTimeout(() => {
-      setRunSuccess(false);
-      setShowRunModal(false);
-      runPayrollForAll();
-      showToast("Month-End payroll processed and disbursed for all staff!");
-    }, 1200);
+    showToast(`Downloading PDF payslips for all ${computedEmployeePayrolls.length} employees...`);
   };
 
   const handleAddStructureSubmit = (e) => {
@@ -658,113 +683,119 @@ export default function Payroll() {
     if (!newStructure.name) return;
     addStructure({
       name: newStructure.name,
-      department: newStructure.department,
-      employees: Number(newStructure.employees) || 12,
+      department: newStructure.department || undefined,
+      employees: Number(newStructure.employees) || undefined,
     });
-    setNewStructure({ name: "", department: "Engineering", employees: "" });
+    setNewStructure({ name: "", department: "", employees: "" });
     setShowAddStructureModal(false);
-    showToast("New salary structure added successfully");
+    showToast("New salary structure added");
   };
 
   const openEditModal = (emp) => {
-    setEditingEmployee(emp);
-    const deptDefault = getDepartmentDays(departmentWorkingDays, emp.department);
-    const deptHoursDefault = getDepartmentHours(departmentWorkingHours, emp.department);
-    const totalD = emp.totalDays || deptDefault || 24;
-    const dailyH = emp.dailyHours || deptHoursDefault || 8;
-    setEditTotalDays(totalD);
-    setEditDailyHours(dailyH);
-    setEditAttendedDays(emp.attendedDays !== undefined ? emp.attendedDays : totalD);
-    setEditAdvance(emp.advance !== undefined ? emp.advance : 0);
-    setEditEarnings(emp.additionalEarnings !== undefined ? emp.additionalEarnings : 0);
-    setEditDeductions(emp.deductions !== undefined ? emp.deductions : 0);
+    setEditingId(emp.id);
+    setEditAdvance(Number(emp.advance) || 0);
+    setEditEarnings(Number(emp.additionalEarnings) || 0);
+    setEditDeductions(Number(emp.deductions) || 0);
   };
 
-  const handleSaveParams = (e) => {
+  const handleSaveParams = async (e) => {
     e.preventDefault();
-    if (!editingEmployee) return;
-    const tDays = Math.max(1, Number(editTotalDays) || 24);
-    const dHours = Math.max(1, Number(editDailyHours) || 8);
-    const aDays = Math.min(tDays, Math.max(0, editAttendedDays !== undefined && editAttendedDays !== '' ? Number(editAttendedDays) : tDays));
-    const std = Number(editingEmployee.standardSalary) || 0;
-    const totalH = tDays * dHours;
-    const hourlyR = totalH > 0 ? Math.round(std / totalH) : 0;
-    updateEmployeePayroll(editingEmployee.id, {
-      totalDays: tDays,
-      dailyHours: dHours,
-      totalHours: totalH,
-      hourlyRate: hourlyR,
-      attendedDays: aDays,
-      advance: Number(editAdvance) || 0,
-      additionalEarnings: Number(editEarnings) || 0,
-      deductions: Number(editDeductions) || 0,
-    });
-    showToast(`Updated attendance & working hours for ${editingEmployee.name}`);
-    setEditingEmployee(null);
+    if (!editingEmployee || savingEdit) return;
+    setSavingEdit(true);
+    try {
+      await adjust(editingEmployee.id, {
+        additionalEarnings: Math.max(0, Number(editEarnings) || 0),
+        deductions: Math.max(0, Number(editDeductions) || 0),
+        advance: Math.max(0, Number(editAdvance) || 0),
+      });
+      showToast(`Adjustments saved for ${editingEmployee.name} — payslip recomputed`);
+      setEditingId(null);
+    } catch (err) {
+      showToast(`Adjustments not saved — ${describeError(err)}`, "error");
+    } finally {
+      setSavingEdit(false);
+    }
   };
+
+  const statusTone = (status) =>
+    status === "Paid" ? "success" : status === "Approved" ? "info" : status === "Ready for Review" ? "warning" : "neutral";
+
+  const emptyState = (
+    <div className="bg-white border border-dashed border-bdr rounded-2xl p-8 shadow-xs flex flex-col items-center text-center gap-3">
+      {showLoading ? (
+        <>
+          <Loader2 size={28} className="text-navy animate-spin" />
+          <div className="text-[13.5px] text-slate-600">Loading payroll for {monthLabel}…</div>
+        </>
+      ) : (
+        <>
+          <div className="w-12 h-12 rounded-2xl bg-navy/5 text-navy flex items-center justify-center">
+            <Receipt size={22} />
+          </div>
+          <div>
+            <h3 className="font-bold text-[15px] text-slate-900">No payslips for {monthLabel}</h3>
+            <p className="text-[12.5px] text-muted mt-1 max-w-md">
+              {loadError
+                ? "Payroll could not be loaded. Check your connection and try again."
+                : "Generate the month's payroll: each employee's payslip is computed from their attendance (Present, Late, WFH, Half Day) and approved leave for the month. Unmarked working days, absences and Loss of Pay are deducted."}
+            </p>
+          </div>
+          <div className="flex flex-wrap items-center justify-center gap-2">
+            {loadError && (
+              <button
+                type="button"
+                onClick={() => reloadPeriod()}
+                className="inline-flex items-center gap-1.5 px-4 py-2 bg-white border border-bdr rounded-xl text-[13px] font-semibold text-slate-700 hover:bg-slate-50 cursor-pointer"
+              >
+                <RefreshCw size={14} /> Retry
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={() => setShowGenerateModal(true)}
+              className="inline-flex items-center gap-1.5 px-4 py-2 bg-navy text-white rounded-xl text-[13px] font-semibold shadow-xs hover:bg-navy/90 cursor-pointer"
+            >
+              <RefreshCw size={14} /> Generate from Attendance
+            </button>
+          </div>
+        </>
+      )}
+    </div>
+  );
 
   return (
     <div className="flex flex-col gap-6">
       <PageHeader
         title="Payroll Management"
-        subtitle={<>Attendance & Advance Formula: <span className="font-semibold text-slate-700">Remaining Payable = Standard CTC - Attendance LOP (Remaining Days Removed) + Earnings - Deductions - Advance Recovered</span></>}
+        subtitle={<>Attendance-driven payroll: <span className="font-semibold text-slate-700">Net Payable = Standard − Per-day × (Working days − Attended − Paid leave) + Earnings − Deductions − Advance</span></>}
         guide={hrmsGuides.payroll}
         actions={
           <>
-            {/* Department Working Days Schedule Dropdown (Pure Dropdown - No Up/Down Arrows) */}
-            <div className="flex items-center gap-2 px-3 h-10 w-full sm:w-auto max-w-full lg:max-w-none min-w-0 lg:min-w-auto bg-white border border-bdr rounded-xl text-[13px] font-medium text-slate-700 shadow-xs">
-              <Building2 size={14} className="text-navy shrink-0" />
-              <span className="text-muted text-[12px] whitespace-nowrap">Dept Schedule:</span>
-              <select
-                value={deptFilter}
-                onChange={(e) => {
-                  setDeptFilter(e.target.value);
-                  if (e.target.value !== "All") {
-                    const days = getDepartmentDays(departmentWorkingDays, e.target.value);
-                    const hours = getDepartmentHours(departmentWorkingHours, e.target.value);
-                    showToast(`${e.target.value}: ${days} Working Days • ${hours}h/day (${days * hours}h target)`);
-                  }
-                }}
-                className="min-w-0 lg:min-w-auto flex-1 w-0 sm:flex-initial sm:w-auto font-semibold text-slate-900 bg-transparent outline-none cursor-pointer text-[13px]"
-              >
-                <option value="All">All Departments (HR Admin Schedule)</option>
-                {Object.entries(departmentWorkingDays).map(([dept, days]) => {
-                  const hours = getDepartmentHours(departmentWorkingHours, dept);
-                  return (
-                    <option key={dept} value={dept}>
-                      {dept} — {days} Days ({hours}h/d • {days * hours}h)
-                    </option>
-                  );
-                })}
-              </select>
-            </div>
+            <label className="flex items-center gap-2 px-3 h-10 bg-white border border-bdr rounded-xl text-[13px] font-medium text-slate-700 shadow-xs">
+              <Calendar size={14} className="text-navy shrink-0" />
+              <span className="text-muted text-[12px] whitespace-nowrap">Month:</span>
+              <input
+                type="month"
+                value={period}
+                onChange={(e) => e.target.value && setPeriod(e.target.value)}
+                className="font-semibold text-slate-900 bg-transparent outline-none cursor-pointer text-[13px]"
+              />
+            </label>
 
             <Link
-              to="/hrms/hr-admin?tab=working-days"
+              to="/hrms/hr-admin/working-days"
               className="inline-flex items-center gap-1.5 px-3 h-10 bg-white border border-bdr rounded-xl text-[12.5px] font-semibold text-slate-700 hover:bg-slate-50 transition shadow-xs cursor-pointer"
-              title="Configure working days by department in HR Admin"
+              title="Working-day calendar used to count each month's working days"
             >
               <ShieldCheck size={15} className="text-emerald-700" />
-              <span>HR Admin Setup</span>
+              <span>Working Days Setup</span>
             </Link>
-
-            <select
-              value={currentPeriod}
-              onChange={(e) => {
-                setCurrentPeriod(e.target.value);
-                showToast(`Switched cycle to ${e.target.value}`);
-              }}
-              className="h-10 px-3 bg-white border border-bdr rounded-xl text-[13px] font-medium text-slate-700 shadow-xs focus:outline-none focus:border-navy cursor-pointer"
-            >
-              <option value="October 2024">October 2024</option>
-              <option value="September 2024">September 2024</option>
-              <option value="August 2024">August 2024</option>
-            </select>
 
             <button
               type="button"
+              disabled={!hasRows}
               onClick={() => setShowGenerateSlipModal(true)}
-              className="inline-flex items-center gap-1.5 px-4 py-2.5 bg-white border border-slate-300 text-slate-800 rounded-xl text-[13px] font-semibold shadow-xs hover:bg-slate-50 transition-colors cursor-pointer"
+              className="inline-flex items-center gap-1.5 px-4 py-2.5 bg-white border border-slate-300 text-slate-800 rounded-xl text-[13px] font-semibold shadow-xs hover:bg-slate-50 transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
               title="Generate and download employee PDF salary slip"
             >
               <FileText size={15} className="text-emerald-700" />
@@ -773,11 +804,12 @@ export default function Payroll() {
 
             <button
               type="button"
-              onClick={() => setShowRunModal(true)}
-              className="inline-flex items-center gap-1.5 px-4.5 py-2.5 bg-navy text-white rounded-xl text-[13px] font-medium shadow-xs hover:bg-navy/90 transition-colors cursor-pointer"
+              disabled={isBusy}
+              onClick={() => setShowGenerateModal(true)}
+              className="inline-flex items-center gap-1.5 px-4.5 py-2.5 bg-navy text-white rounded-xl text-[13px] font-medium shadow-xs hover:bg-navy/90 transition-colors cursor-pointer disabled:opacity-60"
             >
-              <Receipt size={15} />
-              <span>Process Month-End Payroll</span>
+              {generating ? <Loader2 size={15} className="animate-spin" /> : <Receipt size={15} />}
+              <span>{hasRows ? "Re-generate from Attendance" : "Generate from Attendance"}</span>
             </button>
           </>
         }
@@ -826,7 +858,7 @@ export default function Payroll() {
           <User size={16} />
           <span>Employee-wise</span>
           <span className="px-1.5 py-0.2 text-[10.5px] rounded-md bg-slate-100 text-slate-600 font-medium">
-            {payrollEmployees.length}
+            {computedEmployeePayrolls.length}
           </span>
         </button>
 
@@ -840,14 +872,29 @@ export default function Payroll() {
           }`}
         >
           <CreditCard size={16} />
-          <span>Own Salary</span>
+          <span>My Salary</span>
         </button>
       </div>
+
+      {bulk && (
+        <div className="bg-white border border-bdr rounded-2xl px-4 py-3 shadow-xs flex items-center gap-3 text-[12.5px] text-slate-700">
+          <Loader2 size={15} className="animate-spin text-navy shrink-0" />
+          <span className="font-semibold">{bulk.label} payslips…</span>
+          <span className="text-muted">{bulk.done} / {bulk.total}</span>
+          <div className="flex-1 h-1.5 bg-slate-100 rounded-full overflow-hidden">
+            <div
+              className="h-full bg-navy rounded-full transition-all duration-300"
+              style={{ width: `${bulk.total ? Math.round((bulk.done / bulk.total) * 100) : 0}%` }}
+            />
+          </div>
+        </div>
+      )}
 
       {/* =========================================================================
           TAB 1: OVERALL SALARY (COMPANY SUMMARY & LIFECYCLE)
          ========================================================================= */}
-      {activeTab === "overall" && (
+      {activeTab === "overall" && !hasRows && emptyState}
+      {activeTab === "overall" && hasRows && (
         <div className="flex flex-col gap-6">
           {/* Top KPI Cards - Advanced Salary Matrix */}
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
@@ -858,7 +905,7 @@ export default function Payroll() {
               <div className="text-[26px] font-extrabold text-slate-900 mt-2 leading-none">
                 {formatINR(overallStats.totalStandard)}
               </div>
-              <span className="text-[12px] text-muted mt-2">Agreed baseline monthly CTC</span>
+              <span className="text-[12px] text-muted mt-2">Agreed monthly salary · {overallStats.totalHeadcount} staff</span>
             </div>
 
             <div className="bg-white border border-bdr rounded-2xl p-4.5 shadow-xs flex flex-col justify-between">
@@ -873,7 +920,7 @@ export default function Payroll() {
                   <div
                     className="h-full bg-blue-600 rounded-full"
                     style={{
-                      width: `${Math.round((overallStats.totalEarned / (overallStats.totalStandard || 1)) * 100)}%`,
+                      width: `${Math.min(100, Math.round((overallStats.totalEarned / (overallStats.totalStandard || 1)) * 100))}%`,
                     }}
                   />
                 </div>
@@ -883,7 +930,7 @@ export default function Payroll() {
               </div>
               {overallStats.totalAttendanceDeduction > 0 && (
                 <span className="text-[11px] text-rose-600 block mt-1 font-medium">
-                  -{formatINR(overallStats.totalAttendanceDeduction)} absent days removed
+                  -{formatINR(overallStats.totalAttendanceDeduction)} attendance deduction
                 </span>
               )}
             </div>
@@ -902,7 +949,7 @@ export default function Payroll() {
 
             <div className="bg-white border border-bdr rounded-2xl p-4.5 shadow-xs flex flex-col justify-between">
               <span className="text-[12px] font-semibold text-emerald-700 uppercase tracking-wide">
-                Remaining Net Payable
+                Net Payable
               </span>
               <div className="text-[26px] font-extrabold text-emerald-950 mt-2 leading-none">
                 {formatINR(overallStats.totalRemaining)}
@@ -918,43 +965,43 @@ export default function Payroll() {
             <div>
               <div className="flex items-center gap-2">
                 <h3 className="text-[14.5px] font-bold text-slate-900">
-                  Month-End Payroll Lifecycle
+                  {monthLabel} Payroll Lifecycle
                 </h3>
                 <span className="text-[11px] font-semibold px-2 py-0.5 rounded-full bg-slate-100 text-slate-700 border border-slate-200">
                   Current: {workflowStep}
                 </span>
               </div>
               <p className="text-[12px] text-muted mt-0.5">
-                Standard progression: In Progress → Ready for Review → Approved → Paid
+                Generated from attendance → Approved → Paid. Re-generate refreshes In Progress payslips only.
               </p>
             </div>
 
             {/* Step Indicators */}
             <div className="flex flex-wrap items-center gap-2">
-              {WORKFLOW_STAGES.map((step, idx) => {
+              {PAYSLIP_STAGES.map((step, idx) => {
+                const order = PAYSLIP_STAGES.map((s) => s.id);
+                const currentIdx = order.indexOf(workflowStep);
                 const isActive = workflowStep === step.id;
-                const isPassed =
-                  (workflowStep === "Ready for Review" && step.id === "In Progress") ||
-                  (workflowStep === "Approved" && (step.id === "In Progress" || step.id === "Ready for Review")) ||
-                  (workflowStep === "Paid" && step.id !== "Paid");
+                const isPassed = currentIdx > idx;
 
                 return (
                   <div key={step.id} className="flex items-center gap-2">
-                    <button
-                      type="button"
-                      onClick={() => handleStageClick(step.id)}
-                      className={`px-3 py-1.5 rounded-xl text-[12px] font-semibold transition cursor-pointer flex items-center gap-1.5 ${
+                    <span
+                      className={`px-3 py-1.5 rounded-xl text-[12px] font-semibold flex items-center gap-1.5 ${
                         isActive
                           ? "bg-navy text-white shadow-xs"
                           : isPassed
-                          ? "bg-emerald-50 text-emerald-800 border border-emerald-200 hover:bg-emerald-100"
-                          : "bg-slate-100 text-slate-600 hover:bg-slate-200"
+                          ? "bg-emerald-50 text-emerald-800 border border-emerald-200"
+                          : "bg-slate-100 text-slate-600"
                       }`}
                     >
                       {isPassed && <Check size={12} className="text-emerald-700" />}
                       <span>{step.label}</span>
-                    </button>
-                    {idx < WORKFLOW_STAGES.length - 1 && (
+                      <span className={`text-[10.5px] px-1.5 rounded-md ${isActive ? "bg-white/20" : "bg-white/70"}`}>
+                        {stageCounts[step.id] || 0}
+                      </span>
+                    </span>
+                    {idx < PAYSLIP_STAGES.length - 1 && (
                       <ArrowRight size={13} className="text-slate-300" />
                     )}
                   </div>
@@ -968,38 +1015,41 @@ export default function Payroll() {
                 title="Generate employee payslip PDF"
               >
                 <Download size={13} className="text-emerald-600" />
-                <span>Generate Payslip (PDF)</span>
+                <span>Payslip (PDF)</span>
               </button>
 
-              {workflowStep !== "Paid" ? (
+              {inProgressIds.length > 0 && (
                 <button
                   type="button"
-                  onClick={handleAdvanceStage}
-                  className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-[12px] font-semibold transition cursor-pointer shadow-xs flex items-center gap-1"
+                  disabled={isBusy}
+                  onClick={() => openBulk("approve", inProgressIds)}
+                  className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-[12px] font-semibold transition cursor-pointer shadow-xs flex items-center gap-1 disabled:opacity-60"
                 >
-                  <span>Advance Stage</span>
+                  <span>Approve all ({inProgressIds.length})</span>
                   <ChevronRight size={14} />
                 </button>
-              ) : (
-                <div className="flex items-center gap-1.5">
-                  <button
-                    type="button"
-                    onClick={handleBatchDownloadSlips}
-                    className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-[12px] font-semibold transition cursor-pointer shadow-xs flex items-center gap-1"
-                    title="Download payslips for all staff"
-                  >
-                    <Download size={13} />
-                    <span>Download All Slips</span>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => handleStageClick("In Progress")}
-                    className="px-2.5 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-xl text-[12px] font-medium transition cursor-pointer"
-                    title="Reopen cycle for adjustments"
-                  >
-                    Reopen Cycle
-                  </button>
-                </div>
+              )}
+              {approvedIds.length > 0 && (
+                <button
+                  type="button"
+                  disabled={isBusy}
+                  onClick={() => openBulk("pay", approvedIds)}
+                  className="px-3 py-1.5 bg-navy hover:bg-navy/90 text-white rounded-xl text-[12px] font-semibold transition cursor-pointer shadow-xs flex items-center gap-1 disabled:opacity-60"
+                >
+                  <CreditCard size={13} />
+                  <span>Mark all paid ({approvedIds.length})</span>
+                </button>
+              )}
+              {workflowStep === "Paid" && (
+                <button
+                  type="button"
+                  onClick={handleBatchDownloadSlips}
+                  className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-[12px] font-semibold transition cursor-pointer shadow-xs flex items-center gap-1"
+                  title="Download payslips for all staff"
+                >
+                  <Download size={13} />
+                  <span>Download All Slips</span>
+                </button>
               )}
             </div>
           </div>
@@ -1024,17 +1074,24 @@ export default function Payroll() {
               </div>
 
               <div className="divide-y divide-bdr/40">
+                {structures.length === 0 && (
+                  <div className="py-6 text-center text-[12.5px] text-muted">No salary structures set up yet.</div>
+                )}
                 {structures.map((item) => (
                   <div key={item.id} className="py-2.5 flex items-center justify-between text-[13px]">
                     <div>
                       <div className="font-semibold text-slate-900">{item.name}</div>
-                      <div className="text-[11px] text-muted">{item.department}</div>
+                      <div className="text-[11px] text-muted">{item.department || item.code || ""}</div>
                     </div>
                     <div className="text-right">
-                      <div className="font-semibold text-slate-800">{item.baseMin} - {item.baseMax}</div>
-                      <span className="text-[10.5px] font-medium text-emerald-700 bg-emerald-50 px-1.5 py-0.2 rounded">
-                        {item.employees} staff active
-                      </span>
+                      {(item.baseMin || item.baseMax) && (
+                        <div className="font-semibold text-slate-800">{item.baseMin} - {item.baseMax}</div>
+                      )}
+                      {item.employees != null && (
+                        <span className="text-[10.5px] font-medium text-emerald-700 bg-emerald-50 px-1.5 py-0.2 rounded">
+                          {item.employees} staff active
+                        </span>
+                      )}
                     </div>
                   </div>
                 ))}
@@ -1045,7 +1102,7 @@ export default function Payroll() {
             <div className="lg:col-span-6 bg-white border border-bdr rounded-2xl p-5 shadow-xs">
               <div className="flex items-center justify-between pb-3 border-b border-bdr/60 mb-3">
                 <div>
-                  <h3 className="font-bold text-[15px] text-slate-900">Department Remaining Payable Share</h3>
+                  <h3 className="font-bold text-[15px] text-slate-900">Department Net Payable Share</h3>
                   <p className="text-[12px] text-muted">Net payout allocation per department</p>
                 </div>
                 <button
@@ -1089,17 +1146,18 @@ export default function Payroll() {
       {/* =========================================================================
           TAB 2: DEPARTMENT-WISE PAYROLL
          ========================================================================= */}
-      {activeTab === "department" && (
+      {activeTab === "department" && !hasRows && emptyState}
+      {activeTab === "department" && hasRows && (
         <div className="flex flex-col gap-4">
           <div className="bg-white border border-bdr rounded-2xl p-4 shadow-xs flex flex-wrap justify-between items-center gap-3">
             <div>
               <h3 className="font-bold text-[15px] text-slate-900">Department Allocations &amp; Formulas</h3>
               <p className="text-[12px] text-muted">
-                Calculated via: Remaining Payable = Earned Salary + Earnings - Deductions - Advance
+                Net Payable = Earned Salary (after attendance deduction) + Earnings − Deductions − Advance
               </p>
             </div>
             <span className="text-[12px] text-muted font-medium">
-              {departmentPayrolls.length} active departments
+              {departmentPayrolls.length} departments · {monthLabel}
             </span>
           </div>
 
@@ -1115,12 +1173,16 @@ export default function Payroll() {
                       <h4 className="font-bold text-[15px] text-slate-900">{dept.name}</h4>
                       <div className="text-[11.5px] text-muted flex items-center gap-1.5 mt-0.5">
                         <span>{dept.headcount} staff</span>
-                        <span>•</span>
-                        <span>{getDepartmentDays(departmentWorkingDays, dept.name)}d @ {getDepartmentHours(departmentWorkingHours, dept.name)}h/d</span>
+                        {dept.workingDays != null && (
+                          <>
+                            <span>•</span>
+                            <span>{fmtDays(dept.workingDays)} working days</span>
+                          </>
+                        )}
                       </div>
                     </div>
                     <Badge tone={dept.allPaid ? "success" : "warning"}>
-                      {dept.allPaid ? "Disbursed" : `${dept.paidCount}/${dept.headcount} Paid`}
+                      {dept.allPaid ? "Paid" : `${dept.paidCount}/${dept.headcount} Paid`}
                     </Badge>
                   </div>
 
@@ -1129,6 +1191,10 @@ export default function Payroll() {
                     <div className="flex justify-between">
                       <span className="text-muted">Standard Salary:</span>
                       <span className="font-medium text-slate-700">{formatINR(dept.totalStandard)}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-muted">Attendance Deduction:</span>
+                      <span className="font-medium text-rose-700">-{formatINR(dept.totalAttendanceDeduction)}</span>
                     </div>
                     <div className="flex justify-between">
                       <span className="text-muted">Earned Salary:</span>
@@ -1148,7 +1214,7 @@ export default function Payroll() {
                     </div>
 
                     <div className="pt-2 border-t border-bdr/60 flex justify-between font-bold text-[13px]">
-                      <span className="text-slate-900">Remaining Payable:</span>
+                      <span className="text-slate-900">Net Payable:</span>
                       <span className="text-emerald-700">{formatINR(dept.totalRemaining)}</span>
                     </div>
                   </div>
@@ -1162,7 +1228,7 @@ export default function Payroll() {
                     <div className="w-full h-1.5 bg-slate-100 rounded-full overflow-hidden">
                       <div
                         className="h-full bg-navy rounded-full transition-all duration-300"
-                        style={{ width: `${dept.earnedProgress}%` }}
+                        style={{ width: `${Math.min(100, dept.earnedProgress)}%` }}
                       />
                     </div>
                   </div>
@@ -1184,18 +1250,25 @@ export default function Payroll() {
                   >
                     View Staff ({dept.headcount})
                   </button>
-                  {!dept.allPaid && (
+                  {dept.inProgressIds.length > 0 ? (
                     <button
                       type="button"
-                      onClick={() => {
-                        disburseDepartment(dept.name);
-                        showToast(`Disbursed payroll for all ${dept.name} personnel`);
-                      }}
-                      className="px-3 py-1.5 bg-navy text-white hover:bg-navy/90 rounded-xl text-[12px] font-semibold transition cursor-pointer shadow-xs"
+                      disabled={isBusy}
+                      onClick={() => openBulk("approve", dept.inProgressIds, dept.name)}
+                      className="px-3 py-1.5 bg-emerald-600 text-white hover:bg-emerald-700 rounded-xl text-[12px] font-semibold transition cursor-pointer shadow-xs disabled:opacity-60"
                     >
-                      Disburse
+                      Approve ({dept.inProgressIds.length})
                     </button>
-                  )}
+                  ) : dept.approvedIds.length > 0 ? (
+                    <button
+                      type="button"
+                      disabled={isBusy}
+                      onClick={() => openBulk("pay", dept.approvedIds, dept.name)}
+                      className="px-3 py-1.5 bg-navy text-white hover:bg-navy/90 rounded-xl text-[12px] font-semibold transition cursor-pointer shadow-xs disabled:opacity-60"
+                    >
+                      Mark Paid ({dept.approvedIds.length})
+                    </button>
+                  ) : null}
                 </div>
               </div>
             ))}
@@ -1206,7 +1279,8 @@ export default function Payroll() {
       {/* =========================================================================
           TAB 3: EMPLOYEE-WISE PAYROLL
          ========================================================================= */}
-      {activeTab === "employee" && (
+      {activeTab === "employee" && !hasRows && emptyState}
+      {activeTab === "employee" && hasRows && (
         <div className="flex flex-col gap-4">
           {/* Filter Toolbar */}
           <div className="bg-white border border-bdr rounded-2xl p-4 shadow-xs flex flex-wrap items-center justify-between gap-3">
@@ -1228,13 +1302,9 @@ export default function Payroll() {
                 className="h-9.5 px-3 bg-off border border-bdr rounded-xl text-[12.5px] text-slate-700 focus:outline-none focus:border-navy cursor-pointer"
               >
                 <option value="All">All Departments</option>
-                <option value="Engineering">Engineering</option>
-                <option value="Design">Design</option>
-                <option value="Finance">Finance</option>
-                <option value="Marketing">Marketing</option>
-                <option value="Human Resources">Human Resources</option>
-                <option value="Executive">Executive</option>
-                <option value="Operations">Operations</option>
+                {departmentNames.map((d) => (
+                  <option key={d} value={d}>{d}</option>
+                ))}
               </select>
 
               <select
@@ -1243,10 +1313,9 @@ export default function Payroll() {
                 className="h-9.5 px-3 bg-off border border-bdr rounded-xl text-[12.5px] text-slate-700 focus:outline-none focus:border-navy cursor-pointer"
               >
                 <option value="All">All Statuses</option>
-                <option value="Paid">Paid</option>
-                <option value="Approved">Approved</option>
-                <option value="Ready for Review">Ready for Review</option>
                 <option value="In Progress">In Progress</option>
+                <option value="Approved">Approved</option>
+                <option value="Paid">Paid</option>
               </select>
             </div>
 
@@ -1255,20 +1324,19 @@ export default function Payroll() {
             </div>
           </div>
 
-          {/* Master Employee Table with Advanced Calculation Matrix */}
+          {/* Master Employee Table with server-computed figures */}
           <div className="bg-white border border-bdr rounded-2xl shadow-xs overflow-hidden">
             <div className="overflow-x-auto">
-              <table className="w-full min-w-[960px] lg:min-w-0 text-left text-[13px]">
+              <table className="w-full min-w-[1080px] text-left text-[13px]">
                 <thead className="bg-slate-50/75 border-b border-bdr text-[11px] uppercase tracking-wider text-muted font-bold">
                   <tr>
                     <th className="py-3.5 px-4">Employee</th>
                     <th className="py-3.5 px-3">Standard Salary</th>
-                    <th className="py-3.5 px-3">Daily &amp; Hourly Rate</th>
-                    <th className="py-3.5 px-3">Earned Salary (Attendance)</th>
-                    <th className="py-3.5 px-3">Earnings (+)</th>
-                    <th className="py-3.5 px-3">Deductions (-)</th>
-                    <th className="py-3.5 px-3">Advance (-)</th>
-                    <th className="py-3.5 px-3 font-bold text-slate-900">Remaining Payable</th>
+                    <th className="py-3.5 px-3">Attendance &amp; Leave</th>
+                    <th className="py-3.5 px-3">Per-day &amp; Deduction</th>
+                    <th className="py-3.5 px-3">Earned Salary</th>
+                    <th className="py-3.5 px-3">Adjustments</th>
+                    <th className="py-3.5 px-3 font-bold text-slate-900">Net Payable</th>
                     <th className="py-3.5 px-3">Status &amp; Payment</th>
                     <th className="py-3.5 px-4 text-right">Actions</th>
                   </tr>
@@ -1276,19 +1344,14 @@ export default function Payroll() {
                 <tbody className="divide-y divide-bdr/40">
                   {filteredEmployees.length === 0 ? (
                     <tr>
-                      <td colSpan={10} className="py-12 text-center text-muted">
+                      <td colSpan={9} className="py-12 text-center text-muted">
                         No employees found matching the filters.
                       </td>
                     </tr>
                   ) : (
                     filteredEmployees.map((p) => {
-                      const std = Number(p.standardSalary || 0);
-                      const tDays = Number(p.totalDays) || 24;
-                      const dHours = Number(p.dailyHours) || getDepartmentHours(departmentWorkingHours, p.department) || 8;
-                      const totHours = tDays * dHours;
-                      const dayRate = tDays > 0 ? Math.round(std / tDays) : 0;
-                      const hourRate = totHours > 0 ? Math.round(std / totHours) : 0;
-
+                      const rowBusy = busyRowId === p.id;
+                      const editable = p.status === "In Progress" || p.status === "Ready for Review" || !p.status;
                       return (
                       <tr key={p.id} className="hover:bg-slate-50/60 transition">
                         {/* Employee Details */}
@@ -1296,121 +1359,98 @@ export default function Payroll() {
                           <div className="flex items-center gap-3">
                             <Avatar name={p.name} size="sm" />
                             <div>
-                              <div className="font-semibold text-slate-900 flex items-center gap-1.5">
-                                <span>{p.name}</span>
-                                {p.leaveDays > 0 && (
-                                  <span className="text-[10px] font-medium px-1.5 py-0.2 bg-amber-50 text-amber-700 border border-amber-200 rounded-full">
-                                    {p.leaveDays}d leave
-                                  </span>
-                                )}
-                              </div>
+                              <div className="font-semibold text-slate-900">{p.name}</div>
                               <div className="text-[11px] text-muted">
-                                {p.role} • <span className="font-mono">{p.empId}</span> • {p.department}
+                                {p.role || "—"} • <span className="font-mono">{p.empId}</span> • {p.department || "—"}
                               </div>
                             </div>
                           </div>
                         </td>
 
-                        {/* Standard Salary (Agreed CTC) */}
+                        {/* Standard Salary */}
                         <td className="py-3.5 px-3 font-medium text-slate-800">
                           <div className="font-bold text-slate-900">{formatINR(p.standardSalary)}</div>
-                          <div className="text-[10.5px] text-muted">Agreed base</div>
+                          <div className="text-[10.5px] text-muted">{fmtDays(p.totalDays)} working days</div>
                         </td>
 
-                        {/* Daily & Hourly Rate (Computed on Employee Standard CTC) */}
+                        {/* Attendance & Leave */}
+                        <td className="py-3.5 px-3 text-[11.5px]">
+                          <div className="font-semibold text-slate-900 text-[12.5px]">
+                            {fmtDays(p.attendedDays)}<span className="text-muted font-normal"> attended</span>
+                          </div>
+                          <div className="flex flex-wrap gap-1 mt-1">
+                            {p.paidLeaves > 0 && (
+                              <span className="px-1.5 py-0.5 rounded bg-emerald-50 text-emerald-700 border border-emerald-200 font-medium">
+                                {fmtDays(p.paidLeaves)} paid leave
+                              </span>
+                            )}
+                            {p.unpaidLeaves > 0 && (
+                              <span className="px-1.5 py-0.5 rounded bg-amber-50 text-amber-800 border border-amber-200 font-medium">
+                                {fmtDays(p.unpaidLeaves)} LOP
+                              </span>
+                            )}
+                            {p.absentDays > 0 ? (
+                              <span className="px-1.5 py-0.5 rounded bg-rose-50 text-rose-700 border border-rose-200 font-medium">
+                                {fmtDays(p.absentDays)} deducted
+                              </span>
+                            ) : (
+                              <span className="text-emerald-600 font-medium">Full pay</span>
+                            )}
+                          </div>
+                        </td>
+
+                        {/* Per-day & Deduction */}
                         <td className="py-3.5 px-3">
                           <div className="font-semibold text-slate-900 text-[12.5px]">
-                            {formatINR(dayRate)}<span className="text-slate-500 font-normal text-[11px]">/day</span>
+                            {formatINR(p.perDaySalary)}<span className="text-slate-500 font-normal text-[11px]">/day</span>
                           </div>
-                          <div className="text-[11px] text-slate-600 font-medium mt-0.5">
-                            {formatINR(hourRate)}<span className="text-slate-500 font-normal text-[10.5px]">/hr</span>
-                            <span className="text-muted font-normal text-[10px] ml-1">({tDays}d × {dHours}h)</span>
-                          </div>
-                          <div className="text-[10px] text-muted mt-0.5">
-                            1 absent day = -{formatINR(dayRate)} LOP
-                          </div>
+                          {p.attendanceDeduction > 0 ? (
+                            <div className="text-[11px] text-rose-700 font-medium mt-0.5">
+                              -{formatINR(p.attendanceDeduction)} ({fmtDays(p.absentDays)}d)
+                            </div>
+                          ) : (
+                            <div className="text-[11px] text-muted mt-0.5">No deduction</div>
+                          )}
                         </td>
 
-                        {/* Earned Salary (Pro-rated Attendance) */}
+                        {/* Earned Salary */}
                         <td className="py-3.5 px-3">
                           <div className="font-semibold text-blue-900">{formatINR(p.earnedSalary)}</div>
                           <div className="text-[11px] text-slate-600 font-medium mt-0.5">
-                            {p.payableDays}/{p.totalDays} working days
+                            {fmtDays(p.payableDays)}/{fmtDays(p.totalDays)} paid days
                           </div>
-                          {p.absentDays > 0 ? (
-                            <div className="text-[10px] text-rose-700 font-medium bg-rose-50 border border-rose-200/80 rounded px-1.5 py-0.5 mt-0.5 inline-block">
-                              -{formatINR(p.attendanceDeduction)} ({p.absentDays}d absent removed)
-                            </div>
-                          ) : (
-                            <div className="text-[10px] text-emerald-600 font-medium mt-0.5">
-                              100% Present
-                            </div>
-                          )}
                         </td>
 
-                        {/* Earnings (+) */}
-                        <td className="py-3.5 px-3 text-emerald-700 font-medium">
-                          {p.additionalEarnings > 0 ? `+${formatINR(p.additionalEarnings)}` : "₹0"}
+                        {/* Adjustments */}
+                        <td className="py-3.5 px-3 text-[11.5px] leading-tight">
+                          <div className="text-emerald-700 font-medium">+{formatINR(p.additionalEarnings)} earnings</div>
+                          <div className="text-rose-700 font-medium mt-0.5">-{formatINR(p.deductions)} deductions</div>
+                          <div className="text-amber-800 font-medium mt-0.5">-{formatINR(p.advance)} advance</div>
                         </td>
 
-                        {/* Deductions (-) */}
-                        <td className="py-3.5 px-3 text-rose-700 font-medium">
-                          -{formatINR(p.deductions)}
-                        </td>
-
-                        {/* Advance (-) */}
-                        <td className="py-3.5 px-3">
-                          {p.advance > 0 ? (
-                            <div>
-                              <span className="text-amber-800 font-bold bg-amber-50 px-2 py-0.5 rounded-lg border border-amber-200 inline-block">
-                                -{formatINR(p.advance)}
-                              </span>
-                              <span className="text-[10px] text-amber-700 block mt-0.5">
-                                Advance Deducted
-                              </span>
-                            </div>
-                          ) : (
-                            <span className="text-slate-400">₹0</span>
-                          )}
-                        </td>
-
-                        {/* Remaining Payable Salary */}
+                        {/* Net Payable */}
                         <td className="py-3.5 px-3 font-bold text-slate-900">
                           <span className="text-emerald-700 text-[14px] block">
                             {formatINR(p.remainingPayable)}
                           </span>
-                          <span className="text-[10px] text-muted font-normal block leading-tight">
-                            Std {formatINR(p.standardSalary)} {p.attendanceDeduction > 0 ? `- LOP ${formatINR(p.attendanceDeduction)}` : ""} {p.advance > 0 ? `- Adv ${formatINR(p.advance)}` : ""}
-                          </span>
                         </td>
 
-                        {/* Payroll Status & Month-End Info */}
+                        {/* Payroll Status & Payment Info */}
                         <td className="py-3.5 px-3">
                           <div className="flex flex-col gap-0.5">
-                            <Badge
-                              tone={
-                                p.status === "Paid"
-                                  ? "success"
-                                  : p.status === "Approved"
-                                  ? "info"
-                                  : p.status === "Ready for Review"
-                                  ? "warning"
-                                  : "neutral"
-                              }
-                            >
-                              {p.status}
-                            </Badge>
+                            <Badge tone={statusTone(p.status)}>{p.status || "In Progress"}</Badge>
 
-                            {/* Month-End Flow: Show Paid Amount & Date when Paid */}
                             {p.status === "Paid" && (
                               <div className="text-[10.5px] text-slate-600 mt-1 leading-tight">
                                 <span className="font-semibold text-emerald-700">
-                                  Paid: {formatINR(p.paidAmount || p.remainingPayable)}
+                                  Paid: {formatINR(p.paidAmount ?? p.remainingPayable)}
                                 </span>
-                                <div className="text-muted text-[10px] flex items-center gap-1 mt-0.5">
-                                  <Calendar size={10} />
-                                  <span>{p.paymentDate || "Oct 31, 2024"}</span>
-                                </div>
+                                {p.paymentDate && (
+                                  <div className="text-muted text-[10px] flex items-center gap-1 mt-0.5">
+                                    <Calendar size={10} />
+                                    <span>{fmtDate(p.paymentDate)}</span>
+                                  </div>
+                                )}
                               </div>
                             )}
                           </div>
@@ -1423,7 +1463,7 @@ export default function Payroll() {
                               type="button"
                               onClick={() => openEditModal(p)}
                               className="p-1.5 hover:bg-slate-100 rounded-lg text-slate-500 hover:text-navy transition cursor-pointer"
-                              title="Adjust Advance / Earnings"
+                              title={editable ? "Adjust earnings / deductions / advance" : "View attendance & adjustments"}
                             >
                               <Edit3 size={14} />
                             </button>
@@ -1446,16 +1486,24 @@ export default function Payroll() {
                             >
                               <Download size={15} />
                             </button>
-                            {p.status !== "Paid" && (
+                            {editable && (
                               <button
                                 type="button"
-                                onClick={() => {
-                                  markEmployeePaid(p.id, p.remainingPayable);
-                                  showToast(`Disbursed & marked ${p.name} as Paid`);
-                                }}
-                                className="px-2.5 py-1 bg-emerald-50 text-emerald-700 border border-emerald-200 hover:bg-emerald-100 rounded-lg text-[11px] font-semibold transition cursor-pointer ml-1"
+                                disabled={rowBusy || isBusy}
+                                onClick={() => handleApproveRow(p)}
+                                className="px-2.5 py-1 bg-emerald-50 text-emerald-700 border border-emerald-200 hover:bg-emerald-100 rounded-lg text-[11px] font-semibold transition cursor-pointer ml-1 disabled:opacity-60"
                               >
-                                Pay
+                                {rowBusy ? <Loader2 size={12} className="animate-spin" /> : "Approve"}
+                              </button>
+                            )}
+                            {p.status === "Approved" && (
+                              <button
+                                type="button"
+                                disabled={rowBusy || isBusy}
+                                onClick={() => handlePayRow(p)}
+                                className="px-2.5 py-1 bg-navy/5 text-navy border border-navy/20 hover:bg-navy/10 rounded-lg text-[11px] font-semibold transition cursor-pointer ml-1 disabled:opacity-60"
+                              >
+                                {rowBusy ? <Loader2 size={12} className="animate-spin" /> : "Mark Paid"}
                               </button>
                             )}
                           </div>
@@ -1472,40 +1520,47 @@ export default function Payroll() {
       )}
 
       {/* =========================================================================
-          TAB 4: OWN SALARY (PERSONAL PORTAL & EXACT FORMULA BREAKDOWN)
+          TAB 4: MY SALARY (PERSONAL PAYSLIPS & FORMULA BREAKDOWN)
          ========================================================================= */}
-      {activeTab === "own" && (
+      {activeTab === "own" && !ownRecord && (
+        <div className="bg-white border border-dashed border-bdr rounded-2xl p-8 shadow-xs flex flex-col items-center text-center gap-2">
+          <div className="w-12 h-12 rounded-2xl bg-navy/5 text-navy flex items-center justify-center">
+            <CreditCard size={22} />
+          </div>
+          <h3 className="font-bold text-[15px] text-slate-900">
+            {ownEmployeeId ? "No payslips yet" : "No employee record linked"}
+          </h3>
+          <p className="text-[12.5px] text-muted max-w-md">
+            {ownEmployeeId
+              ? "Your payslips appear here once payroll has been generated for a month."
+              : "Your login is not linked to an employee record, so there are no personal payslips to show."}
+          </p>
+        </div>
+      )}
+      {activeTab === "own" && ownRecord && (
         <div className="flex flex-col gap-5">
           {/* Minimal Clean Hero Card */}
           <div className="bg-white border border-bdr rounded-2xl p-5 shadow-xs flex flex-col md:flex-row md:items-center justify-between gap-5">
             <div className="flex items-center gap-4">
               <div className="w-14 h-14 rounded-2xl bg-navy/5 text-navy border border-navy/15 flex items-center justify-center font-bold text-[18px]">
-                {currentUser?.initials || "AG"}
+                {currentUser?.initials || String(ownRecord.name || "?").slice(0, 2).toUpperCase()}
               </div>
               <div>
                 <div className="flex items-center gap-2">
                   <h2 className="text-[18px] font-bold text-slate-900 leading-tight">
                     {ownRecord.name}
                   </h2>
-                  <Badge
-                    tone={
-                      ownRecord.status === "Paid"
-                        ? "success"
-                        : ownRecord.status === "Approved"
-                        ? "info"
-                        : "warning"
-                    }
-                  >
-                    {ownRecord.status}
-                  </Badge>
+                  <Badge tone={statusTone(ownRecord.status)}>{ownRecord.status}</Badge>
                 </div>
                 <p className="text-[12.5px] text-muted mt-0.5">
-                  {ownRecord.role} • {ownRecord.department} • <span className="text-slate-700 font-mono">{ownRecord.empId}</span>
+                  {ownRecord.role || "—"} • {ownRecord.department || "—"} • <span className="text-slate-700 font-mono">{ownRecord.empId}</span>
                 </p>
                 <div className="text-[11.5px] text-muted mt-1.5">
-                  Direct deposit: <b className="text-slate-800">{ownRecord.bank}</b>
-                  {ownRecord.status === "Paid" && (
-                    <span> • Disbursed on <b className="text-emerald-700">{ownRecord.paymentDate || "Oct 31, 2024"}</b></span>
+                  {ownRecord.bank && (
+                    <>Direct deposit: <b className="text-slate-800">{ownRecord.bank}</b></>
+                  )}
+                  {ownRecord.status === "Paid" && ownRecord.paymentDate && (
+                    <span>{ownRecord.bank ? " • " : ""}Paid on <b className="text-emerald-700">{fmtDate(ownRecord.paymentDate)}</b></span>
                   )}
                 </div>
               </div>
@@ -1514,23 +1569,18 @@ export default function Payroll() {
             <div className="flex items-center justify-between md:justify-end gap-5 pt-3 md:pt-0 border-t md:border-t-0 border-bdr/60">
               <div className="text-left md:text-right">
                 <span className="text-[11px] text-muted uppercase tracking-wider block font-medium">
-                  {ownRecord.status === "Paid" ? "Net Paid Amount" : "Remaining Net Payable"}
+                  {ownRecord.status === "Paid" ? "Net Paid Amount" : "Net Payable"} · {slipMonth(ownRecord)}
                 </span>
                 <span className="text-[26px] font-extrabold text-emerald-950 leading-none">
-                  {formatINR(ownRecord.status === "Paid" ? (ownRecord.paidAmount || ownRecord.remainingPayable) : ownRecord.remainingPayable)}
+                  {formatINR(ownRecord.status === "Paid" ? (ownRecord.paidAmount ?? ownRecord.remainingPayable) : ownRecord.remainingPayable)}
                 </span>
-                {ownRecord.status === "Paid" && (
-                  <span className="block text-[11px] text-emerald-700 font-semibold mt-1">
-                    Disbursed on {ownRecord.paymentDate || "Oct 31, 2024"}
-                  </span>
-                )}
               </div>
 
               <button
                 type="button"
                 onClick={() => {
                   downloadPayslipPdf(ownRecord);
-                  showToast(`Downloading ${ownRecord.month} Payslip (PDF)`);
+                  showToast(`Downloading ${slipMonth(ownRecord)} Payslip (PDF)`);
                 }}
                 className="inline-flex items-center gap-1.5 px-4 py-2.5 bg-navy text-white rounded-xl text-[13px] font-medium shadow-xs hover:bg-navy/90 transition cursor-pointer shrink-0"
               >
@@ -1540,43 +1590,20 @@ export default function Payroll() {
             </div>
           </div>
 
-          {/* Perspective Switcher */}
-          <div className="bg-white border border-bdr rounded-2xl p-3.5 shadow-xs flex flex-wrap items-center justify-between gap-3 text-[12.5px]">
-            <div className="flex items-center gap-2 text-slate-600">
-              <span>View As Colleague:</span>
-              <select
-                value={activeOwnUser}
-                onChange={(e) => setActiveOwnUser(e.target.value)}
-                className="h-8 px-2.5 bg-off border border-bdr rounded-lg font-medium text-slate-900 focus:outline-none focus:border-navy cursor-pointer"
-              >
-                <option value={currentUser?.name}>{currentUser?.name} (You)</option>
-                {payrollEmployees
-                  .filter((p) => p.name !== currentUser?.name)
-                  .map((p) => (
-                    <option key={p.id} value={p.name}>
-                      {p.name} ({p.department})
-                    </option>
-                  ))}
-              </select>
-            </div>
-
-            <span className="text-muted text-[12px]">
-              Cycle: <b className="text-slate-800">{ownRecord.month}</b>
-            </span>
-          </div>
-
-          {/* Quick Metrics Strip: Standard vs Earned vs Deductions vs Advance */}
+          {/* Quick Metrics Strip */}
           <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
             <div className="bg-white border border-bdr rounded-xl p-3.5 shadow-xs">
               <span className="text-[11px] text-muted uppercase font-semibold block">Standard Salary</span>
               <span className="text-[17px] font-bold text-slate-900 block mt-1">{formatINR(ownRecord.standardSalary)}</span>
-              <span className="text-[10.5px] text-slate-500">Agreed baseline</span>
+              <span className="text-[10.5px] text-slate-500">{fmtDays(ownRecord.totalDays)} working days</span>
             </div>
 
             <div className="bg-white border border-bdr rounded-xl p-3.5 shadow-xs">
               <span className="text-[11px] text-blue-700 uppercase font-semibold block">Earned Salary</span>
               <span className="text-[17px] font-bold text-blue-950 block mt-1">{formatINR(ownRecord.earnedSalary)}</span>
-              <span className="text-[10.5px] text-blue-700">{ownRecord.payableDays}/{ownRecord.totalDays} days attended</span>
+              <span className="text-[10.5px] text-blue-700">
+                {fmtDays(ownRecord.attendedDays)} attended + {fmtDays(ownRecord.paidLeaves)} paid leave
+              </span>
             </div>
 
             <div className="bg-white border border-bdr rounded-xl p-3.5 shadow-xs">
@@ -1588,27 +1615,27 @@ export default function Payroll() {
             <div className="bg-white border border-bdr rounded-xl p-3.5 shadow-xs">
               <span className="text-[11px] text-rose-700 uppercase font-semibold block">Deductions</span>
               <span className="text-[17px] font-bold text-rose-800 block mt-1">-{formatINR(ownRecord.deductions)}</span>
-              <span className="text-[10.5px] text-muted">PF &amp; taxes</span>
+              <span className="text-[10.5px] text-muted">Statutory &amp; other</span>
             </div>
 
             <div className="bg-white border border-bdr rounded-xl p-3.5 shadow-xs">
-              <span className="text-[11px] text-amber-800 uppercase font-semibold block">Advance Taken</span>
+              <span className="text-[11px] text-amber-800 uppercase font-semibold block">Advance Recovered</span>
               <span className="text-[17px] font-bold text-amber-900 block mt-1">-{formatINR(ownRecord.advance)}</span>
-              <span className="text-[10.5px] text-muted">Mid-month advance</span>
+              <span className="text-[10.5px] text-muted">Salary advance</span>
             </div>
 
             <div className="bg-emerald-50/50 border border-emerald-200 rounded-xl p-3.5 shadow-xs">
-              <span className="text-[11px] text-emerald-800 uppercase font-bold block">Remaining Payable</span>
+              <span className="text-[11px] text-emerald-800 uppercase font-bold block">Net Payable</span>
               <span className="text-[17px] font-extrabold text-emerald-950 block mt-1">{formatINR(ownRecord.remainingPayable)}</span>
               <span className="text-[10.5px] text-emerald-700 font-medium">
-                {ownRecord.status === "Paid" ? "Disbursed" : "Payable"}
+                {ownRecord.status === "Paid" ? "Paid" : ownRecord.status}
               </span>
             </div>
           </div>
 
           {/* Salary Progress Indicator */}
           <div className="bg-white border border-bdr rounded-2xl p-4.5 shadow-xs">
-            <div className="flex justify-between items-center text-[12.5px] mb-2">
+            <div className="flex flex-wrap justify-between items-center gap-2 text-[12.5px] mb-2">
               <span className="font-semibold text-slate-800">
                 Salary Progress: Earned vs Standard
               </span>
@@ -1622,47 +1649,8 @@ export default function Payroll() {
                 style={{ width: `${ownRecord.earnedProgress}%` }}
               />
             </div>
-            <div className="flex justify-between items-center text-[11px] text-muted mt-2">
-              <span>Formula: Remaining Payable = Earned Salary + Earnings - Deductions - Advance</span>
-              <span className="font-medium text-emerald-700">Net Payable: {formatINR(ownRecord.remainingPayable)}</span>
-            </div>
+            <div className="text-[11px] text-muted mt-2">{attendanceLine(ownRecord)}</div>
           </div>
-
-          {/* Month-End Payout Card (When status is Paid) */}
-          {ownRecord.status === "Paid" && (
-            <div className="bg-emerald-50/40 border border-emerald-200 rounded-2xl p-4 shadow-xs flex flex-wrap items-center justify-between gap-3">
-              <div className="flex items-center gap-3">
-                <CheckCircle2 size={24} className="text-emerald-600 shrink-0" />
-                <div>
-                  <div className="text-[14px] font-bold text-emerald-950">
-                    Month-End Salary Disbursal Confirmed
-                  </div>
-                  <div className="text-[12px] text-emerald-800 mt-0.5">
-                    Your monthly salary has been successfully settled and transferred to your registered bank account.
-                  </div>
-                </div>
-              </div>
-
-              <div className="flex flex-wrap lg:flex-nowrap items-center gap-x-6 gap-y-2 text-[12.5px]">
-                <div>
-                  <span className="text-muted block text-[11px]">Paid Amount</span>
-                  <span className="font-extrabold text-emerald-950 text-[15px]">
-                    {formatINR(ownRecord.paidAmount || ownRecord.remainingPayable)}
-                  </span>
-                </div>
-                <div>
-                  <span className="text-muted block text-[11px]">Payment Date</span>
-                  <span className="font-semibold text-slate-800">
-                    {ownRecord.paymentDate || "Oct 31, 2024"}
-                  </span>
-                </div>
-                <div>
-                  <span className="text-muted block text-[11px]">Payment Status</span>
-                  <span className="font-bold text-emerald-700">Paid</span>
-                </div>
-              </div>
-            </div>
-          )}
 
           {/* Detailed Earnings vs Deductions Breakdown */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
@@ -1681,10 +1669,18 @@ export default function Payroll() {
                   </div>
                   <div className="flex justify-between py-1 border-b border-slate-50">
                     <span className="text-slate-500">
-                      Earned Salary ({ownRecord.payableDays}/{ownRecord.totalDays} Days)
+                      Earned Salary ({fmtDays(ownRecord.payableDays)}/{fmtDays(ownRecord.totalDays)} Days)
                     </span>
                     <span className="font-semibold text-blue-900">{formatINR(ownRecord.earnedSalary)}</span>
                   </div>
+                  {(ownRecord.components || [])
+                    .filter((c) => String(c.kind || "").toLowerCase() === "earning")
+                    .map((c, i) => (
+                      <div key={`e-${i}`} className="flex justify-between py-1 border-b border-slate-50">
+                        <span className="text-slate-500">{c.name}</span>
+                        <span className="font-medium text-slate-900">{formatINR(c.amount)}</span>
+                      </div>
+                    ))}
                   <div className="flex justify-between py-1 border-b border-slate-50">
                     <span className="text-slate-500">Overtime &amp; Incentives</span>
                     <span className="font-semibold text-emerald-700">+{formatINR(ownRecord.additionalEarnings)}</span>
@@ -1712,28 +1708,19 @@ export default function Payroll() {
                   {ownRecord.attendanceDeduction > 0 && (
                     <div className="flex justify-between py-1 border-b border-slate-50 bg-rose-50/50 px-2 rounded-lg">
                       <span className="text-rose-800 font-medium">
-                        Attendance LOP ({ownRecord.absentDays}d absent removed)
+                        Attendance deduction ({fmtDays(ownRecord.absentDays)}d, incl. {fmtDays(ownRecord.unpaidLeaves)}d LOP)
                       </span>
                       <span className="font-bold text-rose-700">-{formatINR(ownRecord.attendanceDeduction)}</span>
                     </div>
                   )}
                   <div className="flex justify-between py-1 border-b border-slate-50">
-                    <span className="text-slate-500">Provident Fund (PF) &amp; Insurance</span>
-                    <span className="font-medium text-slate-900">-{formatINR(Math.round(ownRecord.deductions * 0.6))}</span>
-                  </div>
-                  <div className="flex justify-between py-1 border-b border-slate-50">
-                    <span className="text-slate-500">TDS &amp; Statutory Deductions</span>
-                    <span className="font-medium text-rose-700">-{formatINR(Math.round(ownRecord.deductions * 0.4))}</span>
+                    <span className="text-slate-500">Deductions</span>
+                    <span className="font-medium text-rose-700">-{formatINR(ownRecord.deductions)}</span>
                   </div>
                   <div className="flex justify-between py-1 border-b border-slate-50 bg-amber-50/50 px-2 rounded-lg">
                     <span className="text-amber-800 font-medium">Salary Advance Recovered</span>
                     <span className="font-bold text-amber-900">-{formatINR(ownRecord.advance)}</span>
                   </div>
-                  {ownRecord.leaveDays > 0 && (
-                    <div className="text-[11.5px] text-muted px-1">
-                      * Includes leave adjustments for {ownRecord.leaveDays} approved leaves.
-                    </div>
-                  )}
                 </div>
               </div>
 
@@ -1746,58 +1733,48 @@ export default function Payroll() {
             </div>
           </div>
 
-          {/* Past Months Payslips History Table */}
+          {/* Payslip History Table */}
           <div className="bg-white border border-bdr rounded-2xl shadow-xs overflow-hidden">
             <div className="p-4 pb-2 border-b border-bdr/60 flex flex-wrap lg:flex-nowrap justify-between items-center gap-2 lg:gap-0">
               <div>
                 <h3 className="font-bold text-[15px] text-slate-900">Payslip Archive &amp; History</h3>
-                <p className="text-[12px] text-muted">6-month salary records with PDF download</p>
+                <p className="text-[12px] text-muted">{ownHistory.length} payslip(s) with PDF download</p>
               </div>
             </div>
 
             <div className="overflow-x-auto">
-              <table className="w-full min-w-[800px] lg:min-w-0 text-left text-[13px]">
+              <table className="w-full min-w-[860px] lg:min-w-0 text-left text-[13px]">
                 <thead className="bg-slate-50/75 border-b border-bdr text-[11px] uppercase tracking-wider text-muted font-bold">
                   <tr>
-                    <th className="py-3.5 px-5">Month Period</th>
-                    <th className="py-3.5 px-5">Slip Ref</th>
+                    <th className="py-3.5 px-5">Month</th>
+                    <th className="py-3.5 px-5">Status</th>
                     <th className="py-3.5 px-5">Standard</th>
+                    <th className="py-3.5 px-5">Attendance</th>
                     <th className="py-3.5 px-5">Earned</th>
                     <th className="py-3.5 px-5">Advance</th>
-                    <th className="py-3.5 px-5 font-bold">Remaining Payable</th>
+                    <th className="py-3.5 px-5 font-bold">Net Payable</th>
                     <th className="py-3.5 px-5">Payment Date</th>
                     <th className="py-3.5 px-5 text-right">Actions</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-bdr/40">
-                  {ownSalaryHistory.map((h, i) => (
-                    <tr key={h.slipNo || i} className="hover:bg-slate-50/60 transition">
-                      <td className="py-3 px-5 font-medium text-slate-900">{h.month}</td>
-                      <td className="py-3 px-5 font-mono text-[12px] text-slate-500">{h.slipNo}</td>
+                  {ownHistory.map((h) => (
+                    <tr key={h.id} className="hover:bg-slate-50/60 transition">
+                      <td className="py-3 px-5 font-medium text-slate-900">{slipMonth(h)}</td>
+                      <td className="py-3 px-5"><Badge tone={statusTone(h.status)}>{h.status}</Badge></td>
                       <td className="py-3 px-5 text-slate-700">{formatINR(h.standardSalary)}</td>
+                      <td className="py-3 px-5 text-slate-600 text-[12px]">
+                        {fmtDays(h.attendedDays)} + {fmtDays(h.paidLeaves)} leave / {fmtDays(h.totalDays)}
+                      </td>
                       <td className="py-3 px-5 text-blue-900 font-medium">{formatINR(h.earnedSalary)}</td>
                       <td className="py-3 px-5 text-amber-800">-{formatINR(h.advance)}</td>
-                      <td className="py-3 px-5 font-bold text-emerald-700">{h.netPay}</td>
-                      <td className="py-3 px-5 text-slate-600">{h.payDate}</td>
+                      <td className="py-3 px-5 font-bold text-emerald-700">{formatINR(h.remainingPayable)}</td>
+                      <td className="py-3 px-5 text-slate-600">{fmtDate(h.paymentDate) || "—"}</td>
                       <td className="py-3 px-5 text-right">
                         <div className="flex items-center justify-end gap-1.5">
                           <button
                             type="button"
-                            onClick={() => {
-                              setSelectedPayslip({
-                                ...ownRecord,
-                                month: h.month,
-                                standardSalary: h.standardSalary,
-                                earnedSalary: h.earnedSalary,
-                                additionalEarnings: h.additionalEarnings,
-                                deductions: h.deductions,
-                                advance: h.advance,
-                                remainingPayable: h.remainingPayable,
-                                paidAmount: h.remainingPayable,
-                                paymentDate: h.payDate,
-                                status: "Paid",
-                              });
-                            }}
+                            onClick={() => setSelectedPayslip(h)}
                             className="p-1.5 hover:bg-slate-100 rounded-lg text-slate-500 hover:text-navy transition cursor-pointer"
                             title="View Slip"
                           >
@@ -1806,19 +1783,8 @@ export default function Payroll() {
                           <button
                             type="button"
                             onClick={() => {
-                              downloadPayslipPdf({
-                                ...ownRecord,
-                                month: h.month,
-                                standardSalary: h.standardSalary,
-                                earnedSalary: h.earnedSalary,
-                                additionalEarnings: h.additionalEarnings,
-                                deductions: h.deductions,
-                                advance: h.advance,
-                                status: "Paid",
-                                paymentDate: h.payDate,
-                                paidAmount: h.remainingPayable,
-                              });
-                              showToast(`Downloaded PDF Payslip for ${h.month}`);
+                              downloadPayslipPdf(h);
+                              showToast(`Downloaded PDF Payslip for ${slipMonth(h)}`);
                             }}
                             className="p-1.5 hover:bg-slate-100 rounded-lg text-slate-500 hover:text-emerald-700 transition cursor-pointer"
                             title="Download PDF"
@@ -1837,7 +1803,7 @@ export default function Payroll() {
       )}
 
       {/* =========================================================================
-          MODAL 1: PAYSLIP DETAIL MODAL (ADVANCED FORMULA BREAKDOWN)
+          MODAL 1: PAYSLIP DETAIL MODAL (FORMULA BREAKDOWN)
          ========================================================================= */}
       {selectedPayslip && (
         <div className="fixed inset-0 z-50 bg-slate-900/40 backdrop-blur-xs flex items-center justify-center p-2 sm:p-4">
@@ -1850,7 +1816,7 @@ export default function Payroll() {
                     {selectedPayslip.name}
                   </h3>
                   <p className="text-[12px] text-muted">
-                    {selectedPayslip.role} • {selectedPayslip.month || currentPeriod}
+                    {selectedPayslip.role || "—"} • {slipMonth(selectedPayslip)}
                   </p>
                 </div>
               </div>
@@ -1866,37 +1832,35 @@ export default function Payroll() {
             {/* Formula Calculation Matrix */}
             <div className="space-y-2 text-[13px]">
               <div className="flex justify-between py-1 border-b border-slate-100">
-                <span className="text-slate-500">Standard Salary (Agreed Base CTC)</span>
+                <span className="text-slate-500">Standard Salary</span>
                 <span className="font-semibold text-slate-800">
                   {formatINR(selectedPayslip.standardSalary)}
                 </span>
               </div>
-              <div className="flex justify-between py-1 border-b border-slate-100">
-                <span className="text-slate-500">Month Working Days &amp; Attendance</span>
-                <span className="font-semibold text-slate-700">
-                  {selectedPayslip.attendedDays !== undefined ? selectedPayslip.attendedDays : 20} Present / {selectedPayslip.totalDays || 24} Days ({selectedPayslip.absentDays || 0}d absent)
+              <div className="flex justify-between gap-3 py-1 border-b border-slate-100">
+                <span className="text-slate-500 shrink-0">Working Days &amp; Attendance</span>
+                <span className="font-semibold text-slate-700 text-right">
+                  {fmtDays(selectedPayslip.attendedDays)} attended + {fmtDays(selectedPayslip.paidLeaves)} paid leave / {fmtDays(selectedPayslip.totalDays)} days
                 </span>
               </div>
               <div className="flex justify-between py-1 border-b border-slate-100">
-                <span className="text-slate-500">Working Schedule &amp; Target Hours</span>
-                <span className="font-semibold text-slate-700">
-                  {selectedPayslip.dailyHours || 8}h/day • {selectedPayslip.totalHours || ((selectedPayslip.totalDays || 24) * (selectedPayslip.dailyHours || 8))}h target ({formatINR(selectedPayslip.hourlyRate || Math.round(selectedPayslip.standardSalary / ((selectedPayslip.totalDays || 24) * (selectedPayslip.dailyHours || 8))))}/hr)
-                </span>
+                <span className="text-slate-500">Loss of Pay (unpaid leave)</span>
+                <span className="font-medium text-slate-700">{fmtDays(selectedPayslip.unpaidLeaves)} day(s)</span>
               </div>
               <div className="flex justify-between py-1 border-b border-slate-100">
                 <span className="text-slate-500">Per-Day Salary Rate</span>
                 <span className="font-medium text-slate-700">
-                  {formatINR(selectedPayslip.perDaySalary || Math.round(selectedPayslip.standardSalary / (selectedPayslip.totalDays || 24)))} / day
+                  {formatINR(selectedPayslip.perDaySalary)} / day
                 </span>
               </div>
               <div className="flex justify-between py-1 border-b border-slate-100">
-                <span className="text-slate-500">Attendance LOP (Remaining Days Removed) (-)</span>
+                <span className="text-slate-500">Attendance Deduction ({fmtDays(selectedPayslip.absentDays)}d) (-)</span>
                 <span className="font-semibold text-rose-700">
                   -{formatINR(selectedPayslip.attendanceDeduction || 0)}
                 </span>
               </div>
               <div className="flex justify-between py-1 border-b border-slate-100">
-                <span className="text-slate-500">Earned Base Salary</span>
+                <span className="text-slate-500">Earned Salary</span>
                 <span className="font-semibold text-blue-900">
                   {formatINR(selectedPayslip.earnedSalary)}
                 </span>
@@ -1908,7 +1872,7 @@ export default function Payroll() {
                 </span>
               </div>
               <div className="flex justify-between py-1 border-b border-slate-100">
-                <span className="text-slate-500">Deductions [PF, TDS, Statutory] (-)</span>
+                <span className="text-slate-500">Deductions (-)</span>
                 <span className="font-medium text-rose-700">
                   -{formatINR(selectedPayslip.deductions)}
                 </span>
@@ -1920,20 +1884,20 @@ export default function Payroll() {
                 </span>
               </div>
 
-              {/* Formula Badge */}
+              {/* Attendance detail */}
               <div className="bg-slate-50 p-2.5 rounded-xl text-[11px] text-slate-600">
-                <b>Formula:</b> Remaining Payable = Standard CTC - Attendance LOP + Earnings - Deductions - Advance
+                <b>Attendance:</b> {attendanceLine(selectedPayslip)}
               </div>
 
-              {/* Net Remaining Payable */}
+              {/* Net Payable */}
               <div className="flex justify-between py-2.5 font-bold text-[15px] text-slate-900 bg-emerald-50/70 border border-emerald-200 rounded-xl px-3 mt-2">
-                <span>Net Remaining Payable</span>
+                <span>Net Payable</span>
                 <span className="text-emerald-800">
-                  {formatINR(selectedPayslip.remainingPayable)}
+                  {formatINR(selectedPayslip.remainingPayable ?? selectedPayslip.netPayable)}
                 </span>
               </div>
 
-              {/* Month-End Payment Info if Paid */}
+              {/* Payment Info if Paid */}
               {selectedPayslip.status === "Paid" && (
                 <div className="bg-slate-50 border border-slate-200 rounded-xl p-2.5 text-[12px] text-slate-700 space-y-1">
                   <div className="flex justify-between">
@@ -1943,15 +1907,15 @@ export default function Payroll() {
                   <div className="flex justify-between">
                     <span className="text-muted">Paid Amount:</span>
                     <span className="font-semibold text-slate-900">
-                      {formatINR(selectedPayslip.paidAmount || selectedPayslip.remainingPayable)}
+                      {formatINR(selectedPayslip.paidAmount ?? selectedPayslip.remainingPayable)}
                     </span>
                   </div>
-                  <div className="flex justify-between">
-                    <span className="text-muted">Payment Date:</span>
-                    <span className="font-medium text-slate-800">
-                      {selectedPayslip.paymentDate || "Oct 31, 2024"}
-                    </span>
-                  </div>
+                  {selectedPayslip.paymentDate && (
+                    <div className="flex justify-between">
+                      <span className="text-muted">Payment Date:</span>
+                      <span className="font-medium text-slate-800">{fmtDate(selectedPayslip.paymentDate)}</span>
+                    </div>
+                  )}
                 </div>
               )}
             </div>
@@ -1982,91 +1946,87 @@ export default function Payroll() {
       )}
 
       {/* =========================================================================
-          MODAL 2: RUN MONTH-END PAYROLL CONFIRMATION MODAL
+          MODAL 2: GENERATE PAYROLL FROM ATTENDANCE (CONFIRMATION)
          ========================================================================= */}
-      {showRunModal && (
+      {showGenerateModal && (
         <div className="fixed inset-0 z-50 bg-slate-900/40 backdrop-blur-xs flex items-center justify-center p-2 sm:p-4">
           <div className="bg-white rounded-2xl border border-bdr shadow-xl w-full max-w-md p-4 sm:p-6 flex flex-col gap-4 animate-in fade-in zoom-in-95 max-h-[95vh] overflow-y-auto">
             <div className="flex items-center justify-between border-b border-bdr/60 pb-3">
               <h3 className="font-bold text-[16px] text-slate-900">
-                Process Month-End Payroll — {currentPeriod}
+                {hasRows ? "Re-generate" : "Generate"} Payroll — {monthLabel}
               </h3>
               <button
                 type="button"
-                onClick={() => setShowRunModal(false)}
+                onClick={() => setShowGenerateModal(false)}
                 className="text-slate-400 hover:text-slate-600 cursor-pointer"
               >
                 <X size={18} />
               </button>
             </div>
 
-            {runSuccess ? (
-              <div className="py-6 text-center flex flex-col items-center gap-2">
-                <CheckCircle2 size={42} className="text-emerald-500" />
-                <h4 className="font-bold text-[16px] text-slate-800">Month-End Payroll Disbursed!</h4>
-                <p className="text-[13px] text-muted">
-                  All {overallStats.totalHeadcount} staff calculations finalized, marked Paid, and stamped with today's date.
-                </p>
+            <p className="text-[13.5px] text-slate-700 leading-relaxed">
+              This pulls <b>{monthLabel}</b>'s attendance and approved leave for every employee and
+              computes each payslip on the server:
+            </p>
+            <ul className="space-y-1.5 text-[12.5px] text-slate-700">
+              <li className="flex items-start gap-2">
+                <Check size={14} className="text-emerald-600 shrink-0 mt-0.5" />
+                <span>Attended days = Present + Late + WFH + ½ × Half Day</span>
+              </li>
+              <li className="flex items-start gap-2">
+                <Check size={14} className="text-emerald-600 shrink-0 mt-0.5" />
+                <span>Approved paid leave is paid; unmarked working days, Absent and Loss of Pay are deducted at the per-day rate</span>
+              </li>
+              <li className="flex items-start gap-2">
+                <Check size={14} className="text-emerald-600 shrink-0 mt-0.5" />
+                <span>Existing earnings / deductions / advance adjustments are kept</span>
+              </li>
+              <li className="flex items-start gap-2">
+                <AlertTriangle size={14} className="text-amber-600 shrink-0 mt-0.5" />
+                <span>Approved and Paid payslips are frozen and are not changed</span>
+              </li>
+            </ul>
+            {hasRows && (
+              <div className="bg-slate-50 border border-slate-200 rounded-xl p-3 text-[12.5px] text-slate-700 flex justify-between">
+                <span>Current payslips: {computedEmployeePayrolls.length}</span>
+                <span>{stageCounts["In Progress"]} will be refreshed</span>
               </div>
-            ) : (
-              <>
-                <p className="text-[13.5px] text-slate-700 leading-relaxed">
-                  Are you sure you want to finalize and disburse month-end payroll for{" "}
-                  <b>{overallStats.totalHeadcount} employees</b> for period {currentPeriod}?
-                </p>
-                <div className="bg-slate-50 border border-slate-200 rounded-xl p-3 text-[12.5px] text-slate-700 space-y-1.5">
-                  <div className="flex justify-between">
-                    <span>Total Standard Budget:</span>
-                    <b>{formatINR(overallStats.totalStandard)}</b>
-                  </div>
-                  <div className="flex justify-between">
-                    <span>Total Earned Salary:</span>
-                    <b className="text-blue-900">{formatINR(overallStats.totalEarned)}</b>
-                  </div>
-                  <div className="flex justify-between">
-                    <span>Additional Earnings:</span>
-                    <b className="text-emerald-700">+{formatINR(overallStats.totalEarnings)}</b>
-                  </div>
-                  <div className="flex justify-between">
-                    <span>Deductions:</span>
-                    <b className="text-rose-700">-{formatINR(overallStats.totalDeductions)}</b>
-                  </div>
-                  <div className="flex justify-between">
-                    <span>Advance Recovered:</span>
-                    <b className="text-amber-800">-{formatINR(overallStats.totalAdvance)}</b>
-                  </div>
-                  <div className="pt-1.5 border-t border-slate-200 flex justify-between font-bold text-[13px]">
-                    <span>Total Net Disbursal:</span>
-                    <span className="text-emerald-800">{formatINR(overallStats.totalRemaining)}</span>
-                  </div>
-                </div>
-
-                <div className="flex gap-2 mt-2">
-                  <button
-                    type="button"
-                    onClick={handleRunPayroll}
-                    className="flex-1 bg-navy hover:bg-navy/90 text-white rounded-xl py-2.5 font-semibold text-[13px] transition cursor-pointer shadow-xs"
-                  >
-                    Confirm &amp; Disburse
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setShowRunModal(false)}
-                    className="px-4 bg-off border border-bdr text-slate-700 hover:bg-slate-100 rounded-xl py-2.5 font-medium text-[13px] transition cursor-pointer"
-                  >
-                    Cancel
-                  </button>
-                </div>
-              </>
             )}
+
+            <div className="flex gap-2 mt-2">
+              <button
+                type="button"
+                disabled={generating}
+                onClick={handleGenerate}
+                className="flex-1 bg-navy hover:bg-navy/90 text-white rounded-xl py-2.5 font-semibold text-[13px] transition cursor-pointer shadow-xs flex items-center justify-center gap-1.5 disabled:opacity-60"
+              >
+                {generating && <Loader2 size={14} className="animate-spin" />}
+                {generating ? "Generating…" : "Generate from Attendance"}
+              </button>
+              <button
+                type="button"
+                onClick={() => setShowGenerateModal(false)}
+                className="px-4 bg-off border border-bdr text-slate-700 hover:bg-slate-100 rounded-xl py-2.5 font-medium text-[13px] transition cursor-pointer"
+              >
+                Cancel
+              </button>
+            </div>
           </div>
         </div>
       )}
 
       {/* =========================================================================
-          MODAL 3: QUICK ADJUST ADVANCE / EARNINGS MODAL
+          MODAL 3: ADJUST EARNINGS / DEDUCTIONS / ADVANCE
          ========================================================================= */}
-      {editingEmployee && (
+      {editingEmployee && (() => {
+        const editable =
+          editingEmployee.status === "In Progress" || editingEmployee.status === "Ready for Review" || !editingEmployee.status;
+        const previewNet =
+          (Number(editingEmployee.earnedSalary) || 0) +
+          (Number(editEarnings) || 0) -
+          (Number(editDeductions) || 0) -
+          (Number(editAdvance) || 0);
+        return (
         <div className="fixed inset-0 z-50 bg-slate-900/40 backdrop-blur-xs flex items-center justify-center p-2 sm:p-4">
           <form
             onSubmit={handleSaveParams}
@@ -2074,135 +2034,104 @@ export default function Payroll() {
           >
             <div className="flex items-center justify-between border-b border-bdr/60 pb-3">
               <div>
-                <h3 className="font-bold text-[16px] text-slate-900">Adjust Attendance, Advance &amp; Earnings</h3>
-                <p className="text-[12px] text-muted">{editingEmployee.name} ({editingEmployee.empId}) • {editingEmployee.department}</p>
+                <h3 className="font-bold text-[16px] text-slate-900">Adjust Payslip — {monthLabel}</h3>
+                <p className="text-[12px] text-muted">{editingEmployee.name} ({editingEmployee.empId}) • {editingEmployee.department || "—"}</p>
               </div>
               <button
                 type="button"
-                onClick={() => setEditingEmployee(null)}
+                onClick={() => setEditingId(null)}
                 className="text-slate-400 hover:text-slate-600 cursor-pointer"
               >
                 <X size={18} />
               </button>
             </div>
 
-            {/* Attendance & Days Input Strip */}
+            {/* Attendance (read-only, from the attendance register) */}
             <div className="bg-slate-50/80 p-3.5 rounded-xl border border-slate-200/80 space-y-2.5">
               <div className="flex justify-between items-center text-[12.5px]">
-                <span className="text-slate-600 font-medium">Standard Agreed Base CTC:</span>
+                <span className="text-slate-600 font-medium">Standard Monthly Salary:</span>
                 <span className="font-bold text-slate-900 text-[13.5px]">{formatINR(editingEmployee.standardSalary)}</span>
               </div>
 
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-1 border-t border-slate-200/60">
-                <div>
-                  <label className="block text-[11.5px] font-semibold text-slate-700 mb-1">
-                    Month Days ({editingEmployee.department})
-                  </label>
-                  <select
-                    value={Number(editTotalDays)}
-                    onChange={(e) => {
-                      const newT = Number(e.target.value);
-                      setEditTotalDays(newT);
-                      if (Number(editAttendedDays) > newT) {
-                        setEditAttendedDays(newT);
-                      }
-                    }}
-                    className="w-full h-9 px-2.5 bg-white border border-bdr rounded-lg text-[13px] font-medium focus:outline-none focus:border-navy cursor-pointer"
-                  >
-                    {[20, 21, 22, 23, 24, 25, 26, 27, 28, 30, 31].map((d) => (
-                      <option key={d} value={d}>
-                        {d} Days {d === getDepartmentDays(departmentWorkingDays, editingEmployee.department) ? "(Dept)" : ""}
-                      </option>
-                    ))}
-                  </select>
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-2 border-t border-slate-200/60 text-center">
+                {[
+                  ["Working days", editingEmployee.totalDays],
+                  ["Attended", editingEmployee.attendedDays],
+                  ["Paid leave", editingEmployee.paidLeaves],
+                  ["LOP", editingEmployee.unpaidLeaves],
+                ].map(([label, value]) => (
+                  <div key={label} className="bg-white rounded-lg border border-slate-200 py-1.5">
+                    <div className="text-[10.5px] text-muted uppercase font-semibold">{label}</div>
+                    <div className="text-[14px] font-bold text-slate-900">{fmtDays(value)}</div>
+                  </div>
+                ))}
+              </div>
+
+              <div className="bg-white p-2.5 rounded-lg border border-slate-200 text-[11.5px] space-y-1">
+                <div className="flex justify-between text-slate-600">
+                  <span>Per-day rate:</span>
+                  <span className="font-mono font-medium">{formatINR(editingEmployee.perDaySalary)}/day</span>
                 </div>
-                <div>
-                  <label className="block text-[11.5px] font-semibold text-slate-700 mb-1">
-                    Daily Hours
-                  </label>
-                  <select
-                    value={Number(editDailyHours)}
-                    onChange={(e) => setEditDailyHours(Number(e.target.value))}
-                    className="w-full h-9 px-2.5 bg-white border border-bdr rounded-lg text-[13px] font-medium focus:outline-none focus:border-navy cursor-pointer"
-                  >
-                    {[7.0, 7.5, 8.0, 8.5, 9.0, 9.5, 10.0].map((h) => (
-                      <option key={h} value={h}>
-                        {h.toFixed(1)} hrs {h === getDepartmentHours(departmentWorkingHours, editingEmployee.department) ? "(Dept)" : ""}
-                      </option>
-                    ))}
-                  </select>
+                <div className="flex justify-between">
+                  <span className="text-slate-600">Days deducted:</span>
+                  <span className={`font-semibold ${editingEmployee.absentDays > 0 ? "text-rose-600" : "text-emerald-600"}`}>
+                    {fmtDays(editingEmployee.absentDays)} {editingEmployee.absentDays > 0 ? "day(s)" : "(full pay)"}
+                  </span>
                 </div>
-                <div>
-                  <label className="block text-[11.5px] font-semibold text-slate-700 mb-1">
-                    Days Attended
-                  </label>
-                  <select
-                    value={Number(editAttendedDays)}
-                    onChange={(e) => setEditAttendedDays(Number(e.target.value))}
-                    className="w-full h-9 px-2.5 bg-white border border-bdr rounded-lg text-[13px] font-medium focus:outline-none focus:border-navy cursor-pointer"
-                  >
-                    {Array.from({ length: Number(editTotalDays) + 1 }, (_, i) => i).map((num) => (
-                      <option key={num} value={num}>
-                        {num} Days {num === Number(editTotalDays) ? "(100%)" : ""}
-                      </option>
-                    ))}
-                  </select>
+                <div className="flex justify-between">
+                  <span className="text-slate-700 font-medium">Attendance deduction:</span>
+                  <span className="font-bold text-rose-700">-{formatINR(editingEmployee.attendanceDeduction)}</span>
+                </div>
+                <div className="flex justify-between pt-1 border-t border-slate-100 font-semibold text-blue-900">
+                  <span>Earned Salary:</span>
+                  <span>{formatINR(editingEmployee.earnedSalary)}</span>
                 </div>
               </div>
 
-              {/* Dynamic Attendance Deduction & Working Hours Calculation */}
-              {(() => {
-                const curStd = Number(editingEmployee.standardSalary) || 0;
-                const curT = Math.max(1, Number(editTotalDays) || 24);
-                const curH = Math.max(1, Number(editDailyHours) || 8);
-                const curTotH = curT * curH;
-                const curHourlyRate = curTotH > 0 ? Math.round(curStd / curTotH) : 0;
-                const curA = Math.min(curT, Math.max(0, editAttendedDays !== undefined && editAttendedDays !== '' ? Number(editAttendedDays) : curT));
-                const curAbs = Math.max(0, curT - curA);
-                const curRate = curT > 0 ? curStd / curT : 0;
-                const curDeduct = Math.round(curRate * curAbs);
-                const curEarn = Math.max(0, curStd - curDeduct);
-
-                return (
-                  <div className="bg-white p-2.5 rounded-lg border border-slate-200 text-[11.5px] space-y-1">
-                    <div className="flex justify-between text-slate-600">
-                      <span>Schedule &amp; Target:</span>
-                      <span className="font-mono font-medium">{curT}d × {curH}h/d = {curTotH} hrs target</span>
-                    </div>
-                    <div className="flex justify-between text-slate-600">
-                      <span>Wage Rates:</span>
-                      <span className="font-mono font-medium">{formatINR(curRate)}/day • {formatINR(curHourlyRate)}/hr</span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span className="text-slate-600">Remaining Absent Days:</span>
-                      <span className={`font-semibold ${curAbs > 0 ? "text-rose-600" : "text-emerald-600"}`}>
-                        {curAbs} days {curAbs > 0 ? "unattended" : "(100% Present)"}
-                      </span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span className="text-slate-700 font-medium">Attendance LOP (Salary Removed):</span>
-                      <span className="font-bold text-rose-700">-{formatINR(curDeduct)}</span>
-                    </div>
-                    <div className="flex justify-between pt-1 border-t border-slate-100 font-semibold text-blue-900">
-                      <span>Earned Salary (Base):</span>
-                      <span>{formatINR(curEarn)}</span>
-                    </div>
-                  </div>
-                );
-              })()}
+              <div className="flex flex-wrap items-center justify-between gap-2 text-[11.5px] text-slate-600">
+                <span>Attendance is wrong? Correct it in the register, then re-generate.</span>
+                <div className="flex items-center gap-1.5">
+                  {editingEmployee.employeeId && (
+                    <Link
+                      to={`/hrms/attendance/individual?employeeId=${encodeURIComponent(editingEmployee.employeeId)}`}
+                      className="inline-flex items-center gap-1 px-2.5 py-1 bg-white border border-bdr rounded-lg font-semibold text-navy hover:bg-slate-50"
+                    >
+                      <ExternalLink size={12} /> Attendance
+                    </Link>
+                  )}
+                  {editable && (
+                    <button
+                      type="button"
+                      disabled={generating}
+                      onClick={handleGenerate}
+                      className="inline-flex items-center gap-1 px-2.5 py-1 bg-white border border-bdr rounded-lg font-semibold text-slate-700 hover:bg-slate-50 cursor-pointer disabled:opacity-60"
+                    >
+                      {generating ? <Loader2 size={12} className="animate-spin" /> : <RefreshCw size={12} />} Re-generate
+                    </button>
+                  )}
+                </div>
+              </div>
             </div>
+
+            {!editable && (
+              <div className="p-2.5 bg-amber-50 border border-amber-200 rounded-xl text-[12px] text-amber-900 flex items-start gap-2">
+                <AlertTriangle size={14} className="text-amber-600 shrink-0 mt-0.5" />
+                <span>This payslip is {editingEmployee.status} and can no longer be adjusted.</span>
+              </div>
+            )}
 
             <div className="flex flex-col gap-3">
               <div>
                 <label className="block text-[12px] font-semibold text-slate-700 mb-1">
-                  Salary Advance Recovered [₹] (Deducted from final salary)
+                  Salary Advance Recovered [₹]
                 </label>
                 <input
                   type="number"
                   min="0"
+                  disabled={!editable}
                   value={editAdvance}
                   onChange={(e) => setEditAdvance(e.target.value)}
-                  className="w-full h-10 px-3 bg-off border border-bdr rounded-xl text-[13px] focus:outline-none focus:border-navy [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                  className="w-full h-10 px-3 bg-off border border-bdr rounded-xl text-[13px] focus:outline-none focus:border-navy disabled:opacity-60 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
                   placeholder="e.g. 5000"
                 />
               </div>
@@ -2215,68 +2144,63 @@ export default function Payroll() {
                   <input
                     type="number"
                     min="0"
+                    disabled={!editable}
                     value={editEarnings}
                     onChange={(e) => setEditEarnings(e.target.value)}
-                    className="w-full h-10 px-3 bg-off border border-bdr rounded-xl text-[13px] focus:outline-none focus:border-navy [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                    className="w-full h-10 px-3 bg-off border border-bdr rounded-xl text-[13px] focus:outline-none focus:border-navy disabled:opacity-60 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
                   />
                 </div>
                 <div>
                   <label className="block text-[12px] font-semibold text-slate-700 mb-1">
-                    Monthly Deductions [₹]
+                    Deductions [₹]
                   </label>
                   <input
                     type="number"
                     min="0"
+                    disabled={!editable}
                     value={editDeductions}
                     onChange={(e) => setEditDeductions(e.target.value)}
-                    className="w-full h-10 px-3 bg-off border border-bdr rounded-xl text-[13px] focus:outline-none focus:border-navy [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                    className="w-full h-10 px-3 bg-off border border-bdr rounded-xl text-[13px] focus:outline-none focus:border-navy disabled:opacity-60 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
                   />
                 </div>
               </div>
 
-              {/* Live Preview of Full Formula */}
-              {(() => {
-                const curStd = Number(editingEmployee.standardSalary) || 0;
-                const curT = Math.max(1, Number(editTotalDays) || 24);
-                const curA = Math.min(curT, Math.max(0, editAttendedDays !== undefined && editAttendedDays !== '' ? Number(editAttendedDays) : curT));
-                const curAbs = Math.max(0, curT - curA);
-                const curRate = curT > 0 ? curStd / curT : 0;
-                const curDeduct = Math.round(curRate * curAbs);
-                const curEarn = Math.max(0, curStd - curDeduct);
-                const curNet = Math.max(0, curEarn + (Number(editEarnings) || 0) - (Number(editDeductions) || 0) - (Number(editAdvance) || 0));
-
-                return (
-                  <div className="p-3 bg-emerald-50/70 border border-emerald-200 rounded-xl text-[12.5px] space-y-1">
-                    <div className="flex justify-between items-center font-bold">
-                      <span className="text-emerald-950">Net Remaining Payable:</span>
-                      <span className="text-emerald-800 text-[15px] font-extrabold">{formatINR(curNet)}</span>
-                    </div>
-                    <div className="text-[11px] text-slate-500 pt-1 border-t border-emerald-200/60 leading-tight">
-                      Std ({formatINR(curStd)}) - Attendance LOP ({formatINR(curDeduct)}) + Earnings ({formatINR(editEarnings)}) - Deductions ({formatINR(editDeductions)}) - Advance ({formatINR(editAdvance)})
-                    </div>
-                  </div>
-                );
-              })()}
+              <div className="p-3 bg-emerald-50/70 border border-emerald-200 rounded-xl text-[12.5px] space-y-1">
+                <div className="flex justify-between items-center font-bold">
+                  <span className="text-emerald-950">Net Payable {editable ? "(preview)" : ""}:</span>
+                  <span className="text-emerald-800 text-[15px] font-extrabold">
+                    {formatINR(editable ? previewNet : editingEmployee.remainingPayable)}
+                  </span>
+                </div>
+                <div className="text-[11px] text-slate-500 pt-1 border-t border-emerald-200/60 leading-tight">
+                  Earned ({formatINR(editingEmployee.earnedSalary)}) + Earnings ({formatINR(editEarnings)}) − Deductions ({formatINR(editDeductions)}) − Advance ({formatINR(editAdvance)}). The server recomputes on save.
+                </div>
+              </div>
             </div>
 
             <div className="flex gap-2 mt-2">
-              <button
-                type="submit"
-                className="flex-1 bg-navy hover:bg-navy/90 text-white rounded-xl py-2.5 font-semibold text-[13px] transition cursor-pointer shadow-xs"
-              >
-                Apply Changes
-              </button>
+              {editable && (
+                <button
+                  type="submit"
+                  disabled={savingEdit}
+                  className="flex-1 bg-navy hover:bg-navy/90 text-white rounded-xl py-2.5 font-semibold text-[13px] transition cursor-pointer shadow-xs flex items-center justify-center gap-1.5 disabled:opacity-60"
+                >
+                  {savingEdit && <Loader2 size={14} className="animate-spin" />}
+                  Save Adjustments
+                </button>
+              )}
               <button
                 type="button"
-                onClick={() => setEditingEmployee(null)}
-                className="px-4 bg-off border border-bdr text-slate-700 hover:bg-slate-100 rounded-xl py-2.5 font-medium text-[13px] transition cursor-pointer"
+                onClick={() => setEditingId(null)}
+                className={`px-4 bg-off border border-bdr text-slate-700 hover:bg-slate-100 rounded-xl py-2.5 font-medium text-[13px] transition cursor-pointer ${editable ? "" : "flex-1"}`}
               >
-                Cancel
+                {editable ? "Cancel" : "Close"}
               </button>
             </div>
           </form>
         </div>
-      )}
+        );
+      })()}
 
       {/* =========================================================================
           MODAL 4: ADD SALARY STRUCTURE MODAL
@@ -2318,19 +2242,19 @@ export default function Payroll() {
                   <label className="block text-[12px] font-semibold text-slate-700 mb-1">
                     Department
                   </label>
-                  <select
+                  <input
+                    type="text"
+                    list="payroll-departments"
+                    placeholder="e.g. Production"
                     value={newStructure.department}
                     onChange={(e) => setNewStructure({ ...newStructure, department: e.target.value })}
-                    className="w-full h-10 px-3 bg-off border border-bdr rounded-xl text-[12.5px] focus:outline-none focus:border-navy cursor-pointer"
-                  >
-                    <option value="Engineering">Engineering</option>
-                    <option value="Design">Design</option>
-                    <option value="Finance">Finance</option>
-                    <option value="Marketing">Marketing</option>
-                    <option value="Human Resources">Human Resources</option>
-                    <option value="Executive">Executive</option>
-                    <option value="Operations">Operations</option>
-                  </select>
+                    className="w-full h-10 px-3 bg-off border border-bdr rounded-xl text-[12.5px] focus:outline-none focus:border-navy"
+                  />
+                  <datalist id="payroll-departments">
+                    {departmentNames.map((d) => (
+                      <option key={d} value={d} />
+                    ))}
+                  </datalist>
                 </div>
 
                 <div>
@@ -2368,86 +2292,87 @@ export default function Payroll() {
       )}
 
       {/* =========================================================================
-          MODAL 5: LIFECYCLE TRANSITION WITH REAL-LIFE SCENARIO
+          MODAL 5: BULK APPROVE / MARK PAID CONFIRMATION
          ========================================================================= */}
-      {showLifecycleModal && targetStage && (
+      {confirmBulk && (() => {
+        const scenario = STAGE_SCENARIOS[confirmBulk.kind];
+        const targets = computedEmployeePayrolls.filter((p) => confirmBulk.ids.includes(p.id));
+        const targetNet = targets.reduce((sum, p) => sum + (Number(p.remainingPayable) || 0), 0);
+        return (
         <div className="fixed inset-0 z-50 bg-slate-900/40 backdrop-blur-xs flex items-center justify-center p-2 sm:p-4">
           <div className="bg-white rounded-2xl border border-bdr shadow-2xl w-full max-w-lg p-4 sm:p-6 flex flex-col gap-4 animate-in fade-in zoom-in-95 max-h-[95vh] overflow-y-auto">
             <div className="flex items-center justify-between border-b border-bdr/60 pb-3">
               <div>
                 <span className="text-[11px] font-bold uppercase tracking-wider text-slate-500">
-                  Payroll Lifecycle Transition
+                  Payroll Lifecycle · {confirmBulk.scope === "all" ? "All departments" : confirmBulk.scope}
                 </span>
                 <h3 className="font-bold text-[17px] text-slate-900 mt-0.5">
-                  {STAGE_SCENARIOS[targetStage]?.title || `Move to ${targetStage}`}
+                  {scenario.title} ({targets.length})
                 </h3>
               </div>
               <button
                 type="button"
-                onClick={() => setShowLifecycleModal(false)}
+                onClick={() => setConfirmBulk(null)}
                 className="text-slate-400 hover:text-slate-600 p-1 cursor-pointer"
               >
                 <X size={18} />
               </button>
             </div>
 
-            {/* Scenario Narrative Box */}
             <div className="bg-slate-50 border border-slate-200 rounded-xl p-3.5 space-y-2">
-              <div className="text-[12.5px] font-bold text-slate-800 flex items-center gap-2">
-                <CheckCircle2 size={16} className="text-emerald-600" />
-                <span>Real-Life Business Scenario:</span>
-              </div>
-              <p className="text-[13px] text-slate-600 leading-relaxed">
-                {STAGE_SCENARIOS[targetStage]?.description}
-              </p>
+              <p className="text-[13px] text-slate-600 leading-relaxed">{scenario.description}</p>
             </div>
 
-            {/* Operational Checkpoints */}
-            <div className="space-y-1.5">
-              <span className="text-[11.5px] font-bold text-slate-700 uppercase tracking-wide">
-                Key Operations in this Stage:
-              </span>
-              <ul className="space-y-1 text-[12.5px] text-slate-700">
-                {STAGE_SCENARIOS[targetStage]?.bullets?.map((b, i) => (
-                  <li key={i} className="flex items-start gap-2">
-                    <Check size={14} className="text-emerald-600 shrink-0 mt-0.5" />
-                    <span>{b}</span>
-                  </li>
-                ))}
-              </ul>
-            </div>
+            <ul className="space-y-1 text-[12.5px] text-slate-700">
+              {scenario.bullets.map((b, i) => (
+                <li key={i} className="flex items-start gap-2">
+                  <Check size={14} className="text-emerald-600 shrink-0 mt-0.5" />
+                  <span>{b}</span>
+                </li>
+              ))}
+            </ul>
+
+            {confirmBulk.kind === "pay" && (
+              <div>
+                <label className="block text-[12px] font-semibold text-slate-700 mb-1">Payment Date</label>
+                <input
+                  type="date"
+                  value={bulkPayDate}
+                  onChange={(e) => setBulkPayDate(e.target.value)}
+                  className="w-full h-10 px-3 bg-off border border-bdr rounded-xl text-[13px] focus:outline-none focus:border-navy"
+                />
+              </div>
+            )}
 
             {/* Financial Overview Summary */}
             <div className="bg-slate-900 text-white rounded-xl p-3.5 flex items-center justify-between text-[12px]">
               <div>
                 <div className="text-slate-400 text-[11px]">Pay Period</div>
-                <div className="font-bold text-white">{currentPeriod}</div>
+                <div className="font-bold text-white">{monthLabel}</div>
               </div>
               <div>
-                <div className="text-slate-400 text-[11px]">Headcount</div>
-                <div className="font-bold text-white">{overallStats.totalHeadcount} Staff</div>
+                <div className="text-slate-400 text-[11px]">Payslips</div>
+                <div className="font-bold text-white">{targets.length} Staff</div>
               </div>
               <div>
-                <div className="text-slate-400 text-[11px]">Total Net Payout</div>
-                <div className="font-extrabold text-emerald-400 text-[14px]">
-                  {formatINR(overallStats.totalRemaining)}
-                </div>
+                <div className="text-slate-400 text-[11px]">Total Net Payable</div>
+                <div className="font-extrabold text-emerald-400 text-[14px]">{formatINR(targetNet)}</div>
               </div>
             </div>
 
-            {/* Actions */}
             <div className="flex gap-2.5 mt-1">
               <button
                 type="button"
-                onClick={() => executeStageTransition(targetStage)}
-                className="flex-1 bg-navy hover:bg-navy/90 text-white rounded-xl py-2.5 font-semibold text-[13px] transition cursor-pointer shadow-xs flex items-center justify-center gap-1.5"
+                disabled={isBusy}
+                onClick={executeBulk}
+                className="flex-1 bg-navy hover:bg-navy/90 text-white rounded-xl py-2.5 font-semibold text-[13px] transition cursor-pointer shadow-xs flex items-center justify-center gap-1.5 disabled:opacity-60"
               >
-                <span>{STAGE_SCENARIOS[targetStage]?.actionLabel || `Confirm ${targetStage}`}</span>
+                <span>{scenario.actionLabel} {targets.length} payslip(s)</span>
                 <ChevronRight size={14} />
               </button>
               <button
                 type="button"
-                onClick={() => setShowLifecycleModal(false)}
+                onClick={() => setConfirmBulk(null)}
                 className="px-4 bg-off border border-bdr text-slate-700 hover:bg-slate-100 rounded-xl py-2.5 font-medium text-[13px] transition cursor-pointer"
               >
                 Cancel
@@ -2455,7 +2380,8 @@ export default function Payroll() {
             </div>
           </div>
         </div>
-      )}
+        );
+      })()}
 
       {/* =========================================================================
           MODAL 6: GENERATE PAYROLL SLIP (PDF)
@@ -2473,7 +2399,7 @@ export default function Payroll() {
                     Generate Payroll Slip (PDF)
                   </h3>
                   <p className="text-[12px] text-muted">
-                    Certified salary slips adhering to company compensation formula
+                    {monthLabel} payslips as computed from attendance and leave
                   </p>
                 </div>
               </div>
@@ -2486,6 +2412,12 @@ export default function Payroll() {
               </button>
             </div>
 
+            {!slipSelectedEmp ? (
+              <div className="py-8 text-center text-[13px] text-muted">
+                No payslips for {monthLabel} yet — generate payroll first.
+              </div>
+            ) : (
+            <>
             {/* Employee Selector */}
             <div className="space-y-1.5">
               <div className="flex items-center justify-between">
@@ -2493,7 +2425,7 @@ export default function Payroll() {
                   Select Employee:
                 </label>
                 <span className="text-[11px] text-slate-500">
-                  {computedEmployeePayrolls.length} total enrolled
+                  {computedEmployeePayrolls.length} payslips
                 </span>
               </div>
 
@@ -2511,7 +2443,7 @@ export default function Payroll() {
                         {slipSelectedEmp?.name}
                       </div>
                       <div className="text-[11px] text-slate-500 truncate">
-                        {slipSelectedEmp?.role} • {slipSelectedEmp?.department}
+                        {slipSelectedEmp?.role || "—"} • {slipSelectedEmp?.department || "—"}
                       </div>
                     </div>
                   </div>
@@ -2593,7 +2525,7 @@ export default function Payroll() {
                                       {emp.name}
                                     </div>
                                     <div className="text-[11px] text-slate-500 truncate">
-                                      {emp.role} • {emp.department}
+                                      {emp.role || "—"} • {emp.department || "—"}
                                     </div>
                                   </div>
                                 </div>
@@ -2618,83 +2550,82 @@ export default function Payroll() {
             </div>
 
             {/* Payslip Live Preview Card */}
-            {slipSelectedEmp && (
-              <div className="border border-slate-200 rounded-xl p-4 bg-slate-50/70 space-y-3">
-                <div className="flex items-center justify-between border-b border-slate-200 pb-2.5">
-                  <div className="flex items-center gap-3">
-                    <Avatar name={slipSelectedEmp.name} size="md" />
-                    <div>
-                      <h4 className="font-bold text-[14.5px] text-slate-900">
-                        {slipSelectedEmp.name}
-                      </h4>
-                      <p className="text-[11.5px] text-muted">
-                        {slipSelectedEmp.role} • {slipSelectedEmp.department}
-                      </p>
-                    </div>
-                  </div>
-                  <div className="text-right">
-                    <span className={`text-[11px] font-bold px-2 py-0.5 rounded-full ${
-                      slipSelectedEmp.status === "Paid"
-                        ? "bg-emerald-100 text-emerald-800"
-                        : "bg-blue-100 text-blue-800"
-                    }`}>
-                      {slipSelectedEmp.status}
-                    </span>
-                    <div className="text-[11px] text-muted mt-1">
-                      {currentPeriod}
-                    </div>
+            <div className="border border-slate-200 rounded-xl p-4 bg-slate-50/70 space-y-3">
+              <div className="flex items-center justify-between border-b border-slate-200 pb-2.5">
+                <div className="flex items-center gap-3">
+                  <Avatar name={slipSelectedEmp.name} size="md" />
+                  <div>
+                    <h4 className="font-bold text-[14.5px] text-slate-900">
+                      {slipSelectedEmp.name}
+                    </h4>
+                    <p className="text-[11.5px] text-muted">
+                      {slipSelectedEmp.role || "—"} • {slipSelectedEmp.department || "—"}
+                    </p>
                   </div>
                 </div>
-
-                <div className="grid grid-cols-2 gap-2 text-[12px]">
-                  <div className="bg-white p-2.5 rounded-lg border border-slate-200/80">
-                    <div className="text-slate-500 text-[11px]">Agreed CTC (Standard)</div>
-                    <div className="font-bold text-slate-800">{formatINR(slipSelectedEmp.standardSalary)}</div>
-                  </div>
-                  <div className="bg-white p-2.5 rounded-lg border border-slate-200/80">
-                    <div className="text-slate-500 text-[11px]">Earned Base Salary</div>
-                    <div className="font-bold text-blue-900">{formatINR(slipSelectedEmp.earnedSalary)}</div>
-                  </div>
-                  <div className="bg-white p-2.5 rounded-lg border border-slate-200/80">
-                    <div className="text-slate-500 text-[11px]">Attendance LOP (Removed)</div>
-                    <div className="font-bold text-rose-700">-{formatINR(slipSelectedEmp.attendanceDeduction || 0)}</div>
-                  </div>
-                  <div className="bg-white p-2.5 rounded-lg border border-slate-200/80">
-                    <div className="text-slate-500 text-[11px]">Additional Earnings (+)</div>
-                    <div className="font-bold text-emerald-700">+{formatINR(slipSelectedEmp.additionalEarnings)}</div>
-                  </div>
-                  <div className="bg-white p-2.5 rounded-lg border border-slate-200/80">
-                    <div className="text-slate-500 text-[11px]">Advance Recovered (-)</div>
-                    <div className="font-bold text-amber-800">
-                      -{formatINR(slipSelectedEmp.advance || 0)}
-                    </div>
-                  </div>
-                </div>
-
-                {/* Net Remaining Payable Bar */}
-                <div className="flex items-center justify-between p-3 bg-emerald-50 border border-emerald-200 rounded-xl text-[13px]">
-                  <span className="font-semibold text-emerald-900">Net Take-Home Payable</span>
-                  <span className="text-[16px] font-extrabold text-emerald-800">
-                    {formatINR(slipSelectedEmp.remainingPayable)}
+                <div className="text-right">
+                  <span className={`text-[11px] font-bold px-2 py-0.5 rounded-full ${
+                    slipSelectedEmp.status === "Paid"
+                      ? "bg-emerald-100 text-emerald-800"
+                      : "bg-blue-100 text-blue-800"
+                  }`}>
+                    {slipSelectedEmp.status}
                   </span>
-                </div>
-
-                <div className="text-[11px] text-slate-500 flex flex-wrap items-center justify-between gap-1">
-                  <span>Bank: {slipSelectedEmp.bank || "Direct Deposit"}</span>
-                  <span>Attendance: {slipSelectedEmp.attendedDays !== undefined ? slipSelectedEmp.attendedDays : 20} / {slipSelectedEmp.totalDays || 24} Days ({slipSelectedEmp.absentDays || 0}d absent) • {slipSelectedEmp.dailyHours || 8}h/day ({slipSelectedEmp.totalHours || ((slipSelectedEmp.totalDays || 24) * (slipSelectedEmp.dailyHours || 8))}h target)</span>
+                  <div className="text-[11px] text-muted mt-1">
+                    {slipMonth(slipSelectedEmp)}
+                  </div>
                 </div>
               </div>
-            )}
+
+              <div className="grid grid-cols-2 gap-2 text-[12px]">
+                <div className="bg-white p-2.5 rounded-lg border border-slate-200/80">
+                  <div className="text-slate-500 text-[11px]">Standard Salary</div>
+                  <div className="font-bold text-slate-800">{formatINR(slipSelectedEmp.standardSalary)}</div>
+                </div>
+                <div className="bg-white p-2.5 rounded-lg border border-slate-200/80">
+                  <div className="text-slate-500 text-[11px]">Earned Salary</div>
+                  <div className="font-bold text-blue-900">{formatINR(slipSelectedEmp.earnedSalary)}</div>
+                </div>
+                <div className="bg-white p-2.5 rounded-lg border border-slate-200/80">
+                  <div className="text-slate-500 text-[11px]">Attendance Deduction</div>
+                  <div className="font-bold text-rose-700">-{formatINR(slipSelectedEmp.attendanceDeduction || 0)}</div>
+                </div>
+                <div className="bg-white p-2.5 rounded-lg border border-slate-200/80">
+                  <div className="text-slate-500 text-[11px]">Additional Earnings (+)</div>
+                  <div className="font-bold text-emerald-700">+{formatINR(slipSelectedEmp.additionalEarnings)}</div>
+                </div>
+                <div className="bg-white p-2.5 rounded-lg border border-slate-200/80">
+                  <div className="text-slate-500 text-[11px]">Deductions (-)</div>
+                  <div className="font-bold text-rose-700">-{formatINR(slipSelectedEmp.deductions || 0)}</div>
+                </div>
+                <div className="bg-white p-2.5 rounded-lg border border-slate-200/80">
+                  <div className="text-slate-500 text-[11px]">Advance Recovered (-)</div>
+                  <div className="font-bold text-amber-800">
+                    -{formatINR(slipSelectedEmp.advance || 0)}
+                  </div>
+                </div>
+              </div>
+
+              {/* Net Payable Bar */}
+              <div className="flex items-center justify-between p-3 bg-emerald-50 border border-emerald-200 rounded-xl text-[13px]">
+                <span className="font-semibold text-emerald-900">Net Payable</span>
+                <span className="text-[16px] font-extrabold text-emerald-800">
+                  {formatINR(slipSelectedEmp.remainingPayable)}
+                </span>
+              </div>
+
+              <div className="text-[11px] text-slate-500">
+                {attendanceLine(slipSelectedEmp)}
+              </div>
+            </div>
 
             {/* Action Buttons */}
             <div className="flex flex-wrap items-center gap-2.5 pt-1">
               <button
                 type="button"
                 onClick={() => {
-                  if (slipSelectedEmp) {
-                    downloadPayslipPdf(slipSelectedEmp);
-                    showToast(`Downloaded PDF Payslip for ${slipSelectedEmp.name}`);
-                  }
+                  downloadPayslipPdf(slipSelectedEmp);
+                  showToast(`Downloaded PDF Payslip for ${slipSelectedEmp.name}`);
                 }}
                 className="flex-1 bg-navy hover:bg-navy/90 text-white rounded-xl py-2.5 font-semibold text-[13px] transition flex items-center justify-center gap-1.5 cursor-pointer shadow-xs"
               >
@@ -2704,11 +2635,7 @@ export default function Payroll() {
 
               <button
                 type="button"
-                onClick={() => {
-                  if (slipSelectedEmp) {
-                    printPayslip(slipSelectedEmp);
-                  }
-                }}
+                onClick={() => printPayslip(slipSelectedEmp)}
                 className="inline-flex items-center gap-1.5 px-4 bg-white border border-slate-300 text-slate-700 hover:bg-slate-50 rounded-xl py-2.5 font-semibold text-[13px] transition cursor-pointer"
               >
                 <Printer size={15} />
@@ -2724,6 +2651,8 @@ export default function Payroll() {
                 <span>Download All {computedEmployeePayrolls.length} Payslips (Batch)</span>
               </button>
             </div>
+            </>
+            )}
           </div>
         </div>
       )}

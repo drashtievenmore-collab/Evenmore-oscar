@@ -58,6 +58,7 @@ const PMSClientProofApprovalPage = lazy(() => import('../features/pms/approval/C
 const PMSProductionDashboardPage = lazy(() => import('../features/pms/production/ProductionDashboardPage'));
 const PMSProductionInstructionsPage = lazy(() => import('../features/pms/production/ProductionInstructionsPage'));
 const PMSDailyProductionPage = lazy(() => import('../features/pms/production/DailyProductionPage'));
+const PMSPublicProductionEntryPage = lazy(() => import('../features/pms/production/PublicProductionEntryPage'));
 const PMSProductionCompletionPage = lazy(() => import('../features/pms/production/ProductionCompletionVerificationPage'));
 
 // ── HRMS (Lazy Loaded) ───────────────────────────────────────
@@ -300,6 +301,12 @@ const router = createBrowserRouter([
   {
     path: '/pms/approve/:token',
     element: <Page component={PMSClientProofApprovalPage} />,
+    errorElement: <RootErrorBoundary />,
+  },
+  // ── Per-project daily production entry link (shop floor, no sign-in) ──
+  {
+    path: '/production-entry/:token',
+    element: <Page component={PMSPublicProductionEntryPage} />,
     errorElement: <RootErrorBoundary />,
   },
   // ── Public quotation link (shared with customers, no sign-in) ──

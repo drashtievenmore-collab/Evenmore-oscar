@@ -1,226 +1,251 @@
 import { create } from "zustand";
 import { lazyStore } from "../services/lazyModules";
-import { writeThrough, pullTracked } from "../services/hrmsSync";
+import {
+  hrmsSync,
+  isBackendEnabled,
+  isServerId,
+  assignAsset as assignAssetApi,
+  returnAsset as returnAssetApi,
+  approveAssetRequest,
+  rejectAssetRequest,
+  fulfillAssetRequest,
+  cancelAssetRequest,
+} from "../services/hrmsSync";
+
+/**
+ * Asset register and asset requisitions.
+ *
+ * Every action goes to the API first and keeps the server's copy of the row;
+ * nothing is invented locally. Failures throw so the screen can toast them.
+ * Assignment, return, approval and fulfilment use their own server actions,
+ * which write the custody history and keep the request/asset pair consistent.
+ */
+
+function requireBackend() {
+  if (!isBackendEnabled()) throw new Error("Sign in to manage assets.");
+}
+
+function ensureRow(row, what) {
+  if (!row || typeof row !== "object" || !row.id) {
+    throw new Error(`The server did not return the ${what}.`);
+  }
+  return row;
+}
+
+function upsert(list, row) {
+  return list.some((r) => r.id === row.id)
+    ? list.map((r) => (r.id === row.id ? row : r))
+    : [row, ...list];
+}
+
+/** Attach the known category id for a category name, or leave the name to be created. */
+function withCategory(data, categories) {
+  const out = { ...data };
+  let name = String(out.category || "").trim();
+  // The reader labels a missing category "Uncategorised"; that is not a name to create.
+  if (name === "Uncategorised" && !isServerId(out.categoryId)) name = "";
+  if (isServerId(out.categoryId)) {
+    const known = categories.find((c) => c.id === out.categoryId);
+    if (!name || (known && known.name === name)) return out;
+  }
+  const match = name
+    ? categories.find((c) => String(c.name || "").toLowerCase() === name.toLowerCase())
+    : null;
+  if (match) {
+    out.categoryId = match.id;
+    out.category = match.name;
+  } else {
+    out.categoryId = undefined;
+    out.category = name || undefined;
+  }
+  return out;
+}
+
+/** Fields the register form must never push through a plain update. */
+function stripAssignment(data) {
+  const out = { ...data };
+  delete out.employeeId;
+  delete out.assignedTo;
+  delete out.history;
+  delete out.pendingRequests;
+  if (out.status === "Assigned") delete out.status;
+  // A blank cost field means "unknown", not zero.
+  if (out.purchaseCost === "" || out.purchaseCost === "—") out.purchaseCost = null;
+  return out;
+}
 
 const useAssetStoreBase = create((set, get) => ({
-  /** Load this module's collections from the API. */
+  assets: [],
+  requests: [],
+  categories: [],
+  loading: false,
+  loaded: false,
+
+  /** Load assets, requests and categories from the API in parallel. */
   hydrate: async () => {
-    const rows = await Promise.all([
-        pullTracked("assets"),
-        pullTracked("assetRequests"),
-    ]);
-    set((s) => ({
-        assets: rows[0] || s.assets,
-        requests: rows[1] || s.requests,
-    }));
+    set({ loading: true });
+    try {
+      const [assets, requests, categories] = await Promise.all([
+        hrmsSync.pull("assets"),
+        hrmsSync.pull("assetRequests"),
+        hrmsSync.pull("assetCategories"),
+      ]);
+      set((s) => ({
+        assets: assets || s.assets,
+        requests: requests || s.requests,
+        categories: categories || s.categories,
+        loaded: true,
+      }));
+      return [assets, requests, categories];
+    } finally {
+      set({ loading: false });
+    }
+  },
+
+  refreshAssets: async () => {
+    const rows = await hrmsSync.pull("assets");
+    if (rows) set({ assets: rows });
+    return rows;
+  },
+
+  refreshRequests: async () => {
+    const rows = await hrmsSync.pull("assetRequests");
+    if (rows) set({ requests: rows });
+    return rows;
+  },
+
+  refreshCategories: async () => {
+    const rows = await hrmsSync.pull("assetCategories");
+    if (rows) set({ categories: rows });
     return rows;
   },
 
   /** Empty on sign-out so the next user sees nothing of the previous one. */
-  clear: () => set({ assets: [], requests: [] }),
+  clear: () => set({ assets: [], requests: [], categories: [], loaded: false, loading: false }),
 
-  assets: [],
-  requests: [],
+  // ── register ─────────────────────────────────────────────────────────────
 
-  addAsset: (assetData) => {
-    const newId = `AST-${1000 + get().assets.length + 1}`;
-    const today = new Date().toISOString().slice(0, 10);
-    const newAsset = {
-      id: newId,
-      name: assetData.name || "Unnamed Asset",
-      category: assetData.category || "Laptop",
-      serialNumber: assetData.serialNumber || `SN-${Math.random().toString(36).substring(2, 9).toUpperCase()}`,
-      assignedTo: assetData.assignedTo || "IT Stock Reserve",
-      employeeId: assetData.employeeId || "",
-      dept: assetData.dept || "General",
-      status: assetData.status || (assetData.assignedTo && assetData.assignedTo !== "IT Stock Reserve" ? "Assigned" : "Available"),
-      condition: assetData.condition || "Excellent",
-      purchaseCost: (assetData.purchaseCost && assetData.purchaseCost !== "—") ? assetData.purchaseCost : null,
-      warrantyExpiry: (assetData.warrantyExpiry && assetData.warrantyExpiry !== "—") ? assetData.warrantyExpiry : null,
-      notes: assetData.notes || "",
-      history: [
-        {
-          date: today,
-          action: "Asset Registered",
-          by: "System Admin",
-          notes: `Added with status: ${assetData.status || "Available"}.`,
-        },
-        ...(assetData.assignedTo && assetData.assignedTo !== "IT Stock Reserve"
-          ? [
-              {
-                date: today,
-                action: "Assigned",
-                by: "System Admin",
-                notes: `Assigned upon registration to ${assetData.assignedTo}.`,
-              },
-            ]
-          : []),
-      ],
-    };
-
-    const updated = [newAsset, ...get().assets];
-    writeThrough("assets", updated);
-    set({ assets: updated });
-    return newAsset;
+  addAsset: async (assetData) => {
+    requireBackend();
+    const payload = stripAssignment(withCategory(assetData, get().categories));
+    const row = ensureRow(await hrmsSync.create("assets", payload), "asset");
+    set((s) => ({ assets: upsert(s.assets, row) }));
+    if (!isServerId(payload.categoryId) && payload.category) get().refreshCategories();
+    return row;
   },
 
-  updateAsset: (id, updates) => {
-    const today = new Date().toISOString().slice(0, 10);
-    const updated = get().assets.map((item) => {
-      if (item.id !== id) return item;
-      const historyItem = {
-        date: today,
-        action: "Asset Details Updated",
-        by: "System Admin",
-        notes: updates.notes || "Specifications or metadata modified.",
-      };
-      return {
-        ...item,
-        ...updates,
-        history: [historyItem, ...(item.history || [])],
-      };
-    });
-    writeThrough("assets", updated);
-    set({ assets: updated });
+  updateAsset: async (id, updates) => {
+    requireBackend();
+    const current = get().assets.find((a) => a.id === id) || {};
+    const payload = stripAssignment(withCategory({ ...current, ...updates }, get().categories));
+    const row = ensureRow(await hrmsSync.update("assets", id, payload), "asset");
+    set((s) => ({ assets: upsert(s.assets, row) }));
+    if (!isServerId(payload.categoryId) && payload.category) get().refreshCategories();
+    return row;
   },
 
-  deleteAsset: (id) => {
-    const updated = get().assets.filter((item) => item.id !== id);
-    writeThrough("assets", updated);
-    set({ assets: updated });
+  deleteAsset: async (id) => {
+    requireBackend();
+    await hrmsSync.remove("assets", id);
+    set((s) => ({ assets: s.assets.filter((a) => a.id !== id) }));
   },
 
-  assignAsset: (id, { employeeName, employeeId, dept, notes }) => {
-    const today = new Date().toISOString().slice(0, 10);
-    const updated = get().assets.map((item) => {
-      if (item.id !== id) return item;
-      const historyEntry = {
-        date: today,
-        action: "Assigned",
-        by: "IT Administration",
-        notes: notes ? `Assigned to ${employeeName}. Notes: ${notes}` : `Assigned to ${employeeName}.`,
-      };
-      return {
-        ...item,
-        status: "Assigned",
-        assignedTo: employeeName,
-        employeeId: employeeId || item.employeeId || "",
-        dept: dept || item.dept,
-        history: [historyEntry, ...(item.history || [])],
-      };
-    });
-    writeThrough("assets", updated);
-    set({ assets: updated });
+  /** Issue a unit to an employee; the server writes the custody history. */
+  assignAsset: async (id, { employeeId, notes } = {}) => {
+    requireBackend();
+    if (!isServerId(employeeId)) throw new Error("Select an employee to assign this asset to.");
+    const row = ensureRow(
+      await assignAssetApi(id, { employeeId, notes: notes || undefined }),
+      "asset",
+    );
+    set((s) => ({ assets: upsert(s.assets, row) }));
+    await get().refreshAssets();
+    return row;
   },
 
-  returnAsset: (id, { condition = "Good", notes = "" }) => {
-    const today = new Date().toISOString().slice(0, 10);
-    const updated = get().assets.map((item) => {
-      if (item.id !== id) return item;
-      const prevOwner = item.assignedTo;
-      const newStatus = condition === "Needs Repair" ? "Under Maintenance" : "Available";
-      const historyEntry = {
-        date: today,
-        action: "Returned to Inventory",
-        by: "IT Administration",
-        notes: `Returned from ${prevOwner}. Condition: ${condition}.${notes ? " " + notes : ""}`,
-      };
-      return {
-        ...item,
-        status: newStatus,
-        condition,
-        assignedTo: newStatus === "Available" ? "IT Stock Reserve" : "Hardware Lab",
-        employeeId: "",
-        history: [historyEntry, ...(item.history || [])],
-      };
-    });
-    writeThrough("assets", updated);
-    set({ assets: updated });
+  /** Check a unit back in; `Needs Repair` sends it to maintenance. */
+  returnAsset: async (id, { condition = "Good", notes = "" } = {}) => {
+    requireBackend();
+    const row = ensureRow(
+      await returnAssetApi(id, { condition, notes: notes || undefined }),
+      "asset",
+    );
+    set((s) => ({ assets: upsert(s.assets, row) }));
+    await get().refreshAssets();
+    return row;
   },
 
-  setAssetStatus: (id, newStatus, reason = "") => {
-    const today = new Date().toISOString().slice(0, 10);
-    const updated = get().assets.map((item) => {
-      if (item.id !== id) return item;
-      const historyEntry = {
-        date: today,
-        action: `Status changed to ${newStatus}`,
-        by: "System Admin",
-        notes: reason || `Asset status transitioned to ${newStatus}.`,
-      };
-      return {
-        ...item,
-        status: newStatus,
-        history: [historyEntry, ...(item.history || [])],
-      };
-    });
-    writeThrough("assets", updated);
-    set({ assets: updated });
+  setAssetStatus: async (id, newStatus, reason = "") => {
+    const current = get().assets.find((a) => a.id === id);
+    const notes = reason
+      ? [current?.notes, reason].filter(Boolean).join("\n")
+      : current?.notes;
+    return get().updateAsset(id, { status: newStatus, notes });
   },
 
-  // Request Actions
-  addRequest: (reqData) => {
-    const today = new Date().toISOString().slice(0, 10);
-    const newReq = {
-      id: `REQ-AST-${100 + get().requests.length + 1}`,
-      employeeName: reqData.employeeName || "Staff Member",
-      employeeId: reqData.employeeId || "",
-      dept: reqData.dept || "General",
-      category: reqData.category || "Laptop",
-      assetName: reqData.assetName || "Requested Hardware",
-      reason: reqData.reason || "",
-      priority: reqData.priority || "Medium",
-      requestedDate: reqData.requestedDate || today,
-      status: "Pending",
-      notes: reqData.notes || "",
-      source: reqData.source || "Asset Portal",
-      allocatedAssetId: null,
-    };
-    const updated = [newReq, ...get().requests];
-    writeThrough("assetRequests", updated);
-    set({ requests: updated });
-    return newReq;
+  // ── requests ─────────────────────────────────────────────────────────────
+
+  /**
+   * Raise a request: `{ requestType: 'Inventory', requestedAssetId }` or
+   * `{ requestType: 'Other', itemName, categoryId | categoryName }`, plus
+   * priority and justification. `employeeId` is optional (defaults to the caller).
+   */
+  addRequest: (payload) => {
+    const run = (async () => {
+      requireBackend();
+      const row = ensureRow(await hrmsSync.create("assetRequests", payload), "request");
+      set((s) => ({ requests: upsert(s.requests, row) }));
+      return row;
+    })();
+    // Some callers fire and forget; the ones that await still see the error.
+    run.catch(() => {});
+    return run;
   },
 
-  updateRequestStatus: (id, newStatus, extra = {}) => {
-    const updated = get().requests.map((r) => {
-      if (r.id !== id) return r;
-      return {
-        ...r,
-        status: newStatus,
-        ...extra,
-      };
-    });
-    writeThrough("assetRequests", updated);
-    set({ requests: updated });
+  /** Inventory requests are issued on approval (→ Fulfilled); Other requests become Approved. */
+  approveRequest: async (id, { remark, assetId } = {}) => {
+    requireBackend();
+    const body = {};
+    if (remark) body.remark = remark;
+    if (assetId) body.assetId = assetId;
+    const row = ensureRow(await approveAssetRequest(id, body), "request");
+    set((s) => ({ requests: upsert(s.requests, row) }));
+    await Promise.all([get().refreshAssets(), get().refreshRequests()]);
+    return row;
   },
 
-  fulfillRequestWithAsset: (reqId, assetId) => {
-    const req = get().requests.find((r) => r.id === reqId);
-    if (!req) return;
-
-    // Assign the asset to the employee
-    get().assignAsset(assetId, {
-      employeeName: req.employeeName,
-      employeeId: req.employeeId,
-      dept: req.dept,
-      notes: `Allocated to fulfill request ${req.id} (${req.assetName}).`,
-    });
-
-    // Mark request as fulfilled
-    get().updateRequestStatus(reqId, "Fulfilled", { allocatedAssetId: assetId });
+  rejectRequest: async (id, remark = "") => {
+    requireBackend();
+    const row = ensureRow(
+      await rejectAssetRequest(id, remark ? { remark } : {}),
+      "request",
+    );
+    set((s) => ({ requests: upsert(s.requests, row) }));
+    await get().refreshAssets();
+    return row;
   },
 
-  deleteRequest: (id) => {
-    const updated = get().requests.filter((r) => r.id !== id);
-    writeThrough("assetRequests", updated);
-    set({ requests: updated });
+  /** Issue an available unit against an approved Other request. */
+  fulfillRequest: async (id, assetId) => {
+    requireBackend();
+    if (!assetId) throw new Error("Select an available asset to issue.");
+    const row = ensureRow(await fulfillAssetRequest(id, { assetId }), "request");
+    set((s) => ({ requests: upsert(s.requests, row) }));
+    await Promise.all([get().refreshAssets(), get().refreshRequests()]);
+    return row;
+  },
+
+  /** The requester withdraws their own pending request. */
+  cancelRequest: async (id) => {
+    requireBackend();
+    const row = ensureRow(await cancelAssetRequest(id), "request");
+    set((s) => ({ requests: upsert(s.requests, row) }));
+    return row;
   },
 
   /** Discard anything local and re-read the register from the server. */
-  resetDefaults: () => useAssetStore.getState().hydrate(),
+  resetDefaults: () => useAssetStoreBase.getState().hydrate(),
 }));
-
 
 // Hydrated the first time a screen reads it, not at boot — services/lazyModules.
 export const useAssetStore = lazyStore(useAssetStoreBase, "assets");

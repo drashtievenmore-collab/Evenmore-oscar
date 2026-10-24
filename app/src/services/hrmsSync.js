@@ -79,6 +79,55 @@ function offerStatusToServer(status) {
   return status;
 }
 
+/** `2024-11-01` + `09:30` → the ISO instant for that local wall-clock time. */
+function clockToDateTime(isoDate, value) {
+  if (!value) return undefined;
+  if (String(value).includes('T')) return value; // already a datetime
+  if (!isoDate || !/^\d{1,2}:\d{2}/.test(String(value))) return undefined;
+  const d = new Date(`${isoDate}T${String(value).padStart(5, '0')}`);
+  return Number.isNaN(d.getTime()) ? undefined : d.toISOString();
+}
+
+/** An ISO datetime → its local `HH:MM`. Empty when missing. */
+function dateTimeToClock(value) {
+  if (!value) return '';
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return '';
+  return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+}
+
+/** The request type the self-service forms tag onto a regularization's reason. */
+function regularizationType(reason, requestedStatus) {
+  const tag = String(reason || '').toLowerCase();
+  if (tag.startsWith('[requirement')) return 'General Request';
+  if (tag.startsWith('[early leave')) return 'Early Leave';
+  if (tag.startsWith('[half day')) return 'Half Day';
+  if (tag.startsWith('[work from home') || requestedStatus === 'WFH') return 'Work From Home (WFH)';
+  return 'Regularization';
+}
+
+/** `8.5` → `08h 30m`; `—` when there is nothing to show. */
+export function formatHours(hours) {
+  const n = Number(hours);
+  if (hours === null || hours === undefined || hours === '' || !Number.isFinite(n)) return '—';
+  const h = Math.floor(n);
+  const m = Math.round((n - h) * 60);
+  return `${String(h).padStart(2, '0')}h ${String(m).padStart(2, '0')}m`;
+}
+
+/** An ISO instant → `09:41 AM` in the browser's own (live) clock. */
+export function formatClock12(value) {
+  if (!value) return '';
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return '';
+  return d.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: true }).toUpperCase();
+}
+
+/** Today as `YYYY-MM-DD` in local time (toISOString would give the UTC day). */
+export function localISODate(d = new Date()) {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
 function num(value, fallback = 0) {
   const n = Number(value);
   return Number.isFinite(n) ? n : fallback;
@@ -217,13 +266,16 @@ export const HRMS_RESOURCES = {
     path: '/hrms/leave/',
     toApi: (l) => compact({
       employeeId: l.employeeId || undefined,
-      leaveTypeId: l.leaveTypeId || undefined,
+      leaveTypeId: isServerId(l.leaveTypeId) ? l.leaveTypeId : undefined,
+      // Lets the server resolve (or set up) the type when no id is known.
+      leaveTypeName: l.leaveTypeName || (isServerId(l.leaveTypeId) ? undefined : l.type) || undefined,
       fromDate: isoOut(l.fromDate || l.from),
       toDate: isoOut(l.toDate || l.to),
       days: l.days !== undefined ? num(l.days) : undefined,
       reason: l.reason || undefined,
       status: l.status || undefined,
-      delegateId: l.delegateId || undefined,
+      delegateId: isServerId(l.delegateId) ? l.delegateId : undefined,
+      remark: l.remark || l.rejectReason || undefined,
     }),
     fromApi: (row) => ({
       ...asText(row, ['reason', 'status', 'type', 'employeeName', 'delegate']),
@@ -252,24 +304,87 @@ export const HRMS_RESOURCES = {
       notes: a.notes || undefined,
     }),
     fromApi: (row) => ({
-      ...asText(row, ['status', 'workLocation', 'notes', 'checkIn', 'checkOut', 'employeeName']),
+      ...asText(row, ['status', 'workLocation', 'notes', 'employeeName']),
+      isoDate: row.date || '',
       date: displayIn(row.date),
       employee: row.employeeName || row.employee || '',
+      name: row.employeeName || row.employee || '',
+      empCode: row.employeeCode || '',
+      dept: row.department || '',
+      checkInAt: row.checkIn || null,
+      checkOutAt: row.checkOut || null,
+      checkIn: dateTimeToClock(row.checkIn),
+      checkOut: dateTimeToClock(row.checkOut),
+      workHours: formatHours(row.hours),
       _synced: true,
     }),
   },
-  attendanceRegularizations: dated('/hrms/attendance/regularizations/', ['date']),
+  // The request screens keep clock times (`09:30`) beside the date; the API
+  // wants full datetimes, and has no `type` column — the self-service forms
+  // tag the reason instead (`[Work From Home] …`), so the type is read back
+  // from that tag.
+  attendanceRegularizations: {
+    path: '/hrms/attendance/regularizations/',
+    toApi: (r) => {
+      const date = isoOut(r.date);
+      return compact({
+        employeeId: isServerId(r.employeeId) ? r.employeeId : undefined,
+        date,
+        requestedCheckIn: clockToDateTime(date, r.requestedCheckIn || r.requestedIn || r.reqIn),
+        requestedCheckOut: clockToDateTime(date, r.requestedCheckOut || r.requestedOut || r.reqOut),
+        requestedStatus: r.requestedStatus || undefined,
+        reason: r.reason || undefined,
+        status: r.status || undefined,
+        remark: r.remark || r.rejectReason || undefined,
+      });
+    },
+    fromApi: (row) => {
+      const reqIn = dateTimeToClock(row.requestedCheckIn);
+      const reqOut = dateTimeToClock(row.requestedCheckOut);
+      return {
+        ...row,
+        employee: row.employeeName || '',
+        requestedBy: row.employeeName || '',
+        type: regularizationType(row.reason, row.requestedStatus),
+        date: displayIn(row.date),
+        reqIn,
+        reqOut,
+        requestedIn: reqIn,
+        requestedOut: reqOut,
+        submitted: displayIn(String(row.createdAt || '').slice(0, 10)),
+        _synced: true,
+      };
+    },
+  },
 
   // ── payroll ───────────────────────────────────────────────────────────────
   payroll: {
     path: '/hrms/payroll/',
     toApi: (p) => compact({
-      employeeId: p.employeeId || undefined,
-      month: p.month || undefined,
-      year: p.year !== undefined ? num(p.year) : undefined,
-      status: p.status || undefined,
+      additionalEarnings: p.additionalEarnings !== undefined ? num(p.additionalEarnings) : undefined,
+      deductions: p.deductions !== undefined ? num(p.deductions) : undefined,
+      advance: p.advance !== undefined ? num(p.advance) : undefined,
+      earnedSalary: p.earnedSalaryOverride !== undefined ? num(p.earnedSalaryOverride) : undefined,
     }),
-    fromApi: (row) => ({ ...row, _synced: true }),
+    fromApi: (row) => ({
+      ...row,
+      standardSalary: num(row.standardSalary),
+      earnedSalary: num(row.earnedSalary),
+      additionalEarnings: num(row.additionalEarnings),
+      deductions: num(row.deductions),
+      advance: num(row.advance),
+      netPayable: num(row.netPayable),
+      paidAmount: row.paidAmount != null ? num(row.paidAmount) : row.paidAmount,
+      attendedDays: num(row.attendedDays),
+      paidLeaves: num(row.paidLeaves),
+      totalDays: num(row.totalDays, 24),
+      unpaidLeaves: num(row.attendance?.unpaidLeave),
+      absentDays: num(row.breakdown?.absentDays),
+      attendanceDeduction: num(row.breakdown?.attendanceDeduction),
+      perDaySalary: num(row.breakdown?.perDaySalary),
+      period: String(row.month || '').slice(0, 7),
+      _synced: true,
+    }),
     // Payslips are generated, not created by hand.
     omitOnUpdate: ['employeeId', 'month', 'year'],
   },
@@ -335,8 +450,9 @@ export const HRMS_RESOURCES = {
     path: '/hrms/assets/',
     toApi: (a) => compact({
       name: a.name,
-      categoryId: a.categoryId || undefined,
-      employeeId: a.employeeId || undefined,
+      categoryId: isServerId(a.categoryId) ? a.categoryId : undefined,
+      categoryName: !isServerId(a.categoryId) && a.category ? a.category : undefined,
+      employeeId: isServerId(a.employeeId) ? a.employeeId : undefined,
       serialNumber: a.serialNumber || undefined,
       condition: a.condition || undefined,
       status: a.status || undefined,
@@ -350,13 +466,43 @@ export const HRMS_RESOURCES = {
     }),
     fromApi: (row) => ({
       ...row,
+      displayId: row.assetCode || row.id,
+      category: row.category || 'Uncategorised',
+      assignedTo: row.assignedTo || '',
+      dept: row.dept || '',
       purchaseDate: displayIn(row.purchaseDate),
       warrantyExpiry: displayIn(row.warrantyExpiry),
       _synced: true,
     }),
+    // Assignment goes through its own action, which writes the history row.
+    omitOnUpdate: ['employeeId'],
   },
   assetCategories: plain('/hrms/asset-categories/'),
-  assetRequests: dated('/hrms/asset-requests/', ['requestDate']),
+  assetRequests: {
+    path: '/hrms/asset-requests/',
+    toApi: (r) => compact({
+      employeeId: isServerId(r.employeeId) ? r.employeeId : undefined,
+      requestType: r.requestType || (r.requestedAssetId ? 'Inventory' : 'Other'),
+      requestedAssetId: isServerId(r.requestedAssetId) ? r.requestedAssetId : undefined,
+      itemName: r.itemName || r.assetName || undefined,
+      categoryId: isServerId(r.categoryId) ? r.categoryId : undefined,
+      categoryName: !isServerId(r.categoryId) ? (r.categoryName || r.category || undefined) : undefined,
+      priority: r.priority || undefined,
+      justification: r.justification || r.reason || undefined,
+    }),
+    fromApi: (row) => ({
+      ...row,
+      assetName: row.requestType === 'Inventory'
+        ? (row.requestedAsset || row.itemName || '')
+        : (row.itemName || ''),
+      reason: row.justification || '',
+      category: row.category || '',
+      dept: row.dept || '',
+      requestedDate: displayIn(row.requestedDate),
+      allocatedAssetId: row.fulfilledAssetCode || row.fulfilledAssetId || null,
+      _synced: true,
+    }),
+  },
 
   // ── employee lifecycle ────────────────────────────────────────────────────
   resignations: {
@@ -521,6 +667,31 @@ export const pullTrainingFunnel = () => Promise.resolve({ data: {} });
 export const pullPerformanceDashboard = () => read('/hrms/performance/dashboard/', null, 'performance dashboard');
 export const pullIndividualAttendance = (employeeId, query) =>
   read(`/hrms/attendance/individual/${employeeId}/`, query, 'individual attendance');
+/** `{date, summary, results: [one row per employee]}` for the register screens. */
+export const pullDailyAttendance = (date, query = {}) =>
+  read('/hrms/attendance/daily/', { date, ...query }, 'daily attendance');
+/** One employee's month: `{employee, month, days[], summary}`. */
+export const pullMonthlyAttendance = (employeeId, month) =>
+  read(`/hrms/attendance/individual/${employeeId}/`, { month }, 'monthly attendance');
+/** Leave cards for one employee (the caller's own when no id is given). */
+export const pullLeaveBalanceSummary = (employeeId, year) =>
+  read('/hrms/leave/balances/summary/', compact({ employeeId: employeeId || undefined, year }), 'leave balance summary');
+/** Stock any employee may request (Available units only). */
+export const pullAvailableAssets = () => read('/hrms/assets/available/', null, 'available assets');
+/** Assets the signed-in employee currently holds. */
+export const pullMyAssets = () => read('/hrms/assets/mine/', null, 'my assets');
+
+/** Write a day's register: `{date, records: [{employeeId, status, checkIn, checkOut, remark}]}`. */
+export async function saveAttendanceDay(date, records) {
+  if (!isBackendEnabled()) return null;
+  return api.post('/hrms/attendance/bulk/', { date, records });
+}
+
+/** Un-mark a day for some employees (rows posted by an approved leave are kept). */
+export async function clearAttendanceDay(date, employeeIds) {
+  if (!isBackendEnabled()) return null;
+  return api.post('/hrms/attendance/clear/', { date, employeeIds });
+}
 
 export async function pushHrmsSettings(settings) {
   if (!isBackendEnabled()) return null;
@@ -537,9 +708,9 @@ export async function pushFlexibility(config) {
   return api.put('/hrms/attendance/flexibility/', config);
 }
 
-export async function bulkAttendance(rows) {
+export async function bulkAttendance(rows, date) {
   if (!isBackendEnabled()) return null;
-  return api.post('/hrms/attendance/bulk/', { records: rows });
+  return api.post('/hrms/attendance/bulk/', compact({ date, records: rows }));
 }
 
 // ── record actions ──────────────────────────────────────────────────────────
@@ -556,6 +727,14 @@ export const archivePolicy = (id, payload = {}) => hrmsSync.act('policies', id, 
 export const submitPolicyForApproval = (id, payload = {}) =>
   hrmsSync.act('policies', id, 'submit-for-approval', payload);
 export const terminateEmployee = (id, payload) => hrmsSync.act('employees', id, 'terminate', payload);
+export const approveAssetRequest = (id, payload = {}) => hrmsSync.act('assetRequests', id, 'approve', payload);
+export const rejectAssetRequest = (id, payload = {}) => hrmsSync.act('assetRequests', id, 'reject', payload);
+export const fulfillAssetRequest = (id, payload) => hrmsSync.act('assetRequests', id, 'fulfill', payload);
+export const cancelAssetRequest = (id) => hrmsSync.act('assetRequests', id, 'cancel', {});
+export const approveRegularization = (id, payload = {}) =>
+  hrmsSync.act('attendanceRegularizations', id, 'approve', payload);
+export const rejectRegularization = (id, payload = {}) =>
+  hrmsSync.act('attendanceRegularizations', id, 'reject', payload);
 // export const assignTrainer = (id, payload) => hrmsSync.act('trainings', id, 'assign-trainer', payload);
 // export const evaluateTraining = (id, payload) => hrmsSync.act('trainings', id, 'evaluate', payload);
 // export const addTrainingParticipants = (id, payload) => hrmsSync.act('trainings', id, 'participants', payload);
@@ -635,6 +814,9 @@ export async function processPayroll(payload) {
   return api.post('/hrms/payroll/process/', payload);
 }
 
+/** One month's payslips (`period` = `YYYY-MM`). */
+export const pullPayrollPeriod = (period) => pullTracked('payroll', period ? { period } : undefined);
+
 
 // ── Textile Operational HR Actions & Data Fetchers (Oscar Scope) ────────────
 export const calculateQuarterlyIncentive = (payload) => api.post('/hrms/incentives/calculate-quarterly/', payload);
@@ -665,8 +847,7 @@ export const holdBrokerCommission = (id) => api.post(`/hrms/broker-commissions/$
 /** Get current user / employee punch state today. */
 export async function pullTodayPunch(employeeId = null) {
   if (!isBackendEnabled()) return null;
-  const params = employeeId ? { employeeId } : {};
-  return api.get('/hrms/attendance/today/', params);
+  return api.get('/hrms/attendance/today/', employeeId ? { query: { employeeId } } : undefined);
 }
 
 /** Record a Punch In or Punch Out event. */
@@ -694,8 +875,7 @@ export async function recordPunch({
 export async function pullPunchTimeline(employeeId, date) {
   if (!isBackendEnabled()) return [];
   return api.get('/hrms/attendance/punch-timeline/', {
-    employeeId,
-    date: isoOut(date) || date,
+    query: compact({ employeeId: employeeId || undefined, date: isoOut(date) || date }),
   });
 }
 

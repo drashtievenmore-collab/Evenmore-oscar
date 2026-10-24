@@ -262,7 +262,7 @@ const useAppStoreBase = create((set) => ({
       })
       .catch((err) => {
         set((s) => ({ leaves: s.leaves.filter((l) => l.id !== optimistic.id) }));
-        useAppStore.getState().showToast(`Leave not submitted — ${hrmsApi.describeError(err)}`);
+        useAppStore.getState().showToast(`Leave not submitted — ${hrmsApi.describeError(err)}`, "error");
         throw err;
       });
   },
@@ -277,7 +277,8 @@ const useAppStoreBase = create((set) => ({
       })
       .catch((err) => {
         set({ leaves: previous });
-        useAppStore.getState().showToast(`Leave not updated — ${hrmsApi.describeError(err)}`);
+        useAppStore.getState().showToast(`Leave not updated — ${hrmsApi.describeError(err)}`, "error");
+        return null;
       });
   },
 

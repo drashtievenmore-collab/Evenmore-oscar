@@ -399,6 +399,42 @@ export async function decidePublicShare(token, payload = {}) {
   return api.post(`/public/pms/approve/${token}/decide/`, payload);
 }
 
+// ── daily production entry link ─────────────────────────────────────────────
+
+/** Absolute URL of a production entry link, for copying and sharing. */
+export const productionLinkUrl = (token) => `${window.location.origin}/production-entry/${token}`;
+
+/** `GET /pms/projects/{id}/production-link/` — the project's active link, or `null`. */
+export async function fetchProductionLink(projectId) {
+  const res = await api.get(`/pms/projects/${encodeURIComponent(projectId)}/production-link/`);
+  return res?.link || null;
+}
+
+/** `POST …/production-link/` — issue the link; `regenerate` replaces the current token. */
+export async function issueProductionLink(projectId, { regenerate = false } = {}) {
+  const res = await api.post(
+    `/pms/projects/${encodeURIComponent(projectId)}/production-link/`,
+    { regenerate },
+  );
+  return res?.link || null;
+}
+
+/** `DELETE …/production-link/` — anyone holding the old link loses access. */
+export async function revokeProductionLink(projectId) {
+  await api.delete(`/pms/projects/${encodeURIComponent(projectId)}/production-link/`);
+  return null;
+}
+
+/** `GET /public/production/{token}/` — instructions, employees and recent entries; no account needed. */
+export async function fetchPublicProduction(token) {
+  return api.get(`/public/production/${token}/`);
+}
+
+/** `POST /public/production/{token}/entries/` — record a daily entry; no account needed. */
+export async function submitPublicProduction(token, payload) {
+  return api.post(`/public/production/${token}/entries/`, payload);
+}
+
 // ── read-only views the server aggregates ───────────────────────────────────
 
 async function readAggregate(path, query, label) {
