@@ -7,6 +7,7 @@ import { Button } from '../../components/ui/Button';
 import PageHeader from '../../components/ui/PageHeader';
 import { Building, Bell, Database, Save, Check, RotateCcw, AlertTriangle, Cog, LayoutGrid, Briefcase, UserCheck, Percent, ShieldCheck } from 'lucide-react';
 import { useDiscountPolicy } from '../../hooks/useDiscountPolicy';
+import BrandingSettingsCard from './BrandingSettingsCard';
 
 // Module settings pages, loaded on demand so the Settings bundle stays light.
 const CRMSystemSetupPage = lazy(() => import('../crm/setup/CRMSystemSetupPage'));
@@ -137,6 +138,8 @@ function GeneralSettings() {
       }
     };
     return (<div className="space-y-6 max-w-4xl">
+      <BrandingSettingsCard isAdmin={isAdmin} />
+
       <form onSubmit={handleSave} className="space-y-6">
         <div className="bg-white border border-[#CED4DA] rounded-lg p-5">
           <div className="flex items-center gap-2 pb-3 border-b border-[#CED4DA] mb-4">

@@ -464,7 +464,7 @@ export default function GenerateFinalJobWorkPOModal({
                   <select
                     value={selectedPiId}
                     onChange={(e) => setSelectedPiId(e.target.value)}
-                    className="flex-1 rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-[12px] font-semibold text-slate-700 outline-none focus:border-blue-500"
+                    className="flex-1 min-w-0 truncate rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-[12px] font-semibold text-slate-700 outline-none focus:border-blue-500"
                   >
                     {instructions.map((pi) => (
                       <option key={pi.id} value={pi.id}>
@@ -491,7 +491,7 @@ export default function GenerateFinalJobWorkPOModal({
                     type="text"
                     readOnly
                     value={projectCode || '—'}
-                    className="flex-1 rounded-lg border border-slate-200 bg-slate-50 px-2.5 py-1.5 text-[12px] text-slate-600 font-medium"
+                    className="flex-1 min-w-0 rounded-lg border border-slate-200 bg-slate-50 px-2.5 py-1.5 text-[12px] text-slate-600 font-medium"
                   />
                   <button
                     type="button"
@@ -794,7 +794,7 @@ export default function GenerateFinalJobWorkPOModal({
                 <thead>
                   <tr className="border-b border-slate-100 bg-slate-50/70 text-slate-500">
                     <th className="px-3 py-2 font-bold whitespace-nowrap">Sr. No.</th>
-                    <th className="px-3 py-2 font-bold min-w-[220px]">Description</th>
+                    <th className="px-3 py-2 font-bold min-w-[280px]">Description</th>
                     <th className="px-3 py-2 font-bold whitespace-nowrap">UOM</th>
                     <th className="px-3 py-2 font-bold whitespace-nowrap">Billable Qty (M)</th>
                     <th className="px-3 py-2 font-bold whitespace-nowrap">Rate (₹/M)</th>
@@ -811,7 +811,7 @@ export default function GenerateFinalJobWorkPOModal({
                       <td className="px-3 py-2.5 text-center text-slate-400 font-semibold">{idx + 1}</td>
                       <td className="px-3 py-2.5">
                         <textarea
-                          rows={2}
+                          rows={3}
                           value={row.description}
                           onChange={(e) => handleItemChange(idx, 'description', e.target.value)}
                           className="w-full rounded border border-slate-200 p-1.5 text-[11.5px] text-slate-700 outline-none focus:border-blue-500 resize-none font-medium"

@@ -21,6 +21,7 @@ import { api } from '../../services/api';
 import { useERP } from '../../context/ERPContext';
 import PageHeader from '../../components/ui/PageHeader';
 import TablePagination from '../../components/ui/TablePagination';
+import KpiCard from '../../components/ui/KpiCard';
 
 const STATUS_PILLS = {
   'Pending Dispatch': 'bg-amber-50 text-amber-700 border-amber-200',
@@ -185,8 +186,55 @@ export default function SupplierDeliveryPage() {
     return allFilteredDeliveries.slice(start, start + allPageSize);
   }, [allFilteredDeliveries, allPage, allPageSize]);
 
+  const [itemDispatchQtys, setItemDispatchQtys] = useState({});
+
+  useEffect(() => {
+    if (poLineItems.length > 1) {
+      const initial = {};
+      poLineItems.forEach((it, idx) => {
+        const key = it.id || it.itemId || `item-${idx}`;
+        initial[key] = '';
+      });
+      setItemDispatchQtys(initial);
+    } else {
+      setItemDispatchQtys({});
+    }
+  }, [selectedPo?.id, poLineItems]);
+
+  const handleFillAllRemaining = () => {
+    if (!poLineItems.length) return;
+    const filled = {};
+    let sum = 0;
+    poLineItems.forEach((it, idx) => {
+      const key = it.id || it.itemId || `item-${idx}`;
+      const q = Number(it.qty || 0);
+      filled[key] = q > 0 ? String(q) : '';
+      sum += q;
+    });
+    setItemDispatchQtys(filled);
+    setDispatchForm((prev) => ({ ...prev, dispatchedQty: sum > 0 ? String(sum) : '' }));
+  };
+
+  const handleClearLineQtys = () => {
+    const cleared = {};
+    poLineItems.forEach((it, idx) => {
+      const key = it.id || it.itemId || `item-${idx}`;
+      cleared[key] = '';
+    });
+    setItemDispatchQtys(cleared);
+    setDispatchForm((prev) => ({ ...prev, dispatchedQty: '' }));
+  };
+
+  const handleLineQtyChange = (key, val) => {
+    const updated = { ...itemDispatchQtys, [key]: val };
+    setItemDispatchQtys(updated);
+    const sum = Object.values(updated).reduce((s, v) => s + (Number(v) || 0), 0);
+    setDispatchForm((prev) => ({ ...prev, dispatchedQty: sum > 0 ? String(sum) : '' }));
+  };
+
   const handleClearForm = () => {
     setDispatchForm(initialDispatchState);
+    handleClearLineQtys();
   };
 
   const handleSaveDispatch = async (e) => {
@@ -208,6 +256,26 @@ export default function SupplierDeliveryPage() {
 
     setSubmitting(true);
     try {
+      let finalRemarks = dispatchForm.remarks?.trim() || '';
+      if (poLineItems.length > 1) {
+        const breakdownParts = poLineItems
+          .map((it, idx) => {
+            const key = it.id || it.itemId || `item-${idx}`;
+            const val = Number(itemDispatchQtys[key] || 0);
+            if (val > 0) {
+              const name = it.name || it.itemName || it.fabric || it.description || `Item ${idx + 1}`;
+              return `${name}: ${val.toLocaleString('en-IN')} M`;
+            }
+            return null;
+          })
+          .filter(Boolean);
+
+        if (breakdownParts.length > 0) {
+          const breakdownText = `[Breakdown: ${breakdownParts.join(' | ')}]`;
+          finalRemarks = finalRemarks ? `${breakdownText} ${finalRemarks}` : breakdownText;
+        }
+      }
+
       const payload = {
         purchaseOrderId: selectedPo.id,
         supplierChallanNo: dispatchForm.supplierChallanNo,
@@ -219,12 +287,13 @@ export default function SupplierDeliveryPage() {
         lrBiltyNumber: dispatchForm.lrBiltyNumber,
         dispatchedQty: qty,
         status: dispatchForm.status,
-        remarks: dispatchForm.remarks,
+        remarks: finalRemarks || undefined,
       };
 
       await api.post('/purchase/deliveries/', payload);
       toast.success('Supplier dispatch saved successfully.');
       setDispatchForm(initialDispatchState);
+      handleClearLineQtys();
       await loadDeliveries();
     } catch (err) {
       toast.error('Failed to save dispatch: ' + (err?.message || 'Server error'));
@@ -294,7 +363,7 @@ export default function SupplierDeliveryPage() {
   };
 
   return (
-    <div className="space-y-6 p-4 sm:p-6 max-w-7xl mx-auto">
+    <div className="space-y-6">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <div className="flex items-center gap-3">
           <button
@@ -380,10 +449,21 @@ export default function SupplierDeliveryPage() {
 
               <div>
                 <span className="text-[10.5px] font-semibold text-slate-400 block uppercase">Fabric Quality</span>
-                <p className="font-bold text-slate-800 truncate mt-0.5">
-                  {primaryFabric?.name || primaryFabric?.description || selectedPo.fabricName || 'Grey Fabric'}
-                </p>
-                <p className="text-[10px] text-slate-500">{primaryFabric?.uom || 'Mtr'} · {primaryFabric?.gsm ? `${primaryFabric.gsm} GSM` : 'Standard'}</p>
+                {poLineItems.length > 1 ? (
+                  <>
+                    <p className="font-bold text-blue-700 truncate mt-0.5" title={poLineItems.map((l) => l.name || l.fabric || l.description).filter(Boolean).join(', ')}>
+                      {poLineItems.length} Fabric Qualities
+                    </p>
+                    <p className="text-[10px] text-slate-500">Multi-item PO ({poLineItems.length} items)</p>
+                  </>
+                ) : (
+                  <>
+                    <p className="font-bold text-slate-800 truncate mt-0.5">
+                      {primaryFabric?.name || primaryFabric?.description || selectedPo.fabricName || 'Grey Fabric'}
+                    </p>
+                    <p className="text-[10px] text-slate-500">{primaryFabric?.uom || 'Mtr'} · {primaryFabric?.gsm ? `${primaryFabric.gsm} GSM` : 'Standard'}</p>
+                  </>
+                )}
               </div>
 
               <div>
@@ -396,10 +476,21 @@ export default function SupplierDeliveryPage() {
 
               <div>
                 <span className="text-[10.5px] font-semibold text-slate-400 block uppercase">Unit Rate</span>
-                <p className="font-mono font-bold text-slate-800 text-sm mt-0.5">
-                  ₹{Number(primaryFabric?.rate || selectedPo.rate || 0).toLocaleString('en-IN')}
-                </p>
-                <p className="text-[10px] text-slate-400">Per meter rate</p>
+                {poLineItems.length > 1 ? (
+                  <>
+                    <p className="font-mono font-bold text-slate-800 text-sm mt-0.5">
+                      Various Rates
+                    </p>
+                    <p className="text-[10px] text-slate-400">See line items breakdown below</p>
+                  </>
+                ) : (
+                  <>
+                    <p className="font-mono font-bold text-slate-800 text-sm mt-0.5">
+                      ₹{Number(primaryFabric?.rate || selectedPo.rate || 0).toLocaleString('en-IN')}
+                    </p>
+                    <p className="text-[10px] text-slate-400">Per meter rate</p>
+                  </>
+                )}
               </div>
 
               <div>
@@ -418,6 +509,61 @@ export default function SupplierDeliveryPage() {
                 <p className="text-[10px] text-indigo-600 font-mono">{selectedPo.projectCode || 'NO-PROJECT'}</p>
               </div>
             </div>
+
+            {poLineItems.length > 0 && (
+              <div className="mt-4 pt-4 border-t border-slate-100">
+                <div className="flex items-center justify-between mb-2">
+                  <h4 className="text-[11px] font-extrabold text-slate-700 uppercase tracking-wider flex items-center gap-1.5">
+                    <Layers size={13} className="text-blue-600" />
+                    Fabric Line Items ({poLineItems.length})
+                  </h4>
+                  <span className="text-[11px] font-semibold text-slate-500">
+                    Total: <strong className="font-mono text-slate-900">{totalOrderedQty.toLocaleString('en-IN')} M</strong> · <strong className="font-mono text-slate-900">₹{Number(selectedPo.total || selectedPo.amount || 0).toLocaleString('en-IN')}</strong>
+                  </span>
+                </div>
+
+                <div className="overflow-x-auto rounded-xl border border-slate-200">
+                  <table className="w-full text-left text-xs border-collapse">
+                    <thead className="bg-slate-50 text-[10.5px] font-bold text-slate-500 uppercase border-b border-slate-200">
+                      <tr>
+                        <th className="py-2.5 px-3 w-10">#</th>
+                        <th className="py-2.5 px-3">Fabric Quality / Description</th>
+                        <th className="py-2.5 px-3 text-right">Ordered Qty</th>
+                        <th className="py-2.5 px-3 text-right">Agreed Rate</th>
+                        <th className="py-2.5 px-3 text-right">Line Total</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100 bg-white">
+                      {poLineItems.map((item, idx) => {
+                        const name = item.name || item.itemName || item.fabric || item.description || `Fabric ${idx + 1}`;
+                        const qty = Number(item.qty || item.quantity || 0);
+                        const rate = Number(item.rate || item.unitPrice || 0);
+                        const total = Number(item.amount || qty * rate);
+                        const uom = item.uom || item.stockUom || 'Mtr';
+                        return (
+                          <tr key={item.id || idx} className="hover:bg-slate-50/70">
+                            <td className="py-2.5 px-3 font-mono text-slate-400 text-[11px]">{idx + 1}</td>
+                            <td className="py-2.5 px-3">
+                              <span className="font-bold text-slate-800">{name}</span>
+                              {item.gsm && <span className="ml-2 text-[10px] text-slate-400 font-mono">{item.gsm} GSM</span>}
+                            </td>
+                            <td className="py-2.5 px-3 text-right font-mono font-bold text-slate-900">
+                              {qty.toLocaleString('en-IN')} <span className="text-[10px] font-normal text-slate-500">{uom}</span>
+                            </td>
+                            <td className="py-2.5 px-3 text-right font-mono font-semibold text-slate-700">
+                              ₹{rate.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}/{uom}
+                            </td>
+                            <td className="py-2.5 px-3 text-right font-mono font-bold text-slate-900">
+                              ₹{total.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
           </div>
 
           <div>
@@ -428,62 +574,35 @@ export default function SupplierDeliveryPage() {
               </h3>
             </div>
 
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-              <div className="bg-white p-4 rounded-2xl border border-slate-200/90 shadow-2xs">
-                <div className="flex items-center justify-between">
-                  <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">Ordered Quantity</span>
-                  <div className="p-2 rounded-lg bg-blue-50 text-blue-600">
-                    <FileText size={16} />
-                  </div>
-                </div>
-                <p className="text-2xl font-black text-slate-900 mt-2 font-mono">
-                  {totalOrderedQty.toLocaleString('en-IN')} <span className="text-xs font-normal text-slate-500">M</span>
-                </p>
-                <p className="text-[11px] text-slate-400 mt-0.5">Total contracted requirement</p>
-              </div>
-
-              <div className="bg-white p-4 rounded-2xl border border-emerald-200/90 shadow-2xs bg-emerald-50/20">
-                <div className="flex items-center justify-between">
-                  <span className="text-xs font-bold text-emerald-800 uppercase tracking-wider">Total Dispatched</span>
-                  <div className="p-2 rounded-lg bg-emerald-100 text-emerald-700">
-                    <Truck size={16} />
-                  </div>
-                </div>
-                <p className="text-2xl font-black text-emerald-900 mt-2 font-mono">
-                  {totalDispatchedQty.toLocaleString('en-IN')} <span className="text-xs font-normal text-emerald-700">M</span>
-                </p>
-                <p className="text-[11px] text-emerald-700 mt-0.5">
-                  {totalOrderedQty > 0
-                    ? `${Math.round((totalDispatchedQty / totalOrderedQty) * 100)}% of PO dispatched`
-                    : '0 dispatches'}
-                </p>
-              </div>
-
-              <div className="bg-white p-4 rounded-2xl border border-purple-200/90 shadow-2xs bg-purple-50/20">
-                <div className="flex items-center justify-between">
-                  <span className="text-xs font-bold text-purple-800 uppercase tracking-wider">Received via GRN</span>
-                  <div className="p-2 rounded-lg bg-purple-100 text-purple-700">
-                    <Boxes size={16} />
-                  </div>
-                </div>
-                <p className="text-2xl font-black text-purple-900 mt-2 font-mono">
-                  {totalReceivedQty.toLocaleString('en-IN')} <span className="text-xs font-normal text-purple-700">M</span>
-                </p>
-                <p className="text-[11px] text-purple-700 mt-0.5">Physical intake in dock</p>
-              </div>
-
-              <div className="bg-white p-4 rounded-2xl border border-amber-200/90 shadow-2xs bg-amber-50/20">
-                <div className="flex items-center justify-between">
-                  <span className="text-xs font-bold text-amber-800 uppercase tracking-wider">Pending Dispatch</span>
-                  <div className="p-2 rounded-lg bg-amber-100 text-amber-700">
-                    <Clock size={16} />
-                  </div>
-                </div>
-                <p className="text-2xl font-black text-amber-900 mt-2 font-mono">
-                  {pendingDispatch.toLocaleString('en-IN')} <span className="text-xs font-normal text-amber-700">M</span>
-                </p>
-                <p className="text-[11px] text-amber-700 mt-0.5">Remaining vendor shipment</p>
-              </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3.5">
+              <KpiCard
+                label="Ordered Quantity"
+                value={`${totalOrderedQty.toLocaleString('en-IN')} M`}
+                icon={FileText}
+                tone="blue"
+                sub="Total contracted requirement"
+              />
+              <KpiCard
+                label="Total Dispatched"
+                value={`${totalDispatchedQty.toLocaleString('en-IN')} M`}
+                icon={Truck}
+                tone="emerald"
+                sub={totalOrderedQty > 0 ? `${Math.round((totalDispatchedQty / totalOrderedQty) * 100)}% of PO dispatched` : '0 dispatches'}
+              />
+              <KpiCard
+                label="Received via GRN"
+                value={`${totalReceivedQty.toLocaleString('en-IN')} M`}
+                icon={Boxes}
+                tone="purple"
+                sub="Physical intake in dock"
+              />
+              <KpiCard
+                label="Pending Dispatch"
+                value={`${pendingDispatch.toLocaleString('en-IN')} M`}
+                icon={Clock}
+                tone="amber"
+                sub="Remaining vendor shipment"
+              />
             </div>
           </div>
 
@@ -504,21 +623,28 @@ export default function SupplierDeliveryPage() {
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
                 <div>
                   <label className="block font-bold text-slate-700 mb-1">
-                    Dispatch Qty (Mtrs) <span className="text-rose-500">*</span>
+                    {poLineItems.length > 1 ? 'Total Dispatch Qty (Mtrs)' : 'Dispatch Qty (Mtrs)'} <span className="text-rose-500">*</span>
                   </label>
                   <input
                     type="number"
                     step="any"
                     required
+                    readOnly={poLineItems.length > 1}
                     min="1"
                     max={pendingDispatch > 0 ? pendingDispatch : undefined}
                     value={dispatchForm.dispatchedQty}
                     onChange={(e) => setDispatchForm({ ...dispatchForm, dispatchedQty: e.target.value })}
-                    placeholder={pendingDispatch > 0 ? String(pendingDispatch) : '1000'}
-                    className="w-full border border-slate-300 rounded-xl p-2.5 bg-white text-slate-900 font-mono font-bold focus:ring-2 focus:ring-blue-500/20 focus:border-blue-600"
+                    placeholder={poLineItems.length > 1 ? 'Filled from table below' : (pendingDispatch > 0 ? String(pendingDispatch) : '1000')}
+                    className={`w-full border rounded-xl p-2.5 font-mono font-bold ${
+                      poLineItems.length > 1
+                        ? 'border-blue-300 bg-blue-50/70 text-blue-900 cursor-not-allowed'
+                        : 'border-slate-300 bg-white text-slate-900 focus:ring-2 focus:ring-blue-500/20 focus:border-blue-600'
+                    }`}
                   />
                   <span className="text-[10px] text-slate-400 mt-1 block">
-                    Must be ≤ {pendingDispatch.toLocaleString('en-IN')} Mtrs
+                    {poLineItems.length > 1
+                      ? `Sum of fabric lines below (Must be ≤ ${pendingDispatch.toLocaleString('en-IN')} M)`
+                      : `Must be ≤ ${pendingDispatch.toLocaleString('en-IN')} Mtrs`}
                   </span>
                 </div>
 
@@ -615,6 +741,109 @@ export default function SupplierDeliveryPage() {
                   </div>
                 </div>
               </div>
+
+              {poLineItems.length > 1 && (
+                <div className="rounded-xl border border-blue-200 bg-blue-50/30 p-3.5 space-y-2.5">
+                  <div className="flex items-center justify-between flex-wrap gap-2">
+                    <div className="flex items-center gap-1.5">
+                      <Layers size={14} className="text-blue-600" />
+                      <span className="font-bold text-slate-800 text-xs uppercase tracking-wider">
+                        Fabric-wise Dispatch Allocation ({poLineItems.length} fabrics)
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={handleFillAllRemaining}
+                        className="text-[10.5px] font-bold text-blue-700 hover:text-blue-900 bg-white border border-blue-200 px-2.5 py-1 rounded-lg shadow-2xs cursor-pointer hover:bg-blue-50"
+                      >
+                        Dispatch Full All Items
+                      </button>
+                      <button
+                        type="button"
+                        onClick={handleClearLineQtys}
+                        className="text-[10.5px] font-semibold text-slate-600 hover:text-slate-900 bg-white border border-slate-200 px-2.5 py-1 rounded-lg shadow-2xs cursor-pointer hover:bg-slate-50"
+                      >
+                        Reset
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="overflow-x-auto rounded-lg border border-slate-200 bg-white">
+                    <table className="w-full text-left text-xs border-collapse">
+                      <thead className="bg-slate-50 text-[10.5px] font-bold text-slate-600 uppercase border-b border-slate-200">
+                        <tr>
+                          <th className="py-2.5 px-3 w-10">#</th>
+                          <th className="py-2.5 px-3">Fabric Quality / Description</th>
+                          <th className="py-2.5 px-3 text-right">Contracted Qty</th>
+                          <th className="py-2.5 px-3 text-right">Rate</th>
+                          <th className="py-2.5 px-3 text-right w-52">Dispatch Qty for this Challan</th>
+                          <th className="py-2.5 px-3 text-center w-20">Action</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-100">
+                        {poLineItems.map((item, idx) => {
+                          const key = item.id || item.itemId || `item-${idx}`;
+                          const name = item.name || item.itemName || item.fabric || item.description || `Fabric Item ${idx + 1}`;
+                          const maxQty = Number(item.qty || item.quantity || 0);
+                          const rate = Number(item.rate || item.unitPrice || 0);
+                          const uom = item.uom || item.stockUom || 'Mtr';
+                          return (
+                            <tr key={key} className="hover:bg-slate-50/50">
+                              <td className="py-2 px-3 font-mono text-slate-400 text-[11px]">{idx + 1}</td>
+                              <td className="py-2 px-3">
+                                <p className="font-bold text-slate-800">{name}</p>
+                                {item.gsm && <p className="text-[10px] text-slate-400 font-mono">{item.gsm} GSM</p>}
+                              </td>
+                              <td className="py-2 px-3 text-right font-mono font-bold text-slate-700">
+                                {maxQty.toLocaleString('en-IN')} <span className="text-[10px] font-normal text-slate-400">{uom}</span>
+                              </td>
+                              <td className="py-2 px-3 text-right font-mono text-slate-600">
+                                ₹{rate.toLocaleString('en-IN')}/{uom}
+                              </td>
+                              <td className="py-2 px-3 text-right">
+                                <div className="flex items-center justify-end gap-1.5">
+                                  <input
+                                    type="number"
+                                    step="any"
+                                    min="0"
+                                    max={maxQty > 0 ? maxQty : undefined}
+                                    value={itemDispatchQtys[key] ?? ''}
+                                    onChange={(e) => handleLineQtyChange(key, e.target.value)}
+                                    placeholder="0"
+                                    className="w-32 border border-slate-300 rounded-lg p-1.5 text-right font-mono font-bold text-slate-900 bg-white focus:ring-2 focus:ring-blue-500/20 focus:border-blue-600"
+                                  />
+                                  <span className="text-[11px] text-slate-400 font-mono">{uom}</span>
+                                </div>
+                              </td>
+                              <td className="py-2 px-3 text-center">
+                                <button
+                                  type="button"
+                                  onClick={() => handleLineQtyChange(key, String(maxQty))}
+                                  className="text-[10px] font-bold text-blue-600 hover:text-blue-800 bg-blue-50 hover:bg-blue-100 border border-blue-200 px-2 py-1 rounded"
+                                >
+                                  Max
+                                </button>
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                      <tfoot className="bg-slate-50 font-bold border-t border-slate-200">
+                        <tr>
+                          <td colSpan={2} className="py-2.5 px-3 text-slate-800">Total Shipment Dispatch</td>
+                          <td className="py-2.5 px-3 text-right font-mono text-slate-700">{totalOrderedQty.toLocaleString('en-IN')} M</td>
+                          <td></td>
+                          <td className="py-2.5 px-3 text-right font-mono text-blue-700 text-sm">
+                            {Number(dispatchForm.dispatchedQty || 0).toLocaleString('en-IN')} M
+                          </td>
+                          <td></td>
+                        </tr>
+                      </tfoot>
+                    </table>
+                  </div>
+                </div>
+              )}
 
               <div>
                 <label className="block font-bold text-slate-700 mb-1">Remarks & Dispatch Notes</label>

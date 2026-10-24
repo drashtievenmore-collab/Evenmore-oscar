@@ -40,7 +40,13 @@ export const PrintProformaInvoiceModal = ({
 
   const items = proforma.items || [];
   const taxableAmount = proforma.taxableAmount || items.reduce((sum, it) => sum + (Number(it.rate || 0) * Number(it.qty || 1)), 0);
-  const taxAmount = proforma.taxAmount || (taxableAmount * 0.18);
+  const calculatedTax = items.reduce((sum, it) => {
+    const rate = Number(it.rate || 0);
+    const qty = Number(it.qty || 1);
+    const tr = Number(it.tax ?? it.taxRate ?? 5);
+    return sum + ((rate * qty * tr) / 100);
+  }, 0);
+  const taxAmount = proforma.taxAmount || calculatedTax || (taxableAmount * 0.05);
   const grandTotal = proforma.grandTotal || proforma.total || (taxableAmount + taxAmount);
 
   return (
@@ -178,7 +184,7 @@ export const PrintProformaInvoiceModal = ({
                   {items.map((item, idx) => {
                     const rate = Number(item.rate || 0);
                     const qty = Number(item.qty || 1);
-                    const taxRate = Number(item.tax || 18);
+                    const taxRate = Number(item.tax ?? item.taxRate ?? 5);
                     const taxAmt = (rate * qty * taxRate) / 100;
                     const total = rate * qty + taxAmt;
 

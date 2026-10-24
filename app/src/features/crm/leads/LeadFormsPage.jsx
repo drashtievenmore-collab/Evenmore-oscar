@@ -1,11 +1,12 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { X } from 'lucide-react';
 import LeadFormsManager from '../leads/LeadFormsManager';
 import LeadGuideModal from '../leads/LeadGuideModal';
 import { defaultLeadFormSections } from '../../../data/crm/leadFormSchema';
 import { useCrmStore } from '../../../stores/crmStore';
-import { loadForms, saveForms, setActiveFormId, getActiveFormId, LEAD_FORM } from '../../../services/crmForms';
+import { loadForms, saveForms, setActiveFormId, fetchLiveLeadFormId, setLiveLeadForm, LEAD_FORM } from '../../../services/crmForms';
+import { isServerId } from '../../../services/resourceSync';
 
 export default function LeadFormsPage() {
   const navigate = useNavigate();
@@ -33,8 +34,17 @@ export default function LeadFormsPage() {
     return loaded;
   }, [storeForms]);
 
-  // Which form the Create Lead page renders — flipped by the row toggle.
-  const [activeFormId, setActiveFormIdState] = useState(() => getActiveFormId() || 'lead-form-default');
+  // Which form Create Lead renders for every user — the server's isActive
+  // flag, flipped by the row toggle. Refreshed on open in case another user
+  // changed it since the forms were loaded.
+  const activeFormId = useMemo(
+    () => (storeForms || []).find((f) => (f.kind || LEAD_FORM) === LEAD_FORM && f.isActive)?.id ?? null,
+    [storeForms],
+  );
+  const [toggling, setToggling] = useState(false);
+  useEffect(() => {
+    fetchLiveLeadFormId().catch(() => {});
+  }, []);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isGuideOpen, setIsGuideOpen] = useState(false);
   const [formName, setFormName] = useState('');
@@ -50,12 +60,24 @@ export default function LeadFormsPage() {
     setIsModalOpen(false);
   }
 
-  function handleToggleForm(formId) {
-    // Single active form: toggling on shows this form on the Create Lead
-    // page; toggling the active one off leaves no form selected.
-    const next = activeFormId === formId ? null : formId;
-    setActiveFormId(next);
-    setActiveFormIdState(next);
+  async function handleToggleForm(formId) {
+    // Single active form: toggling on shows this form on Create Lead for
+    // everyone; toggling the active one off leaves none, and Create Lead then
+    // asks the user to switch a form on.
+    if (toggling) return;
+    if (!isServerId(formId)) {
+      alert('Open this form in the builder and save it before switching it on.');
+      return;
+    }
+    const next = String(activeFormId) === String(formId) ? null : formId;
+    setToggling(true);
+    try {
+      await setLiveLeadForm(next);
+    } catch (err) {
+      alert(`Could not change the form status: ${err?.message || err}`);
+    } finally {
+      setToggling(false);
+    }
   }
 
   function handleCreateSubmit(e) {
@@ -73,26 +95,23 @@ export default function LeadFormsPage() {
     };
 
     saveForms([...leadForms, newForm], LEAD_FORM);
+    // Builder position only: a new (empty) form is not switched on for
+    // everyone until the user toggles it on.
     setActiveFormId(newId);
-    setActiveFormIdState(newId);
     setIsModalOpen(false);
     navigate(`/crm/leads/form-builder?formId=${newId}`);
   }
 
   function handleEditForm(formId) {
     setActiveFormId(formId);
-    setActiveFormIdState(formId);
     navigate(`/crm/leads/form-builder?formId=${formId}`);
   }
 
   function handleDeleteForm(formId) {
     const updated = leadForms.filter((f) => f.id !== formId);
+    // Deleting the live form leaves none switched on; the server drops it with
+    // the form, so there is nothing else to update here.
     saveForms(updated, LEAD_FORM);
-    if (activeFormId === formId) {
-      const nextActive = updated[0]?.id || null;
-      setActiveFormId(nextActive);
-      setActiveFormIdState(nextActive);
-    }
   }
 
   return (

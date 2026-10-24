@@ -296,11 +296,12 @@ export default function QuotationComposerPage({ embedded = null } = {}) {
 
   const totals = useMemo(() => {
     let subtotal = 0; let lineDisc = 0; let lineNet = 0; let lineGst = 0;
-    let totalQty = 0; let costSum = 0; let costLines = 0;
+    let totalQty = 0; let costSum = 0; let costLines = 0; const rateSet = new Set();
     lines.forEach((line) => {
       const t = lineTotals(line);
       subtotal += t.gross; lineDisc += t.disc; lineNet += t.net; lineGst += t.gst;
       totalQty += num(line.qty);
+      if (line.gstPct != null && line.gstPct !== '') rateSet.add(num(line.gstPct));
       if (line.costPrice != null && line.costPrice !== '') {
         costSum += num(line.qty) * num(line.costPrice);
         costLines += 1;
@@ -318,10 +319,19 @@ export default function QuotationComposerPage({ embedded = null } = {}) {
     const hasCost = costLines > 0;
     const profit = hasCost ? grand - costSum : null;
     const marginPct = hasCost ? (grand > 0 ? (profit / grand) * 100 : 0) : null;
+    const ratesList = Array.from(rateSet);
+    const effectiveGstPct = taxable > 0 ? ((gstTotal / taxable) * 100).toFixed(1) : (ratesList[0] ?? 5);
+    const gstDisplayLabel = !withTax
+      ? 'excluded'
+      : ratesList.length === 1
+        ? `${ratesList[0]}%`
+        : ratesList.length > 1
+          ? `Mixed (${ratesList.join('%, ')}%)`
+          : `${effectiveGstPct}%`;
     return {
       items: lines.length, totalQty, subtotal, docDisc, freight: freightNum,
       loading: loadingNum, other: otherNum, taxable, gstTotal, grand,
-      hasCost, costSum, profit, marginPct,
+      hasCost, costSum, profit, marginPct, ratesList, gstDisplayLabel,
     };
   }, [lines, docDiscPct, freightType, freightAmount, loading, otherCharges, withTax]);
 
@@ -1045,7 +1055,30 @@ export default function QuotationComposerPage({ embedded = null } = {}) {
               <div className="flex justify-between text-slate-600"><dt>Other Charges</dt><dd className="font-mono font-semibold">{inr(totals.other)}</dd></div>
               <div className="border-t border-slate-100 my-2" />
               <div className="flex justify-between text-slate-600"><dt>Taxable Amount</dt><dd className="font-mono font-semibold">{inr(totals.taxable)}</dd></div>
-              <div className="flex justify-between text-slate-600"><dt>GST ({withTax ? '5%' : 'excluded'})</dt><dd className="font-mono font-semibold">{inr(withTax ? totals.gstTotal : 0)}</dd></div>
+              <div className="flex justify-between items-center text-slate-600">
+                <dt className="flex items-center gap-1.5">
+                  <span>GST</span>
+                  {withTax ? (
+                    <select
+                      value={totals.ratesList?.length === 1 ? totals.ratesList[0] : ''}
+                      onChange={(e) => {
+                        const newRate = Number(e.target.value);
+                        setLines((prev) => prev.map((l) => ({ ...l, gstPct: newRate })));
+                      }}
+                      className="px-1.5 py-0.5 text-[11px] font-bold bg-slate-100 hover:bg-slate-200 border border-slate-300 rounded text-slate-800 cursor-pointer focus:outline-none focus:ring-1 focus:ring-blue-500"
+                      title="Change GST rate for quotation"
+                    >
+                      {totals.ratesList?.length > 1 && <option value="" disabled>Mixed ({totals.ratesList.join('%, ')}%)</option>}
+                      {GST_RATES.map((r) => (
+                        <option key={r} value={r}>{r}%</option>
+                      ))}
+                    </select>
+                  ) : (
+                    <span className="text-[11px] text-slate-400 font-semibold">(excluded)</span>
+                  )}
+                </dt>
+                <dd className="font-mono font-semibold">{inr(withTax ? totals.gstTotal : 0)}</dd>
+              </div>
               <div className="border-t border-slate-200 my-2" />
               <div className="flex justify-between items-center bg-emerald-50 border border-emerald-100 rounded-xl px-3 py-2.5">
                 <dt className="font-bold text-slate-900">Grand Total</dt>

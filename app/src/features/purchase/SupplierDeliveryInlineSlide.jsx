@@ -14,6 +14,7 @@ import {
   ChevronDown,
   ChevronUp,
   PackageCheck,
+  Layers,
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { api } from '../../services/api';
@@ -116,8 +117,55 @@ export function SupplierDeliveryInlineSlide({ po, onClose, onDeliverySaved, onNe
 
   const pendingDispatch = Math.max(0, totalOrderedQty - totalDispatchedQty);
 
+  const [itemDispatchQtys, setItemDispatchQtys] = useState({});
+
+  useEffect(() => {
+    if (poLineItems.length > 1) {
+      const initial = {};
+      poLineItems.forEach((it, idx) => {
+        const key = it.id || it.itemId || `item-${idx}`;
+        initial[key] = '';
+      });
+      setItemDispatchQtys(initial);
+    } else {
+      setItemDispatchQtys({});
+    }
+  }, [poId, poLineItems]);
+
+  const handleFillAllRemaining = () => {
+    if (!poLineItems.length) return;
+    const filled = {};
+    let sum = 0;
+    poLineItems.forEach((it, idx) => {
+      const key = it.id || it.itemId || `item-${idx}`;
+      const q = Number(it.qty || 0);
+      filled[key] = q > 0 ? String(q) : '';
+      sum += q;
+    });
+    setItemDispatchQtys(filled);
+    setDispatchForm((prev) => ({ ...prev, dispatchedQty: sum > 0 ? String(sum) : '' }));
+  };
+
+  const handleClearLineQtys = () => {
+    const cleared = {};
+    poLineItems.forEach((it, idx) => {
+      const key = it.id || it.itemId || `item-${idx}`;
+      cleared[key] = '';
+    });
+    setItemDispatchQtys(cleared);
+    setDispatchForm((prev) => ({ ...prev, dispatchedQty: '' }));
+  };
+
+  const handleLineQtyChange = (key, val) => {
+    const updated = { ...itemDispatchQtys, [key]: val };
+    setItemDispatchQtys(updated);
+    const sum = Object.values(updated).reduce((s, v) => s + (Number(v) || 0), 0);
+    setDispatchForm((prev) => ({ ...prev, dispatchedQty: sum > 0 ? String(sum) : '' }));
+  };
+
   const handleClear = () => {
     setDispatchForm(initialFormState);
+    handleClearLineQtys();
   };
 
   const handleSaveDispatch = async (e) => {
@@ -142,6 +190,26 @@ export function SupplierDeliveryInlineSlide({ po, onClose, onDeliverySaved, onNe
 
     setSubmitting(true);
     try {
+      let finalRemarks = dispatchForm.remarks?.trim() || '';
+      if (poLineItems.length > 1) {
+        const breakdownParts = poLineItems
+          .map((it, idx) => {
+            const key = it.id || it.itemId || `item-${idx}`;
+            const val = Number(itemDispatchQtys[key] || 0);
+            if (val > 0) {
+              const name = it.name || it.itemName || it.fabric || it.description || `Item ${idx + 1}`;
+              return `${name}: ${val.toLocaleString('en-IN')} M`;
+            }
+            return null;
+          })
+          .filter(Boolean);
+
+        if (breakdownParts.length > 0) {
+          const breakdownText = `[Breakdown: ${breakdownParts.join(' | ')}]`;
+          finalRemarks = finalRemarks ? `${breakdownText} ${finalRemarks}` : breakdownText;
+        }
+      }
+
       const payload = {
         purchaseOrderId: poId,
         supplierChallanNo: dispatchForm.supplierChallanNo,
@@ -153,12 +221,13 @@ export function SupplierDeliveryInlineSlide({ po, onClose, onDeliverySaved, onNe
         lrBiltyNumber: dispatchForm.lrBiltyNumber,
         dispatchedQty: qty,
         status: dispatchForm.status,
-        remarks: dispatchForm.remarks,
+        remarks: finalRemarks || undefined,
       };
 
       await api.post('/purchase/deliveries/', payload);
       showToast?.('Supplier dispatch saved successfully.', 'success');
       setDispatchForm(initialFormState);
+      handleClearLineQtys();
       await loadDeliveries();
       if (onDeliverySaved) onDeliverySaved();
     } catch (err) {
@@ -324,6 +393,61 @@ export function SupplierDeliveryInlineSlide({ po, onClose, onDeliverySaved, onNe
         </div>
       </div>
 
+      {poLineItems.length > 0 && (
+        <div className="rounded-xl border border-slate-200 bg-white p-3.5 shadow-2xs space-y-2.5">
+          <div className="flex items-center justify-between">
+            <h4 className="text-[11px] font-extrabold text-slate-800 uppercase tracking-wider flex items-center gap-1.5">
+              <Layers size={13} className="text-blue-600" />
+              Fabric Line Items ({poLineItems.length})
+            </h4>
+            <span className="text-[10.5px] font-semibold text-slate-500">
+              Total Contract: <strong className="font-mono text-slate-900">{totalOrderedQty.toLocaleString('en-IN')} M</strong>
+            </span>
+          </div>
+
+          <div className="overflow-x-auto rounded-lg border border-slate-200">
+            <table className="w-full text-left text-xs border-collapse">
+              <thead className="bg-slate-50 text-[10px] font-bold text-slate-500 uppercase border-b border-slate-200">
+                <tr>
+                  <th className="py-2 px-2.5 w-8">#</th>
+                  <th className="py-2 px-2.5">Fabric Quality / Description</th>
+                  <th className="py-2 px-2.5 text-right">Ordered Qty</th>
+                  <th className="py-2 px-2.5 text-right">Rate</th>
+                  <th className="py-2 px-2.5 text-right">Line Total</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100 bg-white">
+                {poLineItems.map((item, idx) => {
+                  const name = item.name || item.itemName || item.fabric || item.description || `Fabric ${idx + 1}`;
+                  const qty = Number(item.qty || item.quantity || 0);
+                  const rate = Number(item.rate || item.unitPrice || 0);
+                  const total = Number(item.amount || qty * rate);
+                  const uom = item.uom || item.stockUom || 'Mtr';
+                  return (
+                    <tr key={item.id || idx} className="hover:bg-slate-50/60">
+                      <td className="py-2 px-2.5 font-mono text-slate-400 text-[10px]">{idx + 1}</td>
+                      <td className="py-2 px-2.5">
+                        <span className="font-bold text-slate-800">{name}</span>
+                        {item.gsm && <span className="ml-1.5 text-[9.5px] text-slate-400 font-mono">{item.gsm} GSM</span>}
+                      </td>
+                      <td className="py-2 px-2.5 text-right font-mono font-bold text-slate-900">
+                        {qty.toLocaleString('en-IN')} <span className="text-[9.5px] font-normal text-slate-500">{uom}</span>
+                      </td>
+                      <td className="py-2 px-2.5 text-right font-mono font-semibold text-slate-700">
+                        ₹{rate.toLocaleString('en-IN')}/{uom}
+                      </td>
+                      <td className="py-2 px-2.5 text-right font-mono font-bold text-slate-900">
+                        ₹{total.toLocaleString('en-IN')}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
       <div ref={formRef} className="rounded-xl border border-blue-200 bg-white p-3.5 sm:p-4 shadow-2xs">
         <div className="flex items-center justify-between pb-2 mb-3 border-b border-slate-100">
           <h4 className="text-xs font-bold text-slate-800 uppercase tracking-wider flex items-center gap-1.5">
@@ -338,18 +462,23 @@ export function SupplierDeliveryInlineSlide({ po, onClose, onDeliverySaved, onNe
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
             <div>
               <label className="block font-bold text-slate-700 mb-1">
-                Dispatch Qty (Mtrs) <span className="text-rose-500">*</span>
+                {poLineItems.length > 1 ? 'Total Dispatch Qty (Mtrs)' : 'Dispatch Qty (Mtrs)'} <span className="text-rose-500">*</span>
               </label>
               <input
                 type="number"
                 step="any"
                 required
+                readOnly={poLineItems.length > 1}
                 min="1"
                 max={pendingDispatch > 0 ? pendingDispatch : undefined}
                 value={dispatchForm.dispatchedQty}
                 onChange={(e) => setDispatchForm({ ...dispatchForm, dispatchedQty: e.target.value })}
-                placeholder={pendingDispatch > 0 ? String(pendingDispatch) : '1000'}
-                className="w-full border border-slate-300 rounded-lg p-2 bg-white text-slate-900 font-mono font-bold focus:ring-2 focus:ring-blue-500/20 focus:border-blue-600"
+                placeholder={poLineItems.length > 1 ? 'Filled from table below' : (pendingDispatch > 0 ? String(pendingDispatch) : '1000')}
+                className={`w-full border rounded-lg p-2 font-mono font-bold ${
+                  poLineItems.length > 1
+                    ? 'border-blue-300 bg-blue-50/70 text-blue-900 cursor-not-allowed'
+                    : 'border-slate-300 bg-white text-slate-900 focus:ring-2 focus:ring-blue-500/20 focus:border-blue-600'
+                }`}
               />
             </div>
 
@@ -446,6 +575,98 @@ export function SupplierDeliveryInlineSlide({ po, onClose, onDeliverySaved, onNe
               </div>
             </div>
           </div>
+
+          {poLineItems.length > 1 && (
+            <div className="rounded-lg border border-blue-200 bg-blue-50/30 p-3 space-y-2">
+              <div className="flex items-center justify-between flex-wrap gap-2">
+                <span className="font-bold text-slate-800 text-[11px] uppercase tracking-wider flex items-center gap-1.5">
+                  <Layers size={13} className="text-blue-600" />
+                  Fabric Allocation ({poLineItems.length} fabrics)
+                </span>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={handleFillAllRemaining}
+                    className="text-[10px] font-bold text-blue-700 hover:text-blue-900 bg-white border border-blue-200 px-2 py-0.5 rounded shadow-2xs cursor-pointer hover:bg-blue-50"
+                  >
+                    Dispatch All Full
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleClearLineQtys}
+                    className="text-[10px] font-semibold text-slate-600 hover:text-slate-900 bg-white border border-slate-200 px-2 py-0.5 rounded shadow-2xs cursor-pointer hover:bg-slate-50"
+                  >
+                    Reset
+                  </button>
+                </div>
+              </div>
+
+              <div className="overflow-x-auto rounded border border-slate-200 bg-white">
+                <table className="w-full text-left text-xs border-collapse">
+                  <thead className="bg-slate-50 text-[10px] font-bold text-slate-500 uppercase border-b border-slate-200">
+                    <tr>
+                      <th className="py-2 px-2.5">Fabric Quality</th>
+                      <th className="py-2 px-2.5 text-right">Contracted</th>
+                      <th className="py-2 px-2.5 text-right w-44">Dispatch This Shipment</th>
+                      <th className="py-2 px-2.5 text-center w-16">Action</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {poLineItems.map((item, idx) => {
+                      const key = item.id || item.itemId || `item-${idx}`;
+                      const name = item.name || item.itemName || item.fabric || item.description || `Fabric Item ${idx + 1}`;
+                      const maxQty = Number(item.qty || item.quantity || 0);
+                      const uom = item.uom || item.stockUom || 'Mtr';
+                      return (
+                        <tr key={key}>
+                          <td className="py-1.5 px-2.5 font-medium text-slate-800">
+                            {name}
+                          </td>
+                          <td className="py-1.5 px-2.5 text-right font-mono text-slate-600">
+                            {maxQty.toLocaleString('en-IN')} {uom}
+                          </td>
+                          <td className="py-1.5 px-2.5 text-right">
+                            <div className="flex items-center justify-end gap-1">
+                              <input
+                                type="number"
+                                step="any"
+                                min="0"
+                                max={maxQty > 0 ? maxQty : undefined}
+                                value={itemDispatchQtys[key] ?? ''}
+                                onChange={(e) => handleLineQtyChange(key, e.target.value)}
+                                placeholder="0"
+                                className="w-28 border border-slate-300 rounded p-1 text-right font-mono font-bold text-slate-900 bg-white"
+                              />
+                              <span className="text-[10px] text-slate-400 font-mono">{uom}</span>
+                            </div>
+                          </td>
+                          <td className="py-1.5 px-2.5 text-center">
+                            <button
+                              type="button"
+                              onClick={() => handleLineQtyChange(key, String(maxQty))}
+                              className="text-[9.5px] font-bold text-blue-600 hover:text-blue-800 bg-blue-50 hover:bg-blue-100 border border-blue-200 px-1.5 py-0.5 rounded"
+                            >
+                              Max
+                            </button>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                  <tfoot className="bg-slate-50 font-bold border-t border-slate-200 text-[11px]">
+                    <tr>
+                      <td className="py-1.5 px-2.5 text-slate-800">Total Dispatch</td>
+                      <td className="py-1.5 px-2.5 text-right font-mono text-slate-600">{totalOrderedQty.toLocaleString('en-IN')} M</td>
+                      <td className="py-1.5 px-2.5 text-right font-mono text-blue-700">
+                        {Number(dispatchForm.dispatchedQty || 0).toLocaleString('en-IN')} M
+                      </td>
+                      <td></td>
+                    </tr>
+                  </tfoot>
+                </table>
+              </div>
+            </div>
+          )}
 
           <div>
             <label className="block font-bold text-slate-700 mb-1">Remarks & Notes</label>

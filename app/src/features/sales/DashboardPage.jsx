@@ -9,6 +9,7 @@ import {
   Layers, ClipboardList, Cog, Boxes, RotateCcw, Ban, HelpCircle, Loader2, RefreshCw,
 } from 'lucide-react';
 import PageInfoButton from '../../components/ui/PageInfoButton';
+import KpiCard from '../../components/ui/KpiCard';
 
 /*
  * Business position dashboard. Every figure comes from
@@ -86,20 +87,17 @@ function ChangeBadge({ pct }) {
 }
 
 function KpiTile({ icon: Icon, label, value, pct, vs, tileBg, iconBg, iconColor }) {
+  const up = pct >= 0;
+  const trendText = pct !== null ? `${up ? '+' : ''}${pct.toFixed(1)}% vs ${vs}` : undefined;
   return (
-    <div className="rounded-xl p-3" style={{ background: tileBg }}>
-      <div className="flex items-center gap-2">
-        <span className="grid h-8 w-8 shrink-0 place-items-center rounded-lg" style={{ background: iconBg, color: iconColor }}>
-          <Icon size={17} />
-        </span>
-        <span className="text-[11.5px] font-semibold leading-tight text-slate-600">{label}</span>
-      </div>
-      <div className="mt-2 text-[17px] font-extrabold tracking-tight text-[#17294e]">{value}</div>
-      <div className="mt-1 text-[11px] font-bold">
-        <ChangeBadge pct={pct} />
-      </div>
-      <div className="mt-0.5 text-[10.5px] font-medium text-slate-500">vs. {vs}</div>
-    </div>
+    <KpiCard
+      icon={Icon}
+      label={label}
+      value={value}
+      trend={trendText}
+      iconBg={iconBg}
+      iconColor={iconColor}
+    />
   );
 }
 

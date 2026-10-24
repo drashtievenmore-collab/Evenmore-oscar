@@ -26,7 +26,7 @@ export const PrintInvoiceModal = ({ isOpen, onClose, invoice, balanceDue = 0, })
     // Split every line's GST into CGST+SGST (intra-state) or IGST (inter-state)
     const lineTaxBreakdown = (it) => {
         const net = Number(it.amount ?? it.qty * it.rate) || 0;
-        const rate = Number(it.tax ?? it.taxRate ?? 18);
+        const rate = Number(it.tax ?? it.taxRate ?? 5);
         const taxAmt = net * (rate / 100);
         return hasStates
             ? { rate, taxAmt, cgst: isIntraState ? taxAmt / 2 : 0, sgst: isIntraState ? taxAmt / 2 : 0, igst: isIntraState ? 0 : taxAmt }

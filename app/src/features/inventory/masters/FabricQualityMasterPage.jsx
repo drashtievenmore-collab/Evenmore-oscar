@@ -315,10 +315,10 @@ export default function FabricQualityMasterPage() {
     <div className="w-full space-y-4">
       {/* ── Slide 1: Header Bar & Actions ── */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-        {/* Breadcrumb: Fabric Masters > Fabric Quality Master */}
+        {/* Breadcrumb: Inventory > Fabric Quality Master */}
         <div className="flex items-center gap-2 text-xs text-slate-600 font-medium">
           <Layers className="w-4 h-4 text-[#1e60f2]" />
-          <span>Fabric Masters</span>
+          <span>Inventory</span>
           <span className="text-slate-300 font-bold">&gt;</span>
           <span className="text-slate-800 font-semibold">Fabric Quality Master</span>
           <PageInfoButton title="Fabric Quality Master" />
@@ -667,7 +667,7 @@ export default function FabricQualityMasterPage() {
               <div className="flex items-center justify-between gap-3 mt-3 pt-2">
                 <div className="flex items-center gap-2 text-xs text-slate-600 font-medium">
                   <Layers className="w-4 h-4 text-[#1e60f2]" />
-                  <span>Fabric Masters</span>
+                  <span>Inventory</span>
                   <span className="text-slate-300 font-bold">&gt;</span>
                   <span>Fabric Quality Master</span>
                   <span className="text-slate-300 font-bold">&gt;</span>

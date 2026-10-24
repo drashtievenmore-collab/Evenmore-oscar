@@ -23,6 +23,7 @@ import {
   PackageCheck,
 } from 'lucide-react';
 import { PageHeader } from '../../components/ui/PageHeader';
+import KpiCard from '../../components/ui/KpiCard';
 import PageInfoButton from '../../components/ui/PageInfoButton';
 import { Button } from '../../components/ui/Button';
 import {
@@ -103,7 +104,7 @@ export default function DayBookPage() {
   };
 
   return (
-    <div className="space-y-6 p-4 sm:p-6 bg-slate-50 min-h-screen">
+    <div className="space-y-6">
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 bg-white p-4 sm:p-5 rounded-2xl border border-slate-200/80 shadow-sm">
         <div>

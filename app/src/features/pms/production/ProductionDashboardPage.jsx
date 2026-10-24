@@ -18,6 +18,7 @@ import {
 } from 'lucide-react';
 import { productionService } from '../../../services/domainServices';
 import PageHeader from '../../../components/ui/PageHeader';
+import KpiCard from '../../../components/ui/KpiCard';
 import { Button } from '../../../components/ui/Button';
 
 function fmtNum(val) {
@@ -212,7 +213,7 @@ export default function ProductionDashboardPage() {
   };
 
   return (
-    <div className="min-h-screen bg-slate-50 text-slate-800 p-4 sm:p-6 space-y-5">
+    <div className="space-y-5">
       {/* ── HEADER ──────────────────────────────────────────────────────────── */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 pb-1 border-b border-slate-200">
         <div>
