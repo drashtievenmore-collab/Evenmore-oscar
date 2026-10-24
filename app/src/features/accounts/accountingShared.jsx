@@ -1,3 +1,4 @@
+import KpiCard from '../../components/ui/KpiCard';
 import React, { useCallback, useEffect, useState } from 'react';
 import { api } from '../../services/api';
 import { AlertTriangle, Loader2, RefreshCw } from 'lucide-react';
@@ -187,12 +188,14 @@ export function TabBar({ tabs, active, onChange }) {
 }
 
 export function Kpi({ label, value, note, tone = 'text-slate-800' }) {
+  const selectedTone = tone.includes('rose') || tone.includes('red') ? 'rose' : tone.includes('emerald') || tone.includes('green') ? 'emerald' : tone.includes('amber') ? 'amber' : 'blue';
   return (
-    <div className="bg-white border border-[#dce5f4] rounded-xl p-4">
-      <span className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider">{label}</span>
-      <p className={`text-lg font-mono font-bold mt-1 ${tone}`}>{value}</p>
-      {note && <p className="text-[11px] text-slate-400 mt-0.5">{note}</p>}
-    </div>
+    <KpiCard
+      label={label}
+      value={value}
+      sub={note}
+      tone={selectedTone}
+    />
   );
 }
 

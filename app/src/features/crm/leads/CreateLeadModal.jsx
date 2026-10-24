@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useERP } from "../../../context/ERPContext";
 import { useCrmStore } from '../../../stores/crmStore';
-import { loadForms, findForm, getActiveFormId, LEAD_FORM } from '../../../services/crmForms';
+import { loadForms, findForm, getLiveLeadFormId, LEAD_FORM } from '../../../services/crmForms';
 import { defaultLeadFormSections, TEXTILE_FABRIC_OPTIONS, LEGACY_FABRIC_OPTIONS } from '../../../data/crm/leadFormSchema';
 import { matchKnownLeadField } from './leadColumns';
 import { CalendarDays, ChevronDown, Clock3, ImagePlus, Plus, X, Building2, ShieldCheck, Percent } from "lucide-react";
@@ -69,9 +69,10 @@ function useFormSections() {
 export function getActiveLeadFormSections() {
   const forms = loadForms(LEAD_FORM);
   // Respect the toggle in Manage Lead Create Forms: the form switched on there
-  // is the form Create Lead renders. `forms[0]` is only a fallback for older
-  // sessions that never toggled anything on.
-  const activeId = getActiveFormId();
+  // (server-side, for every user) is the form Create Lead renders. `forms[0]`
+  // only keeps the leads table columns sensible while every form is off —
+  // Create Lead itself does not open then.
+  const activeId = getLiveLeadFormId();
   const active = (activeId ? findForm(activeId) : null) ?? forms[0] ?? null;
   return withFabricDefaults(active?.sections ?? defaultLeadFormSections);
 }

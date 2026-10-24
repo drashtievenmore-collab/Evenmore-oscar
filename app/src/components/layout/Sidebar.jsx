@@ -9,13 +9,13 @@ import {
   ShoppingCart,
   Package,
   Layers,
+  Palette,
   Landmark,
   UserCheck,
   BarChart3,
   Settings,
   ChevronDown,
   ChevronRight,
-  Infinity as InfinityIcon,
   Building2,
   FileText,
   FileSpreadsheet,
@@ -69,6 +69,7 @@ import {
   DollarSign,
 } from 'lucide-react';
 import { useAppStore } from '../../stores/appStore';
+import BrandLogo, { useBrandName } from '../common/BrandLogo';
 import { usePmsStore, computeNavBadges } from '../../stores/pmsStore';
 import { useERP } from '../../context/ERPContext';
 import { useModuleWhenIdle } from '../../hooks/useIdleReady';
@@ -304,18 +305,10 @@ export const NAV = [
     children: [
       { label: 'Dashboard', icon: Home, to: '/inventory/dashboard' },
       { label: 'Total Inventory', icon: Package, to: '/inventory/items' },
-      {
-        label: 'Fabric Masters',
-        icon: Spool,
-        defaultOpen: false,
-        navigateOnOpen: true,
-        children: [
-          { label: 'Fabric Quality Master', to: '/inventory/fabric/quality', dot: true },
-          { label: 'Design Master', to: '/inventory/fabric/design' },
-          { label: 'Colour / Shade Master', to: '/inventory/fabric/colour' },
-          { label: 'Textile Operations Masters', to: '/inventory/masters/textile' },
-        ],
-      },
+      { label: 'Fabric Quality Master', icon: Spool, to: '/inventory/fabric/quality' },
+      { label: 'Design Master', icon: Layers, to: '/inventory/fabric/design' },
+      { label: 'Colour / Shade Master', icon: Palette, to: '/inventory/fabric/colour' },
+      { label: 'Textile Operations Masters', icon: Wrench, to: '/inventory/masters/textile' },
       { label: 'Fabric Item / Variant Master', icon: Boxes, to: '/inventory/fabric/variants' },
       {
         label: 'Categories',
@@ -990,6 +983,7 @@ function ExpandableRow({ item, depth = 0, badges = {} }) {
 export default function Sidebar() {
   const navigate = useNavigate();
   const sidebarWidth = useAppStore((s) => s.sidebarWidth) ?? 280;
+  const brandName = useBrandName('EVENMORE INFOTECH');
   const setSidebarWidth = useAppStore((s) => s.setSidebarWidth);
   const setMobileSidebarOpen = useAppStore((s) => s.setMobileSidebarOpen);
   const currentUser = useAppStore((s) => s.currentUser);
@@ -1086,10 +1080,10 @@ export default function Sidebar() {
         <div className="brand-block">
           <div className="brand-left">
             <span className="brand-logo">
-              <InfinityIcon size={28} strokeWidth={2.6} />
+              <BrandLogo size={28} strokeWidth={2.6} />
             </span>
             <div className="min-w-0">
-              <div className="brand-name">EVENMORE INFOTECH</div>
+              <div className="brand-name">{brandName}</div>
               <div className="brand-tag">PEOPLE | PROCESS | PROGRESS</div>
             </div>
           </div>

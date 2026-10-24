@@ -12,6 +12,7 @@ import {
   CheckCircle2,
 } from 'lucide-react';
 import PageHeader from '../../components/ui/PageHeader';
+import KpiCard from '../../components/ui/KpiCard';
 import { jobworkService } from '../../services/domainServices';
 
 const num = (val) =>
@@ -92,7 +93,7 @@ export default function ITC04ReportPage() {
   });
 
   return (
-    <div className="p-6 space-y-6 max-w-7xl mx-auto">
+    <div className="space-y-6">
       <PageHeader
         title="Form GST ITC-04 Statutory Reporting"
         subtitle="Quarterly declaration for textile inputs sent to and received back from job workers."

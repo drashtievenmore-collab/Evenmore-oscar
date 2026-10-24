@@ -17,6 +17,7 @@ import {
   Plus,
 } from 'lucide-react';
 import PageHeader from '../../components/ui/PageHeader';
+import KpiCard from '../../components/ui/KpiCard';
 import { approvalService } from '../../services/domainServices';
 
 const DOCUMENT_TYPE_LABELS = {
@@ -198,7 +199,7 @@ export default function ApprovalsInboxPage() {
   }, [requests, rules]);
 
   return (
-    <div className="p-6 space-y-6 max-w-7xl mx-auto">
+    <div className="space-y-6">
       <PageHeader
         title="Approval Engine & Inbox"
         subtitle="Operational authorization points, variance thresholds, and exception controls."

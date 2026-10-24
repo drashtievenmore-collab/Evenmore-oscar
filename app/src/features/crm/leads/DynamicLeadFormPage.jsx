@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useEffect, useMemo } from "react";
 import {
   ArrowLeft,
   CalendarDays,
@@ -14,7 +14,7 @@ import {
 import { useLocation, useNavigate } from "react-router-dom";
 import { defaultLeadFormSections } from "../../../data/crm/leadFormSchema";
 import { useCrmStore } from "../../../stores/crmStore";
-import { findForm, getActiveFormId, loadForms } from "../../../services/crmForms";
+import { fetchLiveLeadFormId, findForm, getLiveLeadFormId, isLeadFormSwitchedOn, loadForms } from "../../../services/crmForms";
 import PageInfoButton from "../../../components/ui/PageInfoButton";
 
 function getFieldIcon(field) {
@@ -127,18 +127,27 @@ export default function DynamicLeadFormPage({
   const handleEdit = onEditLayout || (() => navigate("/crm/leads/form-builder"));
 
   // Re-render once the store finishes hydrating after this page mounts.
-  useCrmStore((s) => s.forms);
+  const storeForms = useCrmStore((s) => s.forms);
+
+  // Another user may have switched the live form since the forms loaded.
+  useEffect(() => {
+    fetchLiveLeadFormId().catch(() => {});
+  }, []);
 
   // Which form to show: an explicitly passed preview, else the form toggled
-  // on in Manage Lead Create Forms. Toggling a form off only untoggles it —
-  // the page still renders the first available form (never a blank page),
-  // so creating a lead is never blocked by the toggle.
+  // on in Manage Lead Create Forms. With every form switched off the page
+  // shows a notice instead, so no lead is created on an unchosen form.
   const previewFormId = location.state?.formId || null;
   const resolvedForm = useMemo(() => {
     if (Array.isArray(sections) && sections.length > 0 && sections !== defaultLeadFormSections) {
       return { sections };
     }
-    const wantedId = previewFormId || getActiveFormId();
+    // Every form switched off: show the "No lead form is switched on" notice
+    // instead of falling back to the first form. A builder preview still works.
+    if (!previewFormId && !isLeadFormSwitchedOn()) {
+      return { sections: [] };
+    }
+    const wantedId = previewFormId || getLiveLeadFormId();
     if (wantedId) {
       const form = findForm(wantedId);
       if (form && Array.isArray(form.sections) && form.sections.length > 0) {
@@ -150,7 +159,7 @@ export default function DynamicLeadFormPage({
       return fallback;
     }
     return { sections: defaultLeadFormSections };
-  }, [sections, previewFormId]);
+  }, [sections, previewFormId, storeForms]);
 
   const safeSections = useMemo(() => {
     if (resolvedForm) {

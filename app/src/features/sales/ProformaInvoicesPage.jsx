@@ -150,11 +150,16 @@ export const ProformaInvoicesPage = () => {
   
   // Tax logic: Check if customer is intra-state (Maharashtra 27) or inter-state
   const isInterState = selectedCustomer?.placeOfSupply && !selectedCustomer.placeOfSupply.includes('27') && !selectedCustomer.placeOfSupply.includes('Maharashtra');
-  const taxRate = 0.18; // standard 18% GST
-  const cgst = !isInterState ? Math.round(taxableAmount * (taxRate / 2) * 100) / 100 : 0;
-  const sgst = !isInterState ? Math.round(taxableAmount * (taxRate / 2) * 100) / 100 : 0;
-  const igst = isInterState ? Math.round(taxableAmount * taxRate * 100) / 100 : 0;
-  const grandTotal = Math.round((taxableAmount + cgst + sgst + igst + Number(otherCharges || 0)) * 100) / 100;
+  const computedTotalTax = lineItems.reduce((acc, it) => {
+    const lTax = it.tax !== undefined && it.tax !== null ? Number(it.tax) : 5;
+    const lSub = (Number(it.rate) || 0) * (Number(it.qty) || 1) * (1 - (Number(it.discount) || 0) / 100);
+    return acc + (lSub * (lTax / 100));
+  }, 0);
+  const totalTaxAmount = Math.round(computedTotalTax * 100) / 100;
+  const cgst = !isInterState ? Math.round((totalTaxAmount / 2) * 100) / 100 : 0;
+  const sgst = !isInterState ? Math.round((totalTaxAmount - cgst) * 100) / 100 : 0;
+  const igst = isInterState ? totalTaxAmount : 0;
+  const grandTotal = Math.round((taxableAmount + totalTaxAmount + Number(otherCharges || 0)) * 100) / 100;
 
   // Sync Customer info on customer select
   const handleCustomerChange = (custId) => {
@@ -182,9 +187,9 @@ export const ProformaInvoicesPage = () => {
               unit: it.unit || 'Unit',
               rate: it.rate || 0,
               discount: it.discount || 0,
-              tax: it.tax || 18,
-              taxAmount: Math.round((it.rate || 0) * (it.qty || 1) * 0.18 * 100) / 100,
-              amount: Math.round((it.rate || 0) * (it.qty || 1) * 1.18 * 100) / 100,
+              tax: it.tax ?? it.taxRate ?? 5,
+              taxAmount: Math.round((it.rate || 0) * (it.qty || 1) * (1 - (it.discount || 0) / 100) * ((Number(it.tax ?? it.taxRate ?? 5)) / 100) * 100) / 100,
+              amount: Math.round((it.rate || 0) * (it.qty || 1) * (1 - (it.discount || 0) / 100) * (1 + (Number(it.tax ?? it.taxRate ?? 5)) / 100) * 100) / 100,
               warrantyStatus: 'Pending Final Invoicing / Commissioning',
             }))
           );
@@ -1132,10 +1137,10 @@ export const ProformaInvoicesPage = () => {
                         </td>
                         <td className="p-2.5 text-center font-mono font-semibold">{it.qty} {it.unit || 'Unit'}</td>
                         <td className="p-2.5 text-right font-mono">{formatCurrency(it.rate || 0)}</td>
-                        <td className="p-2.5 text-center font-mono">{it.tax || 18}%</td>
-                        <td className="p-2.5 text-right font-mono">{formatCurrency(it.taxAmount || ((it.rate || 0) * (it.qty || 1) * 0.18))}</td>
+                        <td className="p-2.5 text-center font-mono">{it.tax ?? 5}%</td>
+                        <td className="p-2.5 text-right font-mono">{formatCurrency(it.taxAmount || ((Number(it.rate) || 0) * (Number(it.qty) || 1) * ((Number(it.tax ?? 5)) / 100)))}</td>
                         <td className="p-2.5 text-right font-mono font-bold text-slate-800">
-                          {formatCurrency(it.amount || ((it.rate || 0) * (it.qty || 1) * 1.18))}
+                          {formatCurrency(it.amount || ((Number(it.rate) || 0) * (Number(it.qty) || 1) * (1 + (Number(it.tax ?? 5)) / 100)))}
                         </td>
                       </tr>
                     ))}

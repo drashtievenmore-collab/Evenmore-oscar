@@ -272,39 +272,41 @@
 /* ── Oscar sidebar: teal active pill + teal accents ───────── */
 [data-theme="oscar"] .sidebar {
   background:
-    radial-gradient(circle at 85% -5%, rgba(45, 212, 191, 0.16), transparent 45%),
+    radial-gradient(circle at 85% -5%, var(--brand-tint, rgba(45, 212, 191, 0.16)), transparent 45%),
     linear-gradient(180deg, var(--sidebar-bg-from) 0%, var(--sidebar-bg-to) 100%);
 }
+/* --brand-* vars are only set when a custom brand colour is saved
+   (utils/branding.js); the fallbacks are the stock Oscar teal. */
 [data-theme="oscar"] .brand-logo {
-  color: #2dd4bf;
+  color: var(--brand-accent, #2dd4bf);
 }
 [data-theme="oscar"] .brand-tag {
   color: #7fa3b0;
 }
 [data-theme="oscar"] .nav-row.section-active {
-  background: linear-gradient(90deg, #1cb3b3 0%, #129191 100%);
+  background: var(--sidebar-active-bg);
   color: #ffffff;
   font-weight: 700;
-  box-shadow: 0 4px 14px rgba(20, 184, 166, 0.35);
+  box-shadow: 0 4px 14px var(--brand-glow, rgba(20, 184, 166, 0.35));
   border-left: 0;
   padding-left: 10px;
   border-radius: 10px;
 }
 [data-theme="oscar"] .sub-group-row.section-active,
 [data-theme="oscar"] .sub-group-row.active {
-  background: linear-gradient(90deg, rgba(28, 179, 179, 0.9) 0%, rgba(18, 145, 145, 0.9) 100%);
+  background: var(--brand-active-bg, linear-gradient(90deg, rgba(28, 179, 179, 0.9) 0%, rgba(18, 145, 145, 0.9) 100%));
   color: #ffffff;
   border: 0;
-  box-shadow: 0 4px 14px rgba(20, 184, 166, 0.3);
+  box-shadow: 0 4px 14px var(--brand-glow, rgba(20, 184, 166, 0.3));
 }
 [data-theme="oscar"] .sub-item.section-active,
 [data-theme="oscar"] .sub-item.active {
-  background: rgba(45, 212, 191, 0.14);
+  background: var(--brand-tint, rgba(45, 212, 191, 0.14));
   color: #ffffff;
-  border-left: 3px solid #2dd4bf;
+  border-left: 3px solid var(--brand-accent, #2dd4bf);
 }
 [data-theme="oscar"] .side-top::-webkit-scrollbar-thumb {
-  background: rgba(45, 212, 191, 0.25);
+  background: var(--brand-tint, rgba(45, 212, 191, 0.25));
 }
 }
 
@@ -706,7 +708,11 @@ body {
   transition: background 0.3s ease, color 0.3s ease;
 }
 
-button, input, select, textarea { font: inherit; }
+/* Layered so Tailwind text-* utilities on form controls still win; unlayered,
+   this reset overrode every font size set on an input, select or button. */
+@layer base {
+  button, input, select, textarea { font: inherit; }
+}
 button { cursor: pointer; }
 a { text-decoration: none; color: inherit; }
 img { display: block; max-width: 100%; }

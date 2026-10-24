@@ -973,7 +973,7 @@ export function StockPositionPage() {
   const TabHeaderIcon = tabHeaderInfo.icon;
 
   return (
-    <div className="min-h-screen bg-[#f8fafc] text-slate-800 p-4 sm:p-6 space-y-5">
+    <div className="space-y-5">
       {/* ── TOP PAGE HEADER ────────────────────────────────────────────────── */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 bg-white p-4 rounded-xl border border-slate-200/90 shadow-xs">
         <div className="flex items-center gap-3">

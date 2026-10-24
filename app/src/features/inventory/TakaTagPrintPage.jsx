@@ -452,7 +452,7 @@ export default function TakaTagPrintPage() {
   }, [data, selectedRowIds]);
 
   return (
-    <div className="space-y-4 p-3 sm:p-5 text-slate-800 bg-[#f8fafc] min-h-screen">
+    <div className="space-y-4">
       {/* ── CSS PRINT STYLES (Prints ONLY the tags, hides app chrome) ── */}
       <style>{`
         @media print {

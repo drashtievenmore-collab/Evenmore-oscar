@@ -2,6 +2,7 @@ import { create } from "zustand";
 import { lazyStoreForKeys } from "../services/lazyModules";
 import { hrmsSync } from "../services/hrmsSync";
 import * as hrmsApi from "../services/hrmsSync";
+import { loadBranding, saveBranding, applyBranding, EMPTY_BRANDING } from "../utils/branding";
 
 /** Local placeholder id for an optimistic row, replaced by the server's. */
 function tempId(prefix) {
@@ -56,6 +57,12 @@ function loadTheme() {
   return "oscar";
 }
 
+function loadAndApplyBranding() {
+  const branding = loadBranding();
+  try { applyBranding(branding); } catch {}
+  return branding;
+}
+
 const useAppStoreBase = create((set) => ({
   // Theme state
   theme: loadTheme(),
@@ -65,6 +72,20 @@ const useAppStoreBase = create((set) => ({
       applyThemeAttributes(theme);
     } catch {}
     set({ theme });
+  },
+
+  // Custom branding (logo + brand colour), see utils/branding.js
+  branding: loadAndApplyBranding(),
+  setBranding: (branding) => {
+    const next = { ...EMPTY_BRANDING, ...branding };
+    saveBranding(next);
+    try { applyBranding(next); } catch {}
+    set({ branding: next });
+  },
+  resetBranding: () => {
+    saveBranding(EMPTY_BRANDING);
+    try { applyBranding(EMPTY_BRANDING); } catch {}
+    set({ branding: { ...EMPTY_BRANDING } });
   },
 
   // Layout & Global App State

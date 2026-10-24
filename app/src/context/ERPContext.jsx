@@ -1377,9 +1377,9 @@ export const ERPProvider = ({ children, }) => {
                     unit: 'Unit',
                     rate: subtotal,
                     discount: 0,
-                    tax: 18,
-                    taxAmount: Math.round(subtotal * 0.18 * 100) / 100,
-                    amount: Math.round(subtotal * 1.18 * 100) / 100,
+                    tax: 5,
+                    taxAmount: Math.round(subtotal * 0.05 * 100) / 100,
+                    amount: Math.round(subtotal * 1.05 * 100) / 100,
                 },
             ],
             subtotal,
@@ -1439,7 +1439,12 @@ export const ERPProvider = ({ children, }) => {
 
         const targetItems = invoiceOverrides.items || pi.items || [];
         const subtotal = invoiceOverrides.subtotal ?? (targetItems.reduce((sum, item) => sum + (Number(item.amount || 0) || (Number(item.qty || 1) * Number(item.rate || 0))), 0) || pi.subtotal);
-        const tax = invoiceOverrides.tax ?? (pi.cgst + pi.sgst + pi.igst || Math.round(subtotal * 0.18 * 100) / 100);
+        const dynamicTax = targetItems.reduce((acc, it) => {
+            const lineNet = Number(it.amount ?? (Number(it.qty || 1) * Number(it.rate || 0))) || 0;
+            const lineTaxRate = Number(it.tax ?? it.taxRate ?? 5);
+            return acc + (lineNet * (lineTaxRate / 100));
+        }, 0);
+        const tax = invoiceOverrides.tax ?? (pi.cgst + pi.sgst + pi.igst || Math.round(dynamicTax * 100) / 100 || Math.round(subtotal * 0.05 * 100) / 100);
         const grandTotal = invoiceOverrides.total ?? Math.round((subtotal + tax) * 100) / 100;
         const nextInvNumber = ''; // allocated by the server on finalize
 

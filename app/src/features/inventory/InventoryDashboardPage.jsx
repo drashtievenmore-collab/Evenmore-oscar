@@ -297,7 +297,7 @@ export function InventoryDashboardPage() {
   }, [data]);
 
   return (
-    <div className="min-h-screen bg-[#f8fafc] text-slate-800 p-4 sm:p-6 space-y-5">
+    <div className="space-y-5">
       {/* ── TOP HEADER & FILTER BAR ────────────────────────────────────────── */}
       <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4 pb-2 border-b border-slate-200">
         <div>
