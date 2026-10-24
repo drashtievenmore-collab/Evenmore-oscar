@@ -819,20 +819,64 @@ export function Stage12JobWorkOutwardWorkspace({
           isOpen={isModalOpen}
           onClose={() => setIsModalOpen(false)}
           title={`Record Job Work Outward Dispatch — ${activeJwo?.jwoNo || ''}`}
+          subtitle="Pick available rolls from godown inventory, configure outward dispatch logistics, and confirm stock movement."
           size="2xl"
+          footer={
+            <div className="flex flex-wrap items-center justify-between gap-3 w-full">
+              <button
+                type="button"
+                onClick={handleValidateStock}
+                disabled={validating}
+                className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg border border-slate-300 hover:bg-slate-100 text-slate-700 font-bold text-xs cursor-pointer transition-colors"
+              >
+                <ShieldCheck size={15} className={validating ? 'animate-spin text-blue-600' : 'text-slate-500'} />
+                <span>{validating ? 'Validating Stock...' : 'Validate Stock'}</span>
+              </button>
+
+              <div className="flex items-center gap-2">
+                <Button
+                  variant="outline"
+                  type="button"
+                  onClick={() => setIsModalOpen(false)}
+                  disabled={submitting}
+                >
+                  Cancel
+                </Button>
+
+                <button
+                  type="button"
+                  onClick={() => handleSaveOutward('Draft')}
+                  disabled={submitting}
+                  className="px-3.5 py-2 rounded-lg border border-slate-300 bg-white hover:bg-slate-50 text-slate-800 font-bold text-xs cursor-pointer transition-colors shadow-2xs"
+                >
+                  Save Draft (No Stock Move)
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => handleSaveOutward('Sent')}
+                  disabled={submitting}
+                  className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs cursor-pointer transition-colors shadow-xs"
+                >
+                  <Send size={13} className={submitting ? 'animate-pulse' : ''} />
+                  <span>{submitting ? 'Confirming...' : 'Confirm Outward Dispatch'}</span>
+                </button>
+              </div>
+            </div>
+          }
         >
-          <div className="space-y-6 max-h-[80vh] overflow-y-auto px-1 pr-2">
+          <div className="space-y-6">
             {/* Summary Bar */}
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 p-3.5 rounded-xl bg-slate-50 border border-slate-200 text-xs">
               <div>
-                <span className="text-[10px] text-slate-400 font-semibold block uppercase">Vendor / Processor</span>
+                <span className="text-[10px] text-slate-400 font-semibold block uppercase tracking-wider">Vendor / Processor</span>
                 <span className="font-bold text-slate-800 text-xs mt-0.5 block">
                   {activeJwo?.vendor || 'Vendor B'}
                 </span>
                 <span className="text-[11px] text-slate-500">Process: {activeJwo?.process || 'Dyeing'}</span>
               </div>
               <div>
-                <span className="text-[10px] text-slate-400 font-semibold block uppercase">JWO Planned vs Dispatched</span>
+                <span className="text-[10px] text-slate-400 font-semibold block uppercase tracking-wider">JWO Planned vs Dispatched</span>
                 <span className="font-mono font-bold text-slate-800 text-xs mt-0.5 block">
                   {plannedQty.toLocaleString('en-IN')} M Planned
                 </span>
@@ -841,7 +885,7 @@ export function Stage12JobWorkOutwardWorkspace({
                 </span>
               </div>
               <div>
-                <span className="text-[10px] text-slate-400 font-semibold block uppercase">Selected for this Dispatch</span>
+                <span className="text-[10px] text-slate-400 font-semibold block uppercase tracking-wider">Selected for this Dispatch</span>
                 <span className="font-mono font-bold text-blue-700 text-sm mt-0.5 block">
                   {selectedTotalMeters.toLocaleString('en-IN')} M ({selectedTakaCount} Rolls)
                 </span>
@@ -883,87 +927,89 @@ export function Stage12JobWorkOutwardWorkspace({
               </div>
 
               {/* Taka Table */}
-              <div className="rounded-xl border border-slate-200 overflow-hidden max-h-56 overflow-y-auto">
-                <table className="w-full text-left text-xs text-slate-700">
-                  <thead className="bg-slate-50 text-[10px] font-bold text-slate-600 uppercase border-b border-slate-200 sticky top-0 z-10">
-                    <tr>
-                      <th className="p-2.5 text-center w-8">
-                        <input
-                          type="checkbox"
-                          checked={
-                            filteredTakas.length > 0 &&
-                            filteredTakas.every((t) => selectedTakaMap[t.id]?.selected)
-                          }
-                          onChange={handleToggleAllTakas}
-                          className="rounded text-blue-600 cursor-pointer"
-                        />
-                      </th>
-                      <th className="p-2.5">Roll / Taka #</th>
-                      <th className="p-2.5">Lot Number</th>
-                      <th className="p-2.5">Warehouse Godown</th>
-                      <th className="p-2.5">Source PO / GRN</th>
-                      <th className="p-2.5 text-right">Available (M)</th>
-                      <th className="p-2.5 text-right">Dispatch Qty (M)</th>
-                      <th className="p-2.5 text-center">Attribution</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-100 font-mono text-[11px]">
-                    {filteredTakas.length > 0 ? (
-                      filteredTakas.map((taka) => {
-                        const isSelected = Boolean(selectedTakaMap[taka.id]?.selected);
-                        const curMeters = selectedTakaMap[taka.id]?.meters ?? taka.availableQty;
-
-                        return (
-                          <tr
-                            key={taka.id}
-                            className={`transition-colors ${
-                              isSelected ? 'bg-blue-50/50' : 'hover:bg-slate-50/60'
-                            }`}
-                          >
-                            <td className="p-2.5 text-center">
-                              <input
-                                type="checkbox"
-                                checked={isSelected}
-                                onChange={() => handleToggleTaka(taka)}
-                                className="rounded text-blue-600 cursor-pointer"
-                              />
-                            </td>
-                            <td className="p-2.5 font-bold text-slate-900">{taka.takaNumber}</td>
-                            <td className="p-2.5 text-slate-600">{taka.lotNumber}</td>
-                            <td className="p-2.5 font-sans text-slate-600">{taka.warehouse}</td>
-                            <td className="p-2.5 text-slate-500">{taka.sourcePoNumber}</td>
-                            <td className="p-2.5 text-right font-medium text-slate-700">
-                              {taka.availableQty.toLocaleString('en-IN')} M
-                            </td>
-                            <td className="p-2.5 text-right">
-                              <input
-                                type="number"
-                                min="0"
-                                max={taka.availableQty}
-                                step="any"
-                                value={curMeters}
-                                disabled={!isSelected}
-                                onChange={(e) => handleUpdateTakaMeters(taka.id, e.target.value)}
-                                className="w-20 px-2 py-0.5 text-right text-xs border border-slate-200 rounded font-mono font-bold focus:outline-none focus:border-blue-500 disabled:bg-slate-100 disabled:text-slate-400"
-                              />
-                            </td>
-                            <td className="p-2.5 text-center font-sans">
-                              <span className="px-1.5 py-0.5 rounded text-[10px] font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200">
-                                {taka.attribution}
-                              </span>
-                            </td>
-                          </tr>
-                        );
-                      })
-                    ) : (
+              <div className="rounded-xl border border-slate-200 overflow-hidden bg-white shadow-2xs">
+                <div className="max-h-60 overflow-y-auto overflow-x-auto">
+                  <table className="min-w-[760px] w-full text-left text-xs text-slate-700">
+                    <thead className="bg-slate-50 text-[10px] font-bold text-slate-600 uppercase border-b border-slate-200 sticky top-0 z-10">
                       <tr>
-                        <td colSpan="8" className="p-4 text-center text-xs text-slate-400 font-sans">
-                          No matching godown rolls found for this fabric/lot.
-                        </td>
+                        <th className="p-2.5 text-center w-9">
+                          <input
+                            type="checkbox"
+                            checked={
+                              filteredTakas.length > 0 &&
+                              filteredTakas.every((t) => selectedTakaMap[t.id]?.selected)
+                            }
+                            onChange={handleToggleAllTakas}
+                            className="rounded text-blue-600 cursor-pointer"
+                          />
+                        </th>
+                        <th className="p-2.5 whitespace-nowrap">Roll / Taka #</th>
+                        <th className="p-2.5 whitespace-nowrap">Lot Number</th>
+                        <th className="p-2.5 whitespace-nowrap">Warehouse Godown</th>
+                        <th className="p-2.5 whitespace-nowrap">Source PO / GRN</th>
+                        <th className="p-2.5 text-right whitespace-nowrap">Available (M)</th>
+                        <th className="p-2.5 text-right whitespace-nowrap">Dispatch Qty (M)</th>
+                        <th className="p-2.5 text-center whitespace-nowrap">Attribution</th>
                       </tr>
-                    )}
-                  </tbody>
-                </table>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100 font-mono text-[11px]">
+                      {filteredTakas.length > 0 ? (
+                        filteredTakas.map((taka) => {
+                          const isSelected = Boolean(selectedTakaMap[taka.id]?.selected);
+                          const curMeters = selectedTakaMap[taka.id]?.meters ?? taka.availableQty;
+
+                          return (
+                            <tr
+                              key={taka.id}
+                              className={`transition-colors ${
+                                isSelected ? 'bg-blue-50/50' : 'hover:bg-slate-50/60'
+                              }`}
+                            >
+                              <td className="p-2.5 text-center w-9">
+                                <input
+                                  type="checkbox"
+                                  checked={isSelected}
+                                  onChange={() => handleToggleTaka(taka)}
+                                  className="rounded text-blue-600 cursor-pointer"
+                                />
+                              </td>
+                              <td className="p-2.5 font-bold text-slate-900 whitespace-nowrap">{taka.takaNumber}</td>
+                              <td className="p-2.5 text-slate-600 whitespace-nowrap">{taka.lotNumber}</td>
+                              <td className="p-2.5 font-sans text-slate-600 whitespace-nowrap">{taka.warehouse}</td>
+                              <td className="p-2.5 text-slate-500 whitespace-nowrap">{taka.sourcePoNumber}</td>
+                              <td className="p-2.5 text-right font-medium text-slate-700 whitespace-nowrap">
+                                {taka.availableQty.toLocaleString('en-IN')} M
+                              </td>
+                              <td className="p-2.5 text-right whitespace-nowrap">
+                                <input
+                                  type="number"
+                                  min="0"
+                                  max={taka.availableQty}
+                                  step="any"
+                                  value={curMeters}
+                                  disabled={!isSelected}
+                                  onChange={(e) => handleUpdateTakaMeters(taka.id, e.target.value)}
+                                  className="w-24 px-2 py-1 text-right text-xs border border-slate-200 rounded font-mono font-bold focus:outline-none focus:border-blue-500 disabled:bg-slate-100 disabled:text-slate-400"
+                                />
+                              </td>
+                              <td className="p-2.5 text-center font-sans whitespace-nowrap">
+                                <span className="px-2 py-0.5 rounded text-[10px] font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200">
+                                  {taka.attribution}
+                                </span>
+                              </td>
+                            </tr>
+                          );
+                        })
+                      ) : (
+                        <tr>
+                          <td colSpan="8" className="p-4 text-center text-xs text-slate-400 font-sans">
+                            No matching godown rolls found for this fabric/lot.
+                          </td>
+                        </tr>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
               </div>
             </div>
 
@@ -1122,49 +1168,6 @@ export function Stage12JobWorkOutwardWorkspace({
                 )}
               </div>
             )}
-
-            {/* ── SECTION 4B: ACTIONS (VALIDATE / DRAFT / CONFIRM) ── */}
-            <div className="flex flex-wrap items-center justify-between gap-3 border-t border-slate-100 pt-4">
-              <button
-                type="button"
-                onClick={handleValidateStock}
-                disabled={validating}
-                className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg border border-slate-300 hover:bg-slate-50 text-slate-700 font-bold text-xs cursor-pointer transition-colors"
-              >
-                <ShieldCheck size={14} className={validating ? 'animate-spin' : ''} />
-                <span>Validate Stock</span>
-              </button>
-
-              <div className="flex items-center gap-2">
-                <Button
-                  variant="outline"
-                  type="button"
-                  onClick={() => setIsModalOpen(false)}
-                  disabled={submitting}
-                >
-                  Cancel
-                </Button>
-
-                <button
-                  type="button"
-                  onClick={() => handleSaveOutward('Draft')}
-                  disabled={submitting}
-                  className="px-3.5 py-2 rounded-lg border border-slate-300 bg-white hover:bg-slate-50 text-slate-800 font-bold text-xs cursor-pointer transition-colors shadow-2xs"
-                >
-                  Save Draft (No Stock Move)
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => handleSaveOutward('Sent')}
-                  disabled={submitting}
-                  className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs cursor-pointer transition-colors shadow-xs"
-                >
-                  <Send size={13} className={submitting ? 'animate-pulse' : ''} />
-                  <span>Confirm Outward Dispatch</span>
-                </button>
-              </div>
-            </div>
           </div>
         </Modal>
       )}

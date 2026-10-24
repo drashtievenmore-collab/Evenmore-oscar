@@ -138,43 +138,25 @@ export function Stage5GreyQCWorkspace({
   };
 
   return (
-    <div className="rounded-2xl border border-[#dce5f4] bg-white p-5 shadow-2xs space-y-5">
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-4 border-b border-slate-100">
-        <div>
-          <div className="flex items-center gap-2">
-            <span className="px-2 py-0.5 rounded-md text-[11px] font-black bg-blue-100 text-blue-700 uppercase tracking-wider">
-              Stage 6
-            </span>
-            <h2 className="text-base font-extrabold text-[#17294e]">Grey Fabric Quality Control (QC)</h2>
-          </div>
-          <p className="text-xs text-slate-500 font-medium mt-1">
-            Test and inspect received fabric against physical specifications (GSM, width, color defects). Uninspected material remains on QC-Hold and cannot be used.
-          </p>
-        </div>
-
+    <div className="rounded-xl border border-[#dce5f4] bg-white p-5 shadow-2xs space-y-5">
+      <div className="flex items-center justify-between pb-3 border-b border-slate-100">
         <div className="flex items-center gap-2">
-          <button
-            type="button"
-            onClick={handleRefresh}
-            disabled={refreshing}
-            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-[#dce5f4] bg-white text-slate-700 hover:bg-slate-50 text-xs font-semibold shadow-2xs cursor-pointer"
-          >
-            <RefreshCw size={13} className={refreshing ? 'animate-spin' : ''} />
-            Refresh
-          </button>
-
-          <button
-            type="button"
-            onClick={() => {
-              setQcForm({ ...qcForm, goodQty: String(grnTotalQty) });
-              setIsModalOpen(true);
-            }}
-            disabled={!activeGrn}
-            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-teal-600 hover:bg-teal-700 text-white text-xs font-bold shadow-xs cursor-pointer disabled:opacity-50"
-          >
-            <ShieldCheck size={14} /> Record QC Verdict
-          </button>
+          <ShieldCheck size={16} className="text-blue-600" />
+          <h3 className="text-xs font-bold uppercase tracking-wider text-slate-800">
+            Grey Fabric Quality Inspection & Specification Verdict
+          </h3>
         </div>
+        <button
+          type="button"
+          onClick={() => {
+            setQcForm({ ...qcForm, goodQty: String(grnTotalQty) });
+            setIsModalOpen(true);
+          }}
+          disabled={!activeGrn}
+          className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg bg-teal-600 hover:bg-teal-700 text-white text-xs font-bold shadow-xs cursor-pointer disabled:opacity-50"
+        >
+          <ShieldCheck size={14} /> Record QC Verdict
+        </button>
       </div>
 
       <div className="p-4 rounded-xl bg-slate-50/80 border border-slate-200/80 grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
@@ -256,23 +238,7 @@ export function Stage5GreyQCWorkspace({
         </div>
       </div>
 
-      <div className="flex items-center justify-between pt-4 border-t border-slate-100">
-        <button
-          type="button"
-          onClick={() => onSelectStage && onSelectStage(5)}
-          className="inline-flex items-center gap-1.5 text-xs font-semibold text-slate-600 hover:text-slate-900"
-        >
-          <ArrowLeft size={13} /> Back to Stage 5: Lot & Taka Creation
-        </button>
-
-        <button
-          type="button"
-          onClick={() => onSelectStage && onSelectStage(7)}
-          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold shadow-xs cursor-pointer"
-        >
-          Proceed to Stage 7: Grey Stock Updated <ArrowRight size={13} />
-        </button>
-      </div>
+      
 
       {isModalOpen && (
         <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4">

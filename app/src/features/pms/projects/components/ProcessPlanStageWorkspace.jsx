@@ -342,10 +342,15 @@ export function ProcessPlanStageWorkspace({
     return 0;
   }, [dispatchedQty, orders, plans]);
 
-  // Validation
+  // Validation (Example 2 compliance: strict shortage check)
   const validatePlanFields = () => {
     if (selectedTakaList.length === 0) {
       return 'Please select at least one eligible taka from Section A.';
+    }
+    const maxAvailable = summaryData.allocatedMeters > 0 ? summaryData.allocatedMeters : summaryData.availableMeters;
+    if (plannedQty > maxAvailable && maxAvailable > 0) {
+      const shortage = plannedQty - maxAvailable;
+      return `Proposed processing quantity (${plannedQty.toLocaleString('en-IN')} M) exceeds available stock (${maxAvailable.toLocaleString('en-IN')} M). Shortage: ${shortage.toLocaleString('en-IN')} M.`;
     }
     if (!form.processor.trim()) {
       return 'Please select a Processor / Job Worker.';
@@ -525,23 +530,7 @@ export function ProcessPlanStageWorkspace({
 
           {/* Navigation & Context Badges */}
           <div className="flex items-center gap-3 flex-wrap">
-            <button
-              type="button"
-              onClick={() => onSelectStage && onSelectStage(10)}
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 text-xs font-semibold transition-colors cursor-pointer"
-            >
-              <ArrowLeft size={13} />
-              <span>Prev: Stage 10</span>
-            </button>
-
-            <button
-              type="button"
-              onClick={() => onSelectStage && onSelectStage(12)}
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold transition-colors shadow-2xs cursor-pointer"
-            >
-              <span>Next: Stage 12 (Job Work Outward)</span>
-              <ArrowRight size={13} />
-            </button>
+            
 
             <button
               type="button"
