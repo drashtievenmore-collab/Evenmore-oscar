@@ -2,6 +2,7 @@ import React, { useEffect } from 'react';
 import { X, Printer, CheckCircle2, ClipboardList, MapPin } from 'lucide-react';
 import { SignatureSlot, useDocumentSignatures } from './SignatureSlot';
 import { useERP } from '../../context/ERPContext';
+import { fmtAddress } from './printDocUtils';
 
 export const PrintPurchaseOrderModal = ({ isOpen, onClose, po }) => {
   const docSigs = useDocumentSignatures('PurchaseOrder', po?.id, `Purchase Order ${po?.poNumber || po?.number || ""}`);
@@ -11,7 +12,7 @@ export const PrintPurchaseOrderModal = ({ isOpen, onClose, po }) => {
     const companyShort = (companyName || 'E').trim().charAt(0).toUpperCase() || 'E';
     const gstin = companyProfile?.gstin || '';
     const pan = companyProfile?.pan || '';
-    const companyAddress = companyProfile?.address || '742 Industrial Technology Way, Bldg 4 • San Jose, CA 95134';
+    const companyAddress = fmtAddress(companyProfile?.address) || '742 Industrial Technology Way, Bldg 4 • San Jose, CA 95134';
     const phone = companyProfile?.phone || '+1 (800) 555-0199';
     useEffect(() => {
         if (!isOpen) return;

@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { Search, CheckCircle2, Receipt, Eye, DollarSign, X, Zap, Printer, Clock, AlertCircle, FileText, Plus, Ban, Check, Edit, Lock, ShieldAlert, MapPin } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
+import { Search, CheckCircle2, Receipt, Eye, DollarSign, X, Zap, Printer, Clock, AlertCircle, FileText, Plus, Ban, Check, Edit, Lock, ShieldAlert, MapPin, Truck } from 'lucide-react';
 import { useERP } from '../../context/ERPContext';
 import { salesService } from '../../services/domainServices';
 import { StatCard } from '../../components/ui/StatCard';
@@ -45,6 +46,7 @@ export const SalesInvoicesView = ({ invoices = [], onCreateInvoice, searchTerm: 
         updateDraftInvoice,
         finalizeInvoice,
         cancelSalesInvoice,
+        convertInvoiceToChallan,
         getInvoiceOutstanding,
         deliveryChallans = [],
         formatCurrency,
@@ -57,7 +59,32 @@ export const SalesInvoicesView = ({ invoices = [], onCreateInvoice, searchTerm: 
     const [filterText, setFilterText] = useState('');
     const [statusFilter, setStatusFilter] = useState('All');
     const [currentPage, setCurrentPage] = useState(1);
-    const [pageSize, setPageSize] = useState(10);
+    const navigate = useNavigate();
+
+    const handleConvertToChallan = async (inv) => {
+        if (!inv) return;
+        try {
+            const challan = await convertInvoiceToChallan(inv.id);
+            if (challan) {
+                if (selectedInvoice) setSelectedInvoice(null);
+                navigate('/sales/delivery');
+            }
+        } catch (err) {
+            console.error('Failed to convert invoice to delivery challan:', err);
+        }
+    };
+
+    const invoiceHasChallan = (inv) => {
+        if (!inv) return false;
+        if (inv.deliveryChallanId) return true;
+        return (deliveryChallans || []).some(dc =>
+            dc.status !== 'Cancelled' && (
+                (inv.id && (dc.sourceInvoiceId === inv.id || dc.invoiceId === inv.id)) ||
+                (inv.invoiceNumber && (dc.sourceInvoiceNumber === inv.invoiceNumber || dc.invoiceNumber === inv.invoiceNumber)) ||
+                (inv.deliveryChallanId && dc.id === inv.deliveryChallanId)
+            )
+        );
+    };
 
     // Create & Edit State
     const [showCreateModal, setShowCreateModal] = useState(false);
@@ -130,6 +157,7 @@ export const SalesInvoicesView = ({ invoices = [], onCreateInvoice, searchTerm: 
     const [payAmount, setPayAmount] = useState(0);
     const [payMode, setPayMode] = useState('Bank Transfer');
     const [payRef, setPayRef] = useState('WIRE-2026');
+    const [isSubmittingPayment, setIsSubmittingPayment] = useState(false);
 
     // Create/Edit Invoice Form state
     const [selectedCustomerId, setSelectedCustomerId] = useState(customers[0]?.id || '');
@@ -407,28 +435,40 @@ export const SalesInvoicesView = ({ invoices = [], onCreateInvoice, searchTerm: 
 
     const handleRecordPaymentSubmit = (e) => {
         e.preventDefault();
-        if (!showPaymentModal || payAmount <= 0) return;
-        addPaymentIn({
-            customerId: showPaymentModal.customerId,
-            customer: showPaymentModal.customer,
-            invoiceId: showPaymentModal.id,
-            invoiceNumber: showPaymentModal.invoiceNumber,
-            amount: payAmount,
-            mode: payMode,
-            reference: payRef || `WIRE-${Date.now()}`,
-        });
-        const receiptNum = `RCPT-2026-${Date.now().toString().slice(-4)}`;
-        setActiveReceipt({
-            receiptNumber: receiptNum,
-            invoiceNumber: showPaymentModal.invoiceNumber,
-            customer: showPaymentModal.customer,
-            amount: payAmount,
-            date: new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }),
-            paymentMode: payMode,
-            reference: payRef || `WIRE-${Date.now()}`,
-        });
-        setShowPaymentModal(null);
-        setPayAmount(0);
+        if (!showPaymentModal || isSubmittingPayment) return;
+        const outstanding = getInvoiceOutstanding(showPaymentModal.id);
+        const maxAllowed = outstanding.balanceDue > 0 ? outstanding.balanceDue : showPaymentModal.total;
+        if (payAmount <= 0) return;
+        if (payAmount > maxAllowed) {
+            alert(`Payment amount cannot exceed outstanding balance (${formatCurrency(maxAllowed)}).`);
+            return;
+        }
+        setIsSubmittingPayment(true);
+        try {
+            addPaymentIn({
+                customerId: showPaymentModal.customerId,
+                customer: showPaymentModal.customer,
+                invoiceId: showPaymentModal.id,
+                invoiceNumber: showPaymentModal.invoiceNumber,
+                amount: payAmount,
+                mode: payMode,
+                reference: payRef || `WIRE-${Date.now()}`,
+            });
+            const receiptNum = `RCPT-2026-${Date.now().toString().slice(-4)}`;
+            setActiveReceipt({
+                receiptNumber: receiptNum,
+                invoiceNumber: showPaymentModal.invoiceNumber,
+                customer: showPaymentModal.customer,
+                amount: payAmount,
+                date: new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }),
+                paymentMode: payMode,
+                reference: payRef || `WIRE-${Date.now()}`,
+            });
+            setShowPaymentModal(null);
+            setPayAmount(0);
+        } finally {
+            setIsSubmittingPayment(false);
+        }
     };
 
     const handleConfirmFinalize = () => {
@@ -699,6 +739,11 @@ export const SalesInvoicesView = ({ invoices = [], onCreateInvoice, searchTerm: 
                                                     <button onClick={() => setSelectedInvoice(inv)} className="p-1 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded transition-colors cursor-pointer" title="View Invoice">
                                                         <Eye className="w-4 h-4"/>
                                                     </button>
+                                                    {inv.status !== 'Cancelled' && !invoiceHasChallan(inv) && (
+                                                        <button onClick={() => handleConvertToChallan(inv)} className="px-2 py-0.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 rounded text-[10px] font-bold cursor-pointer inline-flex items-center gap-1 transition-colors" title="Convert to Delivery Challan">
+                                                            <Truck className="w-3 h-3"/> Challan
+                                                        </button>
+                                                    )}
                                                     
                                                     {isDraft ? (
                                                         <>
@@ -1000,6 +1045,12 @@ export const SalesInvoicesView = ({ invoices = [], onCreateInvoice, searchTerm: 
                                 <StatusBadge status={selectedInvoice.status}/>
                             </div>
                             <div className="flex flex-wrap lg:flex-nowrap items-center gap-2">
+                                {selectedInvoice.status !== 'Cancelled' && !invoiceHasChallan(selectedInvoice) && (
+                                    <button onClick={() => handleConvertToChallan(selectedInvoice)} className="px-3 py-1.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 rounded-lg font-semibold flex items-center gap-1.5 cursor-pointer" title="Convert to Delivery Challan">
+                                        <Truck size={13}/>
+                                        Convert to Delivery Challan
+                                    </button>
+                                )}
                                 <button onClick={() => setPrintInvoiceTarget(selectedInvoice)} className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg font-semibold flex items-center gap-1.5 cursor-pointer">
                                     <Printer size={13}/>
                                     Print Official Invoice
@@ -1230,6 +1281,15 @@ export const SalesInvoicesView = ({ invoices = [], onCreateInvoice, searchTerm: 
                                     </button>
                                 )}
 
+                                {selectedInvoice.status !== 'Cancelled' && !invoiceHasChallan(selectedInvoice) && (
+                                    <button
+                                        onClick={() => handleConvertToChallan(selectedInvoice)}
+                                        className="px-3.5 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg font-bold text-xs shadow-xs flex items-center gap-1 cursor-pointer"
+                                        title="Convert to Delivery Challan"
+                                    >
+                                        <Truck size={12}/> Convert to Delivery Challan
+                                    </button>
+                                )}
                                 <button onClick={() => setSelectedInvoice(null)} className="px-4 py-1.5 border border-slate-300 hover:bg-slate-100 text-slate-700 rounded-lg font-semibold text-xs cursor-pointer">
                                     Close
                                 </button>
@@ -1383,13 +1443,23 @@ export const SalesInvoicesView = ({ invoices = [], onCreateInvoice, searchTerm: 
                                     <span className="font-mono font-bold text-slate-800">{showPaymentModal.invoiceNumber}</span>
                                 </div>
                                 <div className="flex justify-between">
-                                    <span className="text-slate-500">Invoice Total:</span>
+                                    <span className="text-slate-500">Total Invoiced:</span>
                                     <span className="font-mono font-bold text-slate-900">{formatCurrency(showPaymentModal.total)}</span>
+                                </div>
+                                <div className="flex justify-between text-emerald-700">
+                                    <span>Paid So Far:</span>
+                                    <span className="font-mono font-semibold">{formatCurrency(getInvoiceOutstanding(showPaymentModal.id).paid)}</span>
                                 </div>
                                 <div className="flex justify-between text-rose-600 font-semibold border-t border-slate-200 pt-1">
                                     <span>Balance Due:</span>
                                     <span className="font-mono">{formatCurrency(getInvoiceOutstanding(showPaymentModal.id).balanceDue)}</span>
                                 </div>
+                                {payAmount > 0 && (
+                                    <div className="flex justify-between text-indigo-700 font-semibold border-t border-slate-200 pt-1">
+                                        <span>Remaining After Payment:</span>
+                                        <span className="font-mono">{formatCurrency(Math.max(0, getInvoiceOutstanding(showPaymentModal.id).balanceDue - payAmount))}</span>
+                                    </div>
+                                )}
                             </div>
 
                             <div>

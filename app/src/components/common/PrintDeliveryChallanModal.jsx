@@ -2,6 +2,7 @@ import React, { useEffect } from 'react';
 import { X, Printer, CheckCircle2, Truck, ShieldCheck, FileText, MapPin } from 'lucide-react';
 import { SignatureSlot, useDocumentSignatures } from './SignatureSlot';
 import { useERP } from '../../context/ERPContext';
+import { fmtAddress } from './printDocUtils';
 
 export const PrintDeliveryChallanModal = ({ isOpen, onClose, challan }) => {
   const docSigs = useDocumentSignatures('DeliveryChallan', challan?.id, `Delivery Challan ${challan?.challanNumber || ""}`);
@@ -11,7 +12,7 @@ export const PrintDeliveryChallanModal = ({ isOpen, onClose, challan }) => {
     const companyShort = (companyName || 'E').trim().charAt(0).toUpperCase() || 'E';
     const gstin = companyProfile?.gstin || '';
     const pan = companyProfile?.pan || '';
-    const companyAddress = companyProfile?.address || '742 Industrial Technology Way, Bldg 4 • San Jose, CA 95134';
+    const companyAddress = fmtAddress(companyProfile?.address) || '742 Industrial Technology Way, Bldg 4 • San Jose, CA 95134';
     const phone = companyProfile?.phone || '+1 (800) 555-0199';
     useEffect(() => {
         if (!isOpen) return;
@@ -131,7 +132,7 @@ export const PrintDeliveryChallanModal = ({ isOpen, onClose, challan }) => {
                             </span>
                             <p className="text-sm font-bold text-slate-900">{challan.customer || 'Client Organization'}</p>
                             <p className="text-slate-600 text-[11px]">Commercial Delivery Destination</p>
-                            <p className="text-slate-500 text-[11px]">Destination Dock / Unloading Bay</p>
+                            <p className="text-slate-500 text-[11px]">{fmtAddress(challan.shippingAddress) || fmtAddress(challan.billingAddress) || 'Destination Dock / Unloading Bay'}</p>
                             <p className="text-slate-500 text-[11px]">Receiving Contact: Authorized Warehouse Clerk</p>
                         </div>
                     </div>

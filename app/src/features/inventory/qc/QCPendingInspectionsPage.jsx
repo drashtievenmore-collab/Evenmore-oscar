@@ -210,12 +210,13 @@ export default function QCPendingInspectionsPage() {
   // Open Measurement / Entry Form
   const openMeasurementForm = (row) => {
     setMeasuringItem(row);
-    // Measurements are entered by the inspector -- nothing is pre-filled.
     setTakaMeasurements([]);
-    setQcGoodQty('0');
-    setQcHoldQty('0');
-    setQcReprocessQty('0');
-    setQcRejectedQty('0');
+    // Default Good Qty to the entire pending / awaiting QC quantity
+    const pending = Number(row?.pendingQty ?? row?.receivedQty ?? 0);
+    setQcGoodQty(pending > 0 ? String(pending) : '');
+    setQcHoldQty('');
+    setQcReprocessQty('');
+    setQcRejectedQty('');
     setQcRemarks('');
     setShowStartModal(false);
     setShowMeasurementModal(true);
@@ -242,16 +243,97 @@ export default function QCPendingInspectionsPage() {
     );
   };
 
-  // Submit Completed QC Inspection
-  const handleCompleteInspection = async () => {
+  // Helper calculations for measurement modal
+  const awaitingQcQty = measuringItem ? Number(measuringItem.pendingQty ?? measuringItem.receivedQty ?? 0) : 0;
+  const numGood = Number(qcGoodQty) || 0;
+  const numHold = Number(qcHoldQty) || 0;
+  const numReprocess = Number(qcReprocessQty) || 0;
+  const numRejected = Number(qcRejectedQty) || 0;
+  const totalAllocated = Number((numGood + numHold + numReprocess + numRejected).toFixed(4));
+  const diffQty = Number((awaitingQcQty - totalAllocated).toFixed(4));
+  const isQcBalanced = Math.abs(diffQty) < 0.001 && totalAllocated > 0;
+  const measurementsSum = takaMeasurements.reduce((acc, t) => acc + (Number(t.actualQty) || 0), 0);
+
+  const handlePassAll = () => {
+    if (awaitingQcQty > 0) {
+      setQcGoodQty(String(awaitingQcQty));
+      setQcHoldQty('');
+      setQcReprocessQty('');
+      setQcRejectedQty('');
+    }
+  };
+
+  const handlePutRemainingOnHold = () => {
+    if (diffQty > 0) {
+      const currentHold = Number(qcHoldQty) || 0;
+      const newHold = Number((currentHold + diffQty).toFixed(4));
+      setQcHoldQty(String(newHold));
+    }
+  };
+
+  const handleApplyMeasurementsToGood = () => {
+    if (measurementsSum > 0) {
+      setQcGoodQty(String(measurementsSum));
+    }
+  };
+
+  // Save as Draft
+  const handleSaveDraft = async () => {
     if (!measuringItem) return;
-    setCompletingInspection(true);
     try {
       const g = Number(qcGoodQty) || 0;
       const h = Number(qcHoldQty) || 0;
       const rep = Number(qcReprocessQty) || 0;
       const rej = Number(qcRejectedQty) || 0;
+      await inventoryService.saveQCDisposition({
+        receiptId: measuringItem.receiptId,
+        billId: measuringItem.billId,
+        goodQty: g,
+        holdQty: h,
+        reprocessQty: rep,
+        rejectedQty: rej,
+        remarks: qcRemarks,
+        measurements: takaMeasurements,
+        isDraft: true,
+      });
+      showToast(`QC draft saved for ${measuringItem.refNo}.`);
+      setShowMeasurementModal(false);
+    } catch (err) {
+      alert('Could not save draft: ' + (err.message || 'Error'));
+    }
+  };
 
+  // Submit Completed QC Inspection
+  const handleCompleteInspection = async () => {
+    if (!measuringItem) return;
+    const g = Number(qcGoodQty) || 0;
+    const h = Number(qcHoldQty) || 0;
+    const rep = Number(qcReprocessQty) || 0;
+    const rej = Number(qcRejectedQty) || 0;
+    const sum = Number((g + h + rep + rej).toFixed(4));
+
+    if (sum <= 0) {
+      alert('Please enter disposition quantities before completing inspection.');
+      return;
+    }
+
+    if (Math.abs(awaitingQcQty - sum) >= 0.001) {
+      if (sum < awaitingQcQty) {
+        const remaining = (awaitingQcQty - sum).toFixed(2);
+        alert(
+          `Disposition total (${sum} ${measuringItem.uom}) must equal the quantity awaiting QC (${awaitingQcQty} ${measuringItem.uom}).\n\nThere is still ${remaining} ${measuringItem.uom} unallocated. Please allocate the remaining quantity (e.g. click "Put Remaining on Hold") before completing.`
+        );
+      } else {
+        const over = (sum - awaitingQcQty).toFixed(2);
+        alert(
+          `Disposition total (${sum} ${measuringItem.uom}) exceeds the quantity awaiting QC (${awaitingQcQty} ${measuringItem.uom}) by ${over} ${measuringItem.uom}. Please correct the quantities.`
+        );
+      }
+      return;
+    }
+
+    setCompletingInspection(true);
+    try {
       await inventoryService.completeQCInspection({
         receiptId: measuringItem.receiptId,
         billId: measuringItem.billId,
@@ -974,9 +1056,17 @@ export default function QCPendingInspectionsPage() {
             <div className="flex items-center justify-between pb-3 border-b border-slate-100">
               <div>
                 <h3 className="font-bold text-slate-900 text-base">Enter Measurement & QC Result</h3>
-                <p className="text-xs text-slate-400">
-                  {measuringItem.refNo} • {measuringItem.supplier} • Lot: {measuringItem.lotNo}
-                </p>
+                <div className="flex flex-wrap items-center gap-2 mt-1 text-xs text-slate-500">
+                  <span className="font-semibold text-slate-800">{measuringItem.refNo}</span>
+                  <span>•</span>
+                  <span>{measuringItem.supplier}</span>
+                  <span>•</span>
+                  <span>Lot: <strong className="text-slate-700">{measuringItem.lotNo || 'N/A'}</strong></span>
+                  <span>•</span>
+                  <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full font-semibold text-xs bg-blue-50 text-blue-700 border border-blue-200">
+                    Awaiting QC: <span className="font-mono font-bold">{awaitingQcQty} {measuringItem.uom || 'MTR'}</span>
+                  </span>
+                </div>
               </div>
               <button
                 type="button"
@@ -990,14 +1080,32 @@ export default function QCPendingInspectionsPage() {
             {/* Measurement Details (Per-Taka breakdown) */}
             <div className="space-y-2">
               <div className="flex items-center justify-between">
-                <h4 className="text-xs font-bold text-slate-900">Measurement Details</h4>
-                <button
-                  type="button"
-                  onClick={handleAddTakaRow}
-                  className="px-2.5 py-1 text-xs font-semibold text-blue-600 bg-blue-50 hover:bg-blue-100 rounded-lg transition flex items-center gap-1 cursor-pointer"
-                >
-                  <Plus className="w-3.5 h-3.5" /> Add Row
-                </button>
+                <div className="flex items-center gap-2">
+                  <h4 className="text-xs font-bold text-slate-900">Measurement Details</h4>
+                  {measurementsSum > 0 && (
+                    <span className="text-[11px] font-mono text-slate-500">
+                      (Total Measured: <strong>{measurementsSum.toFixed(2)} {measuringItem.uom}</strong>)
+                    </span>
+                  )}
+                </div>
+                <div className="flex items-center gap-2">
+                  {measurementsSum > 0 && (
+                    <button
+                      type="button"
+                      onClick={handleApplyMeasurementsToGood}
+                      className="px-2.5 py-1 text-xs font-semibold text-emerald-700 bg-emerald-50 hover:bg-emerald-100 rounded-lg transition cursor-pointer"
+                    >
+                      Use Measured Qty as Good
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    onClick={handleAddTakaRow}
+                    className="px-2.5 py-1 text-xs font-semibold text-blue-600 bg-blue-50 hover:bg-blue-100 rounded-lg transition flex items-center gap-1 cursor-pointer"
+                  >
+                    <Plus className="w-3.5 h-3.5" /> Add Row
+                  </button>
+                </div>
               </div>
 
               <div className="border border-slate-200 rounded-xl overflow-x-auto">
@@ -1012,44 +1120,73 @@ export default function QCPendingInspectionsPage() {
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100">
-                    {takaMeasurements.map((t, i) => (
-                      <tr key={i}>
-                        <td className="py-1.5 px-3 font-mono text-slate-400">{t.sr}</td>
-                        <td className="py-1.5 px-3 font-mono font-medium">{t.takaNo}</td>
-                        <td className="py-1.5 px-3">
-                          <input
-                            type="number"
-                            value={t.actualQty}
-                            onChange={(e) => handleUpdateTaka(i, 'actualQty', e.target.value)}
-                            className="w-28 px-2 py-1 bg-slate-50 border border-slate-200 rounded text-xs font-mono font-medium focus:outline-none focus:border-blue-500"
-                          />
-                        </td>
-                        <td className="py-1.5 px-3">
-                          <input
-                            type="number"
-                            value={t.width}
-                            onChange={(e) => handleUpdateTaka(i, 'width', e.target.value)}
-                            className="w-24 px-2 py-1 bg-slate-50 border border-slate-200 rounded text-xs font-mono focus:outline-none focus:border-blue-500"
-                          />
-                        </td>
-                        <td className="py-1.5 px-3">
-                          <input
-                            type="text"
-                            value={t.remarks}
-                            onChange={(e) => handleUpdateTaka(i, 'remarks', e.target.value)}
-                            className="w-full px-2 py-1 bg-slate-50 border border-slate-200 rounded text-xs focus:outline-none focus:border-blue-500"
-                          />
+                    {takaMeasurements.length === 0 ? (
+                      <tr>
+                        <td colSpan={5} className="py-3 px-3 text-center text-slate-400 text-xs italic">
+                          No per-taka rolls added yet. Click &quot;+ Add Row&quot; if roll-wise breakdown is recorded.
                         </td>
                       </tr>
-                    ))}
+                    ) : (
+                      takaMeasurements.map((t, i) => (
+                        <tr key={i}>
+                          <td className="py-1.5 px-3 font-mono text-slate-400">{t.sr}</td>
+                          <td className="py-1.5 px-3 font-mono font-medium">{t.takaNo}</td>
+                          <td className="py-1.5 px-3">
+                            <input
+                              type="number"
+                              value={t.actualQty}
+                              onChange={(e) => handleUpdateTaka(i, 'actualQty', e.target.value)}
+                              className="w-28 px-2 py-1 bg-slate-50 border border-slate-200 rounded text-xs font-mono font-medium focus:outline-none focus:border-blue-500"
+                            />
+                          </td>
+                          <td className="py-1.5 px-3">
+                            <input
+                              type="number"
+                              value={t.width}
+                              onChange={(e) => handleUpdateTaka(i, 'width', e.target.value)}
+                              className="w-24 px-2 py-1 bg-slate-50 border border-slate-200 rounded text-xs font-mono focus:outline-none focus:border-blue-500"
+                            />
+                          </td>
+                          <td className="py-1.5 px-3">
+                            <input
+                              type="text"
+                              value={t.remarks}
+                              onChange={(e) => handleUpdateTaka(i, 'remarks', e.target.value)}
+                              className="w-full px-2 py-1 bg-slate-50 border border-slate-200 rounded text-xs focus:outline-none focus:border-blue-500"
+                            />
+                          </td>
+                        </tr>
+                      ))
+                    )}
                   </tbody>
                 </table>
               </div>
             </div>
 
             {/* QC Result Form Cards */}
-            <div className="space-y-2 pt-2 border-t border-slate-100">
-              <h4 className="text-xs font-bold text-slate-900">QC Result Breakdown</h4>
+            <div className="space-y-3 pt-2 border-t border-slate-100">
+              <div className="flex items-center justify-between">
+                <h4 className="text-xs font-bold text-slate-900">QC Result Breakdown</h4>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={handlePassAll}
+                    className="text-xs font-semibold text-emerald-700 bg-emerald-50 hover:bg-emerald-100 px-2 py-0.5 rounded cursor-pointer transition"
+                  >
+                    Pass All ({awaitingQcQty} {measuringItem.uom})
+                  </button>
+                  {diffQty > 0 && (
+                    <button
+                      type="button"
+                      onClick={handlePutRemainingOnHold}
+                      className="text-xs font-semibold text-amber-700 bg-amber-50 hover:bg-amber-100 px-2 py-0.5 rounded cursor-pointer transition"
+                    >
+                      Put {diffQty} on Hold
+                    </button>
+                  )}
+                </div>
+              </div>
+
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
                 {/* Good Qty */}
                 <div className="bg-emerald-50/70 border border-emerald-200 rounded-xl p-3">
@@ -1057,8 +1194,12 @@ export default function QCPendingInspectionsPage() {
                   <div className="flex items-center gap-1 mt-1">
                     <input
                       type="number"
+                      step="any"
+                      min="0"
+                      placeholder="0"
                       value={qcGoodQty}
                       onChange={(e) => setQcGoodQty(e.target.value)}
+                      onFocus={(e) => { if (e.target.value === '0') setQcGoodQty(''); }}
                       className="w-full bg-white border border-emerald-300 rounded px-2 py-1 text-sm font-bold text-emerald-800 font-mono focus:outline-none"
                     />
                     <span className="text-xs text-emerald-700 font-semibold">{measuringItem.uom}</span>
@@ -1071,8 +1212,12 @@ export default function QCPendingInspectionsPage() {
                   <div className="flex items-center gap-1 mt-1">
                     <input
                       type="number"
+                      step="any"
+                      min="0"
+                      placeholder="0"
                       value={qcHoldQty}
                       onChange={(e) => setQcHoldQty(e.target.value)}
+                      onFocus={(e) => { if (e.target.value === '0') setQcHoldQty(''); }}
                       className="w-full bg-white border border-amber-300 rounded px-2 py-1 text-sm font-bold text-amber-800 font-mono focus:outline-none"
                     />
                     <span className="text-xs text-amber-700 font-semibold">{measuringItem.uom}</span>
@@ -1085,8 +1230,12 @@ export default function QCPendingInspectionsPage() {
                   <div className="flex items-center gap-1 mt-1">
                     <input
                       type="number"
+                      step="any"
+                      min="0"
+                      placeholder="0"
                       value={qcReprocessQty}
                       onChange={(e) => setQcReprocessQty(e.target.value)}
+                      onFocus={(e) => { if (e.target.value === '0') setQcReprocessQty(''); }}
                       className="w-full bg-white border border-purple-300 rounded px-2 py-1 text-sm font-bold text-purple-800 font-mono focus:outline-none"
                     />
                     <span className="text-xs text-purple-700 font-semibold">{measuringItem.uom}</span>
@@ -1099,8 +1248,12 @@ export default function QCPendingInspectionsPage() {
                   <div className="flex items-center gap-1 mt-1">
                     <input
                       type="number"
+                      step="any"
+                      min="0"
+                      placeholder="0"
                       value={qcRejectedQty}
                       onChange={(e) => setQcRejectedQty(e.target.value)}
+                      onFocus={(e) => { if (e.target.value === '0') setQcRejectedQty(''); }}
                       className="w-full bg-white border border-rose-300 rounded px-2 py-1 text-sm font-bold text-rose-800 font-mono focus:outline-none"
                     />
                     <span className="text-xs text-rose-700 font-semibold">{measuringItem.uom}</span>
@@ -1108,8 +1261,57 @@ export default function QCPendingInspectionsPage() {
                 </div>
               </div>
 
+              {/* Total Reconciliation Bar */}
+              <div
+                className={`p-3 rounded-xl border flex flex-col sm:flex-row items-center justify-between gap-3 text-xs transition ${
+                  isQcBalanced
+                    ? 'bg-emerald-50/70 border-emerald-300 text-emerald-900'
+                    : diffQty > 0
+                    ? 'bg-amber-50/70 border-amber-300 text-amber-900'
+                    : 'bg-rose-50/70 border-rose-300 text-rose-900'
+                }`}
+              >
+                <div className="space-y-0.5">
+                  <div className="font-medium flex flex-wrap items-center gap-1.5">
+                    <span className="font-bold">Awaiting QC:</span>
+                    <span className="font-mono font-bold bg-white/70 px-1.5 py-0.5 rounded border border-slate-200">{awaitingQcQty} {measuringItem.uom}</span>
+                    <span className="text-slate-400 mx-1">|</span>
+                    <span>Total Entered:</span>
+                    <span className="font-mono font-bold">{totalAllocated} {measuringItem.uom}</span>
+                    <span className="text-slate-500">({numGood} Good + {numHold} Hold + {numReprocess} Reprocess + {numRejected} Rejected)</span>
+                  </div>
+                  {diffQty > 0 && (
+                    <p className="text-[11px] text-amber-700">
+                      Disposition total must equal {awaitingQcQty} {measuringItem.uom}. You have <strong>{diffQty} {measuringItem.uom}</strong> unallocated.
+                    </p>
+                  )}
+                  {diffQty < 0 && (
+                    <p className="text-[11px] text-rose-700 font-medium">
+                      Exceeds awaiting QC quantity by <strong>{Math.abs(diffQty)} {measuringItem.uom}</strong>. Please reduce disposition quantities.
+                    </p>
+                  )}
+                </div>
+
+                <div className="flex items-center gap-2 shrink-0">
+                  {isQcBalanced ? (
+                    <div className="inline-flex items-center gap-1 bg-emerald-600 text-white px-3 py-1.5 rounded-lg text-xs font-bold shadow-2xs">
+                      <CheckCircle2 className="w-4 h-4" />
+                      <span>Reconciled</span>
+                    </div>
+                  ) : diffQty > 0 ? (
+                    <button
+                      type="button"
+                      onClick={handlePutRemainingOnHold}
+                      className="px-2.5 py-1 bg-amber-600 hover:bg-amber-700 text-white font-semibold text-xs rounded-lg transition shadow-2xs cursor-pointer flex items-center gap-1"
+                    >
+                      <Pause className="w-3.5 h-3.5" /> Put {diffQty} on Hold
+                    </button>
+                  ) : null}
+                </div>
+              </div>
+
               {/* Remarks */}
-              <div className="pt-2">
+              <div className="pt-1">
                 <label className="block text-[10.5px] font-semibold text-slate-500 mb-1">
                   Inspection Observations & Remarks
                 </label>
@@ -1127,22 +1329,26 @@ export default function QCPendingInspectionsPage() {
               <button
                 type="button"
                 onClick={() => setShowMeasurementModal(false)}
-                className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold text-xs rounded-lg transition"
+                className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold text-xs rounded-lg transition cursor-pointer"
               >
                 Cancel
               </button>
               <button
                 type="button"
-                onClick={() => setShowMeasurementModal(false)}
-                className="px-4 py-2 bg-slate-200 hover:bg-slate-300 text-slate-800 font-semibold text-xs rounded-lg transition"
+                onClick={handleSaveDraft}
+                className="px-4 py-2 bg-slate-200 hover:bg-slate-300 text-slate-800 font-semibold text-xs rounded-lg transition cursor-pointer"
               >
                 Save as Draft
               </button>
               <button
                 type="button"
-                disabled={completingInspection}
+                disabled={completingInspection || !isQcBalanced}
                 onClick={handleCompleteInspection}
-                className="px-4 py-2 bg-[#2563eb] hover:bg-[#1d4ed8] text-white font-semibold text-xs rounded-lg transition"
+                className={`px-4 py-2 font-semibold text-xs rounded-lg transition cursor-pointer ${
+                  !isQcBalanced
+                    ? 'bg-blue-300 text-white cursor-not-allowed'
+                    : 'bg-[#2563eb] hover:bg-[#1d4ed8] text-white shadow-xs'
+                }`}
               >
                 {completingInspection ? 'Saving...' : 'Complete Inspection'}
               </button>

@@ -1,4 +1,4 @@
-import { useLocation } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 import React, { useState } from 'react';
 import { useERP } from '../../context/ERPContext';
 import { DataTable } from '../../components/ui/DataTable';
@@ -28,8 +28,34 @@ const challanGuide = {
     workflow: ['Sales Order Confirmed', 'Delivery Challan Generated', 'Carrier In-Transit', 'Consignee Receives Goods', 'POD Verified & Invoice Issued'],
 };
 export const DeliveryChallansPage = () => {
-    const { deliveryChallans, addDeliveryChallan, updateDeliveryChallanStatus, cancelDeliveryChallan, salesOrders, invoices, paymentIns, items: masterItems, calculateItemStock } = useERP();
+    const { deliveryChallans, addDeliveryChallan, updateDeliveryChallanStatus, cancelDeliveryChallan, convertChallanToInvoice, salesOrders, invoices, paymentIns, items: masterItems, calculateItemStock } = useERP();
     const location = useLocation();
+    const navigate = useNavigate();
+
+    const handleConvertToInvoice = async (challan) => {
+        if (!challan) return;
+        try {
+            const inv = await convertChallanToInvoice(challan.id);
+            if (inv) {
+                setSelectedChallan(null);
+                navigate('/sales/invoices');
+            }
+        } catch (err) {
+            console.error('Failed to convert challan to invoice:', err);
+        }
+    };
+
+    const challanHasInvoice = (challan) => {
+        if (!challan) return false;
+        return (invoices || []).some(inv =>
+            inv.status !== 'Cancelled' && (
+                (challan.id && (inv.deliveryChallanId === challan.id || inv.sourceDeliveryChallanId === challan.id)) ||
+                (challan.challanNumber && (inv.deliveryChallanNumber === challan.challanNumber)) ||
+                (challan.sourceInvoiceId && inv.id === challan.sourceInvoiceId) ||
+                (challan.invoiceId && inv.id === challan.invoiceId)
+            )
+        );
+    };
     React.useEffect(() => {
         if (location.state?.challanId) setSelectedChallan(deliveryChallans.find(dc => dc.id === location.state.challanId) || null);
     }, [location.state, deliveryChallans]);
@@ -230,6 +256,28 @@ export const DeliveryChallansPage = () => {
                 });
             }
         }
+        if (!docs.some(d => d.type === 'Invoice')) {
+            const linkedInv = invoices.find(i => (challan.sourceInvoiceId && i.id === challan.sourceInvoiceId) || (challan.invoiceId && i.id === challan.invoiceId) || (challan.sourceInvoiceNumber && i.invoiceNumber === challan.sourceInvoiceNumber) || (challan.invoiceNumber && i.invoiceNumber === challan.invoiceNumber));
+            if (linkedInv) {
+                docs.push({
+                    type: 'Invoice',
+                    number: linkedInv.invoiceNumber,
+                    amount: linkedInv.total,
+                    date: linkedInv.date,
+                    status: linkedInv.status,
+                });
+                const payments = paymentIns.filter((p) => p.invoiceId === linkedInv.id || p.invoiceNumber === linkedInv.invoiceNumber);
+                payments.forEach((p) => {
+                    docs.push({
+                        type: 'Payment',
+                        number: p.receiptNumber,
+                        amount: p.amount,
+                        date: p.date,
+                        status: 'Settled',
+                    });
+                });
+            }
+        }
         return docs;
     };
     const columns = [
@@ -251,7 +299,7 @@ export const DeliveryChallansPage = () => {
             key: 'salesOrderNumber',
             header: 'Linked Sales Order',
             width: '14%',
-            render: (c) => <span className="font-mono font-semibold text-text whitespace-nowrap">{c.salesOrderNumber || c.linkedSo || c.sourceQuotationNumber}</span>,
+            render: (c) => <span className="font-mono font-semibold text-text whitespace-nowrap">{c.salesOrderNumber || c.linkedSo || c.sourceQuotationNumber || c.sourceInvoiceNumber || c.invoiceNumber || '—'}</span>,
         },
         {
             key: 'customer',
@@ -336,6 +384,15 @@ export const DeliveryChallansPage = () => {
                     <Send size={13}/>
                   </button>
                 )}
+                {c.status !== 'Cancelled' && !challanHasInvoice(c) && (
+                  <button
+                    onClick={() => handleConvertToInvoice(c)}
+                    className="p-1 text-emerald-600 hover:text-emerald-800 hover:bg-emerald-50 rounded text-xs flex items-center gap-1 cursor-pointer"
+                    title="Convert to Sales Invoice"
+                  >
+                    <FileText size={13}/>
+                  </button>
+                )}
                 {c.status === 'Draft' && <Button size="sm" onClick={() => prepareDraftDispatch(c)}>Prepare Dispatch</Button>}
                 {c.status !== 'Draft' && c.status !== 'Delivered' && c.status !== 'Cancelled' && (
                   <button
@@ -401,7 +458,11 @@ export const DeliveryChallansPage = () => {
                 <div>
                   <label className="font-semibold text-slate-700 block mb-1">Source Sales Order *</label>
                   <select disabled={Boolean(draftChallan)} required={!draftChallan} value={selectedSoId} onChange={(e) => handleSoChange(e.target.value)} className="w-full p-2 border border-slate-300 rounded bg-white text-slate-800 font-medium">
-                    {draftChallan && <option value="">{draftChallan.sourceQuotationNumber} - {draftChallan.customer}</option>}
+                    {draftChallan ? (
+                      <option value="">{draftChallan.sourceQuotationNumber} - {draftChallan.customer}</option>
+                    ) : (
+                      <option value="">-- Select Source Sales Order --</option>
+                    )}
                     {salesOrders.map((so) => (<option key={so.id} value={so.id}>
                         {so.orderNumber} - {so.customer} ({so.items?.length || 0} items)
                       </option>))}
@@ -607,6 +668,15 @@ export const DeliveryChallansPage = () => {
                     <Send size={13}/> Send Waybill & Card
                   </button>
                 )}
+                {selectedChallan.status !== 'Cancelled' && !challanHasInvoice(selectedChallan) && (
+                  <button
+                    onClick={() => handleConvertToInvoice(selectedChallan)}
+                    className="px-3 py-1.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200 rounded-lg font-semibold cursor-pointer flex items-center gap-1.5 shadow-2xs text-xs"
+                    title="Convert to Sales Invoice"
+                  >
+                    <FileText size={13}/> Convert to Sales Invoice
+                  </button>
+                )}
                 <button onClick={() => setPrintChallanTarget(selectedChallan)} className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg font-semibold cursor-pointer flex items-center gap-1.5">
                   <Printer size={13}/> Print Waybill
                 </button>
@@ -637,7 +707,7 @@ export const DeliveryChallansPage = () => {
                   ) : (
                     <p className="text-slate-600">Customer Receiving Facility / Inbound Dock</p>
                   )}
-                  <p className="text-slate-600 mt-1">Linked Order: <strong className="font-mono text-slate-800">{selectedChallan.salesOrderNumber || selectedChallan.linkedSo || selectedChallan.sourceQuotationNumber}</strong></p>
+                  <p className="text-slate-600 mt-1">Linked Source: <strong className="font-mono text-slate-800">{selectedChallan.salesOrderNumber || selectedChallan.linkedSo || selectedChallan.sourceQuotationNumber || selectedChallan.sourceInvoiceNumber || selectedChallan.invoiceNumber || 'Direct Dispatch'}</strong></p>
                 </div>
               </div>
 
@@ -878,6 +948,14 @@ export const DeliveryChallansPage = () => {
                     }}
                   >
                     Cancel Challan
+                  </Button>
+                )}
+                {selectedChallan.status !== 'Cancelled' && !challanHasInvoice(selectedChallan) && (
+                  <Button
+                    onClick={() => handleConvertToInvoice(selectedChallan)}
+                    className="bg-emerald-600 hover:bg-emerald-700 text-white"
+                  >
+                    <FileText size={13} className="mr-1"/> Convert to Sales Invoice
                   </Button>
                 )}
                 <Button variant="outline" onClick={() => setSelectedChallan(null)}>

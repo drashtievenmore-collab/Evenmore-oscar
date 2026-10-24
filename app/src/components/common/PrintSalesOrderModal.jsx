@@ -2,6 +2,7 @@ import React, { useEffect } from 'react';
 import { X, Printer, CheckCircle2, ShoppingCart, Truck } from 'lucide-react';
 import { SignatureSlot, useDocumentSignatures } from './SignatureSlot';
 import { useERP } from '../../context/ERPContext';
+import { fmtAddress } from './printDocUtils';
 
 export const PrintSalesOrderModal = ({ isOpen, onClose, order }) => {
   const docSigs = useDocumentSignatures('SalesOrder', order?.id, `Sales Order ${order?.orderNumber || order?.number || ""}`);
@@ -11,7 +12,7 @@ export const PrintSalesOrderModal = ({ isOpen, onClose, order }) => {
     const companyShort = (companyName || 'E').trim().charAt(0).toUpperCase() || 'E';
     const gstin = companyProfile?.gstin || '';
     const pan = companyProfile?.pan || '';
-    const companyAddress = companyProfile?.address || '742 Industrial Technology Way, Bldg 4 • San Jose, CA 95134';
+    const companyAddress = fmtAddress(companyProfile?.address) || '742 Industrial Technology Way, Bldg 4 • San Jose, CA 95134';
     const phone = companyProfile?.phone || '+1 (800) 555-0199';
     useEffect(() => {
         if (!isOpen) return;
@@ -147,6 +148,7 @@ export const PrintSalesOrderModal = ({ isOpen, onClose, order }) => {
                                 ORDERED BY (CLIENT ACCOUNT)
                             </span>
                             <p className="text-sm font-bold text-slate-900">{order.customer || 'Client Account'}</p>
+                            {(order.shippingAddress || order.billingAddress) && <p className="text-slate-500 text-[11px]">{fmtAddress(order.shippingAddress) || fmtAddress(order.billingAddress)}</p>}
                             {order.paymentTerms && <p className="text-slate-500 text-[11px]">Payment Terms: {order.paymentTerms}</p>}
                             {order.transporter && <p className="text-slate-500 text-[11px]">Transporter: {order.transporter}</p>}
                         </div>

@@ -45,6 +45,17 @@ const ALERT_TYPE_LABELS = {
   combined_grey_stock_low: 'Combined Grey Stock Threshold',
 };
 
+const formatAlertValue = (val) => {
+  if (val == null) return '-';
+  const num = Number(val);
+  return Number.isNaN(num) ? String(val) : num.toFixed(2);
+};
+
+const formatAlertText = (text) => {
+  if (!text) return '';
+  return String(text).replace(/(\d+\.\d{2})\d{2,}/g, '$1');
+};
+
 export default function AlertCenterPage() {
   const [activeTab, setActiveTab] = useState('incidents'); // 'incidents' | 'settings'
   const [incidents, setIncidents] = useState([]);
@@ -314,7 +325,7 @@ export default function AlertCenterPage() {
                           </span>
                         </td>
                         <td className="py-3 px-4">
-                          <div className="font-semibold text-slate-900">{inc.title}</div>
+                          <div className="font-semibold text-slate-900">{formatAlertText(inc.title)}</div>
                           <div className="text-xs text-indigo-600 font-medium">
                             {ALERT_TYPE_LABELS[inc.alert_type] || inc.alert_type}
                           </div>
@@ -323,7 +334,7 @@ export default function AlertCenterPage() {
                           {inc.document_ref || '-'}
                         </td>
                         <td className="py-3 px-4 max-w-sm">
-                          <div className="line-clamp-2 text-xs text-slate-600">{inc.message}</div>
+                          <div className="line-clamp-2 text-xs text-slate-600">{formatAlertText(inc.message)}</div>
                         </td>
                         <td className="py-3 px-4 whitespace-nowrap text-xs text-slate-500">
                           {inc.triggered_at ? new Date(inc.triggered_at).toLocaleString() : '-'}
@@ -413,7 +424,7 @@ export default function AlertCenterPage() {
                           {setting.threshold_days != null ? `${setting.threshold_days} days` : '-'}
                         </td>
                         <td className="py-3 px-4 text-xs font-medium">
-                          {setting.tolerance_percent != null ? `${setting.tolerance_percent}%` : '-'}
+                          {setting.tolerance_percent != null ? `${formatAlertValue(setting.tolerance_percent)}%` : '-'}
                         </td>
                         <td className="py-3 px-4">
                           <span

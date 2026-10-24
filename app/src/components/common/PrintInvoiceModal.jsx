@@ -2,6 +2,7 @@ import React, { useEffect } from 'react';
 import { X, Printer, CheckCircle2, FileText } from 'lucide-react';
 import { SignatureSlot, useDocumentSignatures } from './SignatureSlot';
 import { useERP } from '../../context/ERPContext';
+import { fmtAddress } from './printDocUtils';
 export const PrintInvoiceModal = ({ isOpen, onClose, invoice, balanceDue = 0, }) => {
   const docSigs = useDocumentSignatures('SalesInvoice', invoice?.id, `Invoice ${invoice?.invoiceNumber || invoice?.number || ""}`);
     const { companyProfile, currency } = useERP(); // [PHASE-2E.1] profile-driven letterhead (was hardcoded US strings)
@@ -10,13 +11,13 @@ export const PrintInvoiceModal = ({ isOpen, onClose, invoice, balanceDue = 0, })
     const companyShort = (companyName || 'H').trim().charAt(0).toUpperCase() || 'H';
     const gstin = companyProfile?.gstin || '';
     const pan = companyProfile?.pan || '';
-    const companyAddress = companyProfile?.address || '742 Industrial Technology Way, Bldg 4 • San Jose, CA 95134';
+    const companyAddress = fmtAddress(companyProfile?.address) || '742 Industrial Technology Way, Bldg 4 • San Jose, CA 95134';
     const phone = companyProfile?.phone || '+1 (800) 555-0199';
     const companyStateCode = (gstin || '').slice(0, 2).toUpperCase();
     // The modal stays mounted with `invoice={null}` while closed, and this runs
     // above the `if (!isOpen || !invoice)` return — the hook below has to keep
     // its unconditional call site, so read defensively rather than moving it.
-    const posRaw = String(invoice?.placeOfSupplyState || invoice?.placeOfSupply || invoice?.shippingState || '');
+    const posRaw = String(invoice?.placeOfSupplyState || invoice?.placeOfSupply || invoice?.shippingState || (typeof invoice?.billingAddress === 'object' ? invoice.billingAddress?.state : '') || (typeof invoice?.shippingAddress === 'object' ? invoice.shippingAddress?.state : '') || '');
     const posMatch = posRaw.match(/(\d{2})/);
     const posStateCode = posMatch ? posMatch[1] : posRaw.slice(0, 2).toUpperCase();
     const hasStates = Boolean(companyStateCode && posStateCode);
@@ -149,7 +150,7 @@ export const PrintInvoiceModal = ({ isOpen, onClose, invoice, balanceDue = 0, })
                 GSTIN: {invoice.customerGstin || 'URP / Unregistered'}
                 {hasStates ? ` • Place of Supply: ${posStateCode}` : ''}
               </p>
-              <p className="text-slate-500 text-[11px]">{invoice.billingAddress || invoice.shippingAddress || '—'}</p>
+              <p className="text-slate-500 text-[11px]">{fmtAddress(invoice.billingAddress) || fmtAddress(invoice.shippingAddress) || '—'}</p>
               <p className="text-slate-500 text-[11px]">Payment Terms: {invoice.dueDate || 'Net 30 Days'}</p>
             </div>
           </div>
