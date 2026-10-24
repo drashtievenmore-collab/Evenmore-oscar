@@ -14,29 +14,31 @@ const TABS = [
   "Department",
 ];
 
+const CURRENT_YEAR = new Date().getFullYear();
+
 const DATE_RANGE_OPTIONS = [
-  "Jan 2024 - Dec 2024 (Annual)",
-  "H1 2024 (Jan - Jun)",
-  "H2 2024 (Jul - Dec)",
-  "Q1 2024 (Jan - Mar)",
-  "Q2 2024 (Apr - Jun)",
-  "Q3 2024 (Jul - Sep)",
-  "Q4 2024 (Oct - Dec)",
-  "Q3 - Q4 2024",
+  `Jan ${CURRENT_YEAR} - Dec ${CURRENT_YEAR} (Annual)`,
+  `H1 ${CURRENT_YEAR} (Jan - Jun)`,
+  `H2 ${CURRENT_YEAR} (Jul - Dec)`,
+  `Q1 ${CURRENT_YEAR} (Jan - Mar)`,
+  `Q2 ${CURRENT_YEAR} (Apr - Jun)`,
+  `Q3 ${CURRENT_YEAR} (Jul - Sep)`,
+  `Q4 ${CURRENT_YEAR} (Oct - Dec)`,
+  `Q3 - Q4 ${CURRENT_YEAR}`,
 ];
 
 const DATE_RANGE_MAP = {
-  "Jan 2024 - Dec 2024 (Annual)": [
+  [`Jan ${CURRENT_YEAR} - Dec ${CURRENT_YEAR} (Annual)`]: [
     "Jan", "Feb", "Mar", "Apr", "May", "Jun",
     "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
   ],
-  "H1 2024 (Jan - Jun)": ["Jan", "Feb", "Mar", "Apr", "May", "Jun"],
-  "H2 2024 (Jul - Dec)": ["Jul", "Aug", "Sep", "Oct", "Nov", "Dec"],
-  "Q1 2024 (Jan - Mar)": ["Jan", "Feb", "Mar"],
-  "Q2 2024 (Apr - Jun)": ["Apr", "May", "Jun"],
-  "Q3 2024 (Jul - Sep)": ["Jul", "Aug", "Sep"],
-  "Q4 2024 (Oct - Dec)": ["Oct", "Nov", "Dec"],
-  "Q3 - Q4 2024": ["Jul", "Aug", "Sep", "Oct", "Nov", "Dec"],
+  [`H1 ${CURRENT_YEAR} (Jan - Jun)`]: ["Jan", "Feb", "Mar", "Apr", "May", "Jun"],
+  [`H2 ${CURRENT_YEAR} (Jul - Dec)`]: ["Jul", "Aug", "Sep", "Oct", "Nov", "Dec"],
+  [`Q1 ${CURRENT_YEAR} (Jan - Mar)`]: ["Jan", "Feb", "Mar"],
+  [`Q2 ${CURRENT_YEAR} (Apr - Jun)`]: ["Apr", "May", "Jun"],
+  [`Q3 ${CURRENT_YEAR} (Jul - Sep)`]: ["Jul", "Aug", "Sep"],
+  [`Q4 ${CURRENT_YEAR} (Oct - Dec)`]: ["Oct", "Nov", "Dec"],
+  [`Q3 - Q4 ${CURRENT_YEAR}`]: ["Jul", "Aug", "Sep", "Oct", "Nov", "Dec"],
 };
 
 const DEPARTMENT_PROFILES = {
@@ -263,8 +265,8 @@ export default function AnalyticsVolumeChart() {
 
   const [activeTab, setActiveTab] = useState("Employee");
   const [department, setDepartment] = useState("All Departments");
-  const [dateRange, setDateRange] = useState("Jan 2024 - Dec 2024 (Annual)");
-  const [selectedMonth, setSelectedMonth] = useState("Oct");
+  const [dateRange, setDateRange] = useState(DATE_RANGE_OPTIONS[0]);
+  const [selectedMonth, setSelectedMonth] = useState(() => MONTHS[new Date().getMonth()] || "Oct");
   const [hoveredData, setHoveredData] = useState(null);
 
   // Profile and ratio for current department
@@ -325,7 +327,7 @@ export default function AnalyticsVolumeChart() {
 
   // Filter months according to selected Date Range
   const visibleMonthsData = useMemo(() => {
-    const allowed = DATE_RANGE_MAP[dateRange] || DATE_RANGE_MAP["Jan 2024 - Dec 2024 (Annual)"];
+    const allowed = DATE_RANGE_MAP[dateRange] || DATE_RANGE_MAP[DATE_RANGE_OPTIONS[0]];
     return processedMonths.filter((m) => allowed.includes(m.month));
   }, [processedMonths, dateRange]);
 
@@ -564,7 +566,7 @@ export default function AnalyticsVolumeChart() {
                 {hoveredData && hoveredData.month === item.month && (
                   <div className="absolute -top-20 z-30 bg-[#0f172a] text-white text-[11px] rounded-lg px-3 py-2 shadow-xl whitespace-nowrap flex flex-col pointer-events-none transition-all">
                     <div className="flex items-center justify-between gap-4 font-bold border-b border-white/20 pb-1 mb-1">
-                      <span>{item.month} 2024</span>
+                      <span>{item.month} {CURRENT_YEAR}</span>
                       <span className="text-[#94a3b8] font-normal">{department}</span>
                     </div>
                     <div className="flex items-center justify-between gap-4 text-[#e2e8f0]">

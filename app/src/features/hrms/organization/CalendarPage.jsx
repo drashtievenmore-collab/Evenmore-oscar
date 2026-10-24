@@ -8,6 +8,8 @@ import {
   RotateCcw,
   Sparkles,
   ChevronDown,
+  ChevronLeft,
+  ChevronRight,
   Check,
 } from "lucide-react";
 import { useAppStore } from "../../../stores/appStore";
@@ -15,6 +17,7 @@ import { useCalendarStore } from "../../../stores/calendarStore";
 import { EVENT_CATEGORIES, DEPARTMENTS, MONTH_NAMES } from "./calendarConfig";
 import {
   formatDateKey,
+  parseDateKey,
   generateMonthGrid,
   generateWeekDays,
   getQuarterInfo,
@@ -39,10 +42,25 @@ export function CalendarPage() {
   // Active view: 'Month' | 'Week' | 'Schedule List'
   const [view, setView] = useState("Month");
 
-  // Navigation state - default to October 2024 for immediate context, or dynamic
-  const [activeYear, setActiveYear] = useState(2024);
-  const [activeMonth, setActiveMonth] = useState(9); // 0-indexed: 9 = October
-  const [selectedDate, setSelectedDate] = useState("2024-10-11");
+  // Navigation state - dynamically defaults to current year, month, and today's date
+  const [activeYear, setActiveYear] = useState(() => new Date().getFullYear());
+  const [activeMonth, setActiveMonth] = useState(() => new Date().getMonth());
+  const [selectedDate, setSelectedDate] = useState(() => {
+    const today = new Date();
+    return formatDateKey(today.getFullYear(), today.getMonth(), today.getDate());
+  });
+
+  // Dynamic year options covering current context and neighboring years
+  const yearOptions = useMemo(() => {
+    const cy = new Date().getFullYear();
+    const startYear = Math.min(2023, cy - 3);
+    const endYear = Math.max(2028, cy + 4);
+    const list = [];
+    for (let y = startYear; y <= endYear; y++) {
+      list.push(y);
+    }
+    return list;
+  }, []);
 
   // Filter state
   const [categoryFilter, setCategoryFilter] = useState("All");
@@ -69,37 +87,87 @@ export function CalendarPage() {
   // Navigation handlers
   const handlePrev = () => {
     if (view === "Week") {
-      const d = new Date(selectedDate);
+      const d = parseDateKey(selectedDate);
       d.setDate(d.getDate() - 7);
       const newDateStr = formatDateKey(d.getFullYear(), d.getMonth(), d.getDate());
       setSelectedDate(newDateStr);
       setActiveYear(d.getFullYear());
       setActiveMonth(d.getMonth());
     } else {
-      if (activeMonth === 0) {
-        setActiveMonth(11);
-        setActiveYear((y) => y - 1);
+      let nextMonth = activeMonth - 1;
+      let nextYear = activeYear;
+      if (nextMonth < 0) {
+        nextMonth = 11;
+        nextYear = activeYear - 1;
+      }
+      setActiveMonth(nextMonth);
+      setActiveYear(nextYear);
+
+      const now = new Date();
+      if (nextYear === now.getFullYear() && nextMonth === now.getMonth()) {
+        setSelectedDate(formatDateKey(now.getFullYear(), now.getMonth(), now.getDate()));
       } else {
-        setActiveMonth((m) => m - 1);
+        const [, , d] = selectedDate.split("-").map(Number);
+        const daysInMonth = new Date(nextYear, nextMonth + 1, 0).getDate();
+        const clampedDay = Math.min(d || 1, daysInMonth);
+        setSelectedDate(formatDateKey(nextYear, nextMonth, clampedDay));
       }
     }
   };
 
   const handleNext = () => {
     if (view === "Week") {
-      const d = new Date(selectedDate);
+      const d = parseDateKey(selectedDate);
       d.setDate(d.getDate() + 7);
       const newDateStr = formatDateKey(d.getFullYear(), d.getMonth(), d.getDate());
       setSelectedDate(newDateStr);
       setActiveYear(d.getFullYear());
       setActiveMonth(d.getMonth());
     } else {
-      if (activeMonth === 11) {
-        setActiveMonth(0);
-        setActiveYear((y) => y + 1);
-      } else {
-        setActiveMonth((m) => m + 1);
+      let nextMonth = activeMonth + 1;
+      let nextYear = activeYear;
+      if (nextMonth > 11) {
+        nextMonth = 0;
+        nextYear = activeYear + 1;
       }
+      setActiveMonth(nextMonth);
+      setActiveYear(nextYear);
+
+      const now = new Date();
+      if (nextYear === now.getFullYear() && nextMonth === now.getMonth()) {
+        setSelectedDate(formatDateKey(now.getFullYear(), now.getMonth(), now.getDate()));
+      } else {
+        const [, , d] = selectedDate.split("-").map(Number);
+        const daysInMonth = new Date(nextYear, nextMonth + 1, 0).getDate();
+        const clampedDay = Math.min(d || 1, daysInMonth);
+        setSelectedDate(formatDateKey(nextYear, nextMonth, clampedDay));
+      }
+    }
+  };
+
+  const handleMonthChange = (newMonth) => {
+    setActiveMonth(newMonth);
+    const now = new Date();
+    if (activeYear === now.getFullYear() && newMonth === now.getMonth()) {
+      setSelectedDate(formatDateKey(now.getFullYear(), now.getMonth(), now.getDate()));
+    } else {
+      const [, , d] = selectedDate.split("-").map(Number);
+      const daysInNewMonth = new Date(activeYear, newMonth + 1, 0).getDate();
+      const clampedDay = Math.min(d || 1, daysInNewMonth);
+      setSelectedDate(formatDateKey(activeYear, newMonth, clampedDay));
+    }
+  };
+
+  const handleYearChange = (newYear) => {
+    setActiveYear(newYear);
+    const now = new Date();
+    if (newYear === now.getFullYear() && activeMonth === now.getMonth()) {
+      setSelectedDate(formatDateKey(now.getFullYear(), now.getMonth(), now.getDate()));
+    } else {
+      const [, , d] = selectedDate.split("-").map(Number);
+      const daysInNewMonth = new Date(newYear, activeMonth + 1, 0).getDate();
+      const clampedDay = Math.min(d || 1, daysInNewMonth);
+      setSelectedDate(formatDateKey(newYear, activeMonth, clampedDay));
     }
   };
 
@@ -260,112 +328,99 @@ export function CalendarPage() {
         }
       />
 
-      {/* Filter & Search Bar */}
-      <div className="bg-white border border-bdr rounded-2xl p-4 shadow-xs flex flex-col md:flex-row items-center justify-between gap-3.5">
-        {/* Category Chips with Scrollbar */}
-        <div className="flex items-center gap-1.5 overflow-x-auto flex-1 min-w-0 w-full md:w-auto pb-2 custom-scrollbar">
-          <button
-            type="button"
-            onClick={() => setCategoryFilter("All")}
-            className={`shrink-0 px-3 py-1.5 rounded-xl text-[12px] font-medium whitespace-nowrap transition cursor-pointer ${
-              categoryFilter === "All"
-                ? "bg-navy text-white shadow-2xs"
-                : "bg-off text-slate-600 hover:bg-slate-200/70 border border-bdr/60"
-            }`}
-          >
-            All Events ({events.length})
-          </button>
-
-          {Object.keys(EVENT_CATEGORIES).map((key) => {
-            const cat = EVENT_CATEGORIES[key];
-            const isSelected = categoryFilter === key;
-            const count = events.filter((e) => e.type === key).length;
-
-            return (
-              <button
-                key={key}
-                type="button"
-                onClick={() => setCategoryFilter(isSelected ? "All" : key)}
-                className={`shrink-0 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-[12px] font-medium whitespace-nowrap transition cursor-pointer border ${
-                  isSelected
-                    ? `${cat.badgeClass} ring-1 ring-offset-1`
-                    : "bg-white border-bdr/60 text-slate-600 hover:bg-off"
-                }`}
-              >
-                <span className={`w-2 h-2 rounded-full ${cat.dotClass}`} />
-                <span>{cat.shortLabel}</span>
-                <span className="text-[10px] opacity-75 font-mono">({count})</span>
-              </button>
-            );
-          })}
-        </div>
-
-        {/* Right Search & Department dropdown */}
-        <div className="flex items-center gap-2 w-full md:w-auto shrink-0">
-          {/* Department Select Dropdown with Scrollbar */}
-          <div className="relative shrink-0" ref={deptRef}>
+      {/* Toolbar: Filters & Quick Search */}
+      <div className="flex flex-wrap items-center justify-between gap-3 p-4 bg-white border border-bdr rounded-2xl shadow-xs">
+        {/* Left: Department Filter, Category Tabs */}
+        <div className="flex flex-wrap items-center gap-2.5">
+          {/* Department Dropdown */}
+          <div className="relative" ref={deptRef}>
             <button
               type="button"
-              onClick={() => setDeptDropdownOpen(!deptDropdownOpen)}
-              className="h-9 px-3 pr-2.5 bg-off border border-bdr rounded-xl text-[12px] text-slate-700 hover:bg-slate-200/60 focus:outline-none focus:border-navy cursor-pointer font-medium inline-flex items-center gap-2 transition"
+              onClick={() => setDeptDropdownOpen((o) => !o)}
+              className="h-9 px-3 rounded-xl border border-bdr bg-white hover:bg-off text-[13px] font-medium text-slate-700 flex items-center gap-2 transition"
             >
-              <span className="truncate max-w-[130px]">{deptFilter === "All" ? "All Departments" : deptFilter}</span>
-              <ChevronDown size={14} className={`text-slate-400 transition-transform ${deptDropdownOpen ? "rotate-180" : ""}`} />
+              <Filter size={13} className="text-muted" />
+              <span>Dept: {deptFilter}</span>
+              <ChevronDown size={14} className="text-muted ml-0.5" />
             </button>
 
             {deptDropdownOpen && (
-              <div className="absolute right-0 top-full mt-1 w-52 bg-white border border-bdr rounded-xl shadow-xl z-50 overflow-hidden">
-                <div className="max-h-48 overflow-y-auto p-1 space-y-0.5 custom-scrollbar">
-                  <button
-                    type="button"
+              <div className="absolute left-0 top-full mt-1.5 w-52 bg-white border border-bdr rounded-xl shadow-lg z-30 p-1">
+                <div
+                  onClick={() => {
+                    setDeptFilter("All");
+                    setDeptDropdownOpen(false);
+                  }}
+                  className={`px-3 py-1.5 text-[12.5px] rounded-lg cursor-pointer flex items-center justify-between ${
+                    deptFilter === "All" ? "bg-navy/10 text-navy font-semibold" : "hover:bg-off text-slate-700"
+                  }`}
+                >
+                  <span>All Departments</span>
+                  {deptFilter === "All" && <Check size={14} />}
+                </div>
+                <div className="h-px bg-bdr my-1" />
+                {DEPARTMENTS.map((dept) => (
+                  <div
+                    key={dept}
                     onClick={() => {
-                      setDeptFilter("All");
+                      setDeptFilter(dept);
                       setDeptDropdownOpen(false);
                     }}
-                    className={`w-full flex items-center justify-between px-3 py-1.5 text-left text-[12px] rounded-lg transition-colors cursor-pointer ${
-                      deptFilter === "All"
-                        ? "bg-navy/10 text-navy font-semibold"
-                        : "text-slate-700 hover:bg-off"
+                    className={`px-3 py-1.5 text-[12.5px] rounded-lg cursor-pointer flex items-center justify-between ${
+                      deptFilter === dept ? "bg-navy/10 text-navy font-semibold" : "hover:bg-off text-slate-700"
                     }`}
                   >
-                    <span>All Departments</span>
-                    {deptFilter === "All" && <Check size={13} className="text-navy shrink-0" />}
-                  </button>
-                  {DEPARTMENTS.map((d) => {
-                    const isSelected = deptFilter === d;
-                    return (
-                      <button
-                        key={d}
-                        type="button"
-                        onClick={() => {
-                          setDeptFilter(d);
-                          setDeptDropdownOpen(false);
-                        }}
-                        className={`w-full flex items-center justify-between px-3 py-1.5 text-left text-[12px] rounded-lg transition-colors cursor-pointer ${
-                          isSelected
-                            ? "bg-navy/10 text-navy font-semibold"
-                            : "text-slate-700 hover:bg-off"
-                        }`}
-                      >
-                        <span className="truncate">{d}</span>
-                        {isSelected && <Check size={13} className="text-navy shrink-0" />}
-                      </button>
-                    );
-                  })}
-                </div>
+                    <span>{dept}</span>
+                    {deptFilter === dept && <Check size={14} />}
+                  </div>
+                ))}
               </div>
             )}
           </div>
 
-          {/* Search Input */}
-          <div className="relative flex-1 md:w-48">
-            <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+          {/* Quick Category Chips */}
+          <div className="hidden sm:flex items-center gap-1 p-0.5 bg-off border border-bdr rounded-xl">
+            <button
+              type="button"
+              onClick={() => setCategoryFilter("All")}
+              className={`px-3 py-1 rounded-lg text-[12px] font-medium transition ${
+                categoryFilter === "All" ? "bg-white text-slate-900 shadow-2xs font-semibold" : "text-muted hover:text-slate-800"
+              }`}
+            >
+              All Types
+            </button>
+            {Object.keys(EVENT_CATEGORIES).map((key) => {
+              const cat = EVENT_CATEGORIES[key];
+              const isActive = categoryFilter === key;
+              return (
+                <button
+                  key={key}
+                  type="button"
+                  onClick={() => setCategoryFilter(isActive ? "All" : key)}
+                  className={`px-2.5 py-1 rounded-lg text-[12px] font-medium transition flex items-center gap-1.5 ${
+                    isActive
+                      ? "bg-white text-slate-900 shadow-2xs font-semibold"
+                      : "text-muted hover:text-slate-800"
+                  }`}
+                >
+                  <span className={`w-2 h-2 rounded-full ${cat.dotClass}`} />
+                  <span>{cat.shortLabel}</span>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* Right: Search Box & Reset */}
+        <div className="flex items-center gap-2">
+          <div className="relative w-48 sm:w-64">
+            <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted" />
             <input
               type="text"
-              placeholder="Search events..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full h-9 pl-8 pr-3 bg-off border border-bdr rounded-xl text-[12px] focus:bg-white focus:outline-none focus:border-navy transition"
+              placeholder="Search meetings, holidays..."
+              className="w-full h-9 pl-9 pr-3 text-[12.5px] rounded-xl border border-bdr bg-off/50 focus:bg-white focus:outline-none focus:border-navy transition"
             />
           </div>
 
@@ -399,7 +454,7 @@ export function CalendarPage() {
                 <div className="flex items-center gap-2">
                   <select
                     value={activeMonth}
-                    onChange={(e) => setActiveMonth(Number(e.target.value))}
+                    onChange={(e) => handleMonthChange(Number(e.target.value))}
                     className="font-bold text-[18px] text-slate-900 bg-transparent hover:bg-off rounded-lg px-2 py-0.5 border border-transparent hover:border-bdr focus:outline-none focus:border-navy cursor-pointer transition"
                   >
                     {MONTH_NAMES.map((m, idx) => (
@@ -411,10 +466,10 @@ export function CalendarPage() {
 
                   <select
                     value={activeYear}
-                    onChange={(e) => setActiveYear(Number(e.target.value))}
+                    onChange={(e) => handleYearChange(Number(e.target.value))}
                     className="font-bold text-[18px] text-slate-900 bg-transparent hover:bg-off rounded-lg px-2 py-0.5 border border-transparent hover:border-bdr focus:outline-none focus:border-navy cursor-pointer transition"
                   >
-                    {[2023, 2024, 2025, 2026, 2027].map((y) => (
+                    {yearOptions.map((y) => (
                       <option key={y} value={y}>
                         {y}
                       </option>
@@ -427,15 +482,31 @@ export function CalendarPage() {
                 </span>
               </div>
 
-              {/* Today Button */}
-              <div>
+              {/* Prev / Today / Next Controls */}
+              <div className="flex items-center gap-1.5">
+                <button
+                  type="button"
+                  onClick={handlePrev}
+                  className="w-8 h-8 rounded-lg border border-bdr text-slate-700 hover:bg-off grid place-items-center transition cursor-pointer shadow-2xs"
+                  title="Previous"
+                >
+                  <ChevronLeft size={15} />
+                </button>
                 <button
                   type="button"
                   onClick={handleToday}
-                  className="h-8 px-3.5 rounded-lg border border-bdr text-[12px] font-medium hover:bg-off text-slate-700 transition cursor-pointer shadow-2xs"
-                  title="Visit Today"
+                  className="h-8 px-3 rounded-lg border border-bdr text-[12px] font-medium hover:bg-off text-slate-700 transition cursor-pointer shadow-2xs"
+                  title="Jump to Today"
                 >
                   Today
+                </button>
+                <button
+                  type="button"
+                  onClick={handleNext}
+                  className="w-8 h-8 rounded-lg border border-bdr text-slate-700 hover:bg-off grid place-items-center transition cursor-pointer shadow-2xs"
+                  title="Next"
+                >
+                  <ChevronRight size={15} />
                 </button>
               </div>
             </div>
@@ -473,7 +544,7 @@ export function CalendarPage() {
             )}
           </div>
 
-            {/* Comprehensive Legend at Bottom */}
+          {/* Comprehensive Legend at Bottom */}
           <div className="pt-4 mt-6 border-t border-bdr flex flex-wrap items-center justify-between gap-3 text-[12px] text-muted">
             <div className="flex flex-wrap items-center gap-4">
               {Object.keys(EVENT_CATEGORIES).map((key) => {

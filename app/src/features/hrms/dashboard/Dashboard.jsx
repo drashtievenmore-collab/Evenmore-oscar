@@ -126,11 +126,29 @@ export default function HRMSDashboard() {
 
   const [showNotice, setShowNotice] = useState(true);
 
+  // Dynamic current date helpers
+  const today = useMemo(() => new Date(), []);
+  const currentYear = today.getFullYear();
+  const currentMonthIdx = today.getMonth();
+  const monthNamesShort = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+  const thisMonthName = monthNamesShort[currentMonthIdx];
+  const lastMonthDate = new Date(currentYear, currentMonthIdx - 1, 1);
+  const lastMonthName = monthNamesShort[lastMonthDate.getMonth()];
+  const lastMonthYear = lastMonthDate.getFullYear();
+  const daysInThisMonth = new Date(currentYear, currentMonthIdx + 1, 0).getDate();
+  const daysInLastMonth = new Date(lastMonthYear, lastMonthDate.getMonth() + 1, 0).getDate();
+  const pad = (n) => String(n).padStart(2, "0");
+
+  const initialRangeLabel = `${thisMonthName} 1 – ${thisMonthName} ${daysInThisMonth}, ${currentYear}`;
+  const initialStart = `${currentYear}-${pad(currentMonthIdx + 1)}-01`;
+  const initialEnd = `${currentYear}-${pad(currentMonthIdx + 1)}-${pad(daysInThisMonth)}`;
+  const initialLeaveDate = `${currentYear}-${pad(currentMonthIdx + 1)}-${pad(today.getDate())}`;
+
   // Date range filter state
-  const [dateRangeLabel, setDateRangeLabel] = useState("Oct 1 – Oct 31, 2024");
+  const [dateRangeLabel, setDateRangeLabel] = useState(initialRangeLabel);
   const [showDateModal, setShowDateModal] = useState(false);
-  const [customStart, setCustomStart] = useState("2024-10-01");
-  const [customEnd, setCustomEnd] = useState("2024-10-31");
+  const [customStart, setCustomStart] = useState(initialStart);
+  const [customEnd, setCustomEnd] = useState(initialEnd);
 
   // Handover notes state
   const [showHandoverModal, setShowHandoverModal] = useState(false);
@@ -143,7 +161,7 @@ export default function HRMSDashboard() {
     const list = loadRequestTypes();
     return list[0] || "Casual Leave";
   });
-  const [leaveDate, setLeaveDate] = useState("2024-10-15");
+  const [leaveDate, setLeaveDate] = useState(initialLeaveDate);
   const [leaveNote, setLeaveNote] = useState("");
   const [submitted, setSubmitted] = useState(false);
   const [requestDropdownOpen, setRequestDropdownOpen] = useState(false);
@@ -700,33 +718,33 @@ export default function HRMSDashboard() {
               type="button"
               className="btn-outline"
               style={{ fontSize: 13, textAlign: "left", justifyContent: "flex-start" }}
-              onClick={() => handleApplyDateRange("Oct 1 – Oct 31, 2024")}
+              onClick={() => handleApplyDateRange(`${thisMonthName} 1 – ${thisMonthName} ${daysInThisMonth}, ${currentYear}`)}
             >
-              Oct 1 – Oct 31, 2024 (This Month)
+              {thisMonthName} 1 – {thisMonthName} {daysInThisMonth}, {currentYear} (This Month)
             </button>
             <button
               type="button"
               className="btn-outline"
               style={{ fontSize: 13, textAlign: "left", justifyContent: "flex-start" }}
-              onClick={() => handleApplyDateRange("Sep 1 – Sep 30, 2024")}
+              onClick={() => handleApplyDateRange(`${lastMonthName} 1 – ${lastMonthName} ${daysInLastMonth}, ${lastMonthYear}`)}
             >
-              Sep 1 – Sep 30, 2024 (Last Month)
+              {lastMonthName} 1 – {lastMonthName} {daysInLastMonth}, {lastMonthYear} (Last Month)
             </button>
             <button
               type="button"
               className="btn-outline"
               style={{ fontSize: 13, textAlign: "left", justifyContent: "flex-start" }}
-              onClick={() => handleApplyDateRange("Q4 2024 (Oct – Dec)")}
+              onClick={() => handleApplyDateRange(`Q${Math.floor(currentMonthIdx / 3) + 1} ${currentYear}`)}
             >
-              Q4 2024 (Oct – Dec)
+              Q{Math.floor(currentMonthIdx / 3) + 1} {currentYear}
             </button>
             <button
               type="button"
               className="btn-outline"
               style={{ fontSize: 13, textAlign: "left", justifyContent: "flex-start" }}
-              onClick={() => handleApplyDateRange("Year 2024")}
+              onClick={() => handleApplyDateRange(`Year ${currentYear}`)}
             >
-              Year 2024
+              Year {currentYear}
             </button>
           </div>
 

@@ -113,7 +113,7 @@ export function generateMonthGrid(year, month) {
  * Generates the 7 days of the week containing the reference date
  */
 export function generateWeekDays(currentDate) {
-  const d = new Date(currentDate);
+  const d = parseDateKey(currentDate);
   let dayOfWeek = d.getDay() - 1;
   if (dayOfWeek === -1) dayOfWeek = 6; // Monday = 0, Sunday = 6
 
@@ -152,6 +152,9 @@ export function exportEventsToICS(events, calendarName = "HRMS-Calendar") {
     return `${cleanDate}T090000Z`;
   };
 
+  const today = new Date();
+  const todayDefaultStr = formatDateKey(today.getFullYear(), today.getMonth(), today.getDate());
+
   let icsContent = [
     "BEGIN:VCALENDAR",
     "VERSION:2.0",
@@ -162,8 +165,8 @@ export function exportEventsToICS(events, calendarName = "HRMS-Calendar") {
   ];
 
   events.forEach((ev) => {
-    const startStr = ev.startDate || ev.date || "2024-10-01";
-    const endStr = ev.endDate || ev.startDate || ev.date || "2024-10-01";
+    const startStr = ev.startDate || ev.date || todayDefaultStr;
+    const endStr = ev.endDate || ev.startDate || ev.date || todayDefaultStr;
     const icsStart = formatICSDate(startStr, ev.time);
     const icsEnd = formatICSDate(endStr, ev.time);
 
