@@ -16,7 +16,6 @@ import {
   Settings,
   ChevronDown,
   ChevronRight,
-  Infinity as InfinityIcon,
   Building2,
   FileText,
   FileSpreadsheet,
@@ -70,6 +69,7 @@ import {
   DollarSign,
 } from 'lucide-react';
 import { useAppStore } from '../../stores/appStore';
+import BrandLogo, { useBrandName } from '../common/BrandLogo';
 import { usePmsStore, computeNavBadges } from '../../stores/pmsStore';
 import { useERP } from '../../context/ERPContext';
 import { useModuleWhenIdle } from '../../hooks/useIdleReady';
@@ -983,6 +983,7 @@ function ExpandableRow({ item, depth = 0, badges = {} }) {
 export default function Sidebar() {
   const navigate = useNavigate();
   const sidebarWidth = useAppStore((s) => s.sidebarWidth) ?? 280;
+  const brandName = useBrandName('EVENMORE INFOTECH');
   const setSidebarWidth = useAppStore((s) => s.setSidebarWidth);
   const setMobileSidebarOpen = useAppStore((s) => s.setMobileSidebarOpen);
   const currentUser = useAppStore((s) => s.currentUser);
@@ -1079,10 +1080,10 @@ export default function Sidebar() {
         <div className="brand-block">
           <div className="brand-left">
             <span className="brand-logo">
-              <InfinityIcon size={28} strokeWidth={2.6} />
+              <BrandLogo size={28} strokeWidth={2.6} />
             </span>
             <div className="min-w-0">
-              <div className="brand-name">EVENMORE INFOTECH</div>
+              <div className="brand-name">{brandName}</div>
               <div className="brand-tag">PEOPLE | PROCESS | PROGRESS</div>
             </div>
           </div>

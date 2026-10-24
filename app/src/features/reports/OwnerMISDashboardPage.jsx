@@ -700,82 +700,53 @@ export default function OwnerMISDashboardPage() {
       {/* ─────────────────────────────────────────────────────────────────── */}
       {activeTab === 'cockpit' && (
         <div className="space-y-6">
-          {/* ── 1. EXECUTIVE HERO KPIS ── */}
+          {/* ── 1. EXECUTIVE HERO KPIS (CRM Wave KpiCard) ── */}
           <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3.5">
-            <div 
+            <KpiCard
+              label="Invoiced Sales"
+              value={inr(todayFinancials.sales)}
+              icon={TrendingUp}
+              tone="emerald"
+              trend="+14.2% MTD"
+              sub={`${invoices.length} Tax Invoices`}
               onClick={() => setActiveTab('1_today')}
-              className="bg-white p-4 rounded-2xl border border-slate-200/90 hover:border-emerald-500 hover:shadow-md transition cursor-pointer group"
-            >
-              <div className="flex items-center justify-between">
-                <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">Invoiced Sales</span>
-                <span className="p-1.5 rounded-lg bg-emerald-50 text-emerald-600 group-hover:scale-110 transition"><TrendingUp size={15} /></span>
-              </div>
-              <div className="text-xl sm:text-2xl font-black text-slate-900 mt-2 font-mono tracking-tight">{inr(todayFinancials.sales)}</div>
-              <div className="flex items-center justify-between text-[11px] text-slate-500 mt-2 pt-2 border-t border-slate-100">
-                <span>{invoices.length} Tax Invoices</span>
-                <span className="text-emerald-700 font-semibold bg-emerald-50 px-1.5 py-0.5 rounded text-[10px]">+14.2% MTD</span>
-              </div>
-            </div>
-
-            <div 
+            />
+            <KpiCard
+              label="Collections Realized"
+              value={inr(todayFinancials.collections)}
+              icon={DollarSign}
+              tone="blue"
+              trend="74% Realized"
+              sub="Realized Inflow"
               onClick={() => setActiveTab('1_today')}
-              className="bg-white p-4 rounded-2xl border border-slate-200/90 hover:border-blue-500 hover:shadow-md transition cursor-pointer group"
-            >
-              <div className="flex items-center justify-between">
-                <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">Collections Realized</span>
-                <span className="p-1.5 rounded-lg bg-blue-50 text-blue-600 group-hover:scale-110 transition"><DollarSign size={15} /></span>
-              </div>
-              <div className="text-xl sm:text-2xl font-black text-blue-700 mt-2 font-mono tracking-tight">{inr(todayFinancials.collections)}</div>
-              <div className="flex items-center justify-between text-[11px] text-slate-500 mt-2 pt-2 border-t border-slate-100">
-                <span>Realization Rate</span>
-                <span className="text-blue-700 font-bold bg-blue-50 px-1.5 py-0.5 rounded text-[10px]">74% Inflow</span>
-              </div>
-            </div>
-
-            <div 
+            />
+            <KpiCard
+              label="Gross Profit (Est.)"
+              value={inr(todayFinancials.grossProfit)}
+              icon={Percent}
+              tone="indigo"
+              trend="22.0% Margin"
+              sub="Target: 18.0%"
               onClick={() => setActiveTab('10_party')}
-              className="bg-white p-4 rounded-2xl border border-slate-200/90 hover:border-indigo-500 hover:shadow-md transition cursor-pointer group"
-            >
-              <div className="flex items-center justify-between">
-                <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">Gross Profit (Est.)</span>
-                <span className="p-1.5 rounded-lg bg-indigo-50 text-indigo-600 group-hover:scale-110 transition"><Percent size={15} /></span>
-              </div>
-              <div className="text-xl sm:text-2xl font-black text-indigo-700 mt-2 font-mono tracking-tight">{inr(todayFinancials.grossProfit)}</div>
-              <div className="flex items-center justify-between text-[11px] text-slate-500 mt-2 pt-2 border-t border-slate-100">
-                <span>Target: 18.0%</span>
-                <span className="text-emerald-700 font-bold bg-emerald-50 px-1.5 py-0.5 rounded text-[10px]">22.0% GP Margin</span>
-              </div>
-            </div>
-
-            <div 
+            />
+            <KpiCard
+              label="Total Stock Value"
+              value={inr(inventoryStages.totalValue)}
+              icon={Package}
+              tone="amber"
+              trend={`${num(inventoryStages.totalMeters)} M`}
+              sub="Across 9 Stages"
               onClick={() => setActiveTab('5_inventory')}
-              className="bg-white p-4 rounded-2xl border border-slate-200/90 hover:border-amber-500 hover:shadow-md transition cursor-pointer group"
-            >
-              <div className="flex items-center justify-between">
-                <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">Total Stock Value</span>
-                <span className="p-1.5 rounded-lg bg-amber-50 text-amber-600 group-hover:scale-110 transition"><Package size={15} /></span>
-              </div>
-              <div className="text-xl sm:text-2xl font-black text-amber-800 mt-2 font-mono tracking-tight">{inr(inventoryStages.totalValue)}</div>
-              <div className="flex items-center justify-between text-[11px] text-slate-500 mt-2 pt-2 border-t border-slate-100">
-                <span>Across 9 Stages</span>
-                <span className="text-amber-800 font-bold bg-amber-50 px-1.5 py-0.5 rounded text-[10px]">{num(inventoryStages.totalMeters)} M</span>
-              </div>
-            </div>
-
-            <div 
+            />
+            <KpiCard
+              label="Funds Position"
+              value={inr(todayFinancials.cashBankBalance)}
+              icon={Building2}
+              tone="purple"
+              trend="Active Accounts"
+              sub="Bank & Cash"
               onClick={() => setActiveTab('1_today')}
-              className="bg-white p-4 rounded-2xl border border-slate-200/90 hover:border-purple-500 hover:shadow-md transition cursor-pointer group col-span-2 sm:col-span-1"
-            >
-              <div className="flex items-center justify-between">
-                <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">Funds Position</span>
-                <span className="p-1.5 rounded-lg bg-purple-50 text-purple-600 group-hover:scale-110 transition"><Building2 size={15} /></span>
-              </div>
-              <div className="text-xl sm:text-2xl font-black text-purple-800 mt-2 font-mono tracking-tight">{inr(todayFinancials.cashBankBalance)}</div>
-              <div className="flex items-center justify-between text-[11px] text-slate-500 mt-2 pt-2 border-t border-slate-100">
-                <span>Bank & Cash</span>
-                <span className="text-purple-700 font-bold bg-purple-50 px-1.5 py-0.5 rounded text-[10px]">Active Accounts</span>
-              </div>
-            </div>
+            />
           </div>
 
           {/* ── 2. VISUAL CHARTS SECTION 1: FINANCIAL FLOW & QC YIELD DONUT ── */}
@@ -1174,28 +1145,36 @@ export default function OwnerMISDashboardPage() {
       {/* ─────────────────────────────────────────────────────────────────── */}
       {activeTab === '1_today' && (
         <div className="space-y-6">
-          {/* Executive KPI Bar */}
+          {/* Executive KPI Bar (CRM Wave KpiCard) */}
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-            <div className="p-4 bg-white border border-slate-200 rounded-2xl shadow-xs">
-              <span className="text-xs font-semibold text-emerald-800 block">Invoiced Sales</span>
-              <span className="text-2xl font-black text-emerald-700 mt-1 block">{inr(todayFinancials.sales)}</span>
-              <span className="text-[11px] text-emerald-600">From commercial tax invoices ({invoices.length} invoices)</span>
-            </div>
-            <div className="p-4 bg-white border border-slate-200 rounded-2xl shadow-xs">
-              <span className="text-xs font-semibold text-blue-800 block">Collections Realized</span>
-              <span className="text-2xl font-black text-blue-700 mt-1 block">{inr(todayFinancials.collections)}</span>
-              <span className="text-[11px] text-blue-600">Customer payments received</span>
-            </div>
-            <div className="p-4 bg-white border border-slate-200 rounded-2xl shadow-xs">
-              <span className="text-xs font-semibold text-indigo-800 block">Gross Profit</span>
-              <span className="text-2xl font-black text-indigo-700 mt-1 block">{inr(todayFinancials.grossProfit)}</span>
-              <span className="text-[11px] text-indigo-600">22.0% Estimated Margin</span>
-            </div>
-            <div className="p-4 bg-white border border-slate-200 rounded-2xl shadow-xs">
-              <span className="text-xs font-semibold text-purple-800 block">Liquid Cash &amp; Bank</span>
-              <span className="text-2xl font-black text-purple-700 mt-1 block">{inr(todayFinancials.cashBankBalance)}</span>
-              <span className="text-[11px] text-purple-600">Available bank balances</span>
-            </div>
+            <KpiCard
+              label="Invoiced Sales"
+              value={inr(todayFinancials.sales)}
+              icon={TrendingUp}
+              tone="emerald"
+              sub={`From commercial tax invoices (${invoices.length} invoices)`}
+            />
+            <KpiCard
+              label="Collections Realized"
+              value={inr(todayFinancials.collections)}
+              icon={DollarSign}
+              tone="blue"
+              sub="Customer payments received"
+            />
+            <KpiCard
+              label="Gross Profit"
+              value={inr(todayFinancials.grossProfit)}
+              icon={Percent}
+              tone="indigo"
+              sub="22.0% Estimated Margin"
+            />
+            <KpiCard
+              label="Liquid Cash & Bank"
+              value={inr(todayFinancials.cashBankBalance)}
+              icon={Building2}
+              tone="purple"
+              sub="Available bank balances"
+            />
           </div>
 
           {/* VISUAL GRAPH: Cash Flow Waterfall & Bridge */}
@@ -1283,59 +1262,40 @@ export default function OwnerMISDashboardPage() {
       {/* ─────────────────────────────────────────────────────────────────── */}
       {activeTab === '2_external_prod' && (
         <div className="space-y-6">
-          {/* Top 4 Performance Metric Cards */}
+          {/* Top 4 Performance Metric Cards (CRM Wave KpiCard) */}
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-            <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-xs">
-              <div className="flex items-center justify-between">
-                <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">Today Output</span>
-                <span className="p-1.5 rounded-lg bg-blue-50 text-blue-600"><Factory size={15} /></span>
-              </div>
-              <div className="text-2xl font-black text-blue-700 font-mono mt-1">{num(totalTodayProd)} M</div>
-              <div className="flex items-center justify-between text-[11px] text-slate-500 mt-2 pt-2 border-t border-slate-100">
-                <span>Total Takas</span>
-                <span className="font-bold text-slate-800">{num(totalTodayTakas)} Takas</span>
-              </div>
-            </div>
-
-            <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-xs">
-              <div className="flex items-center justify-between">
-                <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">Cumulative Output</span>
-                <span className="p-1.5 rounded-lg bg-indigo-50 text-indigo-600"><TrendingUp size={15} /></span>
-              </div>
-              <div className="text-2xl font-black text-indigo-700 font-mono mt-1">{num(totalCumulative)} M</div>
-              <div className="flex items-center justify-between text-[11px] text-slate-500 mt-2 pt-2 border-t border-slate-100">
-                <span>Active Processors</span>
-                <span className="font-bold text-indigo-700">{agencyProduction.length} Dyeing Mills</span>
-              </div>
-            </div>
-
-            <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-xs">
-              <div className="flex items-center justify-between">
-                <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">Balance Pending</span>
-                <span className="p-1.5 rounded-lg bg-amber-50 text-amber-600"><Clock size={15} /></span>
-              </div>
-              <div className="text-2xl font-black text-amber-700 font-mono mt-1">{num(totalBalance)} M</div>
-              <div className="flex items-center justify-between text-[11px] text-slate-500 mt-2 pt-2 border-t border-slate-100">
-                <span>At Outside Processors</span>
-                <span className="font-bold text-amber-800">In Production</span>
-              </div>
-            </div>
-
-            <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-xs">
-              <div className="flex items-center justify-between">
-                <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">Schedule Health</span>
-                <span className="p-1.5 rounded-lg bg-emerald-50 text-emerald-600"><CheckCircle2 size={15} /></span>
-              </div>
-              <div className="text-2xl font-black text-emerald-700 font-mono mt-1">
-                {Math.round(((agencyProduction.length - totalDelayedAgencies) / (agencyProduction.length || 1)) * 100)}%
-              </div>
-              <div className="flex items-center justify-between text-[11px] text-slate-500 mt-2 pt-2 border-t border-slate-100">
-                <span>Delayed Agencies</span>
-                <span className={`font-bold ${totalDelayedAgencies > 0 ? 'text-rose-600' : 'text-emerald-600'}`}>
-                  {totalDelayedAgencies} Delayed
-                </span>
-              </div>
-            </div>
+            <KpiCard
+              label="Today Output"
+              value={`${num(totalTodayProd)} M`}
+              icon={Factory}
+              tone="blue"
+              trend={`${num(totalTodayTakas)} Takas`}
+              sub="Meters Produced Today"
+            />
+            <KpiCard
+              label="Cumulative Output"
+              value={`${num(totalCumulative)} M`}
+              icon={TrendingUp}
+              tone="indigo"
+              trend={`${agencyProduction.length} Dyeing Mills`}
+              sub="Across active orders"
+            />
+            <KpiCard
+              label="Balance Pending"
+              value={`${num(totalBalance)} M`}
+              icon={Clock}
+              tone="amber"
+              trend="In Processing"
+              sub="At outside processors"
+            />
+            <KpiCard
+              label="Schedule Health"
+              value={`${Math.round(((agencyProduction.length - totalDelayedAgencies) / (agencyProduction.length || 1)) * 100)}%`}
+              icon={CheckCircle2}
+              tone={totalDelayedAgencies > 0 ? 'rose' : 'emerald'}
+              trend={totalDelayedAgencies > 0 ? `${totalDelayedAgencies} Delayed` : 'On Schedule'}
+              sub="Delivery Performance"
+            />
           </div>
 
           {/* ── VISUAL CHARTS SECTION FOR EXTERNAL PRODUCTION ── */}
@@ -1855,21 +1815,30 @@ export default function OwnerMISDashboardPage() {
       {activeTab === '6_qc_wastage' && (
         <div className="space-y-6">
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            <div className="p-4 bg-emerald-50 rounded-xl border border-emerald-100">
-              <span className="text-xs font-bold text-emerald-800 block">Overall First-Pass Yield</span>
-              <span className="text-3xl font-black text-emerald-700 mt-1 block">{qcWastage.passPct}%</span>
-              <span className="text-[11px] text-emerald-600">Passed standard fabric quality inspection</span>
-            </div>
-            <div className="p-4 bg-amber-50 rounded-xl border border-amber-100">
-              <span className="text-xs font-bold text-amber-800 block">Reprocess / Rework Rate</span>
-              <span className="text-3xl font-black text-amber-700 mt-1 block">{qcWastage.reprocessPct}%</span>
-              <span className="text-[11px] text-amber-600">Minor defects sent for re-dyeing/re-finishing</span>
-            </div>
-            <div className="p-4 bg-rose-50 rounded-xl border border-rose-100">
-              <span className="text-xs font-bold text-rose-800 block">Outright Rejection &amp; Scrap</span>
-              <span className="text-3xl font-black text-rose-700 mt-1 block">{qcWastage.rejectPct}%</span>
-              <span className="text-[11px] text-rose-600">Total estimated defect cost: {inr(qcWastage.totalLossAmount)}</span>
-            </div>
+            <KpiCard
+              label="Overall First-Pass Yield"
+              value={`${qcWastage.passPct}%`}
+              icon={CheckCircle2}
+              tone="emerald"
+              trend="Passed Standard"
+              sub="Fabric quality inspection"
+            />
+            <KpiCard
+              label="Reprocess / Rework Rate"
+              value={`${qcWastage.reprocessPct}%`}
+              icon={Clock}
+              tone="amber"
+              trend="Minor Defects"
+              sub="Sent for re-dyeing/re-finishing"
+            />
+            <KpiCard
+              label="Outright Rejection & Scrap"
+              value={`${qcWastage.rejectPct}%`}
+              icon={AlertTriangle}
+              tone="rose"
+              trend={`Cost: ${inr(qcWastage.totalLossAmount)}`}
+              sub="Total defect scrap loss"
+            />
           </div>
 
           {/* VISUAL DEFECT CAUSE GRAPH */}
@@ -1974,36 +1943,48 @@ export default function OwnerMISDashboardPage() {
           </div>
 
           <div className="grid grid-cols-2 md:grid-cols-6 gap-3">
-            <div className="p-3 bg-white rounded-xl border border-slate-200 text-center shadow-xs">
-              <span className="text-[10px] text-slate-400 font-bold block uppercase">Orders Booked</span>
-              <span className="text-xl font-black text-slate-800 mt-0.5 block">{salesPipeline.ordersBooked}</span>
-              <span className="text-[10.5px] text-slate-500">{inr(salesPipeline.ordersValue)}</span>
-            </div>
-            <div className="p-3 bg-white rounded-xl border border-slate-200 text-center shadow-xs">
-              <span className="text-[10px] text-slate-400 font-bold block uppercase">Dispatched Value</span>
-              <span className="text-xl font-black text-indigo-700 mt-0.5 block">{inr(salesPipeline.dispatchedValue)}</span>
-              <span className="text-[10.5px] text-slate-500">{deliveryChallans.length} challans</span>
-            </div>
-            <div className="p-3 bg-white rounded-xl border border-slate-200 text-center shadow-xs">
-              <span className="text-[10px] text-slate-400 font-bold block uppercase">Invoiced Sales</span>
-              <span className="text-xl font-black text-slate-900 mt-0.5 block">{inr(salesPipeline.invoicedValue)}</span>
-              <span className="text-[10.5px] text-slate-500">{invoices.length} invoices</span>
-            </div>
-            <div className="p-3 bg-white rounded-xl border border-slate-200 text-center shadow-xs">
-              <span className="text-[10px] text-slate-400 font-bold block uppercase">Collections Realized</span>
-              <span className="text-xl font-black text-emerald-700 mt-0.5 block">{inr(salesPipeline.collectionsRealized)}</span>
-              <span className="text-[10.5px] text-emerald-600 font-medium">{paymentIns.length} payments</span>
-            </div>
-            <div className="p-3 bg-white rounded-xl border border-slate-200 text-center shadow-xs">
-              <span className="text-[10px] text-slate-400 font-bold block uppercase">Sales Returns</span>
-              <span className="text-xl font-black text-rose-700 mt-0.5 block">{inr(salesPipeline.returnsDeduction)}</span>
-              <span className="text-[10.5px] text-rose-600 font-medium">Claims</span>
-            </div>
-            <div className="p-3 bg-amber-50 rounded-xl border border-amber-200 text-center shadow-xs">
-              <span className="text-[10px] text-amber-800 font-bold block uppercase">Pending Dispatch</span>
-              <span className="text-xl font-black text-amber-900 mt-0.5 block">{num(salesPipeline.pendingDispatchMeters)} m</span>
-              <span className="text-[10.5px] text-amber-700 font-medium">{inr(salesPipeline.pendingDispatchValue)}</span>
-            </div>
+            <KpiCard
+              label="Orders Booked"
+              value={salesPipeline.ordersBooked}
+              icon={ShoppingCart}
+              tone="blue"
+              sub={inr(salesPipeline.ordersValue)}
+            />
+            <KpiCard
+              label="Dispatched Value"
+              value={inr(salesPipeline.dispatchedValue)}
+              icon={Truck}
+              tone="indigo"
+              sub={`${deliveryChallans.length} challans`}
+            />
+            <KpiCard
+              label="Invoiced Sales"
+              value={inr(salesPipeline.invoicedValue)}
+              icon={FileText}
+              tone="purple"
+              sub={`${invoices.length} invoices`}
+            />
+            <KpiCard
+              label="Collections Realized"
+              value={inr(salesPipeline.collectionsRealized)}
+              icon={DollarSign}
+              tone="emerald"
+              sub={`${paymentIns.length} payments`}
+            />
+            <KpiCard
+              label="Sales Returns"
+              value={inr(salesPipeline.returnsDeduction)}
+              icon={AlertTriangle}
+              tone="rose"
+              sub="Quality claims"
+            />
+            <KpiCard
+              label="Pending Dispatch"
+              value={`${num(salesPipeline.pendingDispatchMeters)} m`}
+              icon={Clock}
+              tone="amber"
+              sub={inr(salesPipeline.pendingDispatchValue)}
+            />
           </div>
         </div>
       )}
@@ -2462,41 +2443,29 @@ export default function OwnerMISDashboardPage() {
       {activeTab === 'leakage' && (
         <div className="space-y-6">
           <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
-            <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-xs">
-              <div className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1">
-                Gross Invoiced Sales
-              </div>
-              <div className="text-3xl font-extrabold text-slate-900">
-                {inr(todayFinancials.sales)}
-              </div>
-              <div className="mt-2 text-xs text-slate-500">
-                Baseline before trade deductions and returns
-              </div>
-            </div>
-
-            <div className="bg-white p-5 rounded-xl border border-rose-200 bg-rose-50/20 shadow-xs">
-              <div className="text-xs font-semibold text-rose-600 uppercase tracking-wider mb-1">
-                Total Commercial Leakage
-              </div>
-              <div className="text-3xl font-extrabold text-rose-600">
-                {inr(Math.round(todayFinancials.sales * 0.09))}
-              </div>
-              <div className="mt-2 text-xs font-semibold text-rose-700">
-                9.0% of Gross Sales (Within Limit)
-              </div>
-            </div>
-
-            <div className="bg-white p-5 rounded-xl border border-emerald-200 bg-emerald-50/20 shadow-xs">
-              <div className="text-xs font-semibold text-emerald-600 uppercase tracking-wider mb-1">
-                Net Contribution
-              </div>
-              <div className="text-3xl font-extrabold text-emerald-700">
-                {inr(Math.round(todayFinancials.sales * 0.91))}
-              </div>
-              <div className="mt-2 text-xs font-semibold text-emerald-700">
-                91.0% Net Realization
-              </div>
-            </div>
+            <KpiCard
+              label="Gross Invoiced Sales"
+              value={inr(todayFinancials.sales)}
+              icon={FileText}
+              tone="blue"
+              sub="Baseline before deductions"
+            />
+            <KpiCard
+              label="Total Commercial Leakage"
+              value={inr(Math.round(todayFinancials.sales * 0.09))}
+              icon={AlertTriangle}
+              tone="rose"
+              trend="9.0% of Gross Sales"
+              sub="Within safety limit"
+            />
+            <KpiCard
+              label="Net Contribution"
+              value={inr(Math.round(todayFinancials.sales * 0.91))}
+              icon={CheckCircle2}
+              tone="emerald"
+              trend="91.0% Realization"
+              sub="Net Realized Gain"
+            />
           </div>
 
           {/* VISUAL WATERFALL CHART */}
