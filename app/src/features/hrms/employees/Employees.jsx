@@ -1,5 +1,6 @@
 import { useState, useMemo, useEffect } from "react";
-import { Download, ChevronRight, ChevronLeft, ChevronDown, Trash2 } from "lucide-react";
+import { Download, ChevronRight, ChevronLeft, ChevronDown, Trash2, Eye } from "lucide-react";
+import EmployeeProfileModal from "./EmployeeProfileModal";
 import Modal from "../../../components/ui/Modal";
 import { useAppStore } from "../../../stores/appStore";
 import PageHeader from "../../../components/ui/PageHeader";
@@ -25,6 +26,7 @@ export default function Employees() {
   const [viewMode, setViewMode] = useState("Table");
   const [showForm, setShowForm] = useState(false);
   const [currentPage, setCurrentPage] = useState(1);
+  const [selectedEmployee, setSelectedEmployee] = useState(null);
   const pageSize = 5;
 
   useEffect(() => {
@@ -235,12 +237,17 @@ export default function Employees() {
               </thead>
               <tbody>
                 {paginatedEmployees.map((row) => (
-                  <tr key={row.id}>
+                  <tr
+                    key={row.id}
+                    className="emp-row-clickable"
+                    onClick={() => setSelectedEmployee(row)}
+                    title="Click to view employee profile"
+                  >
                     <td>
                       <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
                         <Avatar name={row.name} size="sm" />
                         <div>
-                          <span style={{ fontWeight: 600, color: "#111827", display: "inline-block", marginRight: 8 }}>
+                          <span className="emp-name-text">
                             {row.name}
                           </span>
                           <span style={{ fontSize: "12.5px", color: "#6b7280" }}>{row.email}</span>
@@ -257,14 +264,30 @@ export default function Employees() {
                       </span>
                     </td>
                     <td>
-                      <button
-                        type="button"
-                        onClick={() => handleDelete(row.id, row.name)}
-                        className="emp-trash-btn"
-                        title="Delete employee"
-                      >
-                        <Trash2 size={15} />
-                      </button>
+                      <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setSelectedEmployee(row);
+                          }}
+                          className="emp-action-btn"
+                          title="View Profile"
+                        >
+                          <Eye size={15} />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleDelete(row.id, row.name);
+                          }}
+                          className="emp-trash-btn"
+                          title="Delete employee"
+                        >
+                          <Trash2 size={15} />
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 ))}
@@ -281,19 +304,40 @@ export default function Employees() {
         ) : (
           <div className="emp-grid-view">
             {paginatedEmployees.map((row) => (
-              <div key={row.id} className="emp-grid-item">
+              <div
+                key={row.id}
+                className="emp-grid-item emp-grid-clickable"
+                onClick={() => setSelectedEmployee(row)}
+                title="Click to view employee profile"
+              >
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
                   <Avatar name={row.name} size="xl" />
-                  <button
-                    type="button"
-                    onClick={() => handleDelete(row.id, row.name)}
-                    className="emp-trash-btn"
-                    title="Delete employee"
-                  >
-                    <Trash2 size={15} />
-                  </button>
+                  <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setSelectedEmployee(row);
+                      }}
+                      className="emp-action-btn"
+                      title="View Profile"
+                    >
+                      <Eye size={15} />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleDelete(row.id, row.name);
+                      }}
+                      className="emp-trash-btn"
+                      title="Delete employee"
+                    >
+                      <Trash2 size={15} />
+                    </button>
+                  </div>
                 </div>
-                <h3 style={{ margin: "10px 0 2px", fontSize: "15px", fontWeight: 700, color: "#111827" }}>
+                <h3 className="emp-grid-name">
                   {row.name}
                 </h3>
                 <p style={{ margin: 0, fontSize: "12.5px", color: "#6b7280" }}>{row.email}</p>
@@ -432,7 +476,30 @@ export default function Employees() {
         </div>
       </Modal>
 
+      {/* Employee Profile Detail Modal */}
+      <EmployeeProfileModal
+        isOpen={Boolean(selectedEmployee)}
+        employee={selectedEmployee}
+        onClose={() => setSelectedEmployee(null)}
+        onEmployeeUpdated={(updated) => {
+          setSelectedEmployee(updated);
+          useAppStore.getState().refreshHrms?.("employees");
+        }}
+      />
+
       <style>{`
+        .emp-row-clickable { cursor: pointer; transition: background 0.12s ease; }
+        .emp-row-clickable:hover { background: #f1f5f9 !important; }
+        .emp-row-clickable:hover .emp-name-text { color: #2563eb !important; }
+        .emp-name-text { font-weight: 600; color: #111827; display: inline-block; margin-right: 8px; transition: color 0.15s ease; }
+
+        .emp-grid-clickable { cursor: pointer; transition: all 0.2s ease; }
+        .emp-grid-clickable:hover { border-color: #94a3b8; box-shadow: 0 4px 14px rgba(15,23,42,0.08); transform: translateY(-1.5px); }
+        .emp-grid-clickable:hover .emp-grid-name { color: #2563eb; }
+        .emp-grid-name { margin: 10px 0 2px; font-size: 15px; font-weight: 700; color: #111827; transition: color 0.15s ease; }
+
+        .emp-action-btn { border: none; background: transparent; color: #64748b; cursor: pointer; padding: 4px; border-radius: 6px; display: grid; place-items: center; transition: all 0.15s ease; }
+        .emp-action-btn:hover { color: #0f172a; background: #e2e8f0; }
         .emp-dir-page { background: #f8fafc; margin: -24px -28px -40px; padding: 18px 26px 28px; min-height: calc(100vh - 62px); }
         .emp-crumb { display: flex; align-items: center; gap: 6px; font-size: 13px; color: #6b7a90; margin-bottom: 10px; }
         .emp-title-row { display: flex; align-items: flex-start; justify-content: space-between; gap: 14px; flex-wrap: wrap; margin-bottom: 16px; }

@@ -16,6 +16,11 @@ const TABS = [
 
 const CURRENT_YEAR = new Date().getFullYear();
 
+const MONTHS = [
+  "Jan", "Feb", "Mar", "Apr", "May", "Jun",
+  "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
+];
+
 const DATE_RANGE_OPTIONS = [
   `Jan ${CURRENT_YEAR} - Dec ${CURRENT_YEAR} (Annual)`,
   `H1 ${CURRENT_YEAR} (Jan - Jun)`,
