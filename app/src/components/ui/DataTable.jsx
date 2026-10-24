@@ -1,6 +1,6 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { ArrowUpDown, MoreVertical, Search, Download } from 'lucide-react';
-import Pagination from './Pagination';
+import TablePagination from './TablePagination';
 
 /**
  * DataTable — Unified CRM/ERP/HRMS Data Table.
@@ -26,16 +26,30 @@ export function DataTable({
   emptyTitle = 'No records found',
   emptyDesc = 'There are no records matching your current filter criteria.',
   emptyAction,
-  pageSize: initialPageSize = 5,
-  pageSizeOptions = [5, 10, 20],
+  pageSize: initialPageSize = 10,
+  pageSizeOptions = [10, 25, 50, 100],
   action,
   exportable = true,
+  pagination = true,
 }) {
   const [search, setSearch] = useState('');
   const [sortKey, setSortKey] = useState('');
   const [sortDir, setSortDir] = useState('asc');
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(initialPageSize);
+
+  // Sync pageSize if initialPageSize changes externally
+  useEffect(() => {
+    if (initialPageSize) {
+      setPageSize(initialPageSize);
+    }
+  }, [initialPageSize]);
+
+  const resolvedPageSizeOptions = useMemo(() => {
+    const list = Array.isArray(pageSizeOptions) && pageSizeOptions.length > 0 ? pageSizeOptions : [10, 25, 50, 100];
+    const set = new Set([initialPageSize, ...list]);
+    return Array.from(set).sort((a, b) => a - b);
+  }, [initialPageSize, pageSizeOptions]);
 
   const isSearchEnabled = searchable || !!searchFilter || searchPlaceholder !== 'Search…' || !!title;
 
@@ -75,6 +89,14 @@ export function DataTable({
       return sortDir === 'asc' ? cmp : -cmp;
     });
   }, [filtered, sortKey, sortDir]);
+
+  // Clamp current page if total pages shrinks
+  const totalPages = Math.max(1, Math.ceil(sorted.length / pageSize));
+  useEffect(() => {
+    if (page > totalPages) {
+      setPage(totalPages);
+    }
+  }, [page, totalPages]);
 
   // Paginate
   const paginated = useMemo(() => {
@@ -343,16 +365,20 @@ export function DataTable({
         </table>
       </div>
 
-      {/* Pagination Footer */}
-      {(sorted.length > pageSize || sorted.length > 5) && (
-        <div className="border-t border-border bg-card-alt pr-16 sm:pr-20">
-          <Pagination
-            total={sorted.length}
-            page={page}
-            pageSize={pageSize}
-            onChange={setPage}
-          />
-        </div>
+      {/* Standardized Responsive Pagination Footer */}
+      {pagination !== false && (
+        <TablePagination
+          total={sorted.length}
+          page={page}
+          pageSize={pageSize}
+          onPageChange={setPage}
+          onPageSizeChange={(newSize) => {
+            setPageSize(newSize);
+            setPage(1);
+          }}
+          pageSizeOptions={resolvedPageSizeOptions}
+          showPageSizeSelector={resolvedPageSizeOptions && resolvedPageSizeOptions.length > 0}
+        />
       )}
     </div>
   );

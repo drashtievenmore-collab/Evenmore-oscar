@@ -2503,7 +2503,7 @@ img { display: block; max-width: 100%; }
   align-items: center;
   justify-content: space-between;
   gap: 8px;
-  padding: 8px 84px 8px 16px;
+  padding: 10px 16px;
   font-size: 0.8rem;
   color: var(--muted);
 }
@@ -5135,3 +5135,163 @@ tr:hover .pinned-indicator,
   scrollbar-color: rgba(148, 163, 184, 0.35) transparent;
 }
 
+
+/* ── KPI cards (components/ui/KpiCard.jsx) ─────────────────
+   Theme-driven surface; --kpi-accent is set per card from its tone. */
+@layer components {
+  .kpi-card {
+    background: var(--card);
+    border-color: var(--border);
+    box-shadow: var(--shadow-card);
+  }
+  .kpi-card:hover {
+    border-color: color-mix(in srgb, var(--kpi-accent) 45%, var(--border));
+    box-shadow: var(--shadow-card-hover);
+  }
+  .kpi-card:focus-visible {
+    outline: 2px solid var(--kpi-accent);
+    outline-offset: 2px;
+  }
+}
+
+
+/* ── Global ERP Responsive & Adaptive Design System ───────── */
+:root {
+  --fluid-h1: clamp(1.25rem, 1.1rem + 0.75vw, 1.625rem);
+  --fluid-h2: clamp(1.1rem, 0.95rem + 0.6vw, 1.375rem);
+  --fluid-h3: clamp(0.95rem, 0.85rem + 0.4vw, 1.15rem);
+  --fluid-kpi: clamp(1.05rem, 0.95rem + 0.6vw, 1.35rem);
+  --fluid-body: clamp(0.8125rem, 0.78rem + 0.15vw, 0.875rem);
+  --fluid-gap: clamp(10px, 0.8vw + 6px, 16px);
+  --fluid-padding: clamp(12px, 1vw + 8px, 20px);
+}
+
+/* Ensure app viewport bounds and zero unwanted horizontal scrollbars */
+html, body {
+  max-width: 100vw;
+  overflow-x: clip;
+}
+
+.app-shell {
+  max-width: 100vw;
+  min-width: 0;
+}
+
+.main-col {
+  max-width: 100%;
+  min-width: 0;
+  overflow-x: clip;
+}
+
+.content {
+  max-width: 100%;
+  min-width: 0;
+}
+
+/* Universal fluid table & scrollable element guards */
+.table-scroll,
+.table-responsive,
+.overflow-x-auto {
+  max-width: 100%;
+  min-width: 0;
+  -webkit-overflow-scrolling: touch;
+}
+
+/* Recharts and SVG charts fluid containment */
+.recharts-responsive-container,
+.recharts-wrapper {
+  max-width: 100% !important;
+  min-width: 0 !important;
+}
+
+/* Standardized Responsive KPI Grid utility classes */
+.kpi-grid-4 {
+  display: grid;
+  grid-template-columns: repeat(1, minmax(0, 1fr));
+  gap: var(--fluid-gap);
+}
+@media (min-width: 640px) {
+  .kpi-grid-4 {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+@media (min-width: 1024px) {
+  .kpi-grid-4 {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+}
+
+.kpi-grid-5 {
+  display: grid;
+  grid-template-columns: repeat(1, minmax(0, 1fr));
+  gap: var(--fluid-gap);
+}
+@media (min-width: 480px) {
+  .kpi-grid-5 {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+@media (min-width: 768px) {
+  .kpi-grid-5 {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+@media (min-width: 1024px) {
+  .kpi-grid-5 {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+}
+@media (min-width: 1280px) {
+  .kpi-grid-5 {
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+  }
+}
+
+.kpi-grid-6 {
+  display: grid;
+  grid-template-columns: repeat(1, minmax(0, 1fr));
+  gap: var(--fluid-gap);
+}
+@media (min-width: 480px) {
+  .kpi-grid-6 {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+@media (min-width: 768px) {
+  .kpi-grid-6 {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+@media (min-width: 1024px) {
+  .kpi-grid-6 {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+}
+@media (min-width: 1536px) {
+  .kpi-grid-6 {
+    grid-template-columns: repeat(6, minmax(0, 1fr));
+  }
+}
+
+.kpi-grid-auto {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 210px), 1fr));
+  gap: var(--fluid-gap);
+}
+
+/* Responsive Modal Enforcements */
+@media (max-width: 767px) {
+  .modal-dialog,
+  .modal-container,
+  [role="dialog"] > div {
+    max-width: min(94vw, 100%) !important;
+  }
+}
+
+/* Large screen & Ultra-wide (1920px+) readability guard */
+@media (min-width: 1920px) {
+  .content {
+    padding-left: clamp(24px, 2vw, 40px);
+    padding-right: clamp(24px, 2vw, 40px);
+  }
+}

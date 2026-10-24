@@ -37,6 +37,7 @@ import {
 } from 'lucide-react';
 import { inventoryService } from '../../services/domainServices';
 import PageInfoButton from '../../components/ui/PageInfoButton';
+import { ConfirmModal } from '../../components/ui/ConfirmModal';
 
 export const LocationsPage = () => {
   // State for data
@@ -90,6 +91,7 @@ export const LocationsPage = () => {
   const [locationDetails, setLocationDetails] = useState(null);
   const [detailsLoading, setDetailsLoading] = useState(false);
   const [activeTab, setActiveTab] = useState('stock'); // 'stock' | 'taka' | 'transactions'
+  const [deleteConfirm, setDeleteConfirm] = useState({ isOpen: false, loc: null });
 
   // Tree expanded state
   const [expandedNodes, setExpandedNodes] = useState({});
@@ -467,19 +469,19 @@ export const LocationsPage = () => {
   };
 
   // Delete / Deactivate location
-  const handleDelete = async (loc) => {
-    if (
-      !window.confirm(
-        `Are you sure you want to delete '${loc.name}' (${loc.code})?\n\nIf it has historical movements or active stock, the system will prevent deletion to preserve ledger integrity.`
-      )
-    ) {
-      return;
-    }
+  const handleDelete = (loc) => {
+    setDeleteConfirm({ isOpen: true, loc });
+  };
+
+  const handleConfirmDelete = async () => {
+    const loc = deleteConfirm.loc;
+    if (!loc) return;
 
     setActionLoading(true);
     try {
       await inventoryService.deleteLocation(loc.id);
       setFeedback({ type: 'success', message: `Location '${loc.name}' deleted successfully.` });
+      setDeleteConfirm({ isOpen: false, loc: null });
       await fetchData();
     } catch (err) {
       const msg =
@@ -488,6 +490,7 @@ export const LocationsPage = () => {
         err?.message ||
         'Cannot delete location. It may have child locations, stock, or ledger transactions. Try deactivating it instead.';
       setFeedback({ type: 'error', message: String(msg) });
+      setDeleteConfirm({ isOpen: false, loc: null });
     } finally {
       setActionLoading(false);
     }
@@ -1946,6 +1949,19 @@ export const LocationsPage = () => {
           </div>
         </div>
       )}
+      {/* Centered Modern Delete Confirmation Modal */}
+      <ConfirmModal
+        isOpen={deleteConfirm.isOpen}
+        onClose={() => !actionLoading && setDeleteConfirm({ isOpen: false, loc: null })}
+        onConfirm={handleConfirmDelete}
+        title="Delete Location"
+        message="Are you sure you want to delete this location? If it has historical movements or active stock, the system will prevent deletion to preserve ledger integrity."
+        itemName={deleteConfirm.loc ? `${deleteConfirm.loc.name} (${deleteConfirm.loc.code})` : null}
+        confirmText="Delete Location"
+        cancelText="Cancel"
+        variant="danger"
+        loading={actionLoading}
+      />
     </div>
   );
 };

@@ -129,7 +129,8 @@ export const crmService = {
   createContract: (data) => api.post('/crm/contracts/', data),
   updateContract: (id, data) => api.patch(`/crm/contracts/${id}/`, data),
   printContract: (id) => api.get(`/crm/contracts/${id}/print/`),
-  sendContractForSignature: (id) => api.post(`/crm/contracts/${id}/send-for-signature/`),
+  sendContractForSignature: (id, data) => api.post(`/crm/contracts/${id}/send-for-signature/`, data || {}),
+  getContractSignatureStatus: (id) => api.get(`/crm/contracts/${id}/signature-status/`),
 };
 
 // ── Sales pipeline ───────────────────────────────────────────────────────

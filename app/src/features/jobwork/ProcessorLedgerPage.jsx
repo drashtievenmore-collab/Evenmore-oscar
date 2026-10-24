@@ -20,6 +20,8 @@ import { api } from '../../services/api';
 import { fetchProcessorLedger } from '../../services/jobWorkSync';
 import { numIN } from './jobWorkOrdersStore';
 import PageHeader from '../../components/ui/PageHeader';
+import TablePagination from '../../components/ui/TablePagination';
+import KpiCard from '../../components/ui/KpiCard';
 
 export default function ProcessorLedgerPage() {
   const navigate = useNavigate();
@@ -30,6 +32,10 @@ export default function ProcessorLedgerPage() {
   const [error, setError] = useState(null);
   const [dateFrom, setDateFrom] = useState('');
   const [dateTo, setDateTo] = useState('');
+
+  // Pagination state
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(10);
 
   // Load processors list
   useEffect(() => {
@@ -102,6 +108,16 @@ export default function ProcessorLedgerPage() {
     });
   }, [rawEntries, dateFrom, dateTo]);
 
+  // Reset page when filters change
+  useEffect(() => {
+    setPage(1);
+  }, [selectedProcessorId, dateFrom, dateTo]);
+
+  const paginatedEntries = useMemo(() => {
+    const start = (page - 1) * pageSize;
+    return sortedEntries.slice(start, start + pageSize);
+  }, [sortedEntries, page, pageSize]);
+
   return (
     <div className="min-h-[calc(100vh-62px)] bg-[#eef3fb] p-3 md:p-4 space-y-3">
       <PageHeader
@@ -117,13 +133,13 @@ export default function ProcessorLedgerPage() {
           <div className="flex items-center gap-2">
             <button
               onClick={() => window.print()}
-              className="inline-flex items-center gap-1.5 rounded-lg border border-[#e2eaf5] bg-white px-3.5 py-2 text-[12px] font-bold text-slate-600 hover:bg-slate-50 shadow-2xs"
+              className="inline-flex items-center gap-1.5 rounded-lg border border-[#e2eaf5] bg-white px-3.5 py-2 text-[12px] font-bold text-slate-600 hover:bg-slate-50 shadow-2xs cursor-pointer"
             >
               <Printer size={13} /> Print Ledger
             </button>
             <button
               onClick={loadLedger}
-              className="inline-flex items-center gap-1.5 rounded-lg border border-[#e2eaf5] bg-white px-3.5 py-2 text-[12px] font-bold text-slate-600 hover:bg-slate-50 shadow-2xs"
+              className="inline-flex items-center gap-1.5 rounded-lg border border-[#e2eaf5] bg-white px-3.5 py-2 text-[12px] font-bold text-slate-600 hover:bg-slate-50 shadow-2xs cursor-pointer"
             >
               <RefreshCw size={13} className={loading ? 'animate-spin' : ''} /> Refresh
             </button>
@@ -133,45 +149,30 @@ export default function ProcessorLedgerPage() {
 
       {/* KPI Cards */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
-        <div className="rounded-xl border border-slate-200/80 bg-white p-3.5 shadow-2xs">
-          <div className="flex items-center gap-2.5">
-            <div className="grid h-8 w-8 shrink-0 place-items-center rounded-lg bg-blue-50 text-blue-600 border border-blue-200">
-              <Send size={15} />
-            </div>
-            <span className="text-[11.5px] font-semibold text-slate-500">Total Sent (Outward)</span>
-          </div>
-          <div className="mt-2 text-[18px] font-extrabold text-slate-900">{numIN(currentSummary.totalSent)} M</div>
-        </div>
-
-        <div className="rounded-xl border border-slate-200/80 bg-white p-3.5 shadow-2xs">
-          <div className="flex items-center gap-2.5">
-            <div className="grid h-8 w-8 shrink-0 place-items-center rounded-lg bg-emerald-50 text-emerald-600 border border-emerald-200">
-              <ArrowDownToLine size={15} />
-            </div>
-            <span className="text-[11.5px] font-semibold text-slate-500">Total Received (Inward)</span>
-          </div>
-          <div className="mt-2 text-[18px] font-extrabold text-slate-900">{numIN(currentSummary.totalReceived)} M</div>
-        </div>
-
-        <div className="rounded-xl border border-slate-200/80 bg-white p-3.5 shadow-2xs">
-          <div className="flex items-center gap-2.5">
-            <div className="grid h-8 w-8 shrink-0 place-items-center rounded-lg bg-amber-50 text-amber-600 border border-amber-200">
-              <TrendingDown size={15} />
-            </div>
-            <span className="text-[11.5px] font-semibold text-slate-500">Approved Loss / Shrinkage</span>
-          </div>
-          <div className="mt-2 text-[18px] font-extrabold text-amber-600">{numIN(currentSummary.totalLoss)} M</div>
-        </div>
-
-        <div className={`rounded-xl border p-3.5 shadow-2xs ${currentSummary.closingBalance > 0 ? 'bg-indigo-50/70 border-indigo-200' : 'bg-white border-slate-200/80'}`}>
-          <div className="flex items-center gap-2.5">
-            <div className="grid h-8 w-8 shrink-0 place-items-center rounded-lg bg-indigo-100 text-indigo-700">
-              <BookOpen size={15} />
-            </div>
-            <span className="text-[11.5px] font-semibold text-slate-600">Pending at Processor</span>
-          </div>
-          <div className="mt-2 text-[18px] font-extrabold text-indigo-900">{numIN(currentSummary.closingBalance)} M</div>
-        </div>
+        <KpiCard
+          label="Total Sent (Outward)"
+          value={`${numIN(currentSummary.totalSent)} M`}
+          icon={Send}
+          tone="blue"
+        />
+        <KpiCard
+          label="Total Received (Inward)"
+          value={`${numIN(currentSummary.totalReceived)} M`}
+          icon={ArrowDownToLine}
+          tone="emerald"
+        />
+        <KpiCard
+          label="Approved Loss / Shrinkage"
+          value={`${numIN(currentSummary.totalLoss)} M`}
+          icon={TrendingDown}
+          tone="amber"
+        />
+        <KpiCard
+          label="Pending at Processor"
+          value={`${numIN(currentSummary.closingBalance)} M`}
+          icon={BookOpen}
+          tone="indigo"
+        />
       </div>
 
       {/* Filter Bar */}
@@ -239,14 +240,14 @@ export default function ProcessorLedgerPage() {
                   </td>
                 </tr>
               ) : (
-                sortedEntries.map((e, idx) => (
+                paginatedEntries.map((e, idx) => (
                   <tr key={idx} className="border-b border-slate-100 hover:bg-slate-50/50">
-                    <td className="px-3.5 py-2.5 text-center text-slate-400 font-medium">{idx + 1}</td>
+                    <td className="px-3.5 py-2.5 text-center text-slate-400 font-medium">{(page - 1) * pageSize + idx + 1}</td>
                     <td className="px-3.5 py-2.5 font-medium text-slate-700 whitespace-nowrap">{e.date || '—'}</td>
                     <td className="px-3.5 py-2.5 font-mono">
                       <button
                         onClick={() => navigate(`/job-work/orders/${e.jwoId}`)}
-                        className="text-blue-600 hover:underline font-bold inline-flex items-center gap-1"
+                        className="text-blue-600 hover:underline font-bold inline-flex items-center gap-1 cursor-pointer"
                       >
                         {e.jwoNo} <ExternalLink size={10} />
                       </button>
@@ -282,6 +283,16 @@ export default function ProcessorLedgerPage() {
             </tbody>
           </table>
         </div>
+
+        {/* Standard Table Pagination Footer */}
+        <TablePagination
+          page={page}
+          pageSize={pageSize}
+          totalItems={sortedEntries.length}
+          onPageChange={setPage}
+          onPageSizeChange={(sz) => { setPageSize(sz); setPage(1); }}
+          pageSizeOptions={[10, 25, 50, 100]}
+        />
       </div>
     </div>
   );

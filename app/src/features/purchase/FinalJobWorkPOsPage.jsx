@@ -1,46 +1,22 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import {
-  FileText, Plus, Search, Filter, ArrowRight, Printer, CheckCircle2,
+  FileText, Plus, Search, Filter, Printer, CheckCircle2,
   Clock, DollarSign, Package, AlertTriangle, Eye, RefreshCw, ShoppingCart,
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import PageHeader from '../../components/ui/PageHeader';
+import KpiCard from '../../components/ui/KpiCard';
 import TablePagination from '../../components/ui/TablePagination';
 import { useERP } from '../../context/ERPContext';
 import { api } from '../../services/api';
 import GenerateFinalJobWorkPOModal from './GenerateFinalJobWorkPOModal';
 import { PrintPurchaseOrderModal } from '../../components/common/PrintPurchaseOrderModal';
 
-function Wave({ color }) {
-  return (
-    <svg viewBox="0 0 300 34" preserveAspectRatio="none" className="pointer-events-none absolute bottom-0 left-0 h-[30px] w-full">
-      <path d="M0 22 C 40 8, 70 30, 110 20 S 180 6, 220 18 S 270 28, 300 16 L300 34 L0 34 Z" fill={color} opacity="0.55" />
-      <path d="M0 26 C 50 16, 90 32, 140 24 S 210 14, 260 24 S 290 28, 300 22 L300 34 L0 34 Z" fill={color} opacity="0.8" />
-    </svg>
-  );
-}
+// KPI tiles use the shared, theme-aware KpiCard.
+const KPI_TONE_BY_COLOR = { '#2563eb': 'blue', '#d97706': 'amber', '#059669': 'emerald', '#7c3aed': 'purple' };
 
-function Kpi({ icon: Icon, value, label, trend, iconBg, iconColor, wave, arrowBg, arrowColor }) {
-  return (
-    <div className="relative overflow-hidden rounded-xl border border-[#e2eaf5] bg-white p-4 pb-9 shadow-[0_1px_2px_rgba(16,42,82,0.05)]">
-      <div className="flex items-start justify-between gap-2">
-        <div className="flex items-start gap-2.5">
-          <span className="grid h-10 w-10 shrink-0 place-items-center rounded-lg" style={{ background: iconBg, color: iconColor }}>
-            <Icon size={19} />
-          </span>
-          <div className="min-w-0">
-            <p className="truncate text-[15px] font-extrabold tracking-tight text-[#17294e]">{value}</p>
-            <p className="truncate text-[11px] font-medium text-slate-500">{label}</p>
-            {trend && <p className="mt-1 flex items-center gap-1 text-[10.5px] font-semibold text-emerald-600"><span className="inline-block">↗</span> {trend}</p>}
-          </div>
-        </div>
-        <span className="grid h-6 w-6 shrink-0 place-items-center rounded-full border" style={{ background: arrowBg, borderColor: '#e2eaf5', color: arrowColor }}>
-          <ArrowRight size={12} />
-        </span>
-      </div>
-      <Wave color={wave} />
-    </div>
-  );
+function Kpi({ icon, value, label, trend, iconColor }) {
+  return <KpiCard icon={icon} value={value} label={label} trend={trend || undefined} tone={KPI_TONE_BY_COLOR[iconColor] || 'blue'} />;
 }
 
 const STATUS_PILL = {

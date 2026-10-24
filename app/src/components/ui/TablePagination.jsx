@@ -5,7 +5,7 @@ import { ChevronLeft, ChevronRight } from 'lucide-react';
  * TablePagination — Standard ERP / OSCAR Theme Responsive Table Pagination Bar.
  * 
  * Props:
- * - total: total number of records
+ * - total / totalItems: total number of records
  * - page: current active page (1-based)
  * - pageSize: items per page (default: 10)
  * - onPageChange: (newPage) => void
@@ -49,9 +49,15 @@ export function TablePagination({
       {/* Left: Record Range Summary & Optional Page Size Dropdown */}
       <div className="flex items-center gap-3">
         <span className="font-medium text-slate-500">
-          Showing <strong className="text-slate-800 font-semibold">{startIndex}</strong> to{' '}
-          <strong className="text-slate-800 font-semibold">{endIndex}</strong> of{' '}
-          <strong className="text-slate-800 font-semibold">{actualTotal.toLocaleString('en-IN')}</strong> entries
+          {actualTotal > 0 ? (
+            <>
+              Showing <strong className="text-slate-800 font-semibold">{startIndex}</strong> to{' '}
+              <strong className="text-slate-800 font-semibold">{endIndex}</strong> of{' '}
+              <strong className="text-slate-800 font-semibold">{actualTotal.toLocaleString('en-IN')}</strong> entries
+            </>
+          ) : (
+            <>Showing <strong className="text-slate-800 font-semibold">0</strong> entries</>
+          )}
         </span>
 
         {showPageSizeSelector && onPageSizeChange && (
@@ -80,7 +86,7 @@ export function TablePagination({
       <div className="flex items-center gap-1">
         <button
           type="button"
-          disabled={safePage <= 1}
+          disabled={safePage <= 1 || actualTotal === 0}
           onClick={() => onPageChange?.(safePage - 1)}
           className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50 hover:text-slate-900 disabled:opacity-40 disabled:cursor-not-allowed text-xs font-semibold transition cursor-pointer shadow-2xs"
           aria-label="Previous page"
@@ -96,9 +102,12 @@ export function TablePagination({
             )}
             <button
               type="button"
+              disabled={actualTotal === 0}
               onClick={() => onPageChange?.(p)}
               className={`w-7 h-7 rounded-lg text-xs font-bold transition cursor-pointer flex items-center justify-center ${
-                p === safePage
+                actualTotal === 0
+                  ? 'bg-slate-100 text-slate-400 border border-slate-200 cursor-not-allowed opacity-60'
+                  : p === safePage
                   ? 'bg-blue-600 text-white shadow-xs border border-blue-600'
                   : 'bg-white border border-slate-200 text-slate-700 hover:bg-slate-50 shadow-2xs'
               }`}
@@ -110,7 +119,7 @@ export function TablePagination({
 
         <button
           type="button"
-          disabled={safePage >= totalPages}
+          disabled={safePage >= totalPages || actualTotal === 0}
           onClick={() => onPageChange?.(safePage + 1)}
           className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50 hover:text-slate-900 disabled:opacity-40 disabled:cursor-not-allowed text-xs font-semibold transition cursor-pointer shadow-2xs"
           aria-label="Next page"

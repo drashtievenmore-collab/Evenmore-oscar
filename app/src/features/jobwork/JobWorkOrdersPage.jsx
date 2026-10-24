@@ -8,6 +8,7 @@ import { useERP } from '../../context/ERPContext';
 import PageHeader from '../../components/ui/PageHeader';
 import TablePagination from '../../components/ui/TablePagination';
 import MasterSourceLink from '../../components/common/MasterSourceLink';
+import KpiCard from '../../components/ui/KpiCard';
 
 const statusPill = (s) =>
   s === 'Completed'
@@ -198,11 +199,11 @@ export default function JobWorkOrdersPage() {
   };
 
   const kpiCards = [
-    { icon: User, label: 'Total Ordered', value: `${numIN(totals.ordered)} M`, tileBg: '#e9f1fd', iconBg: '#d6e6fd', iconColor: '#2563eb' },
-    { icon: Users, label: 'Total Outward', value: `${numIN(totals.outward)} M`, tileBg: '#f1eafd', iconBg: '#e2d4fb', iconColor: '#7c3aed' },
-    { icon: ArrowDownToLine, label: 'Total Inward', value: `${numIN(totals.inward)} M`, tileBg: '#e7f6ec', iconBg: '#cdeed8', iconColor: '#16a34a' },
-    { icon: Hourglass, label: 'Pending Quantity', value: `${numIN(totals.pending)} M`, tileBg: '#fdf3e0', iconBg: '#fbe3b8', iconColor: '#d97706' },
-    { icon: IndianRupee, label: 'Total Amount', value: inr(totals.amount), tileBg: '#fdeef1', iconBg: '#fad9e0', iconColor: '#e11d48' },
+    { icon: User, label: 'Total Ordered', value: `${numIN(totals.ordered)} M`, tone: 'blue' },
+    { icon: Users, label: 'Total Outward', value: `${numIN(totals.outward)} M`, tone: 'purple' },
+    { icon: ArrowDownToLine, label: 'Total Inward', value: `${numIN(totals.inward)} M`, tone: 'emerald' },
+    { icon: Hourglass, label: 'Pending Quantity', value: `${numIN(totals.pending)} M`, tone: 'amber' },
+    { icon: IndianRupee, label: 'Total Amount', value: inr(totals.amount), tone: 'rose' },
   ];
 
   return (
@@ -227,17 +228,15 @@ export default function JobWorkOrdersPage() {
       />
 
       {/* KPI strip */}
-      <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-5">
+      <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-5 gap-3">
         {kpiCards.map((c) => (
-          <div key={c.label} className="rounded-xl p-3" style={{ background: c.tileBg }}>
-            <div className="flex items-center gap-2">
-              <span className="grid h-8 w-8 shrink-0 place-items-center rounded-lg" style={{ background: c.iconBg, color: c.iconColor }}>
-                <c.icon size={17} />
-              </span>
-              <span className="text-[11.5px] font-semibold leading-tight text-slate-600">{c.label}</span>
-            </div>
-            <div className="mt-2 text-[17px] font-extrabold tracking-tight text-[#17294e]">{c.value}</div>
-          </div>
+          <KpiCard
+            key={c.label}
+            label={c.label}
+            value={c.value}
+            icon={c.icon}
+            tone={c.tone}
+          />
         ))}
       </div>
 
